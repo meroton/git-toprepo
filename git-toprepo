@@ -323,7 +323,7 @@ def parse_gitmodules_content(
     return list(configs.values())
 
 
-def repository_basename(repository: str) -> str:
+def repository_basename(repository: Url) -> str:
     # For both an URL and a file path, assume a limited set of separators.
     idx = max(repository.rfind(sep) for sep in r"/\:")
     # idx+1 also works if no separator was found.
@@ -1171,12 +1171,11 @@ class TopRepoExpander(RepoExpanderBase):
         self, submod_commits: Dict[str, Set[CommitHash]]
     ) -> Dict[str, SubRepo]:
         subrepos: Dict[str, SubRepo] = {}
+        unknown_urls: List[Url] = set()
         for url in submod_commits.keys():
             subrepo_configs = self.config.raw_url_to_repos.get(url)
             if subrepo_configs is None:
-                print(
-                    f"WARNING: No subrepo configured for URL {url} in .toprepo config"
-                )
+                unknown_urls.append(url)
                 continue
             for subrepo_config in subrepo_configs:
                 if not subrepo_config.enabled or subrepo_config.name in subrepos:
@@ -1186,6 +1185,21 @@ class TopRepoExpander(RepoExpanderBase):
                     self.monorepo.get_subrepo_dir(subrepo_config.name),
                 )
                 subrepos[subrepo_config.name] = subrepo
+        # Print unknown urls.
+        if len(unknown_urls) != 0:
+            # Group by basename.
+            basename_to_urls: DefaultDict[str, List[Url]] = defaultdict(list)
+            for url in unknown_urls:
+                basename_to_urls[repository_basename(url)].append(url)
+            print("WARNING: Some subrepo URLs are missing in the git-toprepo config")
+            for basename, urls in sorted(basename_to_urls.items()):
+                print(f'[toprepo.repo "{basename}"]')
+                for url in sorted(urls):
+                    print(f"\turl = {url}")
+            print(
+                "INFO: Printed above is an example git-toprepo config "
+                + "to fix the warnings."
+            )
         return subrepos
 
     def make_commits_available(
