@@ -70,16 +70,27 @@ found with `git config --list`. The following configurations are available:
   whole repository name. The last matching regex decides whether the repo
   should be expanded or not.
   `toprepo.role.default.repos` defaults to `+.*`.
-* `toprepo.repo.<repo-id>.url`: Repositories with this specified URL in the
-  .gitmodules file will use the configuration under `repo-id`.
+* `toprepo.repo.<repo-name>.url`: Repositories with this specified URL in the
+  .gitmodules file will use the configuration under `repo-name`.
   Multiple values are allowed, but only the first one will be used when
   connecting upstream.
-* `toprepo.repo.<repo-id>.name`: The name used when identifying
-  this repository, e.g. in configured roles and the storage directory.
-* `toprepo.repo.<repo-id>.fetchUrl`: Overrides `toprepo.repo.<repo-id>.url`
+* `toprepo.repo.<repo-name>.fetchUrl`: Overrides `toprepo.repo.<repo-name>.url`
   for clone and fetch.
-* `toprepo.repo.<repo-id>.pushUrl`: Overrides `toprepo.repo.<repo-id>.fetchUrl`
+* `toprepo.repo.<repo-name>.pushUrl`: Overrides `toprepo.repo.<repo-name>.fetchUrl`
   for push.
+
+Note that without quotes, the configuration is read in lowercase:
+
+```
+$ git config --list --file - <<EOF
+[toprepo.repo.LowerCase]
+    url = ../LowerCase.git
+[toprepo.repo "Other_Repo"]
+    url = ../Other/Repo.git
+EOF
+toprepo.repo.lowercase.url=../LowerCase.git
+toprepo.repo.Other_Repo.url=../Other/Repo.git
+```
 """
 import argparse
 import itertools
@@ -125,7 +136,6 @@ def patched_git_filter_repo_cleanup(repo, repack, reset, **kwargs) -> None:
 
 git_filter_repo.RepoFilter.cleanup = patched_git_filter_repo_cleanup
 
-RepoId = str
 RepoName = str
 Url = str
 RawUrl = str
@@ -502,8 +512,6 @@ class ConfigParsingError(RuntimeError):
 
 @dataclass(frozen=True)
 class RepoConfig:
-    id: RepoId
-    """Identifier in the git-config."""
     name: RepoName
     """Name of the storage directory and used for pattern matching."""
     enabled: bool
@@ -575,7 +583,7 @@ class Config:
         ).decode("utf-8")
 
         config_dict: DefaultDict[str, List[str]] = defaultdict(list)
-        repo_config_dicts: DefaultDict[RepoId, DefaultDict[str, List[str]]] = (
+        repo_config_dicts: DefaultDict[RepoName, DefaultDict[str, List[str]]] = (
             defaultdict(lambda: defaultdict(list))
         )
         for line in config.splitlines(keepends=False):
@@ -645,43 +653,35 @@ class Config:
 
     @staticmethod
     def parse_repo_configs(
-        repo_config_dicts: Dict[RepoId, Dict[str, List[str]]],
+        repo_config_dicts: Dict[RepoName, Dict[str, List[str]]],
         wanted_repos_patterns: List[str],
         parent_fetch_url: str,
         parent_push_url: str,
     ) -> List[RepoConfig]:
         repo_configs: List[RepoConfig] = []
-        repo_name_to_id: Dict[RepoName, RepoId] = {}
-        for repo_id, repo_config_dict in repo_config_dicts.items():
-            repo = Config.parse_repo_config(
-                repo_id,
-                repo_config_dict,
-                wanted_repos_patterns,
-                parent_fetch_url,
-                parent_push_url,
-            )
-            other_id = repo_name_to_id.setdefault(repo.name, repo.id)
-            if other_id != repo.id:
-                raise ConfigParsingError(
-                    f"Repo name {repo.name} is used for "
-                    + f"both id {repo.id} and {other_id}"
+        for repo_name, repo_config_dict in repo_config_dicts.items():
+            repo_configs.append(
+                Config.parse_repo_config(
+                    repo_config_dict,
+                    wanted_repos_patterns,
+                    parent_fetch_url,
+                    parent_push_url,
                 )
-            repo_configs.append(repo)
+            )
         return repo_configs
 
     @staticmethod
     def parse_repo_config(
-        repo_id: RepoId,
+        name: RepoName,
         repo_config_dict: Dict[str, List[str]],
         wanted_repos_patterns: List[str],
         parent_fetch_url: Url,
         parent_push_url: Url,
     ) -> RepoConfig:
-        name = repo_config_dict.get("name", [None])[-1]
-        if name is None:
-            raise ConfigParsingError(f"toprepo.repo.{repo_id}.name is unspecified")
-        if name == TopRepo.name or len(PurePosixPath(name).parts) != 1:
+        if name == TopRepo.name:
             raise ConfigParsingError(f"Invalid repo name {name}")
+        if len(PurePosixPath(name).parts) != 1:
+            raise ConfigParsingError(f"Subdirectories not allowed in repo name: {name}")
         wanted_flag = Config.repo_is_wanted(name, wanted_repos_patterns)
         if wanted_flag is None:
             raise ConfigParsingError(
@@ -689,21 +689,20 @@ class Config:
             )
         raw_urls = repo_config_dict.get("url")
         if raw_urls is None:
-            raise ConfigParsingError(f"toprepo.repo.{repo_id}.url is unspecified")
+            raise ConfigParsingError(f"toprepo.repo.{name}.url is unspecified")
         raw_fetch_url = repo_config_dict.get("fetchurl", [None])[-1]
         if raw_fetch_url is None:
             raw_urls_set = set(raw_urls)
             if len(raw_urls_set) != 1:
                 raise ConfigParsingError(
-                    f"Missing toprepo.repo.{repo_id}.fetchUrl and multiple "
-                    + f"toprepo.repo.{repo_id}.url gives an ambiguous defult"
+                    f"Missing toprepo.repo.{name}.fetchUrl and multiple "
+                    + f"toprepo.repo.{name}.url gives an ambiguous defult"
                 )
             raw_fetch_url = raw_urls_set.pop()
         fetch_url = join_submodule_url(parent_fetch_url, raw_fetch_url)
         raw_push_url = repo_config_dict.get("pushurl", [raw_fetch_url])[-1]
         push_url = join_submodule_url(parent_push_url, raw_push_url)
         return RepoConfig(
-            id=repo_id,
             name=name,
             enabled=wanted_flag,
             raw_urls=raw_urls,
@@ -1180,13 +1179,13 @@ class TopRepoExpander(RepoExpanderBase):
                 )
                 continue
             for subrepo_config in subrepo_configs:
-                if not subrepo_config.enabled or subrepo_config.id in subrepos:
+                if not subrepo_config.enabled or subrepo_config.name in subrepos:
                     continue
                 subrepo = SubRepo(
                     subrepo_config,
                     self.monorepo.get_subrepo_dir(subrepo_config.name),
                 )
-                subrepos[subrepo_config.id] = subrepo
+                subrepos[subrepo_config.name] = subrepo
         return subrepos
 
     def make_commits_available(
@@ -1203,17 +1202,17 @@ class TopRepoExpander(RepoExpanderBase):
         Args:
             submod_commits: A map from a raw URL to needed commit hashes.
         """
-        fetched_repos: Set[str] = set()  # subrepo.config.id
+        fetched_repos: Set[str] = set()  # subrepo.config.name
         commit_maps = {
-            subrepo.config.id: CommitMap.collect_commits(subrepo, ["--all"])
+            subrepo.config.name: CommitMap.collect_commits(subrepo, ["--all"])
             for subrepo in subrepos
         }
-        subrepo_map = {subrepo.config.id: subrepo for subrepo in subrepos}
+        subrepo_map = {subrepo.config.name: subrepo for subrepo in subrepos}
         missing_commit_lines: List[str] = []
 
         for url, referenced_commits in submod_commits.items():
             subrepos = [
-                subrepo_map[subrepo_config.id]
+                subrepo_map[subrepo_config.name]
                 for subrepo_config in self.config.raw_url_to_repos.get(url, [])
             ]
             if len(subrepos) == 0:
@@ -1226,7 +1225,7 @@ class TopRepoExpander(RepoExpanderBase):
                 )
                 for subrepo in subrepos:
                     ret.difference_update(
-                        commit_maps[subrepo.config.id].hash_to_commit.keys()
+                        commit_maps[subrepo.config.name].hash_to_commit.keys()
                     )
                 return ret
 
@@ -1234,10 +1233,10 @@ class TopRepoExpander(RepoExpanderBase):
             # Fetch.
             if len(commits_to_fetch) != 0 and allow_fetching:
                 for subrepo in subrepos:
-                    if subrepo.config.id not in fetched_repos:
-                        fetched_repos.add(subrepo.config.id)
+                    if subrepo.config.name not in fetched_repos:
+                        fetched_repos.add(subrepo.config.name)
                         self.fetcher.fetch_repo(subrepo)
-                        commit_maps[subrepo.config.id] = CommitMap.collect_commits(
+                        commit_maps[subrepo.config.name] = CommitMap.collect_commits(
                             subrepo,
                             ["--all"],
                         )

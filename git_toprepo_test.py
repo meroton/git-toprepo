@@ -252,7 +252,6 @@ def test_remote_to_repo():
         top_push_url="ssh://user@toprepo/push",
         repos=[
             git_toprepo.RepoConfig(
-                id="subid",
                 name="sub",
                 enabled=True,
                 raw_urls=[
