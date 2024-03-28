@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-toprepo merges subrepositories into a common history, similar to git-subtree.
+git-toprepo merges subrepositories into a common history, similar to git-subtree.
 
 The basic idea is to join all the history from all the subrepositories
 in a reproducible way. This means that users can keep a mono repository
@@ -44,7 +44,7 @@ The algorithm steps are:
 * Unmerged submodule branches are branched from the history of HEAD.
   As commit 7 can be used in multiple top repo branches,
   it is impossible to know which branch commit 8 is aimed for.
-  Simply checkout a different monorepo branch and run `toprepo refilter`
+  Simply checkout a different monorepo branch and run `git toprepo refilter`
   to move unmerged submodule branches around.
 
 === Configuration ===
@@ -164,7 +164,7 @@ class MonoRepo(Repo):
         return self.get_subrepo_dir(TopRepo.name)
 
     def get_subrepo_dir(self, name: RepoName):
-        return self.git_dir / "toprepo" / name
+        return self.git_dir / "repos" / name
 
 
 class TopRepo(Repo):
@@ -554,12 +554,14 @@ class Config:
         read_bytes = Config.get_file_reader(monorepo)
 
         try:
-            missing_commits = IgnoredCommits.from_bytes(read_bytes("missing-commits"))
+            missing_commits = IgnoredCommits.from_bytes(
+                read_bytes(Path("missing-commits"))
+            )
         except RuntimeError as err:
             raise ConfigParsingError(f"Invalid 'missing-commits' file: {err}")
 
         try:
-            config_bytes = read_bytes("config")
+            config_bytes = read_bytes(Path("config"))
         except RuntimeError as err:
             raise ConfigParsingError(f"Invalid 'config' file: {err}")
         config = (
@@ -631,7 +633,7 @@ class Config:
             def file_reader(path: Path):
                 return subprocess.check_output(
                     ["git", "-C", str(toprepo.path)]
-                    + ["show", "HEAD:" + path.as_posix()],
+                    + ["show", f"{config_ref}:{path.as_posix()}"],
                 )
 
         else:
@@ -888,6 +890,7 @@ class CommitMap:
     @staticmethod
     def collect_commits(repo: Repo, refs: List[RefStr]) -> "CommitMap":
         """Loads metadata about all commits."""
+        print(f"Collecting metadata for {repo.name}...")
         ret = CommitMap()
         commit_to_tree = ret.collect_tree_hashes(repo)
 
@@ -1062,7 +1065,7 @@ class RepoFetcher:
         # TODO: What about relative paths if fetch_url is from the disk?
         log_run_git(
             repo.path,
-            ["fetch", "--quiet", "--prune", "--prune-tags", "--tags"]
+            ["fetch", "--prune", "--prune-tags", "--tags"]
             + [repo.config.fetch_url]
             + ref_args,
         )
@@ -1116,6 +1119,7 @@ class TopRepoExpander(RepoExpanderBase):
         )
 
         self.mono_id_to_commit: Dict[int, git_filter_repo.Commit] = {}
+        self.subrepo_id_to_converted_id: Dict[RepoFilterId, RepoFilterId]
 
     def expand_toprepo(self, top_refs: List[RefStr], allow_fetching: bool):
         """Perform the monorepo expansion using git-filter-repo.
@@ -1129,17 +1133,21 @@ class TopRepoExpander(RepoExpanderBase):
         for subrepo in subrepos.values():
             self.fetcher.init_subrepo(subrepo)
         commit_map = self.make_commits_available(
-            list(subrepos.values()), submod_commits, allow_fetching
+            sorted(subrepos.values(), key=lambda repo: repo.name),
+            submod_commits,
+            allow_fetching=allow_fetching,
         )
         if commit_map is None:
             return False
         self.commit_map = commit_map
         self.mono_id_to_commit = {}
 
-        # TODO: Load already filtered .git/toprepo/top/toprepo-mapping
+        # TODO: Filter only 1000 commits per branch.
         print("Expanding the top repo to a mono repo...")
+        self.subrepo_id_to_converted_id = {}
         args = git_filter_repo.FilteringOptions.parse_args(
-            ["--partial", "--refs", "dummy"]
+            # NOTE: git-filter-repo fails without --force, "expected freshly packed repo".
+            ["--partial", "--refs", "dummy", "--force"]
             + ["--source", str(self.toprepo.path)]
             + ["--target", str(self.monorepo.path)]
         )
@@ -1201,10 +1209,8 @@ class TopRepoExpander(RepoExpanderBase):
             for subrepo in subrepos
         }
         subrepo_map = {subrepo.config.id: subrepo for subrepo in subrepos}
-        all_commits_are_available = True
+        missing_commit_lines: List[str] = []
 
-        num_missing_commits = 0
-        max_missing_commits_to_print = 100
         for url, referenced_commits in submod_commits.items():
             subrepos = [
                 subrepo_map[subrepo_config.id]
@@ -1239,42 +1245,44 @@ class TopRepoExpander(RepoExpanderBase):
                 commits_to_fetch = get_commits_to_fetch()
             # Check.
             for commit_hash in sorted(commits_to_fetch):
-                if all_commits_are_available:
-                    all_commits_are_available = False
-                    print("ERROR: Some referenced commits could not be found")
-                    print(
-                        "Either push the following commits or "
-                        + "add them to the missing-commits "
-                        + "toprepo configuration."
-                    )
-                num_missing_commits += 1
-                if num_missing_commits <= max_missing_commits_to_print:
-                    print(commit_hash.decode("utf-8") + " " + url)
-        if num_missing_commits > max_missing_commits_to_print:
-            print(f"Totally {num_missing_commits} unexpected missing commits.")
+                missing_commit_lines.append(commit_hash.decode("utf-8") + " " + url)
+
+        if len(missing_commit_lines) != 0:
+            print("ERROR: Some referenced commits could not be found")
+            max_missing_commits_to_print = 100
+            for line in missing_commit_lines[:max_missing_commits_to_print]:
+                print(line)
+            if len(missing_commit_lines) > max_missing_commits_to_print:
+                print(
+                    f"Totally {len(missing_commit_lines)} unexpected missing commits."
+                )
+            print("ERROR: The referenced commits above could not be found")
+            print(
+                "Either push the following commits or add them to the "
+                + "missing-commits toprepo configuration."
+            )
+            return None
 
         # Don't clutter the error message above with warnings
         # about overspecified missing-commits.
-        if all_commits_are_available:
-            overspecified_missing_commits = False
-            for url, referenced_commits in submod_commits.items():
-                unexpected_commits = (
-                    self.config.missing_commits.get(url, set()) - referenced_commits
-                )
-                for commit_hash in sorted(unexpected_commits):
-                    if not overspecified_missing_commits:
-                        overspecified_missing_commits = True
-                        print(
-                            "WARNING: The following configured "
-                            + "missing-commits actually exists"
-                        )
-                        print(
-                            "Please remove them from the missing-commits "
-                            + "toprepo configuration."
-                        )
-                    print(commit_hash.decode("utf-8") + " " + url)
-        if not all_commits_are_available:
-            return None
+        overspecified_missing_commits = False
+        for url, referenced_commits in submod_commits.items():
+            unexpected_commits = (
+                self.config.missing_commits.get(url, set()) - referenced_commits
+            )
+            for commit_hash in sorted(unexpected_commits):
+                if not overspecified_missing_commits:
+                    overspecified_missing_commits = True
+                    print(
+                        "WARNING: The following configured "
+                        + "missing-commits actually exists"
+                    )
+                    print(
+                        "Please remove them from the missing-commits "
+                        + "toprepo configuration."
+                    )
+                print(commit_hash.decode("utf-8") + " " + url)
+
         return CommitMap.join(commit_maps.values())
 
     def _expand_toprepo_refname_callback(self, ref: bytes):
@@ -1296,6 +1304,9 @@ class TopRepoExpander(RepoExpanderBase):
 
     def _expand_toprepo_reset_callback(self, reset: git_filter_repo.Reset, metadata):
         self.submodule_filter_helper.reset_callback()
+        # This branch might have bumped the subrepos in a totally different cadence.
+        # Cannot keep the conversion cache.
+        self.subrepo_id_to_converted_id = {}
 
     def _expand_toprepo_commit_callback(
         self,
@@ -1336,21 +1347,6 @@ class TopRepoExpander(RepoExpanderBase):
                 raise NotImplementedError("Submodule renames are not implements")
             else:
                 assert False, f"Unknown file change type {file_change.type}"
-
-        # Check if any subrepo was bumped here.
-        for subdir, bump_info in mono_commit.bumps.items():
-            for pid in mono_commit.parents:
-                parent_bump = self.mono_id_to_commit[pid].bumps.get(subdir)
-                if (
-                    parent_bump is None
-                    or parent_bump.subrepo_commit != bump_info.subrepo_commit
-                ):
-                    # subdir was bumped.
-                    mono_commit.bumps[subdir] = BumpInfo(
-                        subrepo_commit=bump_info.subrepo_commit,
-                        first_mono_commit=mono_commit,
-                    )
-                    break
 
         mono_commit.message = join_annotated_commit_messages(commit_message_parts)
 
@@ -1461,7 +1457,6 @@ class TopRepoExpander(RepoExpanderBase):
         bump_iterator = bump_generator(subrepo_commit_to_insert.depth - 1)
 
         commits_to_convert: List[git_filter_repo.Commit] = []
-        subrepo_id_to_converted_id: Dict[RepoFilterId, RepoFilterId] = {}
 
         sub_queue_ids: Set[int] = set()
         sub_queue = PriorityQueue()
@@ -1490,11 +1485,11 @@ class TopRepoExpander(RepoExpanderBase):
                 # the map should point to (one of the) newest commits.
                 # There might be multiple valid solutions,
                 # so just use the first one found.
-                subrepo_id_to_converted_id.setdefault(
+                self.subrepo_id_to_converted_id.setdefault(
                     bump.subrepo_commit.id, latest_bump_mono_commit.id
                 )
 
-            if subrepo_commit.id not in subrepo_id_to_converted_id:
+            if subrepo_commit.id not in self.subrepo_id_to_converted_id:
                 # No good already sub->mono converted candidate was found
                 # in the monorepo.
                 commits_to_convert.append(subrepo_commit)
@@ -1508,17 +1503,18 @@ class TopRepoExpander(RepoExpanderBase):
 
         # Skip subrepo_commit_to_insert itself,
         # git-filter-repo is inserting it for us when returning.
-        assert commits_to_convert[0] == subrepo_commit_to_insert
+        if len(commits_to_convert) != 0:
+            assert commits_to_convert[0] == subrepo_commit_to_insert
         for subrepo_commit in reversed(commits_to_convert[1:]):
             new_commit = self._create_mono_commit_from_subrepo_commit(
                 target_mono_commit.branch,
                 subdir,
                 subrepo_commit,
-                subrepo_id_to_converted_id,
+                self.subrepo_id_to_converted_id,
             )
             repo_filter.insert(new_commit, direct_insertion=True)
             self.mono_id_to_commit[new_commit.id] = new_commit
-            subrepo_id_to_converted_id[subrepo_commit.id] = new_commit.id
+            self.subrepo_id_to_converted_id[subrepo_commit.id] = new_commit.id
             # Record subrepo trace info.
             first_parent_id = new_commit.first_parent()
             if first_parent_id is None:
@@ -1532,7 +1528,7 @@ class TopRepoExpander(RepoExpanderBase):
             )
 
         ret = [
-            subrepo_id_to_converted_id[parent_id]
+            self.subrepo_id_to_converted_id[parent_id]
             for parent_id in subrepo_commit_to_insert.parents
         ]
         return ret
@@ -1911,10 +1907,8 @@ class PushSplitter:
     def _get_top_commit_subrepos(
         self, top_commit_hash: CommitHash
     ) -> Dict[bytes, CommitHash]:
-        # top_commit_hash has been pushed into the monorepo during fetch,
-        # so reading from monorepo instead of toprepo.
         ls_tree_subrepo_stdout = subprocess.check_output(
-            ["git", "-C", str(self.monorepo.path)] + ["ls-tree", top_commit_hash, "--"]
+            ["git", "-C", str(self.monorepo.path), "ls-tree", top_commit_hash, "--"],
         )
         subrepo_map = {}
         for line in ls_tree_subrepo_stdout.splitlines(keepends=False):
@@ -1988,7 +1982,7 @@ def main_init(args) -> int:
         raise
     print(f"Initialization of {monorepo.path} succeeded!")
     print("To start, run:")
-    print("  toprepo fetch && git checkout origin/main")
+    print("  git toprepo fetch && git checkout origin/main")
     return 0
 
 
@@ -2013,10 +2007,17 @@ def main_refilter(args) -> int:
 
 def main_fetch(args) -> int:
     monorepo = MonoRepo(args.cwd)
+    repo_fetcher = RepoFetcher(monorepo)
+    toprepo_fetch_url = subprocess.check_output(
+        ["git", "-C", str(monorepo.path), "config", "toprepo.top.fetchUrl"]
+    ).rstrip()
+    log_run_git(
+        monorepo.get_toprepo_dir(),
+        ["fetch", "--quiet", toprepo_fetch_url, "+refs/toprepo/*:refs/toprepo/*"],
+    )
     config = Config.try_create(monorepo)
     if config is None:
         return 1
-    repo_fetcher = RepoFetcher(monorepo)
     toprepo = TopRepo.from_config(monorepo.get_toprepo_dir(), config)
 
     git_modules = get_gitmodules_info(monorepo, config.top_fetch_url, ref=None)
@@ -2130,9 +2131,9 @@ def main_push(args) -> int:
 def _parse_arguments(argv):
     # Support pasting normal git commands to this script.
     # For example
-    #   toprepo git fetch <server> ref
+    #   git-toprepo git fetch <server> ref
     # should map to
-    #   toprepo fetch <server> ref
+    #   git-toprepo fetch <server> ref
     if len(argv) > 2 and argv[1] == "git":
         argv.pop(1)
 
