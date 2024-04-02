@@ -1,5 +1,6 @@
 #!/user/bin/env python3
 import pytest
+import subprocess
 from pathlib import PurePosixPath
 
 import git_toprepo
@@ -247,7 +248,7 @@ def test_remote_to_repo():
         ),
     ]
     config = git_toprepo.Config(
-        missing_commits=git_toprepo.IgnoredCommits(),
+        missing_commits={},
         top_fetch_url="ssh://user@toprepo/fetch",
         top_push_url="ssh://user@toprepo/push",
         repos=[
@@ -291,3 +292,102 @@ def test_remote_to_repo():
         None,
         None,
     )
+
+
+def test_get_config_location(tmp_path):
+    server_config = tmp_path / "server/config"
+    server_config.mkdir(parents=True)
+    subprocess.run(cwd=server_config, check=True, args="git init --quiet".split(" "))
+    subprocess.run(
+        cwd=server_config,
+        check=True,
+        args="git commit -q -m InitialCommit --allow-empty".split(" "),
+    )
+    subprocess.run(
+        cwd=server_config, check=True, args="git branch -q config-branch".split(" ")
+    )
+    subprocess.run(
+        cwd=server_config, check=True, args="git checkout -q config-branch".split(" ")
+    )
+    (server_config / "toprepo.config").write_text(
+        "[toprepo.missing-commit]\nrev-test-hash = correct-path"
+    )
+    subprocess.run(
+        cwd=server_config, check=True, args="git add toprepo.config".split(" ")
+    )
+    subprocess.run(
+        cwd=server_config, check=True, args="git commit -q -m Config".split(" ")
+    )
+
+    server_top = tmp_path / "server/top"
+    server_top.mkdir(parents=True)
+    subprocess.run(cwd=server_top, check=True, args="git init --quiet".split(" "))
+    (server_top / ".toprepo").write_text(
+        """\
+[toprepo]
+    config-v1 = ../config^refs/heads/config-branch:toprepo.config
+"""
+    )
+    subprocess.run(cwd=server_top, check=True, args="git add .toprepo".split(" "))
+    subprocess.run(
+        cwd=server_top, check=True, args="git commit -q -m Commit".split(" ")
+    )
+
+    worktree = git_toprepo.Repo(tmp_path / "worktree")
+    worktree.path.mkdir(parents=True)
+    subprocess.run(cwd=worktree.path, check=True, args="git init --quiet".split(" "))
+    subprocess.run(
+        cwd=worktree.path,
+        check=True,
+        args="git config toprepo.top.fetchUrl ../server/top".split(" "),
+    )
+    subprocess.run(
+        ["git", "config", "toprepo.top.fetchUrl", f"file://{server_top.absolute()}"],
+        cwd=worktree.path,
+        check=True,
+    )
+
+    git_toprepo.ConfigLoader.fetch_config_ref(worktree)
+    config_loader = git_toprepo.ConfigLoader.try_create(worktree)
+    assert config_loader is not None
+    config_loader.fetch_remote_configs()
+    config_content = config_loader.load_content()
+    assert "toprepo.missing-commit.rev-test-hash=correct-path" in config_content
+
+
+def test_read_config_from_disk():
+    pass
+
+
+def test_read_config_from_git():
+    pass
+
+
+def test_init_fetch_checkout():
+    pass
+
+
+def test_fetch_fast_filter():
+    pass
+
+
+def test_push():
+    pass
+
+
+def test_refilter_offline():
+    pass
+
+
+def test_refilter_from_scratch():
+    pass
+
+
+def test_missing_commits():
+    pass
+
+
+def test_filtering_keeps_workspace():
+    # No git-clean
+    # No git-reset-hard
+    pass

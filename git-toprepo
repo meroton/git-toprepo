@@ -49,19 +49,19 @@ The algorithm steps are:
 
 === Configuration ===
 
-Configuration files are stored in the root directory on the reference
-`refs/toprepo/config` in the top repo. To simplify verification of
-configuration changes, a .toprepo directory in the worktree will be
-read instead if it exists.
+The configuration file is read using `git config --list`. The location of
+the file is specified by the `toprepo.config-v1` field in the output from
+`git config --list`. If the field is missing, the `.toprepo` file
+in the HEAD ref of the top repository remote origin is searched.
+If specified multiple times, multiple files will be read.
+Configuration from `git config --list` will always be appended last.
 
-The file `missing-commits` contains lines with
-`<commit hash> SP <raw url> LF` where the `raw url` is referring to the URL
-written in the .gitmodules file. Lines starting with `#` are ignored.
-Commits listed in these files are not expanded when converting to a
-mono repo.
+The `config-v1` location format is `<url>^<ref>:<filename>`.
+If the url starts with '.', it is assumed to be an url relative to the
+top repository remote origin. If the url and ref are empty, the filename
+is either an absolute path or relative to the mono repo worktree.
 
-The file `config` is on git-config format and is overridden by values
-found with `git config --list`. The following configurations are available:
+The following configurations are available:
 
 * `toprepo.role`: A named role to use. Defaults to 'default'.
 * `toprepo.role.<role>.repos`: Tells which sub repos to use.
@@ -78,6 +78,9 @@ found with `git config --list`. The following configurations are available:
   for clone and fetch.
 * `toprepo.repo.<repo-name>.pushUrl`: Overrides `toprepo.repo.<repo-name>.fetchUrl`
   for push.
+* `toprepo.missing-commit.rev-<commit-hash>=<raw-url>`: This commit hash
+  will be ignored if referenced by a subdmodule that has its url in the
+  .gitmodules file specified as `raw-url`.
 
 Note that without quotes, the configuration is read in lowercase:
 
@@ -105,7 +108,6 @@ from functools import cached_property, partial
 from pathlib import Path, PurePath, PurePosixPath
 from queue import PriorityQueue
 from typing import (
-    Callable,
     DefaultDict,
     Dict,
     Iterable,
@@ -485,25 +487,7 @@ def get_remote_origin_refs(repo: Repo) -> List[RefStr]:
     return remote_origin_refs
 
 
-class IgnoredCommits(defaultdict[RawUrl, Set[CommitHash]]):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(set, *args, **kwargs)
-
-    @staticmethod
-    def from_bytes(content: bytes) -> "IgnoredCommits":
-        """Read missing commits from bytes.
-
-        Each line in file_path contains "<commit-hash> <submodule-path>".
-        Empty lines and lines starting with # are ignored.
-        """
-        ret = IgnoredCommits()
-        for line in content.splitlines(keepends=False):
-            if line == b"" or line.startswith(b"#"):
-                continue
-            commit_hash_bytes, url_bytes = line.split(b" ", 1)
-            url = url_bytes.decode("utf-8")
-            ret[url].add(CommitHash(commit_hash_bytes))
-        return ret
+IgnoredCommits = Dict[RawUrl, Set[CommitHash]]
 
 
 class ConfigParsingError(RuntimeError):
@@ -525,6 +509,169 @@ class RepoConfig:
     """Absolute URL to git-fetch from."""
     push_url: Url
     """Absolute URL to git-push to."""
+
+
+def split_git_config(config_lines: str) -> Dict[str, List[str]]:
+    config_dict: DefaultDict[str, List[str]] = defaultdict(list)
+    for line in config_lines.splitlines(keepends=False):
+        key, value = line.split("=", 1)
+        config_dict[key].append(value)
+    return config_dict
+
+
+class ConfigLoader:
+    def __init__(self, config_loaders: List["SubConfigLoader"]):
+        self.config_loaders = config_loaders
+
+    def fetch_remote_configs(self) -> None:
+        for config_loader in self.config_loaders:
+            config_loader.fetch_remote_config()
+
+    def load_content(self) -> str:
+        contents: List[str] = [
+            config_loader.read_config_list() for config_loader in self.config_loaders
+        ]
+        return "".join(contents)
+
+    @staticmethod
+    def fetch_config_ref(repo: Repo) -> None:
+        fetch_url = subprocess.check_output(
+            ["git", "-C", str(repo.path), "config", "toprepo.top.fetchUrl"], text=True
+        ).rstrip()
+        log_run_git(
+            repo.path,
+            ["fetch", "--quiet", fetch_url, "+HEAD:refs/toprepo/config"],
+        )
+
+    @staticmethod
+    def try_create(repo: Repo) -> Optional["ConfigLoader"]:
+        root_config_loader = GitRemoteConfigLoader(
+            url="",
+            ref="refs/toprepo/config",
+            filename=PurePosixPath(".toprepo"),
+            repo=repo,
+            suffix="",
+        )
+        config_content = root_config_loader.read_config_list()
+        config_dict = split_git_config(config_content)
+
+        config_loaders: List[SubConfigLoader] = []
+        parent_url = None
+        for config_v1 in config_dict.get("toprepo.config-v1", []):
+            if config_v1 == "reset":
+                config_loaders.clear()
+                continue
+
+            try:
+                raw_url, ref_and_filename = config_v1.split("^", 1)
+                ref, filename = ref_and_filename.split(":", 1)
+            except ValueError:
+                print(
+                    f"ERROR: Invalid config-v1 location {config_v1}, "
+                    + "expected <url>^<ref>:<filename>"
+                )
+                return None
+
+            if raw_url == "" and ref == "":
+                # Local disk.
+                config_loaders.append(LocalFileConfigLoader(Path(filename)))
+            else:
+                if parent_url is None:
+                    parent_url = subprocess.check_output(
+                        ["git", "-C", repo.path, "config", "toprepo.top.fetchurl"],
+                        text=True,
+                    ).rstrip()
+                if parent_url is None:
+                    print("ERROR: Missing git config toprepo.top.fetchUrl")
+                    return None
+                url = join_submodule_url(parent_url, raw_url)
+                try:
+                    filename_path = PurePosixPath(filename)
+                except ValueError as err:
+                    print(f"ERROR: Invalid toprepo config filename: {err}")
+                    return None
+                config_loaders.append(
+                    GitRemoteConfigLoader(
+                        url,
+                        ref,
+                        filename_path,
+                        repo=repo,
+                        suffix=f"-{len(config_loaders)}",
+                    )
+                )
+
+        if len(config_loaders) == 0:
+            print("ERROR: Missing git config toprepo.config-v1")
+            return None
+        config_loaders.append(LocalGitConfigLoader(repo))
+        return ConfigLoader(config_loaders)
+
+
+class SubConfigLoader:
+    def fetch_remote_config(self) -> None:
+        pass
+
+    def read_config_file_content(self) -> str:
+        raise NotImplementedError()
+
+    def read_config_list(self) -> str:
+        config_file_content = self.read_config_file_content()
+        return subprocess.check_output(
+            ["git", "-C", str(self.repo.path), "config", "--file", "-", "--list"],
+            input=config_file_content,
+            text=True,
+        )
+
+
+class LocalGitConfigLoader(SubConfigLoader):
+    """Loads configuration from a file on disk."""
+
+    def __init__(self, repo: Repo):
+        self.repo = repo
+
+    def fetch_remote_config(self) -> None:
+        pass
+
+    def read_config_list(self) -> str:
+        return subprocess.check_output(
+            ["git", "-C", str(self.repo.path), "config", "--list"],
+            text=True,
+        )
+
+
+class LocalFileConfigLoader(SubConfigLoader):
+    def __init__(self, filename: Path):
+        self.filename = filename
+
+    def fetch_remote_config(self) -> None:
+        pass
+
+    def read_config_file_content(self) -> str:
+        return self.filename.read_text(encoding="utf-8")
+
+
+class GitRemoteConfigLoader(SubConfigLoader):
+    def __init__(
+        self, url: Url, ref: RefStr, filename: PurePosixPath, repo: Repo, suffix: str
+    ):
+        self.url = url
+        self.remote_ref = ref
+        self.filename = filename
+        self.repo = repo
+        self.local_ref = f"refs/toprepo/config{suffix}"
+
+    def fetch_remote_config(self) -> None:
+        log_run_git(
+            self.repo.path,
+            ["fetch", "--quiet", self.url, f"+{self.remote_ref}:{self.local_ref}"],
+        )
+
+    def read_config_file_content(self) -> str:
+        return subprocess.check_output(
+            ["git", "-C", str(self.repo.path)]
+            + ["show", f"{self.local_ref}:{self.filename.as_posix()}"],
+            text=True,
+        )
 
 
 @dataclass(frozen=True)
@@ -558,42 +705,20 @@ class Config:
             return None
 
     @staticmethod
-    def create(monorepo: Repo) -> "Config":
-        read_bytes = Config.get_file_reader(monorepo)
+    def create(config_loader: ConfigLoader) -> "Config":
+        config_content = config_loader.load_content()
 
-        try:
-            missing_commits = IgnoredCommits.from_bytes(
-                read_bytes(Path("missing-commits"))
-            )
-        except RuntimeError as err:
-            raise ConfigParsingError(f"Invalid 'missing-commits' file: {err}")
-
-        try:
-            config_bytes = read_bytes(Path("config"))
-        except RuntimeError as err:
-            raise ConfigParsingError(f"Invalid 'config' file: {err}")
-        config = (
-            subprocess.check_output(
-                ["git", "config", "--list", "--file", "-"],
-                input=config_bytes,
-            )
-            + subprocess.check_output(
-                ["git", "-C", str(monorepo.path), "config", "--list"],
-            )
-        ).decode("utf-8")
-
-        config_dict: DefaultDict[str, List[str]] = defaultdict(list)
+        config_dict = split_git_config(config_content)
+        # Accumulate toprepo.repo.<id>.* keys.
         repo_config_dicts: DefaultDict[RepoName, DefaultDict[str, List[str]]] = (
             defaultdict(lambda: defaultdict(list))
         )
-        for line in config.splitlines(keepends=False):
-            key, value = line.split("=", 1)
-            config_dict[key].append(value)
-            # Accumulate toprepo.repo.<id>.* keys.
+        for key, values in config_dict.items():
             repo_config_prefix = "toprepo.repo."
             if key.startswith(repo_config_prefix) and key.count(".") == 3:
                 _, _, repo_id, subkey = key.split(".", 3)
-                repo_config_dicts[repo_id][subkey].append(value)
+                repo_config_dicts[repo_id][subkey].extend(values)
+
         # Resolve the role.
         config_dict.setdefault("toprepo.role.default.repos", ["+.*"])
         role = config_dict.get("toprepo.role", ["default"])[-1]
@@ -610,46 +735,22 @@ class Config:
             top_fetch_url,
             top_push_url,
         )
+
+        # Find configured missing commits.
+        missing_commits: DefaultDict[RawUrl, Set[CommitHash]] = defaultdict(set)
+        missing_commit_prefix = "toprepo.missing-commit.rev-"
+        for key, value in config_dict.items():
+            if key.startswith(missing_commit_prefix):
+                commit_hash = key[len(missing_commit_prefix) :]
+                raw_url: RawUrl = value
+                missing_commits[raw_url].add(commit_hash)
+
         return Config(
             missing_commits=missing_commits,
             top_fetch_url=top_fetch_url,
             top_push_url=top_push_url,
             repos=repo_configs,
         )
-
-    @staticmethod
-    def get_file_reader(monorepo: MonoRepo) -> Callable[[Path], bytes]:
-        toprepo = TopRepo(monorepo.get_toprepo_dir(), fetch_url="", push_url="")
-        config_ref = "refs/toprepo/config"
-        # If the user has a config written for testing, use that.
-        if (monorepo.path / ".toprepo").is_dir():
-            ls_tree_output = subprocess.check_output(
-                ["git", "-C", str(monorepo.path)]
-                + ["ls-files", config_ref, "--", ".toprepo"],
-            )
-            if ls_tree_output != b"":
-                raise ConfigParsingError(
-                    "Do not commit your temporary .toprepo directory"
-                )
-            print("INFO: Reading work-in-progress config from .toprepo directory")
-
-            def file_reader(path: Path):
-                return (monorepo.path / ".toprepo" / path).read_bytes()
-
-        elif ref_exists(toprepo, config_ref):
-            # Read from specific refs instead.
-            def file_reader(path: Path):
-                return subprocess.check_output(
-                    ["git", "-C", str(toprepo.path)]
-                    + ["show", f"{config_ref}:{path.as_posix()}"],
-                )
-
-        else:
-            # Ref is missing
-            def file_reader(path: Path):
-                return b""
-
-        return file_reader
 
     @staticmethod
     def parse_repo_configs(
