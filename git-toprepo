@@ -291,60 +291,6 @@ class GitModuleInfo:
         return hash((self.name, self.path, self.branch, self.url, self.raw_url))
 
 
-def get_gitmodules_info(
-    repo: Repo, parent_url: Url, ref: Optional[str]
-) -> List[GitModuleInfo]:
-    if ref is not None:
-        dot_gitmodules_content = subprocess.check_output(
-            ["git", "-C", str(repo.path), "show", f"{ref}:.gitmodules"],
-        )
-    else:
-        gitmodules_path = repo.path / ".gitmodules"
-        if gitmodules_path.exists():
-            dot_gitmodules_content = gitmodules_path.read_bytes()
-        else:
-            dot_gitmodules_content = b""
-
-    minified_gitmodules = subprocess.check_output(
-        ["git", "-C", str(repo.path), "config", "--file", "-", "--list"],
-        input=dot_gitmodules_content,
-    ).decode("utf-8")
-    return parse_gitmodules_content(parent_url, minified_gitmodules)
-
-
-def parse_gitmodules_content(
-    parent_url: Url, minified_gitmodules_config: str
-) -> List[GitModuleInfo]:
-    """Parses the output from 'git config --list --file .gitmodules'."""
-    lines = minified_gitmodules_config.splitlines(keepends=False)
-    config_dicts: DefaultDict[str, Dict[str, str]] = defaultdict(dict)
-    submod_prefix = "submodule."
-    for line in lines:
-        if line.startswith(submod_prefix):
-            key, value = line[len(submod_prefix) :].split("=", 1)
-            name, field = key.rsplit(".", 2)
-            if config_dicts[name].setdefault(field, value) != value:
-                raise ValueError(
-                    "Conflicting values {line} and {config_dict[name][field]}"
-                )
-
-    configs: Dict[PurePosixPath, GitModuleInfo] = {}
-    for name, config_dict in config_dicts.items():
-        resolved_url = join_submodule_url(parent_url, config_dict["url"])
-        submod_info = GitModuleInfo(
-            name=name,
-            path=PurePosixPath(config_dict["path"]),
-            branch=config_dict.get("branch"),
-            url=resolved_url,
-            raw_url=config_dict["url"],
-        )
-        if submod_info.path in configs:
-            raise ValueError("Duplicated submodule configs for {submod_info.path}")
-        configs[submod_info.path] = submod_info
-
-    return list(configs.values())
-
-
 def repository_basename(repository: Url) -> str:
     # For both an URL and a file path, assume a limited set of separators.
     idx = max(repository.rfind(sep) for sep in r"/\:")
@@ -713,6 +659,39 @@ def _get_toprepo_conig_location(monorepo: MonoRepo, online: bool) -> str:
         + f"nor at {remote_loader.url} in "
         + f"{remote_loader.remote_ref}:{remote_loader.filename.as_posix()}"
     )
+
+
+def get_gitmodules_info(
+    config_loader: ConfigLoader, parent_url: Url
+) -> List[GitModuleInfo]:
+    """Parses the output from 'git config --list --file .gitmodules'."""
+    config_dicts: DefaultDict[str, Dict[str, str]] = defaultdict(dict)
+    submod_prefix = "submodule."
+    for key, values in config_loader.get_config_dict().items():
+        if key.startswith(submod_prefix):
+            name, field = key[len(submod_prefix) :].rsplit(".", 2)
+            for value in values:
+                if config_dicts[name].setdefault(field, value) != value:
+                    raise ValueError(
+                        f"Conflicting values {key}={value} and "
+                        + f"{config_dicts[name][field]}"
+                    )
+
+    configs: Dict[PurePosixPath, GitModuleInfo] = {}
+    for name, config_dict in config_dicts.items():
+        resolved_url = join_submodule_url(parent_url, config_dict["url"])
+        submod_info = GitModuleInfo(
+            name=name,
+            path=PurePosixPath(config_dict["path"]),
+            branch=config_dict.get("branch"),
+            url=resolved_url,
+            raw_url=config_dict["url"],
+        )
+        if submod_info.path in configs:
+            raise ValueError("Duplicated submodule configs for {submod_info.path}")
+        configs[submod_info.path] = submod_info
+
+    return list(configs.values())
 
 
 @dataclass(frozen=True)
@@ -1090,13 +1069,18 @@ class SubmoduleFilterHelper:
     @property
     def submodule_configs(self) -> Dict[bytes, GitModuleInfo]:
         if self.submodule_configs_cache is None:
+            gitmodules = get_gitmodules_info(
+                GitRemoteConfigLoader(
+                    url="",
+                    remote_ref="",
+                    filename=".gitmodules",
+                    local_repo=self.repo,
+                    local_ref=self.submodule_configs_ref,
+                ),
+                self.parent_url,
+            )
             self.submodule_configs_cache = {
-                config.path.as_posix().encode("utf-8"): config
-                for config in get_gitmodules_info(
-                    self.repo,
-                    self.parent_url,
-                    self.submodule_configs_ref,
-                )
+                config.path.as_posix().encode("utf-8"): config for config in gitmodules
             }
         return self.submodule_configs_cache
 
@@ -2174,7 +2158,10 @@ def main_fetch(args) -> int:
         return 1
     toprepo = TopRepo.from_config(monorepo.get_toprepo_dir(), config)
 
-    git_modules = get_gitmodules_info(monorepo, config.top_fetch_url, ref=None)
+    git_modules = get_gitmodules_info(
+        LocalFileConfigLoader(".gitmodules"),
+        monorepo.get_toprepo_fetch_url(),
+    )
     remote_name, git_module = remote_to_repo(args.remote, git_modules, config)
     if remote_name is None:
         return 1
