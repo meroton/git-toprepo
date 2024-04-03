@@ -333,9 +333,10 @@ def test_get_config_location(tmp_path):
         cwd=server_top, check=True, args="git commit -q -m Commit".split(" ")
     )
 
-    worktree = git_toprepo.Repo(tmp_path / "worktree")
-    worktree.path.mkdir(parents=True)
-    subprocess.run(cwd=worktree.path, check=True, args="git init --quiet".split(" "))
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir(parents=True)
+    subprocess.run(cwd=worktree_path, check=True, args="git init --quiet".split(" "))
+    worktree = git_toprepo.MonoRepo(worktree_path)
     subprocess.run(
         cwd=worktree.path,
         check=True,
@@ -346,13 +347,19 @@ def test_get_config_location(tmp_path):
         cwd=worktree.path,
         check=True,
     )
+    subprocess.run(
+        ["git", "config", "toprepo.missing-commit.rev-test-hash", "local-path"],
+        cwd=worktree.path,
+        check=True,
+    )
 
-    git_toprepo.ConfigLoader.fetch_config_ref(worktree)
-    config_loader = git_toprepo.ConfigLoader.try_create(worktree)
-    assert config_loader is not None
-    config_loader.fetch_remote_configs()
-    config_content = config_loader.load_content()
-    assert "toprepo.missing-commit.rev-test-hash=correct-path" in config_content
+    config_loader = git_toprepo.create_toprepo_config_loader(worktree, online=True)
+    config_loader.fetch_remote_config()
+    config_dict = config_loader.get_config_dict()
+    assert config_dict["toprepo.missing-commit.rev-test-hash"] == [
+        "correct-path",
+        "local-path",
+    ]
 
 
 def test_read_config_from_disk():

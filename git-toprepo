@@ -47,20 +47,24 @@ The algorithm steps are:
   Simply checkout a different monorepo branch and run `git toprepo refilter`
   to move unmerged submodule branches around.
 
-=== Configuration ===
+=== Configuration location ===
 
-The configuration file is read using `git config --list`. The location of
-the file is specified by the `toprepo.config-v1` field in the output from
-`git config --list`. If the field is missing, the `.toprepo` file
-in the HEAD ref of the top repository remote origin is searched.
-If specified multiple times, multiple files will be read.
-Configuration from `git config --list` will always be appended last.
+The location of the file is specified by the `toprepo.config-v1` field in
+the git-config for the mono repo. If the field is missing, the `.toprepo`
+file in the HEAD ref of the top repository remote, specified by
+`toprepo.top.fetchurl`, is searched for `toprepo.config-v1`.
 
 The `config-v1` location format is `<url>^<ref>:<filename>`.
 If the url starts with '.', it is assumed to be an url relative to the
 top repository remote origin. If the url and ref are empty, the filename
 is either an absolute path or relative to the mono repo worktree.
 
+The git-config, in the view from the mono repo, will be appended to
+the `.toprepo` file.
+
+=== Configuration ===
+
+The configuration file is read using `git config --file - --list`.
 The following configurations are available:
 
 * `toprepo.role`: A named role to use. Defaults to 'default'.
@@ -72,8 +76,8 @@ The following configurations are available:
   `toprepo.role.default.repos` defaults to `+.*`.
 * `toprepo.repo.<repo-name>.url`: Repositories with this specified URL in the
   .gitmodules file will use the configuration under `repo-name`.
-  Multiple values are allowed, but only the first one will be used when
-  connecting upstream.
+  Multiple values are allowed, in which case `fetchUrl` must also be
+  specified to make upstream connections unambiguous.
 * `toprepo.repo.<repo-name>.fetchUrl`: Overrides `toprepo.repo.<repo-name>.url`
   for clone and fetch.
 * `toprepo.repo.<repo-name>.pushUrl`: Overrides `toprepo.repo.<repo-name>.fetchUrl`
@@ -102,9 +106,10 @@ import shutil
 import subprocess
 import sys
 import textwrap
+from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass
-from functools import cached_property, partial
+from functools import cached_property, lru_cache, partial
 from pathlib import Path, PurePath, PurePosixPath
 from queue import PriorityQueue
 from typing import (
@@ -171,6 +176,21 @@ class MonoRepo(Repo):
             ).rstrip("\n")
         )
         super().__init__(toplevel_repo_dir)
+
+    @lru_cache
+    def get_toprepo_fetch_url(self) -> Url:
+        toprepo_fetchurl_key = "toprepo.top.fetchUrl"
+        try:
+            fetch_url = subprocess.check_output(
+                ["git", "-C", str(self.path), "config", toprepo_fetchurl_key], text=True
+            ).rstrip()
+        except subprocess.CalledProcessError as err:
+            if err.returncode == 1:
+                raise ValueError(
+                    f"git-config {toprepo_fetchurl_key} is missing in {self.path}"
+                )
+            raise
+        return fetch_url
 
     def get_toprepo_dir(self) -> Path:
         return self.get_subrepo_dir(TopRepo.name)
@@ -511,7 +531,7 @@ class RepoConfig:
     """Absolute URL to git-push to."""
 
 
-def split_git_config(config_lines: str) -> Dict[str, List[str]]:
+def parse_git_config_content(config_lines: str) -> Dict[str, List[str]]:
     config_dict: DefaultDict[str, List[str]] = defaultdict(list)
     for line in config_lines.splitlines(keepends=False):
         key, value = line.split("=", 1)
@@ -519,127 +539,64 @@ def split_git_config(config_lines: str) -> Dict[str, List[str]]:
     return config_dict
 
 
-class ConfigLoader:
-    def __init__(self, config_loaders: List["SubConfigLoader"]):
-        self.config_loaders = config_loaders
-
-    def fetch_remote_configs(self) -> None:
-        for config_loader in self.config_loaders:
-            config_loader.fetch_remote_config()
-
-    def load_content(self) -> str:
-        contents: List[str] = [
-            config_loader.read_config_list() for config_loader in self.config_loaders
-        ]
-        return "".join(contents)
-
-    @staticmethod
-    def fetch_config_ref(repo: Repo) -> None:
-        fetch_url = subprocess.check_output(
-            ["git", "-C", str(repo.path), "config", "toprepo.top.fetchUrl"], text=True
-        ).rstrip()
-        log_run_git(
-            repo.path,
-            ["fetch", "--quiet", fetch_url, "+HEAD:refs/toprepo/config"],
-        )
-
-    @staticmethod
-    def try_create(repo: Repo) -> Optional["ConfigLoader"]:
-        root_config_loader = GitRemoteConfigLoader(
-            url="",
-            ref="refs/toprepo/config",
-            filename=PurePosixPath(".toprepo"),
-            repo=repo,
-            suffix="",
-        )
-        config_content = root_config_loader.read_config_list()
-        config_dict = split_git_config(config_content)
-
-        config_loaders: List[SubConfigLoader] = []
-        parent_url = None
-        for config_v1 in config_dict.get("toprepo.config-v1", []):
-            if config_v1 == "reset":
-                config_loaders.clear()
-                continue
-
-            try:
-                raw_url, ref_and_filename = config_v1.split("^", 1)
-                ref, filename = ref_and_filename.split(":", 1)
-            except ValueError:
-                print(
-                    f"ERROR: Invalid config-v1 location {config_v1}, "
-                    + "expected <url>^<ref>:<filename>"
-                )
-                return None
-
-            if raw_url == "" and ref == "":
-                # Local disk.
-                config_loaders.append(LocalFileConfigLoader(Path(filename)))
-            else:
-                if parent_url is None:
-                    parent_url = subprocess.check_output(
-                        ["git", "-C", repo.path, "config", "toprepo.top.fetchurl"],
-                        text=True,
-                    ).rstrip()
-                if parent_url is None:
-                    print("ERROR: Missing git config toprepo.top.fetchUrl")
-                    return None
-                url = join_submodule_url(parent_url, raw_url)
-                try:
-                    filename_path = PurePosixPath(filename)
-                except ValueError as err:
-                    print(f"ERROR: Invalid toprepo config filename: {err}")
-                    return None
-                config_loaders.append(
-                    GitRemoteConfigLoader(
-                        url,
-                        ref,
-                        filename_path,
-                        repo=repo,
-                        suffix=f"-{len(config_loaders)}",
-                    )
-                )
-
-        if len(config_loaders) == 0:
-            print("ERROR: Missing git config toprepo.config-v1")
-            return None
-        config_loaders.append(LocalGitConfigLoader(repo))
-        return ConfigLoader(config_loaders)
-
-
-class SubConfigLoader:
+class ConfigLoader(ABC):
     def fetch_remote_config(self) -> None:
         pass
 
-    def read_config_file_content(self) -> str:
+    @abstractmethod
+    def git_config_list(self) -> str:
         raise NotImplementedError()
 
-    def read_config_list(self) -> str:
-        config_file_content = self.read_config_file_content()
-        return subprocess.check_output(
-            ["git", "-C", str(self.repo.path), "config", "--file", "-", "--list"],
-            input=config_file_content,
-            text=True,
-        )
+    def get_config_dict(self) -> Dict[str, List[str]]:
+        return parse_git_config_content(self.git_config_list())
 
 
-class LocalGitConfigLoader(SubConfigLoader):
+class MultiConfigLoader(ConfigLoader):
+    def __init__(self, config_loaders: List[ConfigLoader]):
+        self.config_loaders: List[ConfigLoader] = config_loaders
+
+    def fetch_remote_config(self) -> None:
+        for config_loader in self.config_loaders:
+            config_loader.fetch_remote_config()
+
+    def git_config_list(self) -> str:
+        parts = []
+        for config_loader in self.config_loaders:
+            part = config_loader.git_config_list()
+            if part != "" and part[-1] != "\n":
+                part += "\n"
+            parts.append(part)
+        return "".join(parts)
+
+
+class LocalGitConfigLoader(ConfigLoader):
     """Loads configuration from a file on disk."""
 
     def __init__(self, repo: Repo):
         self.repo = repo
 
-    def fetch_remote_config(self) -> None:
-        pass
-
-    def read_config_list(self) -> str:
+    def git_config_list(self) -> str:
         return subprocess.check_output(
             ["git", "-C", str(self.repo.path), "config", "--list"],
             text=True,
         )
 
 
-class LocalFileConfigLoader(SubConfigLoader):
+class ContentConfigLoader(ConfigLoader):
+    @abstractmethod
+    def read_config_file_content(self) -> str:
+        raise NotImplementedError()
+
+    def git_config_list(self) -> str:
+        config_file_content = self.read_config_file_content()
+        return subprocess.check_output(
+            ["git", "config", "--file", "-", "--list"],
+            input=config_file_content,
+            text=True,
+        )
+
+
+class LocalFileConfigLoader(ContentConfigLoader):
     def __init__(self, filename: Path):
         self.filename = filename
 
@@ -650,28 +607,112 @@ class LocalFileConfigLoader(SubConfigLoader):
         return self.filename.read_text(encoding="utf-8")
 
 
-class GitRemoteConfigLoader(SubConfigLoader):
+class GitRemoteConfigLoader(ContentConfigLoader):
     def __init__(
-        self, url: Url, ref: RefStr, filename: PurePosixPath, repo: Repo, suffix: str
+        self,
+        url: Url,
+        remote_ref: RefStr,
+        filename: PurePosixPath,
+        local_repo: Repo,
+        local_ref: RefStr,
     ):
         self.url = url
-        self.remote_ref = ref
+        self.remote_ref = remote_ref
         self.filename = filename
-        self.repo = repo
-        self.local_ref = f"refs/toprepo/config{suffix}"
+        self.local_repo = local_repo
+        self.local_ref = local_ref
 
     def fetch_remote_config(self) -> None:
         log_run_git(
-            self.repo.path,
+            self.local_repo.path,
             ["fetch", "--quiet", self.url, f"+{self.remote_ref}:{self.local_ref}"],
         )
 
     def read_config_file_content(self) -> str:
         return subprocess.check_output(
-            ["git", "-C", str(self.repo.path)]
+            ["git", "-C", str(self.local_repo.path)]
             + ["show", f"{self.local_ref}:{self.filename.as_posix()}"],
             text=True,
         )
+
+
+def try_create_toprepo_config_loader(
+    repo: Repo, online: bool
+) -> Optional[ConfigLoader]:
+    try:
+        return create_toprepo_config_loader(repo, online)
+    except RuntimeError as err:
+        print(f"ERROR: Could not find configuration location: {err}")
+        return None
+
+
+def create_toprepo_config_loader(monorepo: MonoRepo, online: bool) -> ConfigLoader:
+    config_v1 = _get_toprepo_conig_location(monorepo, online)
+    try:
+        raw_url, ref_and_filename = config_v1.split("^", 1)
+        ref, filename = ref_and_filename.split(":", 1)
+    except ValueError:
+        raise ValueError(
+            f"Invalid config-v1 location {config_v1}, "
+            + "expected <url>^<ref>:<filename>"
+        )
+
+    if raw_url == "" and ref == "":
+        # Local disk.
+        config_loader = LocalFileConfigLoader(Path(filename))
+    else:
+        parent_url = monorepo.get_toprepo_fetch_url()
+        url = join_submodule_url(parent_url, raw_url)
+        filename_path = PurePosixPath(filename)
+        config_loader = GitRemoteConfigLoader(
+            url=url,
+            remote_ref=ref,
+            filename=filename_path,
+            local_repo=monorepo,
+            local_ref="refs/toprepo/config-v1",
+        )
+    # Always override with in .git/config content.
+    return MultiConfigLoader(
+        [
+            config_loader,
+            LocalGitConfigLoader(monorepo),
+        ]
+    )
+
+
+def _get_toprepo_conig_location(monorepo: MonoRepo, online: bool) -> str:
+    location_key = "toprepo.config-v1"
+    local_loader = LocalGitConfigLoader(monorepo)
+    local_config = local_loader.get_config_dict()
+    config_v1 = local_config.get(location_key, [None])[-1]
+    if config_v1 is not None:
+        return config_v1
+
+    # Fallback to remote location configuration.
+    toprepo_fetch_url_key = "toprepo.top.fetchUrl"
+    fetch_url = local_config.get(toprepo_fetch_url_key.lower(), [None])[-1]
+    if fetch_url is None:
+        raise ValueError(
+            f"git-config {toprepo_fetch_url_key} is missing for {monorepo.path}"
+        )
+    remote_loader = GitRemoteConfigLoader(
+        url=monorepo.get_toprepo_fetch_url(),
+        remote_ref="HEAD",
+        filename=PurePosixPath(".toprepo"),
+        local_repo=monorepo,
+        local_ref="refs/toprepo/config-location",
+    )
+    if online:
+        remote_loader.fetch_remote_config()
+    remote_config = remote_loader.get_config_dict()
+    config_v1 = remote_config.get(location_key, [None])[-1]
+    if config_v1 is not None:
+        return config_v1
+    raise ValueError(
+        f"git-config {location_key} neither found locally for {monorepo.path} "
+        + f"nor at {remote_loader.url} in "
+        + f"{remote_loader.remote_ref}:{remote_loader.filename.as_posix()}"
+    )
 
 
 @dataclass(frozen=True)
@@ -706,9 +747,8 @@ class Config:
 
     @staticmethod
     def create(config_loader: ConfigLoader) -> "Config":
-        config_content = config_loader.load_content()
+        config_dict = config_loader.get_config_dict()
 
-        config_dict = split_git_config(config_content)
         # Accumulate toprepo.repo.<id>.* keys.
         repo_config_dicts: DefaultDict[RepoName, DefaultDict[str, List[str]]] = (
             defaultdict(lambda: defaultdict(list))
