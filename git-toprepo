@@ -74,7 +74,7 @@ The following configurations are available:
   whole repository name. The last matching regex decides whether the repo
   should be expanded or not.
   `toprepo.role.default.repos` defaults to `+.*`.
-* `toprepo.repo.<repo-name>.url`: Repositories with this specified URL in the
+* `toprepo.repo.<repo-name>.urls`: Repositories with this specified URL in the
   .gitmodules file will use the configuration under `repo-name`.
   Multiple values are allowed, in which case `fetchUrl` must also be
   specified to make upstream connections unambiguous.
@@ -82,6 +82,9 @@ The following configurations are available:
   for clone and fetch.
 * `toprepo.repo.<repo-name>.pushUrl`: Overrides `toprepo.repo.<repo-name>.fetchUrl`
   for push.
+* `toprepo.repo.<repo-name>.fetchArgs`: Extra command line arguments for
+  git-fetch, multiple uses are accumulated.
+  Default is `--prune`, `--prune-tags` and `--tags`.
 * `toprepo.missing-commit.rev-<commit-hash>=<raw-url>`: This commit hash
   will be ignored if referenced by a subdmodule that has its url in the
   .gitmodules file specified as `raw-url`.
@@ -153,6 +156,9 @@ CommitHash = bytes
 RepoFilterId = Union[int, CommitHash]
 
 
+default_fetch_args = ["--prune", "--prune-tags", "--tags"]
+
+
 class Repo:
     def __init__(self, repo: Path):
         # Make relative for shorter error messages.
@@ -212,6 +218,7 @@ class TopRepo(Repo):
             enabled=True,
             raw_urls=[],
             fetch_url=fetch_url,
+            fetch_args=default_fetch_args,
             push_url=push_url,
         )
 
@@ -473,6 +480,8 @@ class RepoConfig:
     """
     fetch_url: Url
     """Absolute URL to git-fetch from."""
+    fetch_args: List[str]
+    """Extra options for git-fetch."""
     push_url: Url
     """Absolute URL to git-push to."""
 
@@ -635,12 +644,6 @@ def _get_toprepo_conig_location(monorepo: MonoRepo, online: bool) -> str:
         return config_v1
 
     # Fallback to remote location configuration.
-    toprepo_fetch_url_key = "toprepo.top.fetchUrl"
-    fetch_url = local_config.get(toprepo_fetch_url_key.lower(), [None])[-1]
-    if fetch_url is None:
-        raise ValueError(
-            f"git-config {toprepo_fetch_url_key} is missing for {monorepo.path}"
-        )
     remote_loader = GitRemoteConfigLoader(
         url=monorepo.get_toprepo_fetch_url(),
         remote_ref="HEAD",
@@ -807,9 +810,9 @@ class Config:
             raise ConfigParsingError(
                 f"Could not determine if repo {name} is wanted or not"
             )
-        raw_urls = repo_config_dict.get("url")
+        raw_urls = repo_config_dict.get("urls")
         if raw_urls is None:
-            raise ConfigParsingError(f"toprepo.repo.{name}.url is unspecified")
+            raise ConfigParsingError(f"toprepo.repo.{name}.urls is unspecified")
         raw_fetch_url = repo_config_dict.get("fetchurl", [None])[-1]
         if raw_fetch_url is None:
             raw_urls_set = set(raw_urls)
@@ -822,11 +825,13 @@ class Config:
         fetch_url = join_submodule_url(parent_fetch_url, raw_fetch_url)
         raw_push_url = repo_config_dict.get("pushurl", [raw_fetch_url])[-1]
         push_url = join_submodule_url(parent_push_url, raw_push_url)
+        fetch_args = repo_config_dict.get("fetchargs", default_fetch_args)
         return RepoConfig(
             name=name,
             enabled=wanted_flag,
             raw_urls=raw_urls,
             fetch_url=fetch_url,
+            fetch_args=fetch_args,
             push_url=push_url,
         )
 
@@ -1189,9 +1194,7 @@ class RepoFetcher:
         # TODO: What about relative paths if fetch_url is from the disk?
         log_run_git(
             repo.path,
-            ["fetch", "--prune", "--prune-tags", "--tags"]
-            + [repo.config.fetch_url]
-            + ref_args,
+            ["fetch"] + repo.config.fetchArgs + [repo.config.fetch_url] + ref_args,
         )
         # Then move the blobs over to the monorepo.
         # The toprepo itself is moved using git-filter-repo.

@@ -259,6 +259,7 @@ def test_remote_to_repo():
                     "../subrepo",
                 ],
                 fetch_url="ssh://user@subrepo/fetch",
+                fetch_args=["--foo"],
                 push_url="ssh://user@subrepo/push",
             ),
         ],
