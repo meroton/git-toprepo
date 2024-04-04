@@ -1350,7 +1350,7 @@ class TopRepoExpander(RepoExpanderBase):
             for subrepo in subrepos
         }
         subrepo_map = {subrepo.config.name: subrepo for subrepo in subrepos}
-        missing_commit_lines: List[str] = []
+        missing_commits: List[Tuple[CommitHash, RawUrl]] = []
 
         for url, referenced_commits in submod_commits.items():
             subrepos = [
@@ -1386,21 +1386,21 @@ class TopRepoExpander(RepoExpanderBase):
                 commits_to_fetch = get_commits_to_fetch()
             # Check.
             for commit_hash in sorted(commits_to_fetch):
-                missing_commit_lines.append(commit_hash.decode("utf-8") + " " + url)
+                missing_commits.append((commit_hash, url))
 
-        if len(missing_commit_lines) != 0:
+        if len(missing_commits) != 0:
             print("ERROR: Some referenced commits could not be found")
+            print("[toprepo.missing-commits]")
             max_missing_commits_to_print = 100
-            for line in missing_commit_lines[:max_missing_commits_to_print]:
-                print(line)
-            if len(missing_commit_lines) > max_missing_commits_to_print:
-                print(
-                    f"Totally {len(missing_commit_lines)} unexpected missing commits."
-                )
+            for commit_hash, url in missing_commits[:max_missing_commits_to_print]:
+                commit_hash_str = commit_hash.decode("utf-8")
+                print(f"\trev-{commit_hash_str} = {url}")
+            if len(missing_commits) > max_missing_commits_to_print:
+                print(f"Totally {len(missing_commits)} unexpected missing commits.")
             print("ERROR: The referenced commits above could not be found")
             print(
                 "Either push the following commits or add them to the "
-                + "missing-commits toprepo configuration."
+                + "toprepo configuration."
             )
             return None
 
@@ -1422,7 +1422,7 @@ class TopRepoExpander(RepoExpanderBase):
                         "Please remove them from the missing-commits "
                         + "toprepo configuration."
                     )
-                print(commit_hash.decode("utf-8") + " " + url)
+                print("rev-" + commit_hash.decode("utf-8") + " = " + url)
 
         return CommitMap.join(commit_maps.values())
 
