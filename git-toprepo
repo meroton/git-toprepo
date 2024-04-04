@@ -213,7 +213,6 @@ class TopRepo(Repo):
     def __init__(self, repo: Path, fetch_url: Url, push_url: Url):
         super().__init__(repo=repo)
         self.config = RepoConfig(
-            id="",
             name=TopRepo.name,
             enabled=True,
             raw_urls=[],
@@ -591,11 +590,9 @@ class GitRemoteConfigLoader(ContentConfigLoader):
         )
 
 
-def try_create_toprepo_config_loader(
-    repo: Repo, online: bool
-) -> Optional[ConfigLoader]:
+def try_create_toprepo_config_loader(monorepo: MonoRepo, online: bool) -> Optional[ConfigLoader]:
     try:
-        return create_toprepo_config_loader(repo, online)
+        return create_toprepo_config_loader(monorepo, online)
     except RuntimeError as err:
         print(f"ERROR: Could not find configuration location: {err}")
         return None
@@ -720,9 +717,9 @@ class Config:
         return raw_url_to_repos
 
     @staticmethod
-    def try_create(monorepo: Repo) -> Optional["Config"]:
+    def try_create(config_loader: ConfigLoader) -> Optional["Config"]:
         try:
-            return Config.create(monorepo)
+            return Config.create(config_loader)
         except ConfigParsingError as err:
             print(f"ERROR: Could not parse toprepo config: {err}")
             return None
@@ -760,12 +757,12 @@ class Config:
 
         # Find configured missing commits.
         missing_commits: DefaultDict[RawUrl, Set[CommitHash]] = defaultdict(set)
-        missing_commit_prefix = "toprepo.missing-commit.rev-"
-        for key, value in config_dict.items():
-            if key.startswith(missing_commit_prefix):
-                commit_hash = key[len(missing_commit_prefix) :]
-                raw_url: RawUrl = value
-                missing_commits[raw_url].add(commit_hash)
+        missing_commits_prefix = "toprepo.missing-commits.rev-"
+        for key, values in config_dict.items():
+            if key.startswith(missing_commits_prefix):
+                commit_hash = key[len(missing_commits_prefix) :].encode("utf-8")
+                for raw_url in values:
+                    missing_commits[raw_url].add(commit_hash)
 
         return Config(
             missing_commits=missing_commits,
@@ -785,6 +782,7 @@ class Config:
         for repo_name, repo_config_dict in repo_config_dicts.items():
             repo_configs.append(
                 Config.parse_repo_config(
+                    repo_name,
                     repo_config_dict,
                     wanted_repos_patterns,
                     parent_fetch_url,
@@ -2129,10 +2127,14 @@ def main_init(args) -> int:
 
 def main_refilter(args) -> int:
     monorepo = MonoRepo(args.cwd)
-    config = Config.try_create(monorepo)
+    config_loader = try_create_toprepo_config_loader(monorepo, args.online)
+    if config_loader is None:
+        return 1
+    config = Config.try_create(config_loader)
     if config is None:
         return 1
     toprepo = TopRepo.from_config(monorepo.get_toprepo_dir(), config)
+
     expander = TopRepoExpander(monorepo, toprepo, config)
     if args.from_scratch:
         # Remove all translated monorepo refs.
@@ -2148,18 +2150,14 @@ def main_refilter(args) -> int:
 
 def main_fetch(args) -> int:
     monorepo = MonoRepo(args.cwd)
-    repo_fetcher = RepoFetcher(monorepo)
-    toprepo_fetch_url = subprocess.check_output(
-        ["git", "-C", str(monorepo.path), "config", "toprepo.top.fetchUrl"]
-    ).rstrip()
-    log_run_git(
-        monorepo.get_toprepo_dir(),
-        ["fetch", "--quiet", toprepo_fetch_url, "+refs/toprepo/*:refs/toprepo/*"],
-    )
-    config = Config.try_create(monorepo)
+    config_loader = try_create_toprepo_config_loader(monorepo, args.online)
+    if config_loader is None:
+        return 1
+    config = Config.try_create(config_loader)
     if config is None:
         return 1
     toprepo = TopRepo.from_config(monorepo.get_toprepo_dir(), config)
+    repo_fetcher = RepoFetcher(monorepo)
 
     git_modules = get_gitmodules_info(
         LocalFileConfigLoader(".gitmodules"),
@@ -2230,10 +2228,14 @@ def main_fetch(args) -> int:
 
 def main_push(args) -> int:
     monorepo = MonoRepo(args.cwd)
-    config = Config.try_create(monorepo)
+    config_loader = try_create_toprepo_config_loader(monorepo, args.online)
+    if config_loader is None:
+        return 1
+    config = Config.try_create(config_loader)
     if config is None:
         return 1
     toprepo = TopRepo.from_config(monorepo.get_toprepo_dir(), config)
+
     splitter = PushSplitter(monorepo, toprepo, config)
 
     refspec: PushRefSpec = args.local_and_remote_ref
