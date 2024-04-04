@@ -590,7 +590,9 @@ class GitRemoteConfigLoader(ContentConfigLoader):
         )
 
 
-def try_create_toprepo_config_loader(monorepo: MonoRepo, online: bool) -> Optional[ConfigLoader]:
+def try_create_toprepo_config_loader(
+    monorepo: MonoRepo, online: bool
+) -> Optional[ConfigLoader]:
     try:
         return create_toprepo_config_loader(monorepo, online)
     except RuntimeError as err:
