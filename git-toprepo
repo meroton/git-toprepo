@@ -1077,8 +1077,12 @@ class SubmoduleFilterHelper:
         if first_parent is None or isinstance(first_parent, bytes):
             self.commit_id_to_last_config_change[commit.id] = commit.original_id
         else:
-            assert isinstance(first_parent, int), f"Expected int or commit hash as parent of {commit.id}, not {first_parent}"
-            self.commit_id_to_last_config_change[commit.id] = self.commit_id_to_last_config_change[first_parent]
+            assert isinstance(
+                first_parent, int
+            ), f"Expected int or commit hash as parent of {commit.id}, not {first_parent}"
+            self.commit_id_to_last_config_change[commit.id] = (
+                self.commit_id_to_last_config_change[first_parent]
+            )
 
         for file_change in commit.file_changes:
             if file_change.filename == b".gitmodules":
@@ -1092,7 +1096,9 @@ class SubmoduleFilterHelper:
         return self._load_submodule_configs(commit_hash)
 
     @lru_cache()
-    def _load_submodule_configs(self, commit_hash: CommitHash) -> Dict[bytes, GitModuleInfo]:
+    def _load_submodule_configs(
+        self, commit_hash: CommitHash
+    ) -> Dict[bytes, GitModuleInfo]:
         gitmodules = get_gitmodules_info(
             GitRemoteConfigLoader(
                 url="",
@@ -1103,9 +1109,7 @@ class SubmoduleFilterHelper:
             ),
             self.parent_url,
         )
-        return {
-            config.path.as_posix().encode("utf-8"): config for config in gitmodules
-        }
+        return {config.path.as_posix().encode("utf-8"): config for config in gitmodules}
 
     def get_submodules(
         self, commit: git_filter_repo.Commit

@@ -296,6 +296,14 @@ def test_remote_to_repo():
 
 
 def test_get_config_location(tmp_path):
+    """Test storing the configuration remotely.
+
+    The test fixture includes the server/top git repository
+    where .toprepo at HEAD in server/top points to the
+    toprepo.config in server/config at refs/heads/config-branch.
+    The local working diretory is the worktree git repository
+    where toprepo.top.fetchUrl has been configured.
+    """
     server_config = tmp_path / "server/config"
     server_config.mkdir(parents=True)
     subprocess.run(cwd=server_config, check=True, args="git init --quiet".split(" "))
@@ -311,7 +319,7 @@ def test_get_config_location(tmp_path):
         cwd=server_config, check=True, args="git checkout -q config-branch".split(" ")
     )
     (server_config / "toprepo.config").write_text(
-        "[toprepo.missing-commit]\nrev-test-hash = correct-path"
+        "[toprepo.missing-commits]\nrev-test-hash = correct-path"
     )
     subprocess.run(
         cwd=server_config, check=True, args="git add toprepo.config".split(" ")
@@ -349,7 +357,7 @@ def test_get_config_location(tmp_path):
         check=True,
     )
     subprocess.run(
-        ["git", "config", "toprepo.missing-commit.rev-test-hash", "local-path"],
+        ["git", "config", "toprepo.missing-commits.rev-test-hash", "local-path"],
         cwd=worktree.path,
         check=True,
     )
@@ -357,18 +365,70 @@ def test_get_config_location(tmp_path):
     config_loader = git_toprepo.create_toprepo_config_loader(worktree, online=True)
     config_loader.fetch_remote_config()
     config_dict = config_loader.get_config_dict()
-    assert config_dict["toprepo.missing-commit.rev-test-hash"] == [
+    assert config_dict["toprepo.missing-commits.rev-test-hash"] == [
         "correct-path",
         "local-path",
     ]
 
 
-def test_read_config_from_disk():
-    pass
+def test_read_config_from_git(tmp_path):
+    """Test the LocalGitConfigLoader."""
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir(parents=True)
+    subprocess.run(cwd=worktree_path, check=True, args="git init --quiet".split(" "))
+    worktree = git_toprepo.Repo(worktree_path)
+    subprocess.run(
+        ["git", "config", "toprepo.missing-commits.rev-test-hash", "local-config"],
+        cwd=worktree.path,
+        check=True,
+    )
+
+    config_loader = git_toprepo.LocalGitConfigLoader(worktree)
+    config_loader.fetch_remote_config()
+    config_dict = config_loader.get_config_dict()
+    assert config_dict["toprepo.missing-commits.rev-test-hash"] == ["local-config"]
 
 
-def test_read_config_from_git():
-    pass
+def test_read_config_from_disk(tmp_path):
+    """Test the LocalFileConfigLoader."""
+    config_path = tmp_path / "config"
+    config_path.write_bytes(
+        b"""\
+[toprepo.missing-commits]
+    # A comment.
+    rev-test-hash = local-config
+"""
+    )
+
+    config_loader = git_toprepo.LocalFileConfigLoader(config_path)
+    config_loader.fetch_remote_config()
+    config_dict = config_loader.get_config_dict()
+    assert config_dict == {
+        "toprepo.missing-commits.rev-test-hash": ["local-config"],
+    }
+
+
+def test_read_config_casing(tmp_path):
+    """Test the LocalFileConfigLoader."""
+    config_path = tmp_path / "config"
+    config_path.write_bytes(
+        b"""\
+[toprepo.missing-commits]
+    # A comment.
+    Lower-Case = local-config
+    Lower-Case = config2
+[toprepo "Keep_Casing"]
+    foo = "Casing Kept"
+"""
+    )
+
+    config_loader = git_toprepo.LocalFileConfigLoader(config_path)
+    config_loader.fetch_remote_config()
+    config_dict = config_loader.get_config_dict()
+    assert config_dict == {
+        "toprepo.missing-commits.lower-case": ["local-config", "config2"],
+        "toprepo.Keep_Casing.foo": ["Casing Kept"],
+    }
 
 
 def test_init_fetch_checkout():
