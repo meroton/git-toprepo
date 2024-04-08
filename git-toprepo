@@ -613,7 +613,7 @@ def create_toprepo_config_loader(monorepo: MonoRepo, online: bool) -> ConfigLoad
 
     if raw_url == "" and ref == "":
         # Local disk.
-        config_loader = LocalFileConfigLoader(Path(filename))
+        config_loader = LocalFileConfigLoader(monorepo.path / filename)
     else:
         parent_url = monorepo.get_toprepo_fetch_url()
         url = join_submodule_url(parent_url, raw_url)
@@ -1304,7 +1304,7 @@ class TopRepoExpander(RepoExpanderBase):
         self, submod_commits: Dict[str, Set[CommitHash]]
     ) -> Dict[str, SubRepo]:
         subrepos: Dict[str, SubRepo] = {}
-        unknown_urls: List[Url] = set()
+        unknown_urls: List[Url] = []
         for url in submod_commits.keys():
             subrepo_configs = self.config.raw_url_to_repos.get(url)
             if subrepo_configs is None:
@@ -2160,7 +2160,7 @@ def main_refilter(args) -> int:
 
 def main_fetch(args) -> int:
     monorepo = MonoRepo(args.cwd)
-    config_loader = try_create_toprepo_config_loader(monorepo, args.online)
+    config_loader = try_create_toprepo_config_loader(monorepo, online=True)
     if config_loader is None:
         return 1
     config = Config.try_create(config_loader)
@@ -2170,7 +2170,7 @@ def main_fetch(args) -> int:
     repo_fetcher = RepoFetcher(monorepo)
 
     git_modules = get_gitmodules_info(
-        LocalFileConfigLoader(".gitmodules"),
+        LocalFileConfigLoader(monorepo.path / ".gitmodules"),
         monorepo.get_toprepo_fetch_url(),
     )
     remote_name, git_module = remote_to_repo(args.remote, git_modules, config)
@@ -2238,7 +2238,7 @@ def main_fetch(args) -> int:
 
 def main_push(args) -> int:
     monorepo = MonoRepo(args.cwd)
-    config_loader = try_create_toprepo_config_loader(monorepo, args.online)
+    config_loader = try_create_toprepo_config_loader(monorepo, online=True)
     if config_loader is None:
         return 1
     config = Config.try_create(config_loader)
