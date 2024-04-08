@@ -601,7 +601,7 @@ def try_create_toprepo_config_loader(
 
 
 def create_toprepo_config_loader(monorepo: MonoRepo, online: bool) -> ConfigLoader:
-    config_v1 = _get_toprepo_conig_location(monorepo, online)
+    config_v1 = _get_toprepo_config_location(monorepo, online)
     try:
         raw_url, ref_and_filename = config_v1.split("^", 1)
         ref, filename = ref_and_filename.split(":", 1)
@@ -634,7 +634,7 @@ def create_toprepo_config_loader(monorepo: MonoRepo, online: bool) -> ConfigLoad
     )
 
 
-def _get_toprepo_conig_location(monorepo: MonoRepo, online: bool) -> str:
+def _get_toprepo_config_location(monorepo: MonoRepo, online: bool) -> str:
     location_key = "toprepo.config-v1"
     local_loader = LocalGitConfigLoader(monorepo)
     local_config = local_loader.get_config_dict()
@@ -819,7 +819,7 @@ class Config:
             if len(raw_urls_set) != 1:
                 raise ConfigParsingError(
                     f"Missing toprepo.repo.{name}.fetchUrl and multiple "
-                    + f"toprepo.repo.{name}.url gives an ambiguous defult"
+                    + f"toprepo.repo.{name}.urls gives an ambiguous defult"
                 )
             raw_fetch_url = raw_urls_set.pop()
         fetch_url = join_submodule_url(parent_fetch_url, raw_fetch_url)
@@ -1064,41 +1064,48 @@ class BumpInfo:
 
 class SubmoduleFilterHelper:
     def __init__(self, source_repo: Repo, parent_url: Url):
-        self.submodule_configs_cache: Optional[Dict[bytes, GitModuleInfo]] = None
-        """Set to None to reload from .gitmodules when needed."""
-        self.submodule_configs_ref = "n/a"
+        self.current_commit = None
+        self.commit_id_to_last_config_change: Dict[RepoFilterId, CommitHash] = {}
 
         self.repo = source_repo
         self.parent_url = parent_url
 
-    @property
-    def submodule_configs(self) -> Dict[bytes, GitModuleInfo]:
-        if self.submodule_configs_cache is None:
-            gitmodules = get_gitmodules_info(
-                GitRemoteConfigLoader(
-                    url="",
-                    remote_ref="",
-                    filename=".gitmodules",
-                    local_repo=self.repo,
-                    local_ref=self.submodule_configs_ref,
-                ),
-                self.parent_url,
-            )
-            self.submodule_configs_cache = {
-                config.path.as_posix().encode("utf-8"): config for config in gitmodules
-            }
-        return self.submodule_configs_cache
-
-    def reset_callback(self):
-        self.submodule_configs_cache = None
-        self.submodule_configs_ref = "n/a"
-
     def commit_callback(self, commit: git_filter_repo.Commit) -> None:
-        self.submodule_configs_ref = commit.original_id.decode("utf-8")
+        self.current_commit = commit
+
+        first_parent = commit.first_parent()
+        if first_parent is None or isinstance(first_parent, bytes):
+            self.commit_id_to_last_config_change[commit.id] = commit.original_id
+        else:
+            assert isinstance(first_parent, int), f"Expected int or commit hash as parent of {commit.id}, not {first_parent}"
+            self.commit_id_to_last_config_change[commit.id] = self.commit_id_to_last_config_change[first_parent]
+
         for file_change in commit.file_changes:
             if file_change.filename == b".gitmodules":
                 # .gitmodules has changed, reload.
-                self.submodule_configs_cache = None
+                self.commit_id_to_last_config_change[commit.id] = commit.original_id
+                break
+
+    @property
+    def submodule_configs(self) -> Dict[bytes, GitModuleInfo]:
+        commit_hash = self.commit_id_to_last_config_change[self.current_commit.id]
+        return self._load_submodule_configs(commit_hash)
+
+    @lru_cache()
+    def _load_submodule_configs(self, commit_hash: CommitHash) -> Dict[bytes, GitModuleInfo]:
+        gitmodules = get_gitmodules_info(
+            GitRemoteConfigLoader(
+                url="",
+                remote_ref="",
+                filename=PurePosixPath(".gitmodules"),
+                local_repo=self.repo,
+                local_ref=commit_hash.decode("utf-8"),
+            ),
+            self.parent_url,
+        )
+        return {
+            config.path.as_posix().encode("utf-8"): config for config in gitmodules
+        }
 
     def get_submodules(
         self, commit: git_filter_repo.Commit
@@ -1132,9 +1139,6 @@ class ReferencedSubmodCommitsCollector:
             repo, repo.config.fetch_url
         )
 
-    def _reset_callback(self, reset: git_filter_repo.Reset, metadata):
-        self.submodule_filter_helper.reset_callback()
-
     def _commit_callback(self, commit: git_filter_repo.Commit, metadata):
         self.submodule_filter_helper.commit_callback(commit)
         submods = self.submodule_filter_helper.get_submodules(commit)
@@ -1161,7 +1165,6 @@ class ReferencedSubmodCommitsCollector:
         args.refs = ["--all"]
         repo_filter = git_filter_repo.RepoFilter(
             args,
-            reset_callback=collector._reset_callback,
             commit_callback=collector._commit_callback,
         )
         repo_filter.set_output(DevNullOutputRepoFilter())
@@ -1246,7 +1249,9 @@ class TopRepoExpander(RepoExpanderBase):
         )
 
         self.mono_id_to_commit: Dict[int, git_filter_repo.Commit] = {}
+        # TODO: Refactor to cache per commit instead of resetting on branch change.
         self.subrepo_id_to_converted_id: Dict[RepoFilterId, RepoFilterId]
+        self.last_branch = b""
 
     def expand_toprepo(self, top_refs: List[RefStr], allow_fetching: bool):
         """Perform the monorepo expansion using git-filter-repo.
@@ -1356,6 +1361,7 @@ class TopRepoExpander(RepoExpanderBase):
             subrepos = [
                 subrepo_map[subrepo_config.name]
                 for subrepo_config in self.config.raw_url_to_repos.get(url, [])
+                if subrepo_config.enabled
             ]
             if len(subrepos) == 0:
                 continue
@@ -1444,10 +1450,10 @@ class TopRepoExpander(RepoExpanderBase):
         return new_ref
 
     def _expand_toprepo_reset_callback(self, reset: git_filter_repo.Reset, metadata):
-        self.submodule_filter_helper.reset_callback()
         # This branch might have bumped the subrepos in a totally different cadence.
         # Cannot keep the conversion cache.
         self.subrepo_id_to_converted_id = {}
+        self.last_branch = b""
 
     def _expand_toprepo_commit_callback(
         self,
@@ -1455,6 +1461,12 @@ class TopRepoExpander(RepoExpanderBase):
         mono_commit: git_filter_repo.Commit,
         metadata,
     ):
+        if self.last_branch != mono_commit.branch:
+            # This branch might have bumped the subrepos in a totally different cadence.
+            # Cannot keep the conversion cache.
+            self.subrepo_id_to_converted_id = {}
+            self.last_branch = mono_commit.branch
+
         # The refname callback should already have been called.
         assert not mono_commit.branch.startswith(b"refs/heads/"), mono_commit.branch
         self.submodule_filter_helper.commit_callback(mono_commit)
@@ -1896,16 +1908,12 @@ class PushSplitter:
         repo_filter = None
         repo_filter = git_filter_repo.RepoFilter(
             args,
-            reset_callback=self._reset_callback,
             commit_callback=lambda *args: self._commit_callback(
                 repo_filter, to_push, *args
             ),
         )
         repo_filter.run()
         return to_push
-
-    def _reset_callback(self, reset: git_filter_repo.Reset, metadata):
-        self.submodule_filter_helper.reset_callback()
 
     def _commit_callback(
         self,
