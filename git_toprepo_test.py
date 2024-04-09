@@ -306,31 +306,26 @@ def test_get_config_location(tmp_path):
     """
     server_config = tmp_path / "server/config"
     server_config.mkdir(parents=True)
-    subprocess.run(cwd=server_config, check=True, args="git init --quiet".split(" "))
-    subprocess.run(
+    subprocess.check_call(cwd=server_config, args="git init --quiet".split(" "))
+    subprocess.check_call(
         cwd=server_config,
-        check=True,
         args="git commit -q -m InitialCommit --allow-empty".split(" "),
     )
-    subprocess.run(
-        cwd=server_config, check=True, args="git branch -q config-branch".split(" ")
+    subprocess.check_call(
+        cwd=server_config, args="git branch -q config-branch".split(" ")
     )
-    subprocess.run(
-        cwd=server_config, check=True, args="git checkout -q config-branch".split(" ")
+    subprocess.check_call(
+        cwd=server_config, args="git checkout -q config-branch".split(" ")
     )
     (server_config / "toprepo.config").write_text(
         "[toprepo.missing-commits]\nrev-test-hash = correct-path"
     )
-    subprocess.run(
-        cwd=server_config, check=True, args="git add toprepo.config".split(" ")
-    )
-    subprocess.run(
-        cwd=server_config, check=True, args="git commit -q -m Config".split(" ")
-    )
+    subprocess.check_call(cwd=server_config, args="git add toprepo.config".split(" "))
+    subprocess.check_call(cwd=server_config, args="git commit -q -m Config".split(" "))
 
     server_top = tmp_path / "server/top"
     server_top.mkdir(parents=True)
-    subprocess.run(cwd=server_top, check=True, args="git init --quiet".split(" "))
+    subprocess.check_call(cwd=server_top, args="git init --quiet".split(" "))
     (server_top / ".toprepo").write_text(
         """\
 [toprepo.config-v1]
@@ -340,29 +335,25 @@ def test_get_config_location(tmp_path):
     path = toprepo.config
 """
     )
-    subprocess.run(cwd=server_top, check=True, args="git add .toprepo".split(" "))
-    subprocess.run(
-        cwd=server_top, check=True, args="git commit -q -m Commit".split(" ")
-    )
+    subprocess.check_call(cwd=server_top, args="git add .toprepo".split(" "))
+    subprocess.check_call(cwd=server_top, args="git commit -q -m Commit".split(" "))
 
     worktree_path = tmp_path / "worktree"
     worktree_path.mkdir(parents=True)
-    subprocess.run(cwd=worktree_path, check=True, args="git init --quiet".split(" "))
+    subprocess.check_call(cwd=worktree_path, args="git init --quiet".split(" "))
     worktree = git_toprepo.MonoRepo(worktree_path)
-    subprocess.run(
+    subprocess.check_call(
         cwd=worktree.path,
-        check=True,
         args="git config toprepo.top.fetchUrl ../server/top".split(" "),
     )
-    subprocess.run(
-        ["git", "config", "toprepo.top.fetchUrl", f"file://{server_top.absolute()}"],
+    subprocess.check_call(
         cwd=worktree.path,
-        check=True,
+        args=["git", "config"]
+        + ["toprepo.top.fetchUrl", f"file://{server_top.absolute()}"],
     )
-    subprocess.run(
-        ["git", "config", "toprepo.missing-commits.rev-test-hash", "local-path"],
+    subprocess.check_call(
         cwd=worktree.path,
-        check=True,
+        args=["git", "config", "toprepo.missing-commits.rev-test-hash", "local-path"],
     )
 
     config_loader = git_toprepo.create_toprepo_config_loader(worktree, online=True)
@@ -378,12 +369,12 @@ def test_read_config_from_git(tmp_path):
     """Test the LocalGitConfigLoader."""
     worktree_path = tmp_path / "worktree"
     worktree_path.mkdir(parents=True)
-    subprocess.run(cwd=worktree_path, check=True, args="git init --quiet".split(" "))
+    subprocess.check_call(cwd=worktree_path, args="git init --quiet".split(" "))
     worktree = git_toprepo.Repo(worktree_path)
-    subprocess.run(
-        ["git", "config", "toprepo.missing-commits.rev-test-hash", "local-config"],
+    subprocess.check_call(
         cwd=worktree.path,
-        check=True,
+        args=["git", "config"]
+        + ["toprepo.missing-commits.rev-test-hash", "local-config"],
     )
 
     config_loader = git_toprepo.LocalGitConfigLoader(worktree)
