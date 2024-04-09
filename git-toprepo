@@ -177,6 +177,8 @@ class Repo:
 
 
 class MonoRepo(Repo):
+    name: str = "mono repo"
+
     def __init__(self, repo: Path):
         toplevel_repo_dir = Path(
             subprocess.check_output(
@@ -355,7 +357,7 @@ def join_annotated_commit_messages(messages: List[bytes]) -> bytes:
     top_messages = []
     bottom_messages = []
     for msg in messages:
-        if msg.startswith(b"Update git submodules\n\n^-- "):
+        if msg.startswith(b"Update git submodules\n\n"):
             # Boring Gerrit branch following bump message.
             # Use the message from the submodule itself instead.
             bottom_messages.append(msg)
@@ -554,13 +556,16 @@ class ContentConfigLoader(ConfigLoader):
 
 
 class LocalFileConfigLoader(ContentConfigLoader):
-    def __init__(self, filename: Path):
+    def __init__(self, filename: Path, allow_missing: bool = False):
         self.filename = filename
+        self.allow_missing = allow_missing
 
     def fetch_remote_config(self) -> None:
         pass
 
     def read_config_file_content(self) -> str:
+        if self.allow_missing and not self.filename.exists():
+            return ""
         return self.filename.read_text(encoding="utf-8")
 
 
@@ -1203,16 +1208,17 @@ class RepoFetcher:
         # TODO: What about relative paths if fetch_url is from the disk?
         log_run_git(
             repo.path,
-            ["fetch"] + repo.config.fetchArgs + [repo.config.fetch_url] + ref_args,
+            ["fetch"] + repo.config.fetch_args + [repo.config.fetch_url] + ref_args,
         )
         # Then move the blobs over to the monorepo.
-        # The toprepo itself is moved using git-filter-repo.
-        if not repo.is_top:
-            log_run_git(
-                self.monorepo.path,
-                ["fetch", "--quiet", "--prune", str(repo.path.absolute())]
-                + [f"+refs/*:refs/repos/{repo.name}/*"],
-            )
+        # The toprepo itself can be moved by git-filter-repo,
+        # but moving the content anyway because 'git-toprepo push' requires
+        # the original commits.
+        log_run_git(
+            self.monorepo.path,
+            ["fetch", "--quiet", "--prune", str(repo.path.absolute())]
+            + [f"+refs/*:refs/repos/{repo.name}/*"],
+        )
 
 
 class RepoExpanderBase:
@@ -1334,7 +1340,7 @@ class TopRepoExpander(RepoExpanderBase):
             for basename, urls in sorted(basename_to_urls.items()):
                 print(f'[toprepo.repo "{basename}"]')
                 for url in sorted(urls):
-                    print(f"\turl = {url}")
+                    print(f"\turls = {url}")
             print(
                 "INFO: Printed above is an example git-toprepo config "
                 + "to fix the warnings."
@@ -1708,27 +1714,39 @@ class SubrepoCommitExpander(RepoExpanderBase):
         than necessary.
         """
         subrepo_id_to_converted_id: Dict[RepoFilterId, RepoFilterId] = {}
-        commits_to_convert = self._resolve_commits_to_convert(
-            subdir, subrepo_ref, subrepo_id_to_converted_id
+
+        sub_commit_hash: CommitHash = subprocess.check_output(
+            ["git", "-C", str(self.monorepo.path)]
+            + ["rev-parse", "--verify", "--quiet", subrepo_ref + "^{commit}"],
+        ).rstrip()
+        commits_to_convert, converted_commit_hash = self._resolve_commits_to_convert(
+            subdir, sub_commit_hash, subrepo_id_to_converted_id
         )
         if commits_to_convert is None:
             return False
-        self._insert_commits(
-            dest_ref, subdir, commits_to_convert, subrepo_id_to_converted_id
-        )
+
+        if commits_to_convert == []:
+            assert converted_commit_hash is not None
+            # Already part of the monorepo. Update dest_ref.
+            log_run_git(
+                self.monorepo.path,
+                ["update-ref", dest_ref, converted_commit_hash.decode("utf8")],
+                log_command=False,
+            )
+        else:
+            assert converted_commit_hash is None, converted_commit_hash
+            self._insert_commits(
+                dest_ref, subdir, commits_to_convert, subrepo_id_to_converted_id
+            )
         return True
 
     def _resolve_commits_to_convert(
         self,
         subdir: bytes,
-        subref: RefStr,
+        sub_commit_hash: CommitHash,
         subrepo_id_to_converted_id: Dict[RepoFilterId, RepoFilterId],
-    ) -> List[git_filter_repo.Commit]:
-        sub_commit_hash: CommitHash = subprocess.check_output(
-            ["git", "-C", str(self.monorepo.path)]
-            + ["rev-parse", "--verify", "--quiet", subref + "^{commit}"],
-        ).rstrip()
-
+    ) -> Tuple[Optional[List[git_filter_repo.Commit]], Optional[CommitHash]]:
+        subref: RefStr = sub_commit_hash.decode("utf-8")
         # First try with the latest few commits.
         commits_to_convert = None
         limiting_subref = f"{subref}~{self.few_subref_commits}"
@@ -1767,13 +1785,15 @@ class SubrepoCommitExpander(RepoExpanderBase):
                 subrepo_id_to_converted_id,
             )
 
+        mono_commit_hash = subdir_hash_to_mono_hash.get(sub_commit_hash)
+
         if commits_to_convert is None:
             subdir_str = subdir.decode("utf-8")
             print(
                 f"ERROR: Could not find where under {monoref} to insert "
                 + f"{subref} from {subdir_str}"
             )
-        return commits_to_convert
+        return commits_to_convert, mono_commit_hash
 
     def _map_subdir_hash_to_mono_hash(
         self, mono_refs: List[RefStr], subdir: bytes
@@ -2063,7 +2083,7 @@ class PushSplitter:
         self, top_commit_hash: CommitHash
     ) -> Dict[bytes, CommitHash]:
         ls_tree_subrepo_stdout = subprocess.check_output(
-            ["git", "-C", str(self.monorepo.path), "ls-tree", top_commit_hash, "--"],
+            ["git", "-C", str(self.toprepo.path), "ls-tree", top_commit_hash, "--"],
         )
         subrepo_map = {}
         for line in ls_tree_subrepo_stdout.splitlines(keepends=False):
@@ -2176,7 +2196,7 @@ def main_fetch(args) -> int:
     repo_fetcher = RepoFetcher(monorepo)
 
     git_modules = get_gitmodules_info(
-        LocalFileConfigLoader(monorepo.path / ".gitmodules"),
+        LocalFileConfigLoader(monorepo.path / ".gitmodules", allow_missing=True),
         monorepo.get_toprepo_fetch_url(),
     )
     remote_name, git_module = remote_to_repo(args.remote, git_modules, config)
@@ -2220,8 +2240,10 @@ def main_fetch(args) -> int:
             if repo_to_fetch.is_top:
                 # Special handling of toprepo/fetch-head in the refname_callback.
                 top_fetch_head_ref = mono_fetch_head_ref
+                # TODO: Only expand top_fetch_head_ref, i.e. remove "--all".
+                # Currently, omitting --all gives different result.
                 if not expander.expand_toprepo(
-                    top_refs=[top_fetch_head_ref], allow_fetching=True
+                    top_refs=[top_fetch_head_ref, "--all"], allow_fetching=True
                 ):
                     return 1
             else:
@@ -2231,9 +2253,11 @@ def main_fetch(args) -> int:
                 ):
                     return 1
             # Update FETCH_HEAD.
-            log_run_git(
-                monorepo.path, ["update-ref", "FETCH_HEAD", mono_fetch_head_ref]
+            subprocess.check_call(
+                ["git", "-C", str(monorepo.path)]
+                + ["update-ref", "FETCH_HEAD", mono_fetch_head_ref],
             )
+            print("Updated FETCH_HEAD")
         else:
             print(
                 "Fetched refs/toprepo/fetch-head but skipped creating a "
