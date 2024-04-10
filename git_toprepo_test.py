@@ -328,7 +328,7 @@ def test_get_config_location(tmp_path):
     subprocess.check_call(cwd=server_top, args="git init --quiet".split(" "))
     (server_top / ".toprepo").write_text(
         """\
-[toprepo.config-v1]
+[toprepo.config-v1.location]
     type = git
     url = ../config
     ref = refs/heads/config-branch

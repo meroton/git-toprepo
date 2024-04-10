@@ -49,21 +49,22 @@ The algorithm steps are:
 
 === Configuration location ===
 
-The location of the file is specified by the `toprepo.config-v1` section of
-the git-config for the mono repo. If the field is missing, the `.toprepo`
-file in the HEAD ref of the top repository remote, specified by
-`toprepo.top.fetchurl`, is searched.
+The location of the file is specified by the `toprepo.config-v1.location`
+section of the git-config for the mono repo. If the field
+`toprepo.config-v1.location.type` is missing, the `.toprepo` file in the
+HEAD ref of the top repository remote, specified by `toprepo.top.fetchurl`,
+is searched for a location specification.
 
-If `toprepo.config-v1.type` is `local`, `toprepo.config-v1.path` points to
-a file to be loaded.
+If `toprepo.config-v1.location.type` is `local`,
+`toprepo.config-v1.location.path` points to a file to be loaded.
 
-When `toprepo.config-v1.type` is `git`, the config will be loaded from
-`toprepo.config-v1.path` at `toprepo.config-v1.ref` in the repository
-`toprepo.config-v1.url`. If the url starts with '.', it is assumed to be
-an url relative to the top repository remote origin.
+When `toprepo.config-v1.location.type` is `git`, the config will be loaded from
+`toprepo.config-v1.location.path` at `toprepo.config-v1.location.ref` in the
+repository `toprepo.config-v1.location.url`. If the url starts with '.', it is
+assumed to be an url relative to the top repository remote origin.
 
 The git-config, in the view from the mono repo, will be appended to
-the loaded configuration, even if `toprepo.config-v1.type` is `none`.
+the loaded configuration, even if `toprepo.config-v1.location.type` is `none`.
 
 === Configuration ===
 
@@ -611,17 +612,17 @@ def try_create_toprepo_config_loader(
 def create_toprepo_config_loader(monorepo: MonoRepo, online: bool) -> ConfigLoader:
     config_loaders = []
     config_dict = _get_toprepo_config_location(monorepo, online)
-    config_v1_type = config_dict["toprepo.config-v1.type"][-1]
+    config_v1_type = config_dict["toprepo.config-v1.location.type"][-1]
     if config_v1_type == "none":
         pass
     elif config_v1_type == "local":
-        file_path = config_dict["toprepo.config-v1.path"][-1]
+        file_path = config_dict["toprepo.config-v1.location.path"][-1]
         config_loaders.append(LocalFileConfigLoader(monorepo.path / file_path))
     elif config_v1_type == "git":
         # Load.
-        raw_url = config_dict["toprepo.config-v1.url"][-1]
-        ref = config_dict["toprepo.config-v1.ref"][-1]
-        filename = config_dict["toprepo.config-v1.path"][-1]
+        raw_url = config_dict["toprepo.config-v1.location.url"][-1]
+        ref = config_dict["toprepo.config-v1.location.ref"][-1]
+        filename = config_dict["toprepo.config-v1.location.path"][-1]
         # Translate.
         parent_url = monorepo.get_toprepo_fetch_url()
         url = join_submodule_url(parent_url, raw_url)
@@ -637,14 +638,14 @@ def create_toprepo_config_loader(monorepo: MonoRepo, online: bool) -> ConfigLoad
             )
         )
     else:
-        raise ValueError(f"Invalid toprepo.config-v1.type {config_v1_type!r}")
+        raise ValueError(f"Invalid toprepo.config-v1.location.type {config_v1_type!r}")
     # Always override with in .git/config content.
     config_loaders.append(LocalGitConfigLoader(monorepo))
     return MultiConfigLoader(config_loaders)
 
 
 def _get_toprepo_config_location(monorepo: MonoRepo, online: bool) -> str:
-    location_type_key = "toprepo.config-v1.type"
+    location_type_key = "toprepo.config-v1.location.type"
     local_loader = LocalGitConfigLoader(monorepo)
     local_config = local_loader.get_config_dict()
     if location_type_key in local_config:
