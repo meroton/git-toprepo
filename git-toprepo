@@ -494,12 +494,59 @@ class RepoConfig:
     """Absolute URL to git-push to."""
 
 
-def parse_git_config_content(config_lines: str) -> Dict[str, List[str]]:
-    config_dict: DefaultDict[str, List[str]] = defaultdict(list)
-    for line in config_lines.splitlines(keepends=False):
-        key, value = line.split("=", 1)
-        config_dict[key].append(value)
-    return config_dict
+_ConfigDict_unset = object()
+
+
+class ConfigDict(defaultdict[str, List[str]]):
+    """ConfigDict maps from a key to a list of values.
+
+    For single value options, use the last value only (values[-1]).
+    """
+
+    def __init__(self):
+        super().__init__(list)
+
+    @staticmethod
+    def parse(config_lines: str) -> "ConfigDict":
+        ret = ConfigDict()
+        for line in config_lines.splitlines(keepends=False):
+            key, value = line.split("=", 1)
+            ret[key].append(value)
+        return ret
+
+    @staticmethod
+    def join(config_dicts: Iterable["ConfigDict"]) -> "ConfigDict":
+        ret = ConfigDict()
+        for config_dict in config_dicts:
+            for key, values in config_dict.items():
+                ret[key].extend(values)
+        return ret
+
+    def extract_mapping(self, prefix: str) -> Dict[str, "ConfigDict"]:
+        """Extracts for example submodule.<name>.<key>=<value>."""
+        assert not prefix.endswith("."), prefix
+        prefix += "."
+        ret = defaultdict(ConfigDict)
+        for key, values in self.items():
+            if key.startswith(prefix):
+                name, subkey = key[len(prefix) :].split(".", 1)
+                ret[name][subkey] = values
+        return ret
+
+    def get_singleton(
+        self, key, default: Optional[str] = _ConfigDict_unset
+    ) -> Optional[str]:
+        """Varifies that there are no conflicting configuration values."""
+        if default == _ConfigDict_unset:
+            values = self[key]
+        else:
+            values = self.get(key, [default])
+        values = sorted(set(values))
+        assert len(values) != 0, f"The key {key!r} should not exist without a value"
+        if len(values) != 1:
+            values_str = ", ".join(values[:-1]) + f" and {values[-1]}"
+            raise ValueError(f"Conflicting values for {key}: {values_str}")
+        return values[0]
 
 
 class ConfigLoader(ABC):
@@ -510,8 +557,8 @@ class ConfigLoader(ABC):
     def git_config_list(self) -> str:
         raise NotImplementedError()
 
-    def get_config_dict(self) -> Dict[str, List[str]]:
-        return parse_git_config_content(self.git_config_list())
+    def get_config_dict(self) -> ConfigDict:
+        return ConfigDict.parse(self.git_config_list())
 
 
 class MultiConfigLoader(ConfigLoader):
@@ -529,6 +576,8 @@ class MultiConfigLoader(ConfigLoader):
             if part != "" and part[-1] != "\n":
                 part += "\n"
             parts.append(part)
+        # The first part should override everything else.
+        parts.reverse()
         return "".join(parts)
 
 
@@ -557,6 +606,14 @@ class ContentConfigLoader(ConfigLoader):
             input=config_file_content,
             text=True,
         )
+
+
+class StaticContentConfigLoader(ContentConfigLoader):
+    def __init__(self, content: str):
+        self.content = content
+
+    def read_config_file_content(self) -> str:
+        return self.content
 
 
 class LocalFileConfigLoader(ContentConfigLoader):
@@ -602,58 +659,119 @@ class GitRemoteConfigLoader(ContentConfigLoader):
         )
 
 
-def try_create_toprepo_config_loader(
-    monorepo: MonoRepo, online: bool
-) -> Optional[ConfigLoader]:
-    try:
-        return create_toprepo_config_loader(monorepo, online)
-    except RuntimeError as err:
-        print(f"ERROR: Could not find configuration location: {err}")
-        return None
+class ConfigAccumulator:
+    def __init__(self, monorepo: MonoRepo, online: bool):
+        self.monorepo = monorepo
+        self.online = online
 
+    def try_load_main_config(self) -> Optional[ConfigDict]:
+        try:
+            return self.load_config()
+        except RuntimeError as err:
+            print(f"ERROR: Could not find configuration location: {err}")
+            return None
 
-def create_toprepo_config_loader(monorepo: MonoRepo, online: bool) -> ConfigLoader:
-    config_loaders = []
-    config_dict = _get_toprepo_config_location(monorepo, online)
-    config_v1_type = config_dict["toprepo.config-v1.location.type"][-1]
-    if config_v1_type == "none":
-        pass
-    elif config_v1_type == "local":
-        file_path = config_dict["toprepo.config-v1.location.path"][-1]
-        config_loaders.append(LocalFileConfigLoader(monorepo.path / file_path))
-    elif config_v1_type == "git":
-        # Load.
-        raw_url = config_dict["toprepo.config-v1.location.url"][-1]
-        ref = config_dict["toprepo.config-v1.location.ref"][-1]
-        filename = config_dict["toprepo.config-v1.location.path"][-1]
-        # Translate.
-        parent_url = monorepo.get_toprepo_fetch_url()
-        url = join_submodule_url(parent_url, raw_url)
-        filename_path = PurePosixPath(filename)
-        # Create.
-        config_loaders.append(
-            GitRemoteConfigLoader(
+    def load_main_config(self) -> ConfigDict:
+        """Load HEAD:.toprepo from the remote unless specified in .git/config."""
+        config_loader = MultiConfigLoader(
+            [
+                LocalGitConfigLoader(self.monorepo),
+                StaticContentConfigLoader(
+                    """\
+[toprepo.config.default]
+    type = "git"
+    url = .
+    ref = HEAD
+    path = .toprepo
+"""
+                ),
+            ]
+        )
+        return self.load_config(config_loader)
+
+    def load_config(self, config_loader: ConfigLoader) -> ConfigDict:
+        full_config_dict = ConfigDict()
+        existing_names = set()
+        config_loaders_todo = [config_loader]
+        while len(config_loaders_todo) != 0:
+            config_loader = config_loaders_todo.pop(0)
+            if self.online:
+                config_loader.fetch_remote_config()
+            current_config_dict = config_loader.get_config_dict()
+            sub_config_loaders = self.get_config_loaders(
+                current_config_dict, full_config_dict
+            )
+            # Earlier loaded configs overrides later loaded configs.
+            full_config_dict = ConfigDict.join([current_config_dict, full_config_dict])
+            # Traverse into sub-config-loaders.
+            for name, sub_config_loader in sub_config_loaders.items():
+                print("FRME", "Found", name)
+                if name in existing_names:
+                    raise ValueError(
+                        f"toprepo.config.{name} configurations found in multiple sources"
+                    )
+                existing_names.add(name)
+                config_loaders_todo.append(sub_config_loader)
+        return full_config_dict
+
+    def get_config_loaders(
+        self, config_dict: ConfigDict, overrides: ConfigDict
+    ) -> Dict[str, ConfigLoader]:
+        config_loaders: Dict[str, ConfigLoader] = {}
+        # Accumulate toprepo.config.<id>.* keys.
+        own_loader_config_dicts = config_dict.extract_mapping("toprepo.config")
+        full_loader_config_dicts = ConfigDict.join(
+            [config_dict, overrides]
+        ).extract_mapping("toprepo.config")
+        for name, own_loader_values in own_loader_config_dicts.items():
+            # Check if values are just for overriding or the actual configuration.
+            partial_value = own_loader_values.get("partial", "0")
+            is_partial = {
+                "1": True,
+                "true": True,
+                "0": False,
+                "false": False,
+            }[partial_value.lower()]
+            if is_partial:
+                continue
+            # Actual configuration, load.
+            full_loader_values = full_loader_config_dicts[name]
+            config_loaders[name] = self.get_config_loader(name, full_loader_values)
+        return config_loaders
+
+    def get_config_loader(self, name: str, config_dict: ConfigDict) -> ConfigLoader:
+        loader_type = config_dict["type"][-1]
+        if loader_type == "none":
+            config_loader = StaticContentConfigLoader("")
+        elif loader_type == "file":
+            file_path = config_dict["path"][-1]
+            config_loader = LocalFileConfigLoader(self.monorepo.path / file_path)
+        elif loader_type == "git":
+            # Load.
+            raw_url = config_dict["url"][-1]
+            ref = config_dict["ref"][-1]
+            filename = config_dict["path"][-1]
+            # Translate.
+            parent_url = self.monorepo.get_toprepo_fetch_url()
+            url = join_submodule_url(parent_url, raw_url)
+            filename_path = PurePosixPath(filename)
+            # Create.
+            config_loader = GitRemoteConfigLoader(
                 url=url,
                 remote_ref=ref,
                 filename=filename_path,
-                local_repo=monorepo,
-                local_ref="refs/toprepo/config-v1",
+                local_repo=self.monorepo,
+                local_ref=f"refs/toprepo/config/{name}",
             )
-        )
-    else:
-        raise ValueError(f"Invalid toprepo.config-v1.location.type {config_v1_type!r}")
-    # Always override with in .git/config content.
-    config_loaders.append(LocalGitConfigLoader(monorepo))
-    ret = MultiConfigLoader(config_loaders)
-    if online:
-        ret.fetch_remote_config()
-    return ret
+        else:
+            raise ValueError(f"Invalid toprepo.config.type {loader_type!r}")
+        return config_loader
 
 
 def _get_toprepo_config_location(monorepo: MonoRepo, online: bool) -> str:
-    location_type_key = "toprepo.config-v1.location.type"
     local_loader = LocalGitConfigLoader(monorepo)
     local_config = local_loader.get_config_dict()
+    location_type_key = "toprepo.config.location.type"
     if location_type_key in local_config:
         return local_config
 
@@ -681,27 +799,18 @@ def get_gitmodules_info(
     config_loader: ConfigLoader, parent_url: Url
 ) -> List[GitModuleInfo]:
     """Parses the output from 'git config --list --file .gitmodules'."""
-    config_dicts: DefaultDict[str, Dict[str, str]] = defaultdict(dict)
-    submod_prefix = "submodule."
-    for key, values in config_loader.get_config_dict().items():
-        if key.startswith(submod_prefix):
-            name, field = key[len(submod_prefix) :].rsplit(".", 2)
-            for value in values:
-                if config_dicts[name].setdefault(field, value) != value:
-                    raise ValueError(
-                        f"Conflicting values {key}={value} and "
-                        + f"{config_dicts[name][field]}"
-                    )
+    submod_config_mapping = config_loader.get_config_dict().extract_mapping("submodule")
 
     configs: Dict[PurePosixPath, GitModuleInfo] = {}
-    for name, config_dict in config_dicts.items():
-        resolved_url = join_submodule_url(parent_url, config_dict["url"])
+    for name, config_dict in submod_config_mapping.items():
+        raw_url: RawUrl = config_dict.get_singleton("url")
+        resolved_url = join_submodule_url(parent_url, raw_url)
         submod_info = GitModuleInfo(
             name=name,
-            path=PurePosixPath(config_dict["path"]),
-            branch=config_dict.get("branch"),
+            path=PurePosixPath(config_dict.get_singleton("path")),
+            branch=config_dict.get_singleton("branch", None),
             url=resolved_url,
-            raw_url=config_dict["url"],
+            raw_url=raw_url,
         )
         if submod_info.path in configs:
             raise ValueError("Duplicated submodule configs for {submod_info.path}")
@@ -733,17 +842,15 @@ class Config:
         return raw_url_to_repos
 
     @staticmethod
-    def try_create(config_loader: ConfigLoader) -> Optional["Config"]:
+    def try_create(config_dict: ConfigDict) -> Optional["Config"]:
         try:
-            return Config.create(config_loader)
+            return Config.create(config_dict)
         except ConfigParsingError as err:
             print(f"ERROR: Could not parse toprepo config: {err}")
             return None
 
     @staticmethod
-    def create(config_loader: ConfigLoader) -> "Config":
-        config_dict = config_loader.get_config_dict()
-
+    def create(config_dict: ConfigDict) -> "Config":
         # Accumulate toprepo.repo.<id>.* keys.
         repo_config_dicts: DefaultDict[RepoName, DefaultDict[str, List[str]]] = (
             defaultdict(lambda: defaultdict(list))
@@ -789,7 +896,7 @@ class Config:
 
     @staticmethod
     def parse_repo_configs(
-        repo_config_dicts: Dict[RepoName, Dict[str, List[str]]],
+        repo_config_dicts: Dict[RepoName, ConfigDict],
         wanted_repos_patterns: List[str],
         parent_fetch_url: str,
         parent_push_url: str,
@@ -810,7 +917,7 @@ class Config:
     @staticmethod
     def parse_repo_config(
         name: RepoName,
-        repo_config_dict: Dict[str, List[str]],
+        repo_config_dict: ConfigDict,
         wanted_repos_patterns: List[str],
         parent_fetch_url: Url,
         parent_push_url: Url,
@@ -2199,10 +2306,10 @@ def main_init(args) -> int:
 
 def main_refilter(args) -> int:
     monorepo = MonoRepo(args.cwd)
-    config_loader = try_create_toprepo_config_loader(monorepo, args.online)
-    if config_loader is None:
+    config_dict = ConfigAccumulator(monorepo, args.online).try_load_main_config()
+    if config_dict is None:
         return 1
-    config = Config.try_create(config_loader)
+    config = Config.try_create(config_dict)
     if config is None:
         return 1
     toprepo = TopRepo.from_config(monorepo.get_toprepo_dir(), config)
@@ -2222,10 +2329,10 @@ def main_refilter(args) -> int:
 
 def main_fetch(args) -> int:
     monorepo = MonoRepo(args.cwd)
-    config_loader = try_create_toprepo_config_loader(monorepo, online=True)
-    if config_loader is None:
+    config_dict = ConfigAccumulator(monorepo, online=True).try_load_main_config()
+    if config_dict is None:
         return 1
-    config = Config.try_create(config_loader)
+    config = Config.try_create(config_dict)
     if config is None:
         return 1
     toprepo = TopRepo.from_config(monorepo.get_toprepo_dir(), config)
@@ -2304,10 +2411,10 @@ def main_fetch(args) -> int:
 
 def main_push(args) -> int:
     monorepo = MonoRepo(args.cwd)
-    config_loader = try_create_toprepo_config_loader(monorepo, online=True)
-    if config_loader is None:
+    config_dict = ConfigAccumulator(monorepo, online=True).try_load_main_config()
+    if config_dict is None:
         return 1
-    config = Config.try_create(config_loader)
+    config = Config.try_create(config_dict)
     if config is None:
         return 1
     toprepo = TopRepo.from_config(monorepo.get_toprepo_dir(), config)

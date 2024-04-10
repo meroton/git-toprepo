@@ -336,7 +336,7 @@ def test_get_config_location(tmp_path):
     subprocess.check_call(cwd=server_top, args="git init --quiet".split(" "))
     (server_top / ".toprepo").write_text(
         """\
-[toprepo.config-v1.location]
+[toprepo.config "config-branch"]
     type = git
     url = ../config
     ref = refs/heads/config-branch
@@ -364,9 +364,9 @@ def test_get_config_location(tmp_path):
         args=["git", "config", "toprepo.missing-commits.rev-test-hash", "local-path"],
     )
 
-    config_loader = git_toprepo.create_toprepo_config_loader(worktree, online=True)
-    config_loader.fetch_remote_config()
-    config_dict = config_loader.get_config_dict()
+    config_dict = git_toprepo.ConfigAccumulator(
+        worktree, online=True
+    ).load_main_config()
     assert config_dict["toprepo.missing-commits.rev-test-hash"] == [
         "correct-path",
         "local-path",
