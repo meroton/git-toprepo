@@ -37,6 +37,14 @@ def test_repository_basename():
 def test_join_submodule_url():
     # Relative.
     assert (
+        git_toprepo.join_submodule_url("https://github.com/org/repo", ".")
+        == "https://github.com/org/repo"
+    )
+    assert (
+        git_toprepo.join_submodule_url("https://github.com/org/repo", "./")
+        == "https://github.com/org/repo"
+    )
+    assert (
         git_toprepo.join_submodule_url("https://github.com/org/repo", "./foo")
         == "https://github.com/org/repo/foo"
     )

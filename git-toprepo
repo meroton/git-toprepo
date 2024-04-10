@@ -313,7 +313,7 @@ def repository_basename(repository: Url) -> str:
 
 
 def join_submodule_url(parent: Url, other: RawUrl) -> Url:
-    if other.startswith("./") or other.startswith("../"):
+    if other.startswith("./") or other.startswith("../") or other == ".":
         scheme, parent = parent.split("://", 1)
         parent = parent.rstrip("/")
         while True:
@@ -332,7 +332,10 @@ def join_submodule_url(parent: Url, other: RawUrl) -> Url:
                 other = other[3:]
             else:
                 break
-        ret = f"{scheme}://{parent}/{other}"
+        if other in ("", "."):
+            ret = f"{scheme}://{parent}"
+        else:
+            ret = f"{scheme}://{parent}/{other}"
     else:
         ret = other
     return ret
@@ -641,7 +644,10 @@ def create_toprepo_config_loader(monorepo: MonoRepo, online: bool) -> ConfigLoad
         raise ValueError(f"Invalid toprepo.config-v1.location.type {config_v1_type!r}")
     # Always override with in .git/config content.
     config_loaders.append(LocalGitConfigLoader(monorepo))
-    return MultiConfigLoader(config_loaders)
+    ret = MultiConfigLoader(config_loaders)
+    if online:
+        ret.fetch_remote_config()
+    return ret
 
 
 def _get_toprepo_config_location(monorepo: MonoRepo, online: bool) -> str:
