@@ -313,16 +313,25 @@ def repository_basename(repository: Url) -> str:
 
 
 def repository_name(repository: Url) -> str:
-    idx = repository.find("://")
+    name = repository
+    # Handle relative paths.
+    name = name.replace("../", "")
+    name = name.replace("./", "")
+    # Remove scheme.
+    idx = name.find("://")
     if idx != -1:
-        repository = repository[idx + 3:]
-    idx = repository.find("/")
-    # idx+1 also works if no separator was found.
-    name = repository[idx + 1 :]
+        name = name[idx + 3 :]
+        # Remove the domain name.
+        idx = name.find("/")
+        # idx+1 also works if no separator was found.
+        name = name[idx + 1 :]
+    # Annoying with double slash.
+    name = name.replace("//", "/")
+    name = name.strip("/")
     name = name.removesuffix(".git")
     # For both an URL and a file path, assume a limited set of separators.
     for sep in r"/\:":
-        name = name.replace(sep, "_")
+        name = name.replace(sep, "-")
     return name
 
 
@@ -680,7 +689,7 @@ class ConfigAccumulator:
 
     def try_load_main_config(self) -> Optional[ConfigDict]:
         try:
-            return self.load_config()
+            return self.load_main_config()
         except RuntimeError as err:
             print(f"ERROR: Could not find configuration location: {err}")
             return None
@@ -719,7 +728,6 @@ class ConfigAccumulator:
             full_config_dict = ConfigDict.join([current_config_dict, full_config_dict])
             # Traverse into sub-config-loaders.
             for name, sub_config_loader in sub_config_loaders.items():
-                print("FRME", "Found", name)
                 if name in existing_names:
                     raise ValueError(
                         f"toprepo.config.{name} configurations found in multiple sources"
@@ -971,7 +979,9 @@ class Config:
         )
 
     @staticmethod
-    def repo_is_wanted(name: RepoName, wanted_repos_patterns: List[str]) -> bool:
+    def repo_is_wanted(
+        name: RepoName, wanted_repos_patterns: List[str]
+    ) -> Optional[bool]:
         wanted = None
         for pattern in wanted_repos_patterns:
             if pattern[0] not in "+-":
@@ -980,7 +990,7 @@ class Config:
                     + "should start with '+' or '-' followed by a regex."
                 )
             try:
-                if re.match(pattern[1:], name) is not None:
+                if re.fullmatch(pattern[1:], name) is not None:
                     wanted = pattern[0] == "+"
             except RuntimeError as err:
                 raise ConfigParsingError(
@@ -1541,7 +1551,9 @@ class TopRepoExpander(RepoExpanderBase):
             print("ERROR: Some referenced commits could not be found")
             print("[toprepo.missing-commits]")
             max_missing_commits_to_print = 100
-            for url, commit_hash in sorted(missing_commits)[:max_missing_commits_to_print]:
+            for url, commit_hash in sorted(missing_commits)[
+                :max_missing_commits_to_print
+            ]:
                 commit_hash_str = commit_hash.decode("utf-8")
                 print(f"\trev-{commit_hash_str} = {url}")
             if len(missing_commits) > max_missing_commits_to_print:

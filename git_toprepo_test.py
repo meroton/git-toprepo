@@ -30,8 +30,19 @@ def test_push_refspec_parser():
 def test_repository_basename():
     assert git_toprepo.repository_basename("https://github.com/org/repo") == "repo"
     assert git_toprepo.repository_basename("https://github.com/org/repo.git") == "repo"
-    assert git_toprepo.repository_basename("git://github.com:repo") == "repo"
+    assert git_toprepo.repository_basename("git://github.com/repo") == "repo"
     assert git_toprepo.repository_basename("abc\\org\\repo") == "repo"
+
+
+def test_repository_name():
+    assert git_toprepo.repository_name("https://github.com/org/repo") == "org-repo"
+    assert git_toprepo.repository_name("https://github.com/org/repo.git") == "org-repo"
+    assert git_toprepo.repository_name("https://github.com//org/repo") == "org-repo"
+    assert git_toprepo.repository_name("https://github.com/org//repo") == "org-repo"
+    assert git_toprepo.repository_name("https://github.com:443/org/repo") == "org-repo"
+    assert git_toprepo.repository_name("git://github.com/org/repo") == "org-repo"
+    assert git_toprepo.repository_name(".././org/repo") == "org-repo"
+    assert git_toprepo.repository_name("abc\\org\\repo") == "abc-org-repo"
 
 
 def test_join_submodule_url():
@@ -74,6 +85,15 @@ def test_join_submodule_url():
         git_toprepo.join_submodule_url("parent", "ssh://github.com/org/repo")
         == "ssh://github.com/org/repo"
     )
+
+
+def test_config_repo_is_wanted():
+    assert git_toprepo.Config.repo_is_wanted("Repo", ["+Repo"])
+    assert not git_toprepo.Config.repo_is_wanted("Repo", ["+Repo", "-Repo"])
+    assert git_toprepo.Config.repo_is_wanted("Repo", ["+R"]) is None
+    assert git_toprepo.Config.repo_is_wanted("Repo", ["-o"]) is None
+    assert git_toprepo.Config.repo_is_wanted("Repo", ["-.*", "+Repo"])
+    assert not git_toprepo.Config.repo_is_wanted("Repo", ["+.*", "-Repo"])
 
 
 def test_annotate_message():
