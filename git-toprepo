@@ -927,6 +927,7 @@ def remote_to_repo(
         entries = remote_to_name.get(remote)
     if entries is None:
         print(f"ERROR: Could not resolve {full_remote}")
+        print("Is .gitmodules missing?")
         return None, None
     if len(entries) > 1:
         names_str = ", ".join(sorted(name for name, _ in entries))
@@ -1907,6 +1908,10 @@ subdir='' is used for the top repo.
 """
 
 
+class PushSplitError(ValueError):
+    pass
+
+
 class PushSplitter:
     def __init__(self, monorepo: MonoRepo, toprepo: TopRepo, config: Config):
         self.monorepo = monorepo
@@ -1917,6 +1922,8 @@ class PushSplitter:
         self.submodule_filter_helper = SubmoduleFilterHelper(
             self.monorepo, config.top_push_url
         )
+
+        self.error = None
 
     def split_commits(self, local_ref: RefStr) -> List[PushInstruction]:
         # TODO: Support altering .gitmodules inside the push.
@@ -1939,9 +1946,30 @@ class PushSplitter:
             ),
         )
         repo_filter.run()
+        if self.error is not None:
+            raise self.error
         return to_push
 
     def _commit_callback(
+        self,
+        repo_filter: git_filter_repo.RepoFilter,
+        to_push: List[PushInstruction],
+        mono_commit: git_filter_repo.Commit,
+        metadata,
+    ):
+        if self.error is not None:
+            # Stop fancy filtering, just pass through mono_commits
+            # so they don't get removed from the repo.
+            return
+
+        try:
+            self._commit_callback_impl(repo_filter, to_push, mono_commit, metadata)
+        except Exception as err:
+            if self.error is not None:
+                raise
+            self.error = err
+
+    def _commit_callback_impl(
         self,
         repo_filter: git_filter_repo.RepoFilter,
         to_push: List[PushInstruction],
@@ -1984,10 +2012,8 @@ class PushSplitter:
                 subrepo_map = self._get_top_commit_subrepos(top_commit_hash)
                 # Extend the parents list for each subdir.
                 unique_append(subrepo_parent_ids_map[b""], top_commit_hash)
-                for subrepo_path, subrepo_commit_hash in subrepo_map.items():
-                    unique_append(
-                        subrepo_parent_ids_map[subrepo_path], subrepo_commit_hash
-                    )
+                for subdir, subrepo_commit_hash in subrepo_map.items():
+                    unique_append(subrepo_parent_ids_map[subdir], subrepo_commit_hash)
 
         # The commits might not exist in the target repo.
         # Split into parts.
@@ -2008,9 +2034,10 @@ class PushSplitter:
         topic_required = len(file_changes_per_subdir) > 1
         topic = try_get_topic_from_message(mono_commit.message)
         if topic_required and topic is None:
-            raise ValueError(
-                "A commit spread over multiple repositories (submodules) need a "
-                + "topic footer ('Topic: <topic>') which wasn't found in the following message:\n"
+            raise PushSplitError(
+                "A commit spread over multiple repositories (submodules) "
+                + "need a topic footer ('Topic: <topic>') "
+                + "which wasn't found in the following message:\n"
                 + textwrap.indent(mono_commit.message.decode("utf-8"), "  ")
             )
         # Inject a bunch of new commits.
@@ -2083,7 +2110,8 @@ class PushSplitter:
         self, top_commit_hash: CommitHash
     ) -> Dict[bytes, CommitHash]:
         ls_tree_subrepo_stdout = subprocess.check_output(
-            ["git", "-C", str(self.toprepo.path), "ls-tree", top_commit_hash, "--"],
+            ["git", "-C", str(self.toprepo.path)]
+            + ["ls-tree", "-r", top_commit_hash, "--"],
         )
         subrepo_map = {}
         for line in ls_tree_subrepo_stdout.splitlines(keepends=False):
@@ -2103,9 +2131,10 @@ class PushSplitter:
             # Try to remove a single trailing ^-- line from an upstream cherry-pick.
             trimmed_message = trimmed_message[: idx + 1]  # Include LF
         if b"\n^-- " in trimmed_message:
-            raise ValueError(
-                "'^-- ' is not allowed in commit messages to push.\n"
-                + mono_message.decode("utf-8")
+            raise PushSplitError(
+                "'^-- ' was found in the following commit message. "
+                + "It looks like a commit that already exists upstream.\n"
+                + textwrap.indent(mono_message.decode("utf-8"), "  ")
             )
         return trimmed_message
 
@@ -2279,7 +2308,11 @@ def main_push(args) -> int:
     splitter = PushSplitter(monorepo, toprepo, config)
 
     refspec: PushRefSpec = args.local_and_remote_ref
-    push_instructions = splitter.split_commits(refspec.local_ref)
+    try:
+        push_instructions = splitter.split_commits(refspec.local_ref)
+    except PushSplitError as err:
+        print(f"\nERROR: {err}")
+        return 1
 
     # Push to each subrepo.
     repos_to_push = {push.repo.name: push.repo for push in push_instructions}
@@ -2302,10 +2335,11 @@ def main_push(args) -> int:
     # Push per repo
     for repo_name, push_list in repo_to_pushes.items():
         for push in push_list:
+            push_rev = push.commit_hash.decode("utf-8")
             log_run_git(
                 push.repo.path,
                 ["push", "--quiet", "--force", push.repo.config.push_url]
-                + [f"refs/toprepo/push:{refspec.remote_ref}"]
+                + [f"{push_rev}:{refspec.remote_ref}"]
                 + push.extra_args,
                 log_command=True,
                 dry_run=args.dry_run,
