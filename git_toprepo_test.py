@@ -354,7 +354,7 @@ def test_get_config_location(tmp_path):
     server_top = tmp_path / "server/top"
     server_top.mkdir(parents=True)
     subprocess.check_call(cwd=server_top, args="git init --quiet".split(" "))
-    (server_top / ".toprepo").write_text(
+    (server_top / ".gittoprepo").write_text(
         """\
 [toprepo.config "config-branch"]
     type = git
@@ -363,17 +363,13 @@ def test_get_config_location(tmp_path):
     path = toprepo.config
 """
     )
-    subprocess.check_call(cwd=server_top, args="git add .toprepo".split(" "))
+    subprocess.check_call(cwd=server_top, args="git add .gittoprepo".split(" "))
     subprocess.check_call(cwd=server_top, args="git commit -q -m Commit".split(" "))
 
     worktree_path = tmp_path / "worktree"
     worktree_path.mkdir(parents=True)
     subprocess.check_call(cwd=worktree_path, args="git init --quiet".split(" "))
     worktree = git_toprepo.MonoRepo(worktree_path)
-    subprocess.check_call(
-        cwd=worktree.path,
-        args="git config toprepo.top.fetchUrl ../server/top".split(" "),
-    )
     subprocess.check_call(
         cwd=worktree.path,
         args=["git", "config"]

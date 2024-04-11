@@ -47,29 +47,39 @@ The algorithm steps are:
   Simply checkout a different monorepo branch and run `git toprepo refilter`
   to move unmerged submodule branches around.
 
-=== Configuration location ===
+=== Configuration loading ===
 
-The location of the file is specified by the `toprepo.config-v1.location`
-section of the git-config for the mono repo. If the field
-`toprepo.config-v1.location.type` is missing, the `.toprepo` file in the
-HEAD ref of the top repository remote, specified by `toprepo.top.fetchurl`,
-is searched for a location specification.
+The configuration is specified in the git-config under the section
+`toprepo.config.<name>`. The default setting is:
 
-If `toprepo.config-v1.location.type` is `local`,
-`toprepo.config-v1.location.path` points to a file to be loaded.
+```
+[toprepo.config.default]
+    type = "git"
+    url = .
+    ref = HEAD
+    path = .gittoprepo
+```
 
-When `toprepo.config-v1.location.type` is `git`, the config will be loaded from
-`toprepo.config-v1.location.path` at `toprepo.config-v1.location.ref` in the
-repository `toprepo.config-v1.location.url`. If the url starts with '.', it is
-assumed to be an url relative to the top repository remote origin.
+This will load configuration from `.gittoprepo` at HEAD in the top repo remote.
+More configurations can be loaded recursively and they are parsed using
+`git config --file - --list`.
 
-The git-config, in the view from the mono repo, will be appended to
-the loaded configuration, even if `toprepo.config-v1.location.type` is `none`.
+The following fields are available:
 
-=== Configuration ===
+* `toprepo.config.<config-name>.type=file` loads a file from local disk.
+  * `toprepo.config.<config-name>.file`: The path to the config file to load.
+* `toprepo.config.<config-name>.type=git` loads a file from local disk.
+  * `toprepo.config.<config-name>.url`: The local or remote repository
+    location. If the URL starts with '.', it is assumed to be an URL relative
+    to the top repository remote origin.
+  * `toprepo.config.<config-name>.ref`: The remote reference to load.
+  * `toprepo.config.<config-name>.path`: The path to the config file
+    in the repository.
+* `toprepo.config.<config-name>.type=none` has no more fields.
 
-The configuration file is read using `git config --file - --list`.
-The following configurations are available:
+=== Configurations ===
+
+The following fields are available:
 
 * `toprepo.role`: A named role to use. Defaults to 'default'.
 * `toprepo.role.<role>.repos`: Tells which sub repos to use.
@@ -695,7 +705,7 @@ class ConfigAccumulator:
             return None
 
     def load_main_config(self) -> ConfigDict:
-        """Load HEAD:.toprepo from the remote unless specified in .git/config."""
+        """Load HEAD:.gittoprepo from the remote unless specified in .git/config."""
         config_loader = MultiConfigLoader(
             [
                 LocalGitConfigLoader(self.monorepo),
@@ -705,7 +715,7 @@ class ConfigAccumulator:
     type = "git"
     url = .
     ref = HEAD
-    path = .toprepo
+    path = .gittoprepo
 """
                 ),
             ]
@@ -788,33 +798,6 @@ class ConfigAccumulator:
         else:
             raise ValueError(f"Invalid toprepo.config.type {loader_type!r}")
         return config_loader
-
-
-def _get_toprepo_config_location(monorepo: MonoRepo, online: bool) -> str:
-    local_loader = LocalGitConfigLoader(monorepo)
-    local_config = local_loader.get_config_dict()
-    location_type_key = "toprepo.config.location.type"
-    if location_type_key in local_config:
-        return local_config
-
-    # Fallback to remote location configuration.
-    remote_loader = GitRemoteConfigLoader(
-        url=monorepo.get_toprepo_fetch_url(),
-        remote_ref="HEAD",
-        filename=PurePosixPath(".toprepo"),
-        local_repo=monorepo,
-        local_ref="refs/toprepo/config-location",
-    )
-    if online:
-        remote_loader.fetch_remote_config()
-    remote_config = remote_loader.get_config_dict()
-    if location_type_key in remote_config:
-        return remote_config
-    raise ValueError(
-        f"git-config {location_type_key} neither found locally for {monorepo.path} "
-        + f"nor at {remote_loader.url} in "
-        + f"{remote_loader.remote_ref}:{remote_loader.filename.as_posix()}"
-    )
 
 
 def get_gitmodules_info(
