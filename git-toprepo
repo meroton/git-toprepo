@@ -2631,7 +2631,7 @@ def _parse_arguments(argv):
     return args
 
 
-def main(argv):
+def main(argv=sys.argv):
     args = _parse_arguments(argv)
     try:
         returncode = args.func(args=args)
@@ -2644,4 +2644,4 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    sys.exit(main())
