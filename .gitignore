@@ -1,3 +1,8 @@
+# --- Manual entries ---
+.ruff_cache/
+
+# --- GitHub standard entries below ---
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

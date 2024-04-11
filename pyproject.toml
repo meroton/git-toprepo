@@ -11,9 +11,16 @@ readme = "README.md"
 python = "^3.8"
 git-filter-repo = "^2.38.0"
 
-[tool.poetry.group.dev.dependencies]
+[tool.poetry.group.test.dependencies]
 pytest = "^8.1.1"
+
+[tool.poetry.group.lint.dependencies]
+black = "^24.3.0"
+ruff = "^0.3.6"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+git-toprepo = "git_toprepo:main"
