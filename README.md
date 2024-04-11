@@ -1,4 +1,4 @@
-# Make git-submodule easy with git-toprepo
+# git-submodule made easy with git-toprepo
 
 The `git-toprepo` script acts a bit like a client side `git-subtree`
 based on the submodules in a top repository.
