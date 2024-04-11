@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "git-toprepo"
+version = "0.1.0"
+description = "git-submodule made easy with git-toprepo"
+keywords = ["git", "submodule", "monorepo", "toprepo", "superrepo"]
+authors = ["Fredrik Medley <fredrik@meroton.com>"]
+license = "GPL-3.0-only"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+git-filter-repo = "^2.38.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.1.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
