@@ -21,3 +21,5 @@ jobs:
         uses: abatilo/actions-poetry@v2
       - name: Build and test
         run: ./build.sh
+      - name: Check for modified workspace
+        run: git add . && git diff --exit-code HEAD --
