@@ -323,6 +323,19 @@ def test_remote_to_repo():
     )
 
 
+def commit_env(seed: str = ""):
+    """With this env, commits become deterministic."""
+    name_suffix = str(hash(seed))
+    return {
+        "GIT_AUTHOR_NAME": f"A Name {name_suffix}",
+        "GIT_AUTHOR_EMAIL": "a@no.domain",
+        "GIT_AUTHOR_DATE": "2023-01-02T03:04:05Z+01:00",
+        "GIT_COMMITTER_NAME": f"C Name {name_suffix}",
+        "GIT_COMMITTER_EMAIL": "c@no.domain",
+        "GIT_COMMITTER_DATE": "2023-06-07T08:09:10Z+01:00",
+    }
+
+
 def test_get_config_location(tmp_path):
     """Test storing the configuration remotely.
 
@@ -338,6 +351,7 @@ def test_get_config_location(tmp_path):
     subprocess.check_call(
         cwd=server_config,
         args="git commit -q -m InitialCommit --allow-empty".split(" "),
+        env=commit_env(),
     )
     subprocess.check_call(
         cwd=server_config, args="git branch -q config-branch".split(" ")
@@ -349,7 +363,11 @@ def test_get_config_location(tmp_path):
         "[toprepo.missing-commits]\nrev-test-hash = correct-path"
     )
     subprocess.check_call(cwd=server_config, args="git add toprepo.config".split(" "))
-    subprocess.check_call(cwd=server_config, args="git commit -q -m Config".split(" "))
+    subprocess.check_call(
+        cwd=server_config,
+        args="git commit -q -m Config".split(" "),
+        env=commit_env(),
+    )
 
     server_top = tmp_path / "server/top"
     server_top.mkdir(parents=True)
@@ -364,7 +382,11 @@ def test_get_config_location(tmp_path):
 """
     )
     subprocess.check_call(cwd=server_top, args="git add .gittoprepo".split(" "))
-    subprocess.check_call(cwd=server_top, args="git commit -q -m Commit".split(" "))
+    subprocess.check_call(
+        cwd=server_top,
+        args="git commit -q -m Commit".split(" "),
+        env=commit_env(),
+    )
 
     worktree_path = tmp_path / "worktree"
     worktree_path.mkdir(parents=True)
