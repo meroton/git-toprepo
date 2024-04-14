@@ -313,12 +313,19 @@ class GitModuleInfo:
         return hash((self.name, self.path, self.branch, self.url, self.raw_url))
 
 
+def removesuffix(text: str, suffix: str):
+    # Available in Python 3.9.
+    if text.endswith(suffix):
+        text = text[: -len(suffix)]
+    return text
+
+
 def repository_basename(repository: Url) -> str:
     # For both an URL and a file path, assume a limited set of separators.
     idx = max(repository.rfind(sep) for sep in r"/\:")
     # idx+1 also works if no separator was found.
     basename = repository[idx + 1 :]
-    basename = basename.removesuffix(".git")
+    basename = removesuffix(basename, ".git")
     return basename
 
 
@@ -338,7 +345,7 @@ def repository_name(repository: Url) -> str:
     # Annoying with double slash.
     name = name.replace("//", "/")
     name = name.strip("/")
-    name = name.removesuffix(".git")
+    name = removesuffix(name, ".git")
     # For both an URL and a file path, assume a limited set of separators.
     for sep in r"/\:":
         name = name.replace(sep, "-")
@@ -530,7 +537,7 @@ class RepoConfig:
 _ConfigDict_unset = object()
 
 
-class ConfigDict(defaultdict[str, List[str]]):
+class ConfigDict(DefaultDict[str, List[str]]):
     """ConfigDict maps from a key to a list of values.
 
     For single value options, use the last value only (values[-1]).
@@ -1000,7 +1007,7 @@ def remote_to_repo(
         remote_to_name[url].add(entry)
         # Also match partial URLs.
         # Example: ssh://user@github.com:22/foo/bar.git
-        url = url.removesuffix(".git")
+        url = removesuffix(url, ".git")
         remote_to_name[url].add(entry)
         if "://" in url:
             _, url = url.split("://", 1)
@@ -1034,8 +1041,8 @@ def remote_to_repo(
 
     # Now, try to find our repo.
     full_remote = remote
-    remote = remote.removesuffix("/")
-    remote = remote.removesuffix(".git")
+    remote = removesuffix(remote, "/")
+    remote = removesuffix(remote, ".git")
     entries = remote_to_name.get(remote)
     if entries is None and "://" in remote:
         _, remote = remote.split("://", 1)
