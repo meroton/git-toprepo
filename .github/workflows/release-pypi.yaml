@@ -3,9 +3,17 @@ on:
   push:
     tags:
       - '**'
+  workflow_run:
+    workflows: ["Build and test"]
+    types:
+      - completed
 jobs:
+  build-and-test:
+    # Use the callable build-and-test job to run the CI tests.
+    uses: ./.github/workflows/build-and-test.yaml
   release-pypi:
-    needs: [ci]
+    needs:
+      - build-and-test
     runs-on: ubuntu-latest
     environment: release-pypi
     permissions:
@@ -22,6 +30,3 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           print-hash: true
-        environment:
-          name: pypi
-          url: https://pypi.org/p/git-toprepo
