@@ -25,7 +25,7 @@ jobs:
       - name: Install python poetry
         uses: abatilo/actions-poetry@v2
       - name: Build the distribution package
-        run: poetry build
+        run: ./release.sh
       - name: Publish package distribution to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:

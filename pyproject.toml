@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "git-toprepo"
-version = "0.1.0"
+version = "0.0.0"
 description = "git-submodule made easy with git-toprepo"
 keywords = ["git", "submodule", "monorepo", "toprepo", "superrepo"]
 authors = ["Fredrik Medley <fredrik@meroton.com>"]
