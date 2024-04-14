@@ -1,0 +1,27 @@
+name: Release to PyPi
+on:
+  push:
+    tags:
+      - '**'
+jobs:
+  release-pypi:
+    needs: [ci]
+    runs-on: ubuntu-latest
+    environment: release-pypi
+    permissions:
+      # Give permission to trusted publishing.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+      - name: Install python poetry
+        uses: abatilo/actions-poetry@v2
+      - name: Build the distribution package
+        run: poetry build
+      - name: Publish package distribution to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          print-hash: true
+        environment:
+          name: pypi
+          url: https://pypi.org/p/git-toprepo

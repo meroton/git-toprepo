@@ -1,5 +1,6 @@
 # --- Manual entries ---
 .ruff_cache/
+.virtualenvs/
 
 # --- GitHub standard entries below ---
 
