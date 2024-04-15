@@ -3,10 +3,6 @@ on:
   push:
     tags:
       - '**'
-  workflow_run:
-    workflows: ["Build and test"]
-    types:
-      - completed
 jobs:
   build-and-test:
     # Use the callable build-and-test job to run the CI tests.
