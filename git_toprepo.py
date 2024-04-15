@@ -1245,7 +1245,7 @@ class RepoFetcher:
         # the original commits.
         log_run_git(
             self.monorepo.path,
-            ["fetch", "--quiet", "--prune", str(repo.path.absolute())]
+            ["fetch", "--quiet", "--no-tags", "--prune", str(repo.path.absolute())]
             + [f"+refs/*:refs/repos/{repo.name}/*"],
         )
 
