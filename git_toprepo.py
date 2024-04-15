@@ -1211,6 +1211,10 @@ class RepoFetcher:
                 repo.path,
                 ["init", "--quiet", "--bare"],
             )
+            subprocess.check_call(
+                ["git", "-C", str(repo.path)]
+                + ["config", "remote.origin.fetch", "+refs/heads/*:refs/heads/*"],
+            )
 
     def fetch_repo(self, repo: Repo, ref_args: Optional[List[str]] = None):
         """Make all the repo content available in the monorepo.
@@ -1225,6 +1229,15 @@ class RepoFetcher:
         log_run_git(
             repo.path,
             ["fetch"] + repo.config.fetch_args + [repo.config.fetch_url] + ref_args,
+        )
+        # For convenience, log where we fetched from.
+        subprocess.check_call(
+            ["git", "-C", str(repo.path)]
+            + ["config", "remote.origin.url", repo.config.fetch_url]
+        )
+        subprocess.check_call(
+            ["git", "-C", str(repo.path)]
+            + ["config", "remote.origin.pushurl", repo.config.push_url]
         )
         # Then move the blobs over to the monorepo.
         # The toprepo itself can be moved by git-filter-repo,
