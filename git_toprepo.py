@@ -599,7 +599,7 @@ class ConfigAccumulator:
             return None
 
     def load_main_config(self) -> ConfigDict:
-        """Load HEAD:.gittoprepo from the remote unless specified in .git/config."""
+        """Load from the remote unless specified in .git/config."""
         config_loader = MultiConfigLoader(
             [
                 LocalGitConfigLoader(self.monorepo),
@@ -608,8 +608,8 @@ class ConfigAccumulator:
 [toprepo.config.default]
     type = "git"
     url = .
-    ref = HEAD
-    path = .gittoprepo
+    ref = refs/meta/git-toprepo
+    path = toprepo.config
 """
                 ),
             ]
