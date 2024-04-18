@@ -459,6 +459,18 @@ class GitTopRepoExample:
         )
         return git_toprepo.MonoRepo(worktree_path)
 
+    def add_interesting_history(self):
+        """Test setup for a toprepo project.
+
+        A toprepo is placed in server/top and a submodule in
+        server/subA. The repository is populated with
+
+        top  A---B---C---D-------E---F---G---H
+                |       |       |       |
+        subA 1---2-------3---4---5---6---7---8
+        """
+        raise NotImplementedError()
+
 
 def test_get_config_location(tmp_path):
     """Test storing the configuration remotely.
