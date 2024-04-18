@@ -79,12 +79,24 @@ def test_join_submodule_url():
         git_toprepo.join_submodule_url("https://github.com/org/repo", "../../../foo")
         == "https://github.com/../foo"
     )
+    assert (
+        git_toprepo.join_submodule_url("file:///data/repo", "../../foo")
+        == "file:///foo"
+    )
+    assert (
+        git_toprepo.join_submodule_url("file:///data/repo", "../../../foo")
+        == "file:///../foo"
+    )
 
     # Absolute.
     assert (
         git_toprepo.join_submodule_url("parent", "ssh://github.com/org/repo")
         == "ssh://github.com/org/repo"
     )
+
+    # Without scheme.
+    assert git_toprepo.join_submodule_url("parent", "/data/repo") == "/data/repo"
+    assert git_toprepo.join_submodule_url("/data/repo", "../other") == "/data/other"
 
 
 def test_config_repo_is_wanted():
