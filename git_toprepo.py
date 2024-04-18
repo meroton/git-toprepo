@@ -2370,7 +2370,7 @@ def main_push(args) -> int:
             push_rev = push.commit_hash.decode("utf-8")
             log_run_git(
                 push.repo.path,
-                ["push", "--quiet", "--force", push.repo.config.push_url]
+                ["push", "--quiet", push.repo.config.push_url]
                 + [f"{push_rev}:{refspec.remote_ref}"]
                 + push.extra_args,
                 log_command=True,
