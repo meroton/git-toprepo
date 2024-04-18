@@ -241,7 +241,10 @@ def repository_name(repository: Url) -> str:
 
 def join_submodule_url(parent: Url, other: RawUrl) -> Url:
     if other.startswith("./") or other.startswith("../") or other == ".":
-        scheme, parent = parent.split("://", 1)
+        idx = parent.find("://")
+        scheme_end = idx + 3 if idx != -1 else idx + 1
+        scheme = parent[:scheme_end]
+        parent = parent[scheme_end:]
         parent = parent.rstrip("/")
         while True:
             if other.startswith("/"):
@@ -260,9 +263,9 @@ def join_submodule_url(parent: Url, other: RawUrl) -> Url:
             else:
                 break
         if other in ("", "."):
-            ret = f"{scheme}://{parent}"
+            ret = f"{scheme}{parent}"
         else:
-            ret = f"{scheme}://{parent}/{other}"
+            ret = f"{scheme}{parent}/{other}"
     else:
         ret = other
     return ret
