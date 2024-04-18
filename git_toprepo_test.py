@@ -573,13 +573,15 @@ def test_list_config(tmp_path, capsys, monkeypatch):
         git_toprepo.main(["argv0", "-C", str(worktree.path), "config", "--list"]) == 0
     )
     outerr = capsys.readouterr()
+    # The 'core.' configuration defaults differ between operating system.
+    interesting_lines = [
+        line
+        for line in outerr.out.splitlines(keepends=True)
+        if not line.startswith("core.")
+    ]
     assert (
-        outerr.out
+        "".join(interesting_lines)
         == f"""\
-core.bare=false
-core.filemode=true
-core.logallrefupdates=true
-core.repositoryformatversion=0
 remote.origin.url=file:///dev/null
 toprepo.config.config-branch.path=toprepo.config
 toprepo.config.config-branch.ref=refs/heads/config-branch
