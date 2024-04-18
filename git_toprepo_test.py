@@ -1,7 +1,8 @@
 #!/user/bin/env python3
+import os
 import pytest
 import subprocess
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 import git_toprepo
 
@@ -348,91 +349,136 @@ def commit_env(seed: str = ""):
     }
 
 
+class GitTopRepoExample:
+    def __init__(self, tmp_path):
+        self.tmp_path = tmp_path
+
+    def init_server_top(self) -> Path:
+        server_config = self.tmp_path / "server/config"
+        server_config.mkdir(parents=True)
+        subprocess.check_call(cwd=server_config, args="git init --quiet".split(" "))
+        subprocess.check_call(
+            cwd=server_config,
+            args="git commit -q -m InitialCommit --allow-empty".split(" "),
+            env=commit_env(),
+        )
+        subprocess.check_call(
+            cwd=server_config, args="git branch -q config-branch".split(" ")
+        )
+        subprocess.check_call(
+            cwd=server_config, args="git checkout -q config-branch".split(" ")
+        )
+        (server_config / "toprepo.config").write_text(
+            "[toprepo.missing-commits]\nrev-test-hash = some-path"
+        )
+        subprocess.check_call(
+            cwd=server_config, args="git add toprepo.config".split(" ")
+        )
+        subprocess.check_call(
+            cwd=server_config,
+            args="git commit -q -m Config".split(" "),
+            env=commit_env(),
+        )
+
+        server_top = self.tmp_path / "server/top"
+        server_top.mkdir(parents=True)
+        subprocess.check_call(cwd=server_top, args="git init --quiet".split(" "))
+        subprocess.check_call(
+            cwd=server_top,
+            args="git commit -q --allow-empty -m Initial".split(" "),
+            env=commit_env(),
+        )
+        (server_top / "toprepo.config").write_text(
+            """\
+    [toprepo.config "config-branch"]
+        type = git
+        url = ../config
+        ref = refs/heads/config-branch
+        path = toprepo.config
+    """
+        )
+        subprocess.check_call(cwd=server_top, args="git add toprepo.config".split(" "))
+        subprocess.check_call(
+            cwd=server_top,
+            args="git commit -q -m Commit".split(" "),
+            env=commit_env(),
+        )
+        subprocess.check_call(
+            cwd=server_top,
+            args="git update-ref refs/meta/git-toprepo HEAD".split(" "),
+        )
+        subprocess.check_call(
+            cwd=server_top,
+            args="git checkout -q HEAD~".split(" "),
+        )
+        return server_top
+
+    def git_init_worktree(self, server_top: Path) -> git_toprepo.MonoRepo:
+        worktree_path = self.tmp_path / "worktree"
+        worktree_path.mkdir(parents=True)
+        subprocess.check_call(cwd=worktree_path, args="git init --quiet".split(" "))
+        worktree = git_toprepo.MonoRepo(worktree_path)
+        subprocess.check_call(
+            cwd=worktree.path,
+            args=["git", "config"]
+            + ["toprepo.top.fetchUrl", f"file://{server_top.absolute()}"],
+        )
+        subprocess.check_call(
+            cwd=worktree.path,
+            args=[
+                "git",
+                "config",
+                "toprepo.missing-commits.rev-test-hash",
+                "local-override-path",
+            ],
+        )
+        return worktree
+
+    def toprepo_init_worktree(self, server_top: Path) -> git_toprepo.MonoRepo:
+        worktree_path = self.tmp_path / "worktree"
+        assert (
+            git_toprepo.main(
+                [
+                    "argv0",
+                    "-C",
+                    str(self.tmp_path),
+                    "init",
+                    str(server_top.absolute()),
+                    str(worktree_path),
+                ]
+            )
+            == 0
+        )
+        subprocess.check_call(
+            cwd=worktree_path,
+            args=[
+                "git",
+                "config",
+                "toprepo.missing-commits.rev-test-hash",
+                "local-override-path",
+            ],
+        )
+        return git_toprepo.MonoRepo(worktree_path)
+
+
 def test_get_config_location(tmp_path):
     """Test storing the configuration remotely.
 
     The test fixture includes the server/top git repository
-    where .toprepo at HEAD in server/top points to the
-    toprepo.config in server/config at refs/heads/config-branch.
-    The local working diretory is the worktree git repository
-    where toprepo.top.fetchUrl has been configured.
+    where toprepo.config at refs/meta/git-toprepo in server/top
+    points to the actual-toprepo.config in server/config at
+    refs/heads/config-branch.
     """
-    server_config = tmp_path / "server/config"
-    server_config.mkdir(parents=True)
-    subprocess.check_call(cwd=server_config, args="git init --quiet".split(" "))
-    subprocess.check_call(
-        cwd=server_config,
-        args="git commit -q -m InitialCommit --allow-empty".split(" "),
-        env=commit_env(),
-    )
-    subprocess.check_call(
-        cwd=server_config, args="git branch -q config-branch".split(" ")
-    )
-    subprocess.check_call(
-        cwd=server_config, args="git checkout -q config-branch".split(" ")
-    )
-    (server_config / "toprepo.config").write_text(
-        "[toprepo.missing-commits]\nrev-test-hash = correct-path"
-    )
-    subprocess.check_call(cwd=server_config, args="git add toprepo.config".split(" "))
-    subprocess.check_call(
-        cwd=server_config,
-        args="git commit -q -m Config".split(" "),
-        env=commit_env(),
-    )
-
-    server_top = tmp_path / "server/top"
-    server_top.mkdir(parents=True)
-    subprocess.check_call(cwd=server_top, args="git init --quiet".split(" "))
-    subprocess.check_call(
-        cwd=server_top,
-        args="git commit -q --allow-empty -m Initial".split(" "),
-        env=commit_env(),
-    )
-    (server_top / "toprepo.config").write_text(
-        """\
-[toprepo.config "config-branch"]
-    type = git
-    url = ../config
-    ref = refs/heads/config-branch
-    path = toprepo.config
-"""
-    )
-    subprocess.check_call(cwd=server_top, args="git add toprepo.config".split(" "))
-    subprocess.check_call(
-        cwd=server_top,
-        args="git commit -q -m Commit".split(" "),
-        env=commit_env(),
-    )
-    subprocess.check_call(
-        cwd=server_top,
-        args="git update-ref refs/meta/git-toprepo HEAD".split(" "),
-    )
-    subprocess.check_call(
-        cwd=server_top,
-        args="git checkout -q HEAD~".split(" "),
-    )
-
-    worktree_path = tmp_path / "worktree"
-    worktree_path.mkdir(parents=True)
-    subprocess.check_call(cwd=worktree_path, args="git init --quiet".split(" "))
-    worktree = git_toprepo.MonoRepo(worktree_path)
-    subprocess.check_call(
-        cwd=worktree.path,
-        args=["git", "config"]
-        + ["toprepo.top.fetchUrl", f"file://{server_top.absolute()}"],
-    )
-    subprocess.check_call(
-        cwd=worktree.path,
-        args=["git", "config", "toprepo.missing-commits.rev-test-hash", "local-path"],
-    )
+    example = GitTopRepoExample(tmp_path)
+    server_top = example.init_server_top()
+    worktree = example.toprepo_init_worktree(server_top)
 
     config_dict = git_toprepo.ConfigAccumulator(
         worktree, online=True
     ).load_main_config()
     assert config_dict["toprepo.missing-commits.rev-test-hash"] == [
-        "correct-path",
-        "local-path",
+        "some-path",
+        "local-override-path",
     ]
 
 
@@ -494,6 +540,61 @@ def test_read_config_casing(tmp_path):
         "toprepo.missing-commits.lower-case": ["local-config", "config2"],
         "toprepo.Keep_Casing.foo": ["Casing Kept"],
     }
+
+
+def test_get_config(tmp_path, capsys):
+    with capsys.disabled():
+        example = GitTopRepoExample(tmp_path)
+        server_top = example.init_server_top()
+        worktree = example.toprepo_init_worktree(server_top)
+
+    assert (
+        git_toprepo.main(
+            ["argv0", "-C", str(worktree.path)]
+            + ["config", "toprepo.missing-commits.rev-test-hash"]
+        )
+        == 0
+    )
+    outerr = capsys.readouterr()
+    assert outerr.out == "local-override-path\n"
+
+
+def test_list_config(tmp_path, capsys, monkeypatch):
+    with capsys.disabled():
+        example = GitTopRepoExample(tmp_path)
+        server_top = example.init_server_top()
+        worktree = example.toprepo_init_worktree(server_top)
+
+    envs = os.environ.copy()
+    envs["GIT_CONFIG_SYSTEM"] = "/dev/null"
+    envs["GIT_CONFIG_GLOBAL"] = "/dev/null"
+    monkeypatch.setattr(os, "environ", envs)
+    assert (
+        git_toprepo.main(["argv0", "-C", str(worktree.path), "config", "--list"]) == 0
+    )
+    outerr = capsys.readouterr()
+    assert (
+        outerr.out
+        == f"""\
+core.bare=false
+core.filemode=true
+core.logallrefupdates=true
+core.repositoryformatversion=0
+remote.origin.url=file:///dev/null
+toprepo.config.config-branch.path=toprepo.config
+toprepo.config.config-branch.ref=refs/heads/config-branch
+toprepo.config.config-branch.type=git
+toprepo.config.config-branch.url=../config
+toprepo.config.default.path=toprepo.config
+toprepo.config.default.ref=refs/meta/git-toprepo
+toprepo.config.default.type=git
+toprepo.config.default.url=.
+toprepo.missing-commits.rev-test-hash=some-path
+toprepo.missing-commits.rev-test-hash=local-override-path
+toprepo.top.fetchurl={server_top}
+toprepo.top.pushurl={server_top}
+"""
+    )
 
 
 def test_init_fetch_checkout():

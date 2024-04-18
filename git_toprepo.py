@@ -5,6 +5,7 @@ git-toprepo merges subrepositories into a common history, similar to git-subtree
 """
 import argparse
 import itertools
+import os
 import re
 import shutil
 import subprocess
@@ -350,11 +351,11 @@ def log_run_git(
         full_args = ["git", "-C", str(repo)] + args
     cmdline = subprocess.list2cmdline(full_args)
     if dry_run:
-        print(f"\rWould run  {cmdline}")
+        print(f"\rWould run  {cmdline}", file=sys.stderr)
         ret = None
     else:
         if log_command:
-            print(f"\rRunning   {cmdline}")
+            print(f"\rRunning   {cmdline}", file=sys.stderr)
         ret = subprocess.run(full_args, check=check, **kwargs)
     return ret
 
@@ -520,6 +521,7 @@ class LocalGitConfigLoader(ConfigLoader):
     def git_config_list(self) -> str:
         return subprocess.check_output(
             ["git", "-C", str(self.repo.path), "config", "--list"],
+            env=os.environ,  # To make monkeypatching work for tests.
             text=True,
         )
 
@@ -579,6 +581,8 @@ class GitRemoteConfigLoader(ContentConfigLoader):
         log_run_git(
             self.local_repo.path,
             ["fetch", "--quiet", self.url, f"+{self.remote_ref}:{self.local_ref}"],
+            stdout=sys.__stderr__.fileno(),
+            stderr=subprocess.STDOUT,
         )
 
     def read_config_file_content(self) -> str:
@@ -2225,6 +2229,26 @@ def main_init(args) -> int:
     return 0
 
 
+def main_config(args) -> int:
+    monorepo = MonoRepo(args.cwd)
+    config_dict = ConfigAccumulator(monorepo, online=args.online).try_load_main_config()
+    if config_dict is None:
+        return 1
+    if args.key is not None:
+        if args.key not in config_dict:
+            print("ERROR: Missing configuration key {args.key}")
+            return 1
+        value = config_dict[args.key][-1]
+        print(value)
+    elif args.list:
+        for key, values in sorted(config_dict.items()):
+            for value in values:
+                print(f"{key}={value}")
+    else:
+        assert False, "Bad args {args}"
+    return 0
+
+
 def main_refilter(args) -> int:
     monorepo = MonoRepo(args.cwd)
     config_dict = ConfigAccumulator(monorepo, args.online).try_load_main_config()
@@ -2428,6 +2452,34 @@ def _parse_arguments(argv):
         help="""\
             Where to initialize the repository.
             Defaults to the base name of the repository.""",
+    )
+
+    config_parser = subparsers.add_parser(
+        "config",
+        description="""\
+            Reads the mono repository configuration.
+        """,
+    )
+    config_parser.set_defaults(func=main_config)
+    config_parser.add_argument(
+        "--offline",
+        action="store_false",
+        dest="online",
+        help="""\
+            Disallow fetching the configuration remotely,
+            use existing information only.""",
+    )
+    config_key_group = config_parser.add_mutually_exclusive_group(required=True)
+    config_key_group.add_argument(
+        "--list",
+        action="store_true",
+        help="List all configurations.",
+    )
+    config_key_group.add_argument(
+        "key",
+        type=str,
+        nargs="?",
+        help="The name of the configuration to get.",
     )
 
     refilter_parser = subparsers.add_parser(
