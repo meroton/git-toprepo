@@ -1935,6 +1935,7 @@ class SubrepoCommitExpander(RepoExpanderBase):
                 subrepo_id_to_converted_id,
             )
             repo_filter.insert(new_mono_commit, direct_insertion=True)
+            subrepo_id_to_converted_id[subrepo_commit.id] = new_mono_commit.id
 
         repo_filter.finish()
 
