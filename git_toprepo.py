@@ -89,16 +89,37 @@ class MonoRepo(Repo):
 
     @lru_cache
     def get_toprepo_fetch_url(self) -> Url:
-        toprepo_fetchurl_key = "toprepo.top.fetchUrl"
+        fetch_url = self.get_toprepo_fetch_url_impl("remote.origin.url", False)
+        if fetch_url is None or fetch_url == "file:///dev/null":
+            # TODO: 2024-04-29 Remove after migration.
+            fetch_url = self.get_toprepo_fetch_url_impl("toprepo.top.fetchUrl", True)
+            subprocess.check_output(
+                ["git", "-C", str(self.path), "config", "remote.origin.url", fetch_url],
+                text=True,
+            ).rstrip()
+        # TODO: 2024-04-29 Remove after migration.
+        push_url = self.get_toprepo_fetch_url_impl("remote.top.pushUrl", False)
+        if push_url is None:
+            push_url = self.get_toprepo_fetch_url_impl("toprepo.top.pushUrl", True)
+            subprocess.check_output(
+                ["git", "-C", str(self.path), "config", "remote.top.pushUrl", push_url],
+                text=True,
+            ).rstrip()
+        return fetch_url
+
+    def get_toprepo_fetch_url_impl(self, toprepo_fetchurl_key, throw) -> Optional[Url]:
         try:
             fetch_url = subprocess.check_output(
                 ["git", "-C", str(self.path), "config", toprepo_fetchurl_key], text=True
             ).rstrip()
         except subprocess.CalledProcessError as err:
             if err.returncode == 1:
-                raise ValueError(
-                    f"git-config {toprepo_fetchurl_key} is missing in {self.path}"
-                )
+                if throw:
+                    raise ValueError(
+                        f"git-config {toprepo_fetchurl_key} is missing in {self.path}"
+                    )
+                else:
+                    return None
             raise
         return fetch_url
 
@@ -771,12 +792,18 @@ class Config:
         config_dict.setdefault("toprepo.role.default.repos", ["+.*"])
         role = config_dict.get("toprepo.role", ["default"])[-1]
         wanted_repos_patterns = config_dict.setdefault(f"toprepo.role.{role}.repos", [])
-        top_fetch_url = config_dict.get("toprepo.top.fetchurl", [None])[-1]
-        if top_fetch_url is None:
-            raise ConfigParsingError("Config toprepo.top.fetchUrl is not set")
-        top_push_url = config_dict.get("toprepo.top.pushurl", [None])[-1]
+        top_fetch_url = config_dict.get("remote.origin.url", [None])[-1]
+        if top_fetch_url is None or top_fetch_url == "file:///dev/null":
+            # TODO: 2024-04-29 Remove after migration.
+            top_fetch_url = config_dict.get("toprepo.top.fetchurl", [None])[-1]
+            if top_fetch_url is None:
+                raise ConfigParsingError("Config remote.origin.url is not set")
+        top_push_url = config_dict.get("remote.top.pushurl", [None])[-1]
         if top_push_url is None:
-            raise ConfigParsingError("Config toprepo.top.pushUrl is not set")
+            # TODO: 2024-04-29 Remove after migration.
+            top_push_url = config_dict.get("toprepo.top.pushurl", [None])[-1]
+            if top_push_url is None:
+                raise ConfigParsingError("Config remote.top.pushUrl is not set")
         repo_configs = Config.parse_repo_configs(
             repo_config_dicts,
             wanted_repos_patterns,
@@ -2194,19 +2221,21 @@ def main_init(args) -> int:
     monorepo_dir.mkdir()
     try:
         log_run_git(monorepo_dir, ["init", "--quiet"])
+        # git-submodule and git-filter-repo fail if remote.origin.url is missing.
         log_run_git(
             monorepo_dir,
-            ["config", "toprepo.top.fetchUrl", args.repository],
+            ["config", "remote.origin.url", args.repository],
         )
+        # Avoid accidental `git push origin`, use `git-toprepo push`.
         log_run_git(
             monorepo_dir,
-            ["config", "toprepo.top.pushUrl", args.repository],
-        )
-        # git-filter-repo fails if remote.origin.url is missing.
-        log_run_git(
-            monorepo_dir,
-            ["config", "remote.origin.url", "file:///dev/null"],
+            ["config", "remote.origin.pushUrl", "file:///dev/null"],
             log_command=False,
+        )
+        # Power users can push to the "top" remote.
+        log_run_git(
+            monorepo_dir,
+            ["config", "remote.top.pushUrl", args.repository],
         )
         monorepo = MonoRepo(monorepo_dir)
         toprepo_dir = monorepo.get_toprepo_dir()
