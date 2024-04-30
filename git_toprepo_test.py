@@ -582,7 +582,9 @@ def test_list_config(tmp_path, capsys, monkeypatch):
     assert (
         "".join(interesting_lines)
         == f"""\
-remote.origin.url=file:///dev/null
+remote.origin.pushurl=file:///dev/null
+remote.origin.url={server_top}
+remote.top.pushurl={server_top}
 toprepo.config.config-branch.path=toprepo.config
 toprepo.config.config-branch.ref=refs/heads/config-branch
 toprepo.config.config-branch.type=git
@@ -593,8 +595,6 @@ toprepo.config.default.type=git
 toprepo.config.default.url=.
 toprepo.missing-commits.rev-test-hash=some-path
 toprepo.missing-commits.rev-test-hash=local-override-path
-toprepo.top.fetchurl={server_top}
-toprepo.top.pushurl={server_top}
 """
     )
 
