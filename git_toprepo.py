@@ -97,6 +97,11 @@ class MonoRepo(Repo):
                 ["git", "-C", str(self.path), "config", "remote.origin.url", fetch_url],
                 text=True,
             ).rstrip()
+            subprocess.check_output(
+                ["git", "-C", str(self.path)]
+                + ["config", "remote.origin.pushUrl", "file:///dev/null"],
+                text=True,
+            ).rstrip()
         # TODO: 2024-04-29 Remove after migration.
         push_url = self.get_toprepo_fetch_url_impl("remote.top.pushUrl", False)
         if push_url is None:
