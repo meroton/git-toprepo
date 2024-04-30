@@ -543,11 +543,11 @@ def test_read_config_casing(tmp_path):
 
 
 def test_get_config(tmp_path, capsys):
-    with capsys.disabled():
-        example = GitTopRepoExample(tmp_path)
-        server_top = example.init_server_top()
-        worktree = example.toprepo_init_worktree(server_top)
+    example = GitTopRepoExample(tmp_path)
+    server_top = example.init_server_top()
+    worktree = example.toprepo_init_worktree(server_top)
 
+    capsys.readouterr()  # Reset the stdout capture.
     assert (
         git_toprepo.main(
             ["argv0", "-C", str(worktree.path)]
@@ -560,15 +560,15 @@ def test_get_config(tmp_path, capsys):
 
 
 def test_list_config(tmp_path, capsys, monkeypatch):
-    with capsys.disabled():
-        example = GitTopRepoExample(tmp_path)
-        server_top = example.init_server_top()
-        worktree = example.toprepo_init_worktree(server_top)
+    example = GitTopRepoExample(tmp_path)
+    server_top = example.init_server_top()
+    worktree = example.toprepo_init_worktree(server_top)
 
     envs = os.environ.copy()
     envs["GIT_CONFIG_SYSTEM"] = "/dev/null"
     envs["GIT_CONFIG_GLOBAL"] = "/dev/null"
     monkeypatch.setattr(os, "environ", envs)
+    capsys.readouterr()  # Reset the stdout capture.
     assert (
         git_toprepo.main(["argv0", "-C", str(worktree.path), "config", "--list"]) == 0
     )
