@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
 import os
-import pytest
 import subprocess
 from pathlib import Path, PurePosixPath
+
+import pytest
 
 import git_toprepo
 

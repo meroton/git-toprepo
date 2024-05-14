@@ -30,7 +30,7 @@ from typing import (
 )
 
 try:
-    import git_filter_repo
+    import git_filter_repo  # type: ignore[import-untyped]
 except ImportError:
     print("ERROR: git-filter-repo is missing")
     print("Please run:  python3 -m pip install git-filter-repo")
@@ -339,7 +339,9 @@ def try_parse_commit_hash_from_message(
     if len(matches) == 0:
         return None
     elif len(matches) > 1:
-        raise ValueError(f"Multiple hashes found for {subdir} in the message {message}")
+        raise ValueError(
+            f"Multiple hashes found for '{subdir.decode()}' in the message '{message.decode()}'"
+        )
     else:
         (match,) = matches
     top_commit_hash = match.group(1)
@@ -483,7 +485,7 @@ class ConfigDict(DefaultDict[str, List[str]]):
         """Extracts for example submodule.<name>.<key>=<value>."""
         assert not prefix.endswith("."), prefix
         prefix += "."
-        ret = defaultdict(ConfigDict)
+        ret: DefaultDict[str, ConfigDict] = defaultdict(ConfigDict)
         for key, values in self.items():
             if key.startswith(prefix):
                 name, subkey = key[len(prefix) :].split(".", 1)
@@ -493,7 +495,7 @@ class ConfigDict(DefaultDict[str, List[str]]):
     def get_singleton(
         self, key, default: Optional[str] = _ConfigDict_unset
     ) -> Optional[str]:
-        """Varifies that there are no conflicting configuration values."""
+        """Verifies that there are no conflicting configuration values."""
         if default == _ConfigDict_unset:
             values = self[key]
         else:
@@ -928,7 +930,7 @@ def remote_to_repo(
         defaultdict(set)
     )
 
-    def add_url(url: str, name: RepoName, gitmod: GitModuleInfo):
+    def add_url(url: str, name: RepoName, gitmod: Optional[GitModuleInfo]):
         entry = (name, gitmod)
         remote_to_name[url].add(entry)
         # Also match partial URLs.
@@ -1046,7 +1048,7 @@ class SubRepo(Repo):
 
 
 class CommitMap:
-    def __init__(self):
+    def __init__(self: "CommitMap"):
         self.id_to_commit: Dict[int, git_filter_repo.Commit] = {}
         """Maps a unique git-filter-repo id to a commit."""
 
@@ -1126,7 +1128,7 @@ class BumpInfo:
 
 class SubmoduleFilterHelper:
     def __init__(self, source_repo: Repo, parent_url: Url):
-        self.current_commit = None
+        self.current_commit: Optional[git_filter_repo.Commit] = None
         self.commit_id_to_last_config_change: Dict[RepoFilterId, CommitHash] = {}
 
         self.repo = source_repo
@@ -1154,6 +1156,9 @@ class SubmoduleFilterHelper:
 
     @property
     def submodule_configs(self) -> Dict[bytes, GitModuleInfo]:
+        assert (
+            self.current_commit
+        ), "Program flow error, `self.current_commit` must be set."
         commit_hash = self.commit_id_to_last_config_change[self.current_commit.id]
         return self._load_submodule_configs(commit_hash)
 
@@ -1600,6 +1605,7 @@ class TopRepoExpander(RepoExpanderBase):
         """
         commit_message_parts = []
         submod_hash: CommitHash = file_change.blob_id
+        assert self.commit_map, "Program flow error, `self.commit_map` must be set."
         submod_commit = self.commit_map.hash_to_commit.get(submod_hash)
         if submod_commit is not None:
             # Swap commit to tree.
@@ -1733,6 +1739,9 @@ class TopRepoExpander(RepoExpanderBase):
                 for pid in subrepo_commit.parents:
                     if pid not in sub_queue_ids:
                         sub_queue_ids.add(pid)
+                        assert (
+                            self.commit_map
+                        ), "Program flow error, `self.commit_map` must be set."
                         subrepo_parent = self.commit_map.id_to_commit[pid]
                         sub_queue.put(
                             (-subrepo_parent.depth, next(counter), subrepo_parent)
@@ -1844,7 +1853,7 @@ class SubrepoCommitExpander(RepoExpanderBase):
 
         if commits_to_convert is None:
             # Retry with full history.
-            print("Short history not enough, collecting full monorepo history.")
+            print("Short history is not enough, collecting full monorepo history.")
             subrepo_commit_map = CommitMap.collect_commits(self.monorepo, [subref])
             sub_commit = subrepo_commit_map.hash_to_commit.get(sub_commit_hash)
             subdir_hash_to_mono_hash = self._map_subdir_hash_to_mono_hash(
@@ -1985,6 +1994,8 @@ class PushSplitError(ValueError):
 
 
 class PushSplitter:
+    error: Optional[Exception]
+
     def __init__(self, monorepo: MonoRepo, toprepo: TopRepo, config: Config):
         self.monorepo = monorepo
         self.toprepo = toprepo
@@ -2081,6 +2092,9 @@ class PushSplitter:
                     + ["show", "--quiet", "--format=%B", mono_pid, "--"],
                 )
                 top_commit_hash = try_parse_top_hash_from_message(mono_message)
+                assert (
+                    top_commit_hash
+                ), f"No top commit hash in message: '{mono_message.decode()}'"
                 subrepo_map = self._get_top_commit_subrepos(top_commit_hash)
                 # Extend the parents list for each subdir.
                 unique_append(subrepo_parent_ids_map[b""], top_commit_hash)
@@ -2089,9 +2103,9 @@ class PushSplitter:
 
         # The commits might not exist in the target repo.
         # Split into parts.
-        file_changes_per_subdir: Dict[
-            PurePosixPath, List[git_filter_repo.FileChange]
-        ] = defaultdict(list)
+        file_changes_per_subdir: Dict[bytes, List[git_filter_repo.FileChange]] = (
+            defaultdict(list)
+        )
         for file_change in mono_commit.file_changes:
             for subdir in self.submodule_filter_helper.submodule_configs.keys():
                 path_prefix = subdir + b"/"
@@ -2628,7 +2642,7 @@ def _parse_arguments(argv):
     return args
 
 
-def main(argv=sys.argv):
+def main(argv: List[str] = sys.argv) -> int:
     args = _parse_arguments(argv)
     try:
         returncode = args.func(args=args)
