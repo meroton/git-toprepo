@@ -924,11 +924,11 @@ class Config:
 
 def remote_to_repo(
     remote: str, git_modules: List[GitModuleInfo], config: Config
-) -> Tuple[Optional[RepoName], Optional[GitModuleInfo]]:
+) -> Optional[Tuple[RepoName, Optional[GitModuleInfo]]]:
     """Map a remote or URL to a repository.
 
-    A repo can be speicifed by subrepo path inside the toprepo or
-    as an full or partial URL.
+    A repo can be specified by subrepo path inside the toprepo or
+    as a full or partial URL.
     """
     # Map a full or partial URL or path to one or more repos.
     remote_to_name: DefaultDict[str, Set[Tuple[RepoName, Optional[GitModuleInfo]]]] = (
@@ -989,11 +989,11 @@ def remote_to_repo(
     if entries is None:
         print(f"ERROR: Could not resolve {full_remote}")
         print("Is .gitmodules missing?")
-        return None, None
+        return None
     if len(entries) > 1:
         names_str = ", ".join(sorted(name for name, _ in entries))
         print(f"ERROR: Multiple remote candidates: {names_str}")
-        return None, None
+        return None
     ((name, gitmod),) = list(entries)
     return (name, gitmod)
 
@@ -2341,14 +2341,18 @@ def main_fetch(args) -> int:
         LocalFileConfigLoader(monorepo.path / ".gitmodules", allow_missing=True),
         monorepo.get_toprepo_fetch_url(),
     )
-    remote_name, git_module = remote_to_repo(args.remote, git_modules, config)
-    if remote_name is None:
+    maybe = remote_to_repo(args.remote, git_modules, config)
+    if maybe is None:
         return 1
+    remote_name, git_module = maybe
 
     if remote_name == TopRepo.name:
         expander = TopRepoExpander(monorepo, toprepo, config)
         repo_to_fetch = toprepo
     else:
+        assert (
+            git_module
+        ), f"git module information is required for remote: {remote_name}"
         expander = SubrepoCommitExpander(monorepo)
         for subrepo_config in config.repos:
             if subrepo_config.name == remote_name:
