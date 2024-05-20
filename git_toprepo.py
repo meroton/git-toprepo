@@ -1104,7 +1104,10 @@ class CommitMap:
         repo_filter.run()
         return ret
 
-    def _collect_commit_callback(self, commit_to_tree, commit, metadata):
+    def _collect_commit_callback(
+        self, commit_to_tree: Dict[CommitHash, TreeHash], commit, metadata
+    ):
+        _ = metadata
         commit.depth = 1 + max(
             (
                 self.id_to_commit[parent_id].depth
@@ -1218,6 +1221,7 @@ class ReferencedSubmodCommitsCollector:
         )
 
     def _commit_callback(self, commit: git_filter_repo.Commit, metadata):
+        _ = metadata
         self.submodule_filter_helper.commit_callback(commit)
         submods = self.submodule_filter_helper.get_submodules(commit)
         for file_change, submodule_config in submods:
