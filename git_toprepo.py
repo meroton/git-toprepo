@@ -95,6 +95,7 @@ class MonoRepo(Repo):
         if fetch_url is None or fetch_url == "file:///dev/null":
             # TODO: 2024-04-29 Remove after migration.
             fetch_url = self.get_toprepo_fetch_url_impl("toprepo.top.fetchUrl", True)
+            assert fetch_url, "could not find fetch url"
             subprocess.check_output(
                 ["git", "-C", str(self.path), "config", "remote.origin.url", fetch_url],
                 text=True,
@@ -108,6 +109,7 @@ class MonoRepo(Repo):
         push_url = self.get_toprepo_fetch_url_impl("remote.top.pushUrl", False)
         if push_url is None:
             push_url = self.get_toprepo_fetch_url_impl("toprepo.top.pushUrl", True)
+            assert push_url, "could not find push url"
             subprocess.check_output(
                 ["git", "-C", str(self.path), "config", "remote.top.pushUrl", push_url],
                 text=True,
