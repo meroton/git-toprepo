@@ -789,8 +789,8 @@ class Config:
     @staticmethod
     def create(config_dict: ConfigDict) -> "Config":
         # Accumulate toprepo.repo.<id>.* keys.
-        repo_config_dicts: DefaultDict[RepoName, DefaultDict[str, List[str]]] = (
-            defaultdict(lambda: defaultdict(list))
+        repo_config_dicts: DefaultDict[RepoName, ConfigDict] = defaultdict(
+            lambda: ConfigDict()
         )
         for key, values in config_dict.items():
             repo_config_prefix = "toprepo.repo."
@@ -817,8 +817,8 @@ class Config:
         repo_configs = Config.parse_repo_configs(
             repo_config_dicts,
             wanted_repos_patterns,
-            top_fetch_url,
-            top_push_url,
+            parent_fetch_url=top_fetch_url,
+            parent_push_url=top_push_url,
         )
 
         # Find configured missing commits.
@@ -841,6 +841,7 @@ class Config:
     def parse_repo_configs(
         repo_config_dicts: Dict[RepoName, ConfigDict],
         wanted_repos_patterns: List[str],
+        *,
         parent_fetch_url: str,
         parent_push_url: str,
     ) -> List[RepoConfig]:
@@ -851,8 +852,8 @@ class Config:
                     repo_name,
                     repo_config_dict,
                     wanted_repos_patterns,
-                    parent_fetch_url,
-                    parent_push_url,
+                    parent_fetch_url=parent_fetch_url,
+                    parent_push_url=parent_push_url,
                 )
             )
         return repo_configs
@@ -862,6 +863,7 @@ class Config:
         name: RepoName,
         repo_config_dict: ConfigDict,
         wanted_repos_patterns: List[str],
+        *,
         parent_fetch_url: Url,
         parent_push_url: Url,
     ) -> RepoConfig:
