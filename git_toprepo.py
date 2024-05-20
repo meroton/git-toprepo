@@ -702,6 +702,9 @@ class ConfigAccumulator:
 
     def get_config_loader(self, name: str, config_dict: ConfigDict) -> ConfigLoader:
         loader_type = config_dict["type"][-1]
+        config_loader: Union[
+            StaticContentConfigLoader, LocalFileConfigLoader, GitRemoteConfigLoader
+        ]
         if loader_type == "none":
             config_loader = StaticContentConfigLoader("")
         elif loader_type == "file":
