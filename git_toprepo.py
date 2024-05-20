@@ -1795,7 +1795,13 @@ class TopRepoExpander(RepoExpanderBase):
             self.subrepo_id_to_converted_id[parent_id]
             for parent_id in subrepo_commit_to_insert.parents
         ]
-        return ret
+        ints = [-1] * len(ret)
+        for i, val in enumerate(ret):
+            assert isinstance(
+                val, int
+            ), f"Unexpected byte object for converted id: {val!r}"
+            ints[i] = val
+        return ints
 
 
 class SubrepoCommitExpander(RepoExpanderBase):
