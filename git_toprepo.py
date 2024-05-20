@@ -453,7 +453,7 @@ class RepoConfig:
     """Absolute URL to git-push to."""
 
 
-_ConfigDict_unset = object()
+_ConfigDict_unset = "git_toprepo_ConfigDict_unset"
 
 
 class ConfigDict(DefaultDict[str, List[str]]):
