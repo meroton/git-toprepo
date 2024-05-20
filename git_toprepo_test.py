@@ -1,4 +1,5 @@
-#!/user/bin/env python3
+#!/usr/bin/env python3
+
 import os
 import pytest
 import subprocess
@@ -627,3 +628,7 @@ def test_filtering_keeps_workspace():
     # No git-clean
     # No git-reset-hard
     pass
+
+
+if __name__ == "__main__":
+    pytest.main()
