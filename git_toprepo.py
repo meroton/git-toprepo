@@ -62,7 +62,6 @@ default_fetch_args = ["--prune", "--prune-tags", "--tags"]
 
 
 class Repo:
-    name: str
     config: "RepoConfig"
 
     def __init__(self, repo: Path):
@@ -182,11 +181,11 @@ class PushRefSpec:
 
 @dataclass(frozen=True)
 class PushInstruction:
-    repo: Repo
+    repo: Union["MonoRepo", "TopRepo", "SubRepo"]
     commit_hash: str
     extra_args: List[str]
 
-    def same_but_commit(self, other: "PushInstruction"):
+    def same_but_commit(self, other: "PushInstruction") -> bool:
         return self.repo.path == other.repo.path and self.extra_args == other.extra_args
 
 
@@ -1029,7 +1028,7 @@ def clone_file_change(
 
 
 class DevNullWriter:
-    def write(self, bytes):
+    def write(self, _) -> None:
         pass
 
 
@@ -1084,7 +1083,9 @@ class CommitMap:
         return commit_to_tree
 
     @staticmethod
-    def collect_commits(repo: Repo, refs: List[RefStr]) -> "CommitMap":
+    def collect_commits(
+        repo: Union[SubRepo, MonoRepo], refs: List[RefStr]
+    ) -> "CommitMap":
         """Loads metadata about all commits."""
         print(f"Collecting metadata for {repo.name}...")
         ret = CommitMap()
@@ -1268,7 +1269,9 @@ class RepoFetcher:
                 + ["config", "remote.origin.fetch", "+refs/heads/*:refs/heads/*"],
             )
 
-    def fetch_repo(self, repo: Repo, ref_args: Optional[List[str]] = None):
+    def fetch_repo(
+        self, repo: Union[TopRepo, SubRepo], ref_args: Optional[List[str]] = None
+    ):
         """Make all the repo content available in the monorepo.
 
         All the blobs and trees need to be accessible within the monorepo.
@@ -2170,9 +2173,9 @@ class PushSplitter:
         # Record the new commits.
         self.mono_id_to_subrepo_parent_ids[mono_commit.id] = subrepo_parent_ids_map
 
-    def _get_repo_from_subdir(self, subdir: bytes) -> Repo:
+    def _get_repo_from_subdir(self, subdir: bytes) -> Union[SubRepo, TopRepo]:
         if subdir == b"":
-            repo = self.toprepo
+            repo: Union[SubRepo, TopRepo] = self.toprepo
         else:
             submod = self.submodule_filter_helper.submodule_configs[subdir]
             repo_configs = self.config.raw_url_to_repos.get(submod.raw_url, [])
@@ -2351,7 +2354,7 @@ def main_fetch(args) -> int:
 
     if remote_name == TopRepo.name:
         expander = TopRepoExpander(monorepo, toprepo, config)
-        repo_to_fetch = toprepo
+        repo_to_fetch: Union[TopRepo, SubRepo] = toprepo
     else:
         assert (
             git_module
