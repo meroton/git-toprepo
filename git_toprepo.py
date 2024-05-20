@@ -504,7 +504,15 @@ class ConfigDict(DefaultDict[str, List[str]]):
         if default == _ConfigDict_unset:
             values = self[key]
         else:
-            values = self.get(key, [default])
+            maybe = self.get(key)
+            if maybe:
+                values = maybe
+            else:
+                if default:
+                    values = [default]
+                else:
+                    return None
+
         values = sorted(set(values))
         assert len(values) != 0, f"The key {key!r} should not exist without a value"
         if len(values) != 1:
@@ -745,11 +753,14 @@ def get_gitmodules_info(
 
     configs: Dict[PurePosixPath, GitModuleInfo] = {}
     for name, config_dict in submod_config_mapping.items():
-        raw_url: RawUrl = config_dict.get_singleton("url")
+        raw_url = config_dict.get_singleton("url")
+        assert raw_url, "could not find url in the config dict."
         resolved_url = join_submodule_url(parent_url, raw_url)
+        path = config_dict.get_singleton("path")
+        assert path, "could not find path in the config dict."
         submod_info = GitModuleInfo(
             name=name,
-            path=PurePosixPath(config_dict.get_singleton("path")),
+            path=PurePosixPath(path),
             branch=config_dict.get_singleton("branch", None),
             url=resolved_url,
             raw_url=raw_url,
