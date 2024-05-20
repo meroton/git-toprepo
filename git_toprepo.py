@@ -62,6 +62,9 @@ default_fetch_args = ["--prune", "--prune-tags", "--tags"]
 
 
 class Repo:
+    name: str
+    config: "RepoConfig"
+
     def __init__(self, repo: Path):
         # Make relative for shorter error messages.
         try:
