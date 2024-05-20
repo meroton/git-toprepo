@@ -1654,7 +1654,7 @@ class TopRepoExpander(RepoExpanderBase):
 
         def bump_generator(max_target_subrepo_depth: int):
             mono_queue_ids: Set[int] = set()
-            mono_queue = PriorityQueue()
+            mono_queue: PriorityQueue = PriorityQueue()
 
             def add_possible_parent(mono_parent, max_subrepo_depth: int):
                 bump: BumpInfo = mono_parent.bumps.get(subdir)
@@ -1702,7 +1702,7 @@ class TopRepoExpander(RepoExpanderBase):
         commits_to_convert: List[git_filter_repo.Commit] = []
 
         sub_queue_ids: Set[int] = set()
-        sub_queue = PriorityQueue()
+        sub_queue: PriorityQueue = PriorityQueue()
         sub_queue.put(
             (-subrepo_commit_to_insert.depth, next(counter), subrepo_commit_to_insert)
         )
@@ -1924,7 +1924,7 @@ class SubrepoCommitExpander(RepoExpanderBase):
         commits_to_convert: List[git_filter_repo.Commit] = []
         # Also sort on insertion order because Commit is not comparable.
         counter = itertools.count(start=0, step=1)
-        todo_queue = PriorityQueue()
+        todo_queue: PriorityQueue = PriorityQueue()
         all_todo_ids: Set[RepoFilterId] = set()
         for commit in subrepo_commits:
             todo_queue.put((-commit.depth, next(counter), commit))
