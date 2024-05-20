@@ -2367,13 +2367,13 @@ def main_fetch(args) -> int:
     remote_name, git_module = maybe
 
     if remote_name == TopRepo.name:
-        expander: RepoExpanderBase = TopRepoExpander(monorepo, toprepo, config)
+        topexpander = TopRepoExpander(monorepo, toprepo, config)
         repo_to_fetch: Union[TopRepo, SubRepo] = toprepo
     else:
         assert (
             git_module
         ), f"git module information is required for remote: {remote_name}"
-        expander = SubrepoCommitExpander(monorepo)
+        subexpander = SubrepoCommitExpander(monorepo)
         for subrepo_config in config.repos:
             if subrepo_config.name == remote_name:
                 repo_to_fetch = SubRepo(
@@ -2391,7 +2391,7 @@ def main_fetch(args) -> int:
         # Just fetch everything in that repo and do standard filtering.
         repo_fetcher.fetch_repo(repo_to_fetch)
         if args.do_filter:
-            if not expander.expand_toprepo(top_refs=["--all"], allow_fetching=True):
+            if not topexpander.expand_toprepo(top_refs=["--all"], allow_fetching=True):
                 return 1
         else:
             print("Skipped expanding the toprepo into the monorepo.")
@@ -2408,13 +2408,13 @@ def main_fetch(args) -> int:
                 top_fetch_head_ref = mono_fetch_head_ref
                 # TODO: Only expand top_fetch_head_ref, i.e. remove "--all".
                 # Currently, omitting --all gives different result.
-                if not expander.expand_toprepo(
+                if not topexpander.expand_toprepo(
                     top_refs=[top_fetch_head_ref, "--all"], allow_fetching=True
                 ):
                     return 1
             else:
                 subrepo_ref = f"refs/repos/{repo_to_fetch.name}/toprepo/fetch-head"
-                if not expander.expand_subrepo_refs(
+                if not subexpander.expand_subrepo_refs(
                     subdir, subrepo_ref, dest_ref=mono_fetch_head_ref
                 ):
                     return 1
