@@ -62,8 +62,6 @@ default_fetch_args = ["--prune", "--prune-tags", "--tags"]
 
 
 class Repo:
-    config: "RepoConfig"
-
     def __init__(self, repo: Path):
         # Make relative for shorter error messages.
         try:
@@ -181,7 +179,7 @@ class PushRefSpec:
 
 @dataclass(frozen=True)
 class PushInstruction:
-    repo: Union["MonoRepo", "TopRepo", "SubRepo"]
+    repo: Union["TopRepo", "SubRepo"]
     commit_hash: str
     extra_args: List[str]
 
@@ -1211,7 +1209,7 @@ class SubmoduleFilterHelper:
 
 
 class ReferencedSubmodCommitsCollector:
-    def __init__(self, repo: Repo):
+    def __init__(self, repo: TopRepo):
         self.referenced_commits: DefaultDict[RawUrl, Set[CommitHash]] = defaultdict(set)
         """Mapping from submodule URL to commit hashes."""
 
@@ -1228,7 +1226,7 @@ class ReferencedSubmodCommitsCollector:
                 self.referenced_commits[raw_url].add(file_change.blob_id)
 
     @staticmethod
-    def collect(repo: Repo) -> Dict[str, Set[CommitHash]]:
+    def collect(repo: TopRepo) -> Dict[str, Set[CommitHash]]:
         """Iterates through a repository and collects submodule commits.
 
         Returns:
