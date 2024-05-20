@@ -332,10 +332,7 @@ def test_remote_to_repo():
         "sub",
         git_modules[0],
     )
-    assert git_toprepo.remote_to_repo("no/subrepo", git_modules, config) == (
-        None,
-        None,
-    )
+    assert git_toprepo.remote_to_repo("no/subrepo", git_modules, config) is None
 
 
 def commit_env(seed: str = ""):
