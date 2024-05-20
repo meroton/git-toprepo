@@ -18,8 +18,10 @@ from functools import cached_property, lru_cache, partial
 from pathlib import Path, PurePath, PurePosixPath
 from queue import PriorityQueue
 from typing import (
+    Any,
     DefaultDict,
     Dict,
+    Generator,
     Iterable,
     List,
     Optional,
@@ -30,7 +32,7 @@ from typing import (
 )
 
 try:
-    import git_filter_repo  # type: ignore[import-untyped]
+    import git_filter_repo  # type: ignore
 except ImportError:
     print("ERROR: git-filter-repo is missing")
     print("Please run:  python3 -m pip install git-filter-repo")
@@ -131,7 +133,7 @@ class MonoRepo(Repo):
     def get_toprepo_dir(self) -> Path:
         return self.get_subrepo_dir(TopRepo.name)
 
-    def get_subrepo_dir(self, name: RepoName):
+    def get_subrepo_dir(self, name: RepoName) -> Path:
         return self.git_dir / "repos" / name
 
 
@@ -180,7 +182,7 @@ class PushRefSpec:
 @dataclass(frozen=True)
 class PushInstruction:
     repo: Union["TopRepo", "SubRepo"]
-    commit_hash: str
+    commit_hash: CommitHash
     extra_args: List[str]
 
     def same_but_commit(self, other: "PushInstruction") -> bool:
@@ -190,7 +192,7 @@ class PushInstruction:
 _T = TypeVar("_T")
 
 
-def unique_append(dest: List[_T], item):
+def unique_append(dest: List[_T], item: _T):
     if item not in dest:
         dest.append(item)
 
@@ -223,11 +225,11 @@ class GitModuleInfo:
     url: Url
     raw_url: RawUrl
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash((self.name, self.path, self.branch, self.url, self.raw_url))
 
 
-def removesuffix(text: str, suffix: str):
+def removesuffix(text: str, suffix: str) -> str:
     # Available in Python 3.9.
     if text.endswith(suffix):
         text = text[: -len(suffix)]
@@ -366,9 +368,10 @@ def try_get_topic_from_message(message: bytes) -> Optional[str]:
 def log_run_git(
     repo: Optional[Path],
     args: List[str],
-    check=True,
-    dry_run=False,
-    log_command=True,
+    *,
+    check: bool = True,
+    dry_run: bool = False,
+    log_command: bool = True,
     **kwargs,
 ) -> Optional[subprocess.CompletedProcess]:
     """Log the git command and run it for the correct repo."""
@@ -388,7 +391,7 @@ def log_run_git(
     return ret
 
 
-def ref_exists(repo: Repo, ref: str):
+def ref_exists(repo: Repo, ref: str) -> bool:
     result = subprocess.run(
         ["git", "-C", str(repo.path)]
         + ["rev-parse", "--verify", "--quiet", ref + "^{commit}"],
@@ -493,7 +496,7 @@ class ConfigDict(DefaultDict[str, List[str]]):
         return ret
 
     def get_singleton(
-        self, key, default: Optional[str] = _ConfigDict_unset
+        self, key: str, default: Optional[str] = _ConfigDict_unset
     ) -> Optional[str]:
         """Verifies that there are no conflicting configuration values."""
         if default == _ConfigDict_unset:
@@ -1026,7 +1029,7 @@ def clone_file_change(
 
 
 class DevNullWriter:
-    def write(self, _) -> None:
+    def write(self, _: Any) -> None:
         pass
 
 
@@ -1046,7 +1049,7 @@ class SubRepo(Repo):
         self.config = config
 
     @property
-    def name(self):
+    def name(self) -> str:
         name = self.config.name
         assert name != TopRepo.name, f"Bad name {name}"
         return name
@@ -1351,7 +1354,7 @@ class TopRepoExpander(RepoExpanderBase):
         self.subrepo_id_to_converted_id: Dict[RepoFilterId, RepoFilterId]
         self.last_branch = b""
 
-    def expand_toprepo(self, top_refs: List[RefStr], allow_fetching: bool):
+    def expand_toprepo(self, top_refs: List[RefStr], allow_fetching: bool) -> bool:
         """Perform the monorepo expansion using git-filter-repo.
 
         Submodules will be fetched and filtered on demand.
@@ -1534,7 +1537,7 @@ class TopRepoExpander(RepoExpanderBase):
 
         return CommitMap.join(commit_maps.values())
 
-    def _expand_toprepo_refname_callback(self, ref: bytes):
+    def _expand_toprepo_refname_callback(self, ref: bytes) -> bytes:
         """Move toprepo refs into refs/remotes/origin/...
 
         This does not apply to tags and non-heads.
@@ -1665,11 +1668,13 @@ class TopRepoExpander(RepoExpanderBase):
         """
         counter = itertools.count(start=0, step=1)
 
-        def bump_generator(max_target_subrepo_depth: int):
+        def bump_generator(max_target_subrepo_depth: int) -> Generator:
             mono_queue_ids: Set[int] = set()
             mono_queue: PriorityQueue = PriorityQueue()
 
-            def add_possible_parent(mono_parent, max_subrepo_depth: int):
+            def add_possible_parent(
+                mono_parent: git_filter_repo.Commit, max_subrepo_depth: int
+            ):
                 bump: BumpInfo = mono_parent.bumps.get(subdir)
                 if bump is None:
                     # mono_parent doesn't contain subdir.
@@ -2086,20 +2091,18 @@ class PushSplitter:
                 # a commit to push for some subdirs. For some subrepos,
                 # there is a single resolved commit to be used as parent.
                 # For other subrepos, the grand parents are forwarded.
-                if not isinstance(mono_pid, int):
-                    raise ValueError(
-                        f"Expected mono commit {mono_pid} to have been processed"
-                    )
+                assert isinstance(
+                    mono_pid, int
+                ), f"Expected mono commit {mono_pid} to have been processed"
                 for subdir, subrepo_pids in resolved_parent_map.items():
                     unique_extend(subrepo_parent_ids_map[subdir], subrepo_pids)
             else:
                 # Commit hash, not an ID.
                 # Get the original toprepo commit and find the subrepo pointers.
                 # They will be the parents.
-                if not isinstance(mono_pid, CommitHash):
-                    raise ValueError(
-                        f"Subrepo map not found for mono commit {mono_pid}"
-                    )
+                assert isinstance(
+                    mono_pid, CommitHash
+                ), f"Subrepo map not found for mono commit {mono_pid}"
                 mono_message = subprocess.check_output(
                     ["git", "-C", str(self.monorepo.path)]
                     + ["show", "--quiet", "--format=%B", mono_pid, "--"],
@@ -2157,7 +2160,10 @@ class PushSplitter:
             repo_filter.insert(new_commit, direct_insertion=True)
             # orig_parents are only used to check is it was a merge commit or not.
             repo_filter._record_remapping(new_commit, orig_parents=new_commit.parents)
-            new_commit_hash = repo_filter._get_rename(new_commit.original_id)
+            new_commit_hash: bytes = repo_filter._get_rename(new_commit.original_id)
+            assert isinstance(
+                new_commit_hash, bytes
+            ), f"Unexpected type for commit hash: {new_commit_hash!r}."
 
             # Record the branch should be pushed.
             extra_args = []
@@ -2355,7 +2361,7 @@ def main_fetch(args) -> int:
     remote_name, git_module = maybe
 
     if remote_name == TopRepo.name:
-        expander = TopRepoExpander(monorepo, toprepo, config)
+        expander: RepoExpanderBase = TopRepoExpander(monorepo, toprepo, config)
         repo_to_fetch: Union[TopRepo, SubRepo] = toprepo
     else:
         assert (
@@ -2473,7 +2479,7 @@ def main_push(args) -> int:
     return 0
 
 
-def _parse_arguments(argv):
+def _parse_arguments(argv: List[str]):
     # Support pasting normal git commands to this script.
     # For example
     #   git-toprepo git fetch <server> ref
