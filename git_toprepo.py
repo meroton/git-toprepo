@@ -686,13 +686,13 @@ class ConfigAccumulator:
         ).extract_mapping("toprepo.config")
         for name, own_loader_values in own_loader_config_dicts.items():
             # Check if values are just for overriding or the actual configuration.
-            partial_value = own_loader_values.get("partial", "0")
+            partial_value = own_loader_values.get("partial", ["0"])
             is_partial = {
                 "1": True,
                 "true": True,
                 "0": False,
                 "false": False,
-            }[partial_value.lower()]
+            }[partial_value[-1].lower()]
             if is_partial:
                 continue
             # Actual configuration, load.
