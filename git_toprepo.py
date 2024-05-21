@@ -2356,7 +2356,7 @@ def main_fetch(args) -> int:
         # Fetch ref to refs/toprepo/fetch-head instead of FETCH_HEAD.
         # Then there is no need for extra args to git-fetch or git-filter-repo
         # to pick up FETCH_HEAD.
-        ref_args = [f"{args.ref}:refs/toprepo/fetch-head"]
+        ref_args = [f"+{args.ref}:refs/toprepo/fetch-head"]
         repo_fetcher.fetch_repo(repo_to_fetch, ref_args)
         if args.do_filter:
             mono_fetch_head_ref = "refs/toprepo/fetch-head"
