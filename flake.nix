@@ -11,9 +11,9 @@
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = [ "x86_64-linux" "aarch64-linux" ];
       perSystem = { config, pkgs, inputs', ... }: let
-          mkPoetryApplication = (inputs.poetry2nix.lib.mkPoetry2Nix {
+          inherit ((inputs.poetry2nix.lib.mkPoetry2Nix {
             inherit pkgs;
-          }).mkPoetryApplication;
+          })) mkPoetryApplication;
           git-toprepo = mkPoetryApplication {
             projectDir = ./.;
             overrides = final: prev: {
@@ -34,11 +34,19 @@
             };
           };
         in {
-          packages.git-toprepo =  git-toprepo;
-          apps.git-toprepo = {
-            type = "app";
-            program = "${git-toprepo}/bin/git-toprepo";
+          packages = {
+            inherit git-toprepo;
+            default =  git-toprepo;
           };
+          apps = let
+              git-toprepo-app = {
+                type = "app";
+                program = "${git-toprepo}/bin/git-toprepo";
+              };
+            in {
+              inherit git-toprepo;
+              default = git-toprepo-app;
+            };
         };
     };
 }
