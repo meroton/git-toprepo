@@ -20,17 +20,12 @@
               packaging = prev.packaging.overridePythonAttrs (old: {
                 buildInputs = (old.buildInputs or []) ++ [prev.flit-core];
               });
+              typing-extensions = prev.typing-extensions.overridePythonAttrs (old: {
+                buildInputs = (old.buildInputs or []) ++ [prev.flit-core];
+              });
               git-filter-repo = prev.git-filter-repo.overridePythonAttrs (old: {
-                buildInputs = (old.buildInputs or []) ++ [prev.setuptools prev.flit-core];
+                buildInputs = (old.buildInputs or []) ++ [prev.setuptools prev.setuptools-scm];
                 postPatch = ''
-                  # fix: ERROR: Could not find a version that satisfies the requirement setuptools_scm
-                  substituteInPlace setup.py \
-                    --replace \
-                      'use_scm_version=dict(root="..", relative_to=__file__),' \
-                      'version="2.38.0",'
-                  substituteInPlace setup.cfg \
-                    --replace 'setup_requires = setuptools_scm' ""
-
                   # fix: FileExistsError: File already exists: /bin/git-filter-repo
                   substituteInPlace setup.cfg \
                     --replace "scripts = git-filter-repo" ""
