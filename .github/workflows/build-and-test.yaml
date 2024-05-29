@@ -25,3 +25,14 @@ jobs:
         run: ./build.sh
       - name: Check for modified workspace
         run: git add . && git diff --exit-code HEAD --
+  nix-build:
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - name: Build
+        run: nix build
