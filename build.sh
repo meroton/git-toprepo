@@ -4,8 +4,8 @@ set -eux
     export POETRY_VIRTUALENVS_PATH=.virtualenvs/lint
     poetry env use python
     poetry install --sync --only lint
-    poetry run black *.py
-    poetry run ruff check
+    poetry run black git_toprepo*.py
+    poetry run ruff check git_toprepo*.py
 }
 {
     export POETRY_VIRTUALENVS_PATH=.virtualenvs/test

@@ -86,17 +86,6 @@ files = [
 test = ["pytest (>=6)"]
 
 [[package]]
-name = "git-filter-repo"
-version = "2.38.0"
-description = "Quickly rewrite git repository history"
-optional = false
-python-versions = ">=3.5"
-files = [
-    {file = "git-filter-repo-2.38.0.tar.gz", hash = "sha256:fe1753e18f0bd6d3c9b57868c8011ae7d056a6ebab706706396a15ef5312725e"},
-    {file = "git_filter_repo-2.38.0-py2.py3-none-any.whl", hash = "sha256:c2646206dfdbf06ce27c06c5b77ea33209d8e32d1e33f6bd4c25b1ccc59f9864"},
-]
-
-[[package]]
 name = "iniconfig"
 version = "2.0.0"
 description = "brain-dead simple config-ini parsing"
@@ -244,4 +233,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8"
-content-hash = "907eaca6efc3d575fcdfdd59d2c3a21c5f532104170e36a914c1bacc40a9f6ee"
+content-hash = "1124de51614a0ad976d43bd471314b6064384ba450fb56fc92173d1ba715c6bd"
