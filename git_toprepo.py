@@ -32,7 +32,8 @@ from typing import (
 )
 
 try:
-    import git_filter_repo  # type: ignore
+    # TODO: Need git-filter-repo from source to allow Git 2.43.
+    import git_filter_repo_for_toprepo as git_filter_repo  # type: ignore
 except ImportError:
     print("ERROR: git-filter-repo is missing")
     print("Please run:  python3 -m pip install git-filter-repo")
