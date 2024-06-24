@@ -1357,7 +1357,13 @@ class TopRepoExpander(RepoExpanderBase):
         self.subrepo_id_to_converted_id: Dict[RepoFilterId, RepoFilterId]
         self.last_branch = b""
 
-    def expand_toprepo(self, top_refs: List[RefStr], allow_fetching: bool) -> bool:
+    def expand_toprepo(
+        self,
+        top_refs: List[RefStr],
+        *,
+        allow_fetching: bool,
+        abort_on_missing: bool,
+    ) -> bool:
         """Perform the monorepo expansion using git-filter-repo.
 
         Submodules will be fetched and filtered on demand.
@@ -1372,6 +1378,7 @@ class TopRepoExpander(RepoExpanderBase):
             sorted(subrepos.values(), key=lambda repo: repo.name),
             submod_commits,
             allow_fetching=allow_fetching,
+            abort_on_missing=abort_on_missing,
         )
         if commit_map is None:
             return False
@@ -1445,7 +1452,9 @@ class TopRepoExpander(RepoExpanderBase):
         self,
         subrepos: List[SubRepo],
         submod_commits: Dict[str, Set[CommitHash]],
+        *,
         allow_fetching: bool,
+        abort_on_missing: bool,
     ) -> Optional[CommitMap]:
         """Check that all wanted commits exists.
 
@@ -1501,7 +1510,9 @@ class TopRepoExpander(RepoExpanderBase):
                 missing_commits.append((url, commit_hash))
 
         if len(missing_commits) != 0:
-            print("ERROR: Some referenced commits could not be found")
+            print(
+                "Warning: Some referenced commits could not be found", file=sys.stderr
+            )
             print("[toprepo.missing-commits]")
             max_missing_commits_to_print = 100
             for url, commit_hash in sorted(missing_commits)[
@@ -1510,13 +1521,25 @@ class TopRepoExpander(RepoExpanderBase):
                 commit_hash_str = commit_hash.decode("utf-8")
                 print(f"\trev-{commit_hash_str} = {url}")
             if len(missing_commits) > max_missing_commits_to_print:
-                print(f"Totally {len(missing_commits)} unexpected missing commits.")
-            print("ERROR: The referenced commits above could not be found")
+                remaining = len(missing_commits) - max_missing_commits_to_print
+                print(
+                    f"and {remaining} more unexpected missing commits.",
+                    file=sys.stderr,
+                )
+            print(
+                "Warning: The referenced commits above could not be found",
+                file=sys.stderr,
+            )
             print(
                 "Either push the following commits or add them to the "
                 + "toprepo configuration."
             )
-            return None
+            if abort_on_missing:
+                print(
+                    "Aborting due to previous warnings (--abort-on-unexpected-missing-commits)",
+                    file=sys.stderr,
+                )
+                return None
 
         # Don't clutter the error message above with warnings
         # about overspecified missing-commits.
@@ -2344,7 +2367,11 @@ def main_refilter(args) -> int:
         delete_refs(monorepo, refs_to_delete)
         # TODO: Clear the caches.
         raise NotImplementedError("refilter from scratch")
-    if not expander.expand_toprepo(top_refs=["--all"], allow_fetching=args.online):
+    if not expander.expand_toprepo(
+        top_refs=["--all"],
+        allow_fetching=args.online,
+        abort_on_missing=args.abort_on_missing,
+    ):
         return 1
     return 0
 
@@ -2394,7 +2421,11 @@ def main_fetch(args) -> int:
         # Just fetch everything in that repo and do standard filtering.
         repo_fetcher.fetch_repo(repo_to_fetch)
         if args.do_filter:
-            if not topexpander.expand_toprepo(top_refs=["--all"], allow_fetching=True):
+            if not topexpander.expand_toprepo(
+                top_refs=["--all"],
+                allow_fetching=True,
+                abort_on_missing=args.abort_on_missing,
+            ):
                 return 1
         else:
             print("Skipped expanding the toprepo into the monorepo.")
@@ -2412,7 +2443,9 @@ def main_fetch(args) -> int:
                 # TODO: Only expand top_fetch_head_ref, i.e. remove "--all".
                 # Currently, omitting --all gives different result.
                 if not topexpander.expand_toprepo(
-                    top_refs=[top_fetch_head_ref, "--all"], allow_fetching=True
+                    top_refs=[top_fetch_head_ref, "--all"],
+                    allow_fetching=True,
+                    abort_on_missing=args.abort_on_missing,
                 ):
                     return 1
             else:
@@ -2625,6 +2658,14 @@ def _parse_arguments(argv: List[str]):
             If a single ref is specified,
             FETCH_HEAD will be updated accordingly.""",
     )
+
+    for subparser in [fetch_parser, refilter_parser]:
+        subparser.add_argument(
+            "--abort-on-unexpected-missing-commits",
+            dest="abort_on_missing",
+            action="store_true",
+            help="Abort if there are unexpected missing commits. Default is to only warn.",
+        )
 
     push_parser = subparsers.add_parser(
         "push",
