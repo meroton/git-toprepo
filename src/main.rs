@@ -1,44 +1,49 @@
-use clap::{Args, Parser, Subcommand};
+mod cli;
 
-///TODO: Program description
-#[derive(Parser, Debug)]
-#[command(version)]
-struct Cli {
-    #[arg(short)] //TODO default value
-    cwd: Option<String>,
+use std::path::PathBuf;
+use std::process::Command;
+use crate::cli::{Cli, Commands};
 
-    #[command(subcommand)]
-    command: Commands,
+use clap::{Arg, Args, Parser, Subcommand};
 
+
+//THe repo class seems unnecessary, as the only thing
+// it does is sanitize a file path
+struct MonoRepo {
+    path: PathBuf,
+    name: String,
 }
 
-#[derive(Subcommand, Debug)]
-enum Commands {
-    Init(Init),
-    Config,
-    Refilter,
-    Fetch(Fetch),
-    Push,
+impl MonoRepo {
+    fn new(repo: String) -> MonoRepo {
+        let command = Command::new("git")
+            .args(["-C", repo.as_str()])
+            .arg("rev-parse")
+            .arg("--show-toplevel")
+            .output()
+            .unwrap();
+
+        let path = PathBuf::from(
+            String::from_utf8(command.stdout).unwrap()
+        );
+
+        MonoRepo {
+            path,
+            name: "mono repo".to_string(),
+        }
+    }
+
+    fn get_toprepo_fetch_url(self) { todo!() }
 }
 
-#[derive(Args, Debug)]
-struct Init {
-    repository: String,
-    directory: String,
-}
-
-#[derive(Args, Debug)]
-struct Fetch {
-    #[arg(long)]
-    skip_filter: bool,
-    remote: String,
-    #[arg(id="ref")]
-    reference: String,
-}
 
 fn fetch(args: Cli) {
-    println!("Fetch!")
+    println!("Fetch!");
+    let monorepo = MonoRepo::new(args.cwd);
+
+    println!("{:?}", monorepo.path)
 }
+
 
 fn main() {
     let args = Cli::parse();
@@ -48,8 +53,7 @@ fn main() {
         Commands::Init(_) => {}
         Commands::Config => {}
         Commands::Refilter => {}
-        Commands::Fetch(_) => {fetch(args)}
+        Commands::Fetch(_) => { fetch(args) }
         Commands::Push => {}
     }
-
 }
