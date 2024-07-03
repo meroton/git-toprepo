@@ -14,6 +14,7 @@ pub struct Cli {
 }
 
 #[derive(Subcommand, Debug)]
+#[command(version)]
 pub enum Commands {
     Init(Init),
     Config,
