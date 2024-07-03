@@ -1,6 +1,7 @@
 mod cli;
 
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::ops::Not;
 use std::path::PathBuf;
 use std::process::Command;
@@ -42,6 +43,7 @@ impl MonoRepo {
 
 const CONFIG_DICT_UNSET: &str = "git_toprepo_ConfigDict_unset";
 
+#[derive(Debug)]
 struct ConfigMap {
     map: HashMap<String, Vec<String>>,
 }
@@ -52,8 +54,24 @@ impl ConfigMap {
         ConfigMap { map: HashMap::new() }
     }
 
-    fn insert(&mut self, key: String, values: Vec<String>) {
-        self.map.insert(key, values);
+    fn push(&mut self, key: &str, mut values: Vec<String>) {
+        if !self.map.contains_key(key) {
+            self.map.insert(key.to_string(), values);
+        } else {
+            self.map.get_mut(key).unwrap().append(&mut values);
+        }
+    }
+
+    fn join<T: Iterator<Item=ConfigMap>>(configs: T) -> ConfigMap {
+        let mut ret = ConfigMap::new();
+
+        for config in configs {
+            for (key, values) in config.map.into_iter() {
+                ret.push(&key, values);
+            }
+        }
+
+        ret
     }
 
     fn parse(&mut self, config_lines: &str) -> Result<ConfigMap, String> {
@@ -74,8 +92,6 @@ impl ConfigMap {
         Ok(ret)
     }
 
-    //TODO: join
-
     /// Extracts for example submodule.<name>.<key>=<value>.
     /// All entries that dont contain the prefix are returned in the residual
     fn extract_mapping(self, prefix: &str) -> (HashMap<String, ConfigMap>, ConfigMap) {
@@ -90,15 +106,16 @@ impl ConfigMap {
         for (key, values) in self.map.into_iter() {
             if let Some(temp) = key.strip_prefix(&prefix) {
                 if let Some((name, subkey)) = temp.split(".").next_tuple() {
-                    let mut sub_config = ConfigMap::new();
-                    sub_config.insert(subkey.to_string(), values);
+                    if !extracted.contains_key(name) {
+                        extracted.insert(name.to_string(), ConfigMap::new());
+                    }
 
-                    extracted.insert(name.to_string(), sub_config);
+                    extracted.get_mut(name).unwrap().push(subkey, values);
                 } else {
                     panic!() //Is this reachable?
                 }
             } else {
-                residual.insert(key, values);
+                residual.push(&key, values);
             }
         }
 
@@ -121,6 +138,18 @@ impl ConfigMap {
     }
 }
 
+impl Display for ConfigMap {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let temp = self.map.iter().map(|(key, values)|
+        format!("{}: [{}]", key, values.join(", "))
+        ).join(", ");
+
+        write!(f, "ConfigMap {{ {} }}", temp)?;
+
+        Ok(())
+    }
+}
+
 
 fn fetch(args: Cli) {
     let monorepo = MonoRepo::new(args.cwd);
@@ -140,4 +169,29 @@ fn main() {
         Commands::Fetch(_) => { fetch(args) }
         Commands::Push => {}
     }
+
+
+    let mut a = ConfigMap::new();
+    a.push("lorem.ipsum.abc", _vec_to_string(vec!["a", "b", "c"]));
+    a.push("lorem.ipsum.123", _vec_to_string(vec!["1", "2"]));
+
+    println!("{}", a);
+
+    a.push("lorem.ipsum.123", _vec_to_string(vec!["3", "2"]));
+    a.push("lorem.dolor.sit", _vec_to_string(vec!["amet", "consectetur"]));
+
+    println!("{}", a);
+
+    let (temp, _) = a.extract_mapping("lorem");
+
+    println!("{:?}", temp);
+
+    let (b, c) = temp.iter().next_tuple().unwrap();
+
+    println!("{:?}", b);
+    println!("{:?}", c);
+}
+
+fn _vec_to_string(vec: Vec<&str>) -> Vec<String> {
+    vec.iter().map(|s| s.to_string()).collect()
 }
