@@ -1,6 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
+use std::path::PathBuf;
 use itertools::Itertools;
+use url::Url;
+use crate::MonoRepo;
+
+
+//TODO: Create proper error enums instead of strings
 
 const CONFIG_DICT_UNSET: &str = "git_toprepo_ConfigDict_unset";
 
@@ -15,14 +21,6 @@ impl ConfigMap {
         ConfigMap { map: HashMap::new() }
     }
 
-    pub fn push(&mut self, key: &str, mut values: Vec<String>) {
-        if !self.map.contains_key(key) {
-            self.map.insert(key.to_string(), values);
-        } else {
-            self.map.get_mut(key).unwrap().append(&mut values);
-        }
-    }
-
     pub fn join<T: Iterator<Item=ConfigMap>>(configs: T) -> ConfigMap {
         let mut ret = ConfigMap::new();
 
@@ -35,7 +33,7 @@ impl ConfigMap {
         ret
     }
 
-    pub fn parse(&mut self, config_lines: &str) -> Result<ConfigMap, String> {
+    pub fn parse(config_lines: &str) -> Result<ConfigMap, String> {
         let mut ret = ConfigMap::new();
 
         for line in config_lines.split("\n") {
@@ -52,6 +50,15 @@ impl ConfigMap {
 
         Ok(ret)
     }
+
+    pub fn push(&mut self, key: &str, mut values: Vec<String>) {
+        if !self.map.contains_key(key) {
+            self.map.insert(key.to_string(), values);
+        } else {
+            self.map.get_mut(key).unwrap().append(&mut values);
+        }
+    }
+
 
     /// Extracts for example submodule.<name>.<key>=<value>.
     /// All entries that dont contain the prefix are returned in the residual
@@ -108,5 +115,89 @@ impl Display for ConfigMap {
         write!(f, "ConfigMap {{ {} }}", temp)?;
 
         Ok(())
+    }
+}
+
+
+//////////////////////////////////////////////
+trait ConfigLoader {
+    fn fetch_remote_config(&self) -> ();
+    fn git_config_list(&self) -> String;
+    fn get_configmap(&self) -> Result<ConfigMap, String> {
+        ConfigMap::parse(&self.git_config_list())
+    }
+}
+
+struct MultiConfigLoader {
+    config_loaders: Vec<Box<dyn ConfigLoader>>
+}
+
+struct LocalGitConfigLoader {
+    //repo: Repo TODO
+}
+
+struct ContentConfigLoader {
+    // idk
+}
+
+struct StaticContentConfigLoader {
+    content: String
+}
+
+struct LocalFileConfigLoader {
+    filename: PathBuf,
+    allow_missing: bool
+}
+
+struct GitRemoteConfigLoader {
+    url: Url,
+    remote_ref: String,
+    filename: PathBuf,
+    local_repo: (), //TODO
+    local_ref: String,
+}
+
+
+
+//////////////////////////////////////////////
+#[derive(Debug)]
+struct ConfigAccumulator<'a> {
+    monorepo: &'a MonoRepo,
+    online: bool,
+}
+
+impl ConfigAccumulator<'_> {
+
+    fn load_config(&self, config_loader: Box<dyn ConfigLoader>) -> Result<ConfigMap, String> {
+        let mut full_configmap = ConfigMap::new();
+        let mut existing_names = HashSet::new();
+
+        let mut queue = vec![config_loader];
+        while let Some(config_loader) = queue.pop() {
+            if self.online {
+                config_loader.fetch_remote_config();
+            }
+
+            let current_configmap = config_loader.get_configmap()?;
+            let sub_config_loaders = self.get_config_loaders(
+                &current_configmap, &full_configmap
+            );
+            // Earlier loaded configs overrides later loaded configs.
+            full_configmap = ConfigMap::join([current_configmap, full_configmap].into_iter());
+            // Traverse into sub-config-loaders.
+            for (name, sub_config_loader) in sub_config_loaders.into_iter() {
+                if existing_names.contains(&name) {
+                    return Err(format!("toprepo.config.{} configurations found in multiple sources", name));
+                }
+                existing_names.insert(name);
+                queue.push(sub_config_loader);
+            }
+        }
+
+        Ok(full_configmap)
+    }
+
+    fn get_config_loaders(&self, configmap: &ConfigMap, overrides: &ConfigMap) -> HashMap<String, Box<dyn ConfigLoader>> {
+        todo!()
     }
 }
