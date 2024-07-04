@@ -16,6 +16,7 @@ use itertools::Itertools;
 
 //THe repo class seems unnecessary, as the only thing
 // it does is sanitize a file path
+#[derive(Debug)]
 struct MonoRepo {
     path: PathBuf,
     name: String,
