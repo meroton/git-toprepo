@@ -1,9 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use enum_dispatch::enum_dispatch;
 use itertools::Itertools;
 use url::Url;
 use crate::MonoRepo;
+use crate::util::join_submodule_url;
 
 
 //TODO: Create proper error enums instead of strings
@@ -131,7 +133,8 @@ impl Display for ConfigMap {
 
 
 //////////////////////////////////////////////
-trait ConfigLoader {
+#[enum_dispatch]
+trait ConfigLoaderTrait {
     fn fetch_remote_config(&self) -> ();
     fn git_config_list(&self) -> String;
     fn get_configmap(&self) -> Result<ConfigMap, String> {
@@ -139,12 +142,24 @@ trait ConfigLoader {
     }
 }
 
-struct MultiConfigLoader {
-    config_loaders: Vec<Box<dyn ConfigLoader>>,
+// Similar to an abstract class, removes the need for Box<dyn &ConfigLoaderTrait>
+#[enum_dispatch(ConfigLoaderTrait)]
+enum ConfigLoader<'a> {
+    MultiConfigLoader(MultiConfigLoader<'a>),
+    LocalGitConfigLoader(LocalGitConfigLoader<'a>),
+    ContentConfigLoader,
+    StaticContentConfigLoader,
+    LocalFileConfigLoader,
+    GitRemoteConfigLoader(GitRemoteConfigLoader<'a>),
 }
 
-struct LocalGitConfigLoader {
-    //repo: Repo TODO
+
+struct MultiConfigLoader<'a> {
+    config_loaders: Vec<ConfigLoader<'a>>,
+}
+
+struct LocalGitConfigLoader<'a> {
+    repo: &'a MonoRepo, // <---- This reference causes lifetime voodoo.
 }
 
 struct ContentConfigLoader {
@@ -160,44 +175,43 @@ struct LocalFileConfigLoader {
     allow_missing: bool,
 }
 
-struct GitRemoteConfigLoader {
+struct GitRemoteConfigLoader<'a> {
     url: Url,
     remote_ref: String,
     filename: PathBuf,
-    local_repo: (), //TODO
+    local_repo: &'a MonoRepo, // <---- This reference causes lifetime voodoo.
     local_ref: String,
 }
 
-impl ConfigLoader for MultiConfigLoader {
+impl ConfigLoaderTrait for MultiConfigLoader<'_> {
     fn fetch_remote_config(&self) -> () { todo!() }
     fn git_config_list(&self) -> String { todo!() }
 }
 
-impl ConfigLoader for LocalGitConfigLoader {
+impl ConfigLoaderTrait for LocalGitConfigLoader<'_> {
     fn fetch_remote_config(&self) -> () { todo!() }
     fn git_config_list(&self) -> String { todo!() }
 }
 
-impl ConfigLoader for ContentConfigLoader {
+impl ConfigLoaderTrait for ContentConfigLoader {
     fn fetch_remote_config(&self) -> () { todo!() }
     fn git_config_list(&self) -> String { todo!() }
 }
 
-impl ConfigLoader for StaticContentConfigLoader {
+impl ConfigLoaderTrait for StaticContentConfigLoader {
     fn fetch_remote_config(&self) -> () { todo!() }
     fn git_config_list(&self) -> String { todo!() }
 }
 
-impl ConfigLoader for LocalFileConfigLoader {
+impl ConfigLoaderTrait for LocalFileConfigLoader {
     fn fetch_remote_config(&self) -> () { todo!() }
     fn git_config_list(&self) -> String { todo!() }
 }
 
-impl ConfigLoader for GitRemoteConfigLoader {
+impl ConfigLoaderTrait for GitRemoteConfigLoader<'_> {
     fn fetch_remote_config(&self) -> () { todo!() }
     fn git_config_list(&self) -> String { todo!() }
 }
-
 
 //////////////////////////////////////////////
 #[derive(Debug)]
@@ -207,7 +221,17 @@ struct ConfigAccumulator<'a> {
 }
 
 impl ConfigAccumulator<'_> {
-    fn load_config(&self, config_loader: Box<dyn ConfigLoader>) -> Result<ConfigMap, String> {
+    fn load_main_config(&self) -> Result<ConfigMap, String> {
+        let config_loader = ConfigLoader::from(MultiConfigLoader {
+            config_loaders: vec![
+                ConfigLoader::from(LocalGitConfigLoader {repo: self.monorepo}),
+                ConfigLoader::from(StaticContentConfigLoader {content: "...".to_string()})
+            ]
+        });
+        self.load_config(config_loader)
+    }
+
+    fn load_config(&self, config_loader: ConfigLoader) -> Result<ConfigMap, String> {
         let mut full_configmap = ConfigMap::new();
         let mut existing_names = HashSet::new();
 
@@ -238,7 +262,7 @@ impl ConfigAccumulator<'_> {
     }
 
     fn get_config_loaders(&self, configmap: &ConfigMap, overrides: &ConfigMap) ->
-    Result<HashMap<String, Box<dyn ConfigLoader>>, String> {
+    Result<HashMap<String, ConfigLoader>, String> {
         let mut config_loaders = HashMap::new();
         // Accumulate toprepo.config.<id>.* keys.
         let own_loader_configmaps = configmap.extract_mapping("toprepo.config");
@@ -255,46 +279,52 @@ impl ConfigAccumulator<'_> {
                 }
             }
 
-
-
             // Actual configuration, load.
             let full_loader_values = &full_loader_configmaps[&name];
             let config_loader = self.get_config_loader(&name, full_loader_values)?;
             config_loaders.insert(name, config_loader);
         }
 
-
         Ok(config_loaders)
     }
 
-    fn get_config_loader(&self, name: &str, configmap: &ConfigMap) -> Result<Box<dyn ConfigLoader>, String> {
+    fn get_config_loader<'a>(&self, name: &str, configmap: &ConfigMap) -> Result<ConfigLoader, String> {
         let loader_type = configmap.get_last("type")
             .expect("Missing config loader type").to_lowercase();
 
-        let config_loader: Box<dyn ConfigLoader> = match loader_type.as_str() {
-            "none" => Box::new(StaticContentConfigLoader { content: String::new() }),
+        let config_loader = match loader_type.as_str() {
+            "none" => ConfigLoader::from(StaticContentConfigLoader { content: String::new() }),
             "file" => {
                 let mut file_path = self.monorepo.path.clone();
                 file_path.push(PathBuf::from(
                     configmap.get_last("file").expect("Missing file")
                 ));
 
-                Box::new(LocalFileConfigLoader { filename: file_path, allow_missing: false })
+                ConfigLoader::from(LocalFileConfigLoader { filename: file_path, allow_missing: false })
             }
             "git" => {
                 // Load
-                let raw_url = configmap.get_last("url").expect("Missing url");
-                let reference = configmap.get_last("ref").expect("Missing ref");
-                let filename = configmap.get_last("url").expect("Missing filename");
+                let raw_url = Url::parse(
+                    configmap.get_last("url").expect("Missing url")
+                ).unwrap();
+                let reference = configmap.get_last("ref").expect("Missing ref").clone();
+                let filename = PathBuf::from(configmap.get_last("url").expect("Missing filename"));
 
                 // Translate.
-                let parent_url = self.monorepo.get_toprepo_fetch_url();
+                let parent_url = self.monorepo.get_toprepo_fetch_url().unwrap();
+                let url = join_submodule_url(parent_url, raw_url);
+                let filename = PathBuf::from(&filename);
 
-                todo!();
-
-                //  Box::new(todo!())
+                // Parse.
+                ConfigLoader::from(GitRemoteConfigLoader {
+                    url,
+                    remote_ref: reference,
+                    filename,
+                    local_repo: &self.monorepo,
+                    local_ref: format!("refs/toprepo/config/{}", name),
+                })
             }
-            _ => panic!(),
+            _ => return Err(format!("Invalid toprepo.config.type {}!", loader_type)),
         };
 
         Ok(config_loader)
