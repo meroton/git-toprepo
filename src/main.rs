@@ -42,7 +42,7 @@ impl MonoRepo {
         }
     }
 
-    fn get_toprepo_fetch_url(self) { todo!() }
+    fn get_toprepo_fetch_url(&self) { todo!() }
 }
 
 fn fetch(args: Cli) {
@@ -76,7 +76,7 @@ fn main() {
 
     println!("{}", a);
 
-    let (temp, _) = a.extract_mapping("lorem");
+    let temp = a.extract_mapping("lorem");
 
     println!("{:?}", temp);
 
