@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod util;
 
 use crate::cli::{Cli, Commands};
 use crate::config::ConfigMap;
@@ -12,6 +13,7 @@ use std::process::Command;
 
 use clap::{Arg, Args, Parser, Subcommand};
 use itertools::Itertools;
+use url::Url;
 
 
 //THe repo class seems unnecessary, as the only thing
@@ -42,7 +44,7 @@ impl MonoRepo {
         }
     }
 
-    fn get_toprepo_fetch_url(&self) { todo!() }
+    fn get_toprepo_fetch_url(&self) -> Option<Url> { todo!() }
 }
 
 fn fetch(args: Cli) {
