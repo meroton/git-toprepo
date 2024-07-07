@@ -3,7 +3,7 @@ mod config;
 mod util;
 
 use crate::cli::{Cli, Commands};
-use crate::config::{ConfigAccumulator, ConfigMap};
+use crate::config::{Config, ConfigAccumulator, ConfigMap};
 
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -19,14 +19,14 @@ use url::Url;
 //THe repo class seems unnecessary, as the only thing
 // it does is sanitize a file path
 #[derive(Debug)]
-struct MonoRepo {
+struct Repo {
     path: PathBuf,
     name: String,
 }
 
 #[allow(dead_code)]
-impl MonoRepo {
-    fn new(repo: String) -> MonoRepo {
+impl Repo {
+    fn new(repo: String) -> Repo {
         let command = Command::new("git")
             .args(["-C", repo.as_str()])
             .arg("rev-parse")
@@ -38,17 +38,21 @@ impl MonoRepo {
             String::from_utf8(command.stdout).unwrap()
         );
 
-        MonoRepo {
+        Repo {
             path,
             name: "mono repo".to_string(),
         }
+    }
+
+    fn from_config(path: PathBuf, config: Config) -> Repo {
+        todo!()
     }
 
     fn get_toprepo_fetch_url(&self) -> Option<Url> { todo!() }
 }
 
 fn fetch(args: Cli) -> u16 {
-    let monorepo = MonoRepo::new(args.cwd);
+    let monorepo = Repo::new(args.cwd);
     println!("Monorepo path: {:?}", monorepo.path);
 
     let config_accumulator = ConfigAccumulator::new(&monorepo, true);
@@ -58,9 +62,10 @@ fn fetch(args: Cli) -> u16 {
         panic!("{}", err);
         return 1
     }
-    println!("{}", configmap.unwrap());
+    let configmap = configmap.unwrap();
+    println!("{}", configmap);
 
-
+    let config = Config::new(configmap);
 
     todo!()
 }
