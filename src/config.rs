@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use enum_dispatch::enum_dispatch;
 use itertools::Itertools;
 use url::Url;
@@ -24,14 +25,12 @@ impl ConfigMap {
         ConfigMap { map: HashMap::new() }
     }
 
-    pub fn join<'a, I>(configs: I) -> ConfigMap
-    where
-        I: Iterator<Item=&'a ConfigMap>,
+    pub fn join<'a, I: IntoIterator<Item=&'a ConfigMap>>(configs: I) -> ConfigMap
     {
         let mut ret = ConfigMap::new();
 
         for config in configs {
-            for (key, values) in config.map.iter() {
+            for (key, values) in &config.map {
                 ret.push(&key, values.clone());
             }
         }
@@ -42,15 +41,16 @@ impl ConfigMap {
     pub fn parse(config_lines: &str) -> Result<ConfigMap, String> {
         let mut ret = ConfigMap::new();
 
-        for line in config_lines.split("\n") {
+        for line in config_lines.split("\n").filter(|s| !s.is_empty()) {
             if let Some((key, value)) = line.split("=").next_tuple() {
-                //ret[key].push(value.to_string());
                 if !ret.map.contains_key(key) {
                     ret.map.insert(key.to_string(), Vec::new());
                 }
                 ret.map.get_mut(key).unwrap().push(value.to_string());
             } else {
-                return Err(format!("Could not parse {}", line).to_string());
+                println!("Could not parse \"{}\"", line);
+                //panic!("Could not parse \"{}\"", line);
+                //return Err(format!("Could not parse \"{}\"", line).to_string());
             }
         }
 
@@ -86,7 +86,7 @@ impl ConfigMap {
         let mut extracted = HashMap::new();
         let mut residual = ConfigMap::new();
 
-        for (key, values) in self.map.iter() {
+        for (key, values) in &self.map {
             if let Some(temp) = key.strip_prefix(&prefix) {
                 if let Some((name, subkey)) = temp.split(".").next_tuple() {
                     if !extracted.contains_key(name) {
@@ -114,7 +114,10 @@ impl ConfigMap {
         match values.len() {
             0 => panic!("The key {} should not exist without a value!", key),
             1 => Ok(values.next().unwrap()),
-            _ => Err(format!("Conflicting values for {}: {}", key, values.join(", "))),
+            _ => {
+                panic!("Conflicting values for {}: {}", key, values.join(", "));
+                Err(format!("Conflicting values for {}: {}", key, values.join(", ")))
+            }
         }
     }
 }
@@ -135,9 +138,12 @@ impl Display for ConfigMap {
 //////////////////////////////////////////////
 #[enum_dispatch]
 trait ConfigLoaderTrait {
-    fn fetch_remote_config(&self) -> ();
-    fn git_config_list(&self) -> String;
-    fn get_configmap(&self) -> Result<ConfigMap, String> {
+    fn fetch_remote_config(&self);
+    fn git_config_list(self) -> String;
+    fn get_configmap(self) -> Result<ConfigMap, String>
+    where
+        Self: Sized,
+    {
         ConfigMap::parse(&self.git_config_list())
     }
 }
@@ -184,48 +190,88 @@ struct GitRemoteConfigLoader<'a> {
 }
 
 impl ConfigLoaderTrait for MultiConfigLoader<'_> {
-    fn fetch_remote_config(&self) -> () { todo!() }
-    fn git_config_list(&self) -> String { todo!() }
+    fn fetch_remote_config(&self) {
+        for config_loader in &self.config_loaders {
+            config_loader.fetch_remote_config();
+        }
+    }
+
+    fn git_config_list(self) -> String {
+        let mut config_list = String::new();
+
+        // Joins all ConfigLoaders in reverse order.
+        for config_loader in self.config_loaders {
+            let mut part: String = config_loader.git_config_list();
+            if !part.is_empty() && !part.ends_with('\n') {
+                part.push('\n');
+            }
+
+            part.push_str(&config_list);
+            config_list = part;
+        }
+
+        config_list
+    }
 }
 
 impl ConfigLoaderTrait for LocalGitConfigLoader<'_> {
-    fn fetch_remote_config(&self) -> () { todo!() }
-    fn git_config_list(&self) -> String { todo!() }
+    fn fetch_remote_config(&self) {}
+    fn git_config_list(self) -> String {
+        let command = Command::new("git")
+            .args(["-C", self.repo.path.to_str().unwrap().trim()])
+            .args(["config", "--list"])
+            .output()
+            .unwrap();
+
+        let ret = String::from_utf8(command.stdout)
+            .expect("Could not load Local git configuration.");
+        println!("-----\n{}-----", ret);
+        ret
+    }
 }
 
 impl ConfigLoaderTrait for ContentConfigLoader {
-    fn fetch_remote_config(&self) -> () { todo!() }
-    fn git_config_list(&self) -> String { todo!() }
+    fn fetch_remote_config(&self) { todo!() }
+    fn git_config_list(self) -> String { todo!() }
 }
 
 impl ConfigLoaderTrait for StaticContentConfigLoader {
-    fn fetch_remote_config(&self) -> () { todo!() }
-    fn git_config_list(&self) -> String { todo!() }
+    fn fetch_remote_config(&self) {}
+    fn git_config_list(self) -> String {
+        self.content
+    }
 }
 
 impl ConfigLoaderTrait for LocalFileConfigLoader {
-    fn fetch_remote_config(&self) -> () { todo!() }
-    fn git_config_list(&self) -> String { todo!() }
+    fn fetch_remote_config(&self) { todo!() }
+    fn git_config_list(self) -> String { todo!() }
 }
 
 impl ConfigLoaderTrait for GitRemoteConfigLoader<'_> {
-    fn fetch_remote_config(&self) -> () { todo!() }
-    fn git_config_list(&self) -> String { todo!() }
+    fn fetch_remote_config(&self) { todo!() }
+    fn git_config_list(self) -> String { todo!() }
 }
 
 //////////////////////////////////////////////
 #[derive(Debug)]
-struct ConfigAccumulator<'a> {
+pub struct ConfigAccumulator<'a> {
     monorepo: &'a MonoRepo,
     online: bool,
 }
 
 impl ConfigAccumulator<'_> {
-    fn load_main_config(&self) -> Result<ConfigMap, String> {
+    pub fn new(monorepo: &MonoRepo, online: bool) -> ConfigAccumulator {
+        ConfigAccumulator {
+            monorepo,
+            online,
+        }
+    }
+
+    pub fn load_main_config(&self) -> Result<ConfigMap, String> {
         let config_loader = ConfigLoader::from(MultiConfigLoader {
             config_loaders: vec![
-                ConfigLoader::from(LocalGitConfigLoader {repo: self.monorepo}),
-                ConfigLoader::from(StaticContentConfigLoader {content: "...".to_string()})
+                ConfigLoader::from(LocalGitConfigLoader { repo: self.monorepo }),
+                ConfigLoader::from(StaticContentConfigLoader { content: "...".to_string() }),
             ]
         });
         self.load_config(config_loader)
@@ -247,10 +293,11 @@ impl ConfigAccumulator<'_> {
             );
 
             // Earlier loaded configs overrides later loaded configs.
-            full_configmap = ConfigMap::join([current_configmap, full_configmap].iter());
+            full_configmap = ConfigMap::join([&current_configmap, &full_configmap]);
             // Traverse into sub-config-loaders.
-            for (name, sub_config_loader) in sub_config_loaders?.into_iter() {
+            for (name, sub_config_loader) in sub_config_loaders? {
                 if existing_names.contains(&name) {
+                    panic!("toprepo.config.{} configurations found in multiple sources", name);
                     return Err(format!("toprepo.config.{} configurations found in multiple sources", name));
                 }
                 existing_names.insert(name);
@@ -266,7 +313,7 @@ impl ConfigAccumulator<'_> {
         let mut config_loaders = HashMap::new();
         // Accumulate toprepo.config.<id>.* keys.
         let own_loader_configmaps = configmap.extract_mapping("toprepo.config");
-        let full_loader_configmaps = ConfigMap::join([configmap, overrides].into_iter())
+        let full_loader_configmaps = ConfigMap::join([configmap, overrides])
             .extract_mapping("toprepo.config");
 
         for (name, own_loader_values) in own_loader_configmaps.into_iter() {
@@ -324,7 +371,10 @@ impl ConfigAccumulator<'_> {
                     local_ref: format!("refs/toprepo/config/{}", name),
                 })
             }
-            _ => return Err(format!("Invalid toprepo.config.type {}!", loader_type)),
+            _ => {
+                panic!("Invalid toprepo.config.type {}!", loader_type);
+                return Err(format!("Invalid toprepo.config.type {}!", loader_type));
+            }
         };
 
         Ok(config_loader)

@@ -3,7 +3,7 @@ mod config;
 mod util;
 
 use crate::cli::{Cli, Commands};
-use crate::config::ConfigMap;
+use crate::config::{ConfigAccumulator, ConfigMap};
 
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -47,10 +47,22 @@ impl MonoRepo {
     fn get_toprepo_fetch_url(&self) -> Option<Url> { todo!() }
 }
 
-fn fetch(args: Cli) {
+fn fetch(args: Cli) -> u16 {
     let monorepo = MonoRepo::new(args.cwd);
+    println!("Monorepo path: {:?}", monorepo.path);
 
-    println!("{:?}", monorepo.path)
+    let config_accumulator = ConfigAccumulator::new(&monorepo, true);
+    let configmap = config_accumulator.load_main_config();
+
+    if let Err(err) = configmap {
+        panic!("{}", err);
+        return 1
+    }
+    println!("{}", configmap.unwrap());
+
+
+
+    todo!()
 }
 
 
@@ -62,7 +74,7 @@ fn main() {
         Commands::Init(_) => {}
         Commands::Config => {}
         Commands::Refilter => {}
-        Commands::Fetch(_) => { fetch(args) }
+        Commands::Fetch(_) => { fetch(args); }
         Commands::Push => {}
     }
 
