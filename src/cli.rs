@@ -1,5 +1,6 @@
 use clap::{Args, Parser, Subcommand};
 use std::env;
+use std::string::ToString;
 
 ///TODO: Program description
 #[derive(Parser, Debug)]
@@ -35,10 +36,11 @@ pub struct Fetch {
     #[arg(long)]
     skip_filter: bool,
 
+    #[arg(default_value_t = String::from("origin"))]
     remote: String,
 
     #[arg(id="ref")]
-    reference: String,
+    reference: Option<String>,
 }
 
 
