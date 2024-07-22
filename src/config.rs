@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
@@ -26,27 +28,29 @@ Monorepo, utsorterat
 const DEFAULT_FETCH_ARGS: [&str; 3] = ["--prune", "--prune-tags", "--tags"];
 
 
-struct RepoConfig {
+#[derive(Debug)]
+pub struct RepoConfig {
     /// Name of the storage directory and used for pattern matching.
-    name: String,
+    pub name: String,
 
     /// Flags if this repos should be expanded or not.
-    enabled: bool,
+    pub enabled: bool,
 
     /// Exact matching against sub repos configs like .gitmodules.
     ///
     /// These URLs are not resolved any may be relative.
-    raw_urls: Vec<String>,
+    pub raw_urls: Vec<String>,
 
     /// Absolute URL to git-fetch from.
-    fetch_url: String,
+    pub fetch_url: String, //TODO: Borrow these from Config?
 
     /// extra options for git-fetch.
-    fetch_args: Vec<String>,
+    pub fetch_args: Vec<String>,
 
     /// Absolute URL to git-push to.
-    push_url: String,
+    pub push_url: String,
 }
+
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -56,10 +60,9 @@ const CONFIGMAP_UNSET: &str = "git_toprepo_ConfigDict_unset"; //Should this be r
 //https://git-scm.com/docs/git-config#_configuration_file
 #[derive(Debug)]
 pub struct ConfigMap {
-    map: HashMap<String, Vec<String>>,
+    pub(crate) map: HashMap<String, Vec<String>>,
 }
 
-#[allow(dead_code)]
 impl ConfigMap {
     pub fn new() -> ConfigMap {
         ConfigMap { map: HashMap::new() }
@@ -70,7 +73,7 @@ impl ConfigMap {
 
         for config in configs {
             for (key, values) in &config.map {
-                ret.push(&key, values.clone());
+                ret.append(&key, values.clone());
             }
         }
 
@@ -82,10 +85,7 @@ impl ConfigMap {
 
         for line in config_lines.split("\n").filter(|s| !s.is_empty()) {
             if let Some((key, value)) = line.split("=").next_tuple() {
-                if !ret.map.contains_key(key) {
-                    ret.map.insert(key.to_string(), Vec::new());
-                }
-                ret.map.get_mut(key).unwrap().push(value.to_string());
+                ret.push(key.trim(), value.to_string());
             } else {
                 println!("Could not parse \"{}\"", line);
                 //panic!("Could not parse \"{}\"", line);
@@ -118,7 +118,12 @@ impl ConfigMap {
             .or_insert(default)
     }
 
-    pub fn push(&mut self, key: &str, mut values: Vec<String>) {
+    pub fn push(&mut self, key: &str, value: String) {
+        self.map.entry(key.to_string()).or_insert(Vec::new())
+            .push(value);
+    }
+
+    pub fn append(&mut self, key: &str, mut values: Vec<String>) {
         if !self.map.contains_key(key) {
             self.map.insert(key.to_string(), values);
         } else {
@@ -145,7 +150,7 @@ impl ConfigMap {
                         extracted.insert(name.to_string(), ConfigMap::new());
                     }
 
-                    extracted.get_mut(name).unwrap().push(subkey, values.clone());
+                    extracted.get_mut(name).unwrap().append(subkey, values.clone());
                 } else {
                     unreachable!("Illegal config {}", temp);
                 }
@@ -328,10 +333,11 @@ impl ConfigAccumulator<'_> {
 }
 
 
+#[derive(Debug)]
 pub struct Config {
     missing_commits: HashMap<String, HashSet<String>>, // TODO What data type is a commit hash?
-    top_fetch_url: String,
-    top_push_url: String,
+    pub(crate) top_fetch_url: String,
+    pub(crate) top_push_url: String,
     repos: Vec<RepoConfig>,
 }
 
@@ -352,7 +358,7 @@ impl Config {
                 .expect("Config remote.origin.url is not set"),
             Some(url) => url.to_string(),
         };
-        let top_push_url = match configmap.remove_last("toprepo.top.pushurl") {
+        let top_push_url = match configmap.remove_last("remote.top.pushurl") {
             None => configmap.remove_last("toprepo.top.pushurl")
                 .expect(&"Config remote.top.pushurl is not set"),
             Some(url) => url,

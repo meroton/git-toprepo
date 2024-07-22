@@ -1,35 +1,36 @@
+#![allow(dead_code)]
+
+
 mod cli;
 mod config;
 mod util;
 mod config_loader;
 
 use crate::cli::{Cli, Commands};
-use crate::config::{Config, ConfigAccumulator, ConfigMap};
+use crate::config::{Config, ConfigAccumulator, ConfigMap, RepoConfig};
 
-use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::ops::Not;
 use std::{env, io, panic};
-use std::panic::PanicInfo;
 use std::path::PathBuf;
 use std::process::Command;
 
 use clap::{Arg, Args, Parser, Subcommand};
 use colored::Colorize;
 use itertools::Itertools;
-use url::Url;
-use crate::util::iter_to_string;
+use lazycell::LazyCell;
+use crate::util::{iter_to_string, join_submodule_url};
 
 
-//THe repo class seems unnecessary, as the only thing
-// it does is sanitize a file path
+const DEFAULT_FETCH_ARGS: [&str; 3] = ["--prune", "--prune-tags", "--tags"];
+
 #[derive(Debug)]
 struct Repo {
     name: String,
     path: PathBuf,
+    git_dir: LazyCell<PathBuf>,
 }
 
-#[allow(dead_code)]
 impl Repo {
     fn new(repo: String) -> Repo {
         println!("Repo: {}", repo);
@@ -60,6 +61,7 @@ impl Repo {
         Repo {
             name: "mono repo".to_string(),
             path,
+            git_dir: LazyCell::new(),
         }
     }
 
@@ -69,10 +71,66 @@ impl Repo {
 
     fn get_toprepo_fetch_url(&self) -> Option<&str> { todo!() }
 
-    fn get_toprepo_dir(&self) -> PathBuf { todo!() }
+    fn get_toprepo_dir(&self) -> PathBuf {
+        self.get_subrepo_dir(TopRepo::NAME)
+    }
 
-    fn get_subrepo_dir(&self, name: &str) -> PathBuf { todo!() }
+    fn get_subrepo_dir(&self, name: &str) -> PathBuf {
+        if !self.git_dir.filled() {
+            self.git_dir.fill(determine_git_dir(&self.path))
+                .unwrap();
+        }
+
+        let git_dir = self.git_dir.borrow().unwrap().to_str().unwrap();
+        PathBuf::from(
+            format!("{}/repos/{}", git_dir, name)
+        )
+    }
 }
+
+
+#[derive(Debug)]
+struct TopRepo {
+    name: String,
+    path: PathBuf,
+    config: RepoConfig,
+}
+
+impl TopRepo {
+    const NAME: &'static str = "top";
+
+    fn new(path: PathBuf, fetch_url: &String, push_url: &String) -> TopRepo {
+        let config = RepoConfig {
+            name: TopRepo::NAME.to_string(),
+            enabled: true,
+            raw_urls: Vec::new(),
+            fetch_url: fetch_url.clone(),
+            fetch_args: iter_to_string(DEFAULT_FETCH_ARGS),
+            push_url: push_url.clone(),
+        };
+
+        TopRepo {
+            name: TopRepo::NAME.to_string(),
+            path,
+            config,
+        }
+    }
+    fn from_config(repo: PathBuf, config: &Config) -> TopRepo {
+        TopRepo::new(
+            repo,
+            &config.top_fetch_url,
+            &config.top_push_url,
+        )
+    }
+}
+
+
+fn determine_git_dir(repo: &PathBuf) -> PathBuf {
+    todo!()
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 fn fetch(args: Cli) -> u16 {
     let monorepo = Repo::new(args.cwd);
@@ -85,10 +143,15 @@ fn fetch(args: Cli) -> u16 {
         panic!("{}", err);
     }
     let configmap = configmap.unwrap();
-    println!("{}", configmap);
+    println!("{}", "Congifmap".blue());
+    for (key, values) in &configmap.map {
+        println!("{}: {:?}", key, values);
+    }
 
     let config = Config::new(configmap);
-    //let toprepo = Repo::new(monorepo.ge(), config);
+    println!("{}\n{:?}", "Config:".blue(), config);
+
+    let toprepo = TopRepo::from_config(monorepo.get_toprepo_dir(), &config);
     todo!()
 }
 
@@ -118,25 +181,25 @@ fn main() {
     }
 
 
-//    ////////////////////////////////////////////////////////////////////////////////////////////////
-//
-//    let mut a = ConfigMap::new();
-//    a.push("lorem.ipsum.abc", iter_to_string(["a", "b", "c"]));
-//    a.push("lorem.ipsum.123", iter_to_string(["1", "2"]));
-//
-//    println!("{}", a);
-//
-//    a.push("lorem.ipsum.123", iter_to_string(["3", "2"]));
-//    a.push("lorem.dolor.sit", iter_to_string(["amet", "consectetur"]));
-//
-//    println!("{}", a);
-//
-//    let temp = a.extract_mapping("lorem");
-//
-//    println!("{:?}", temp);
-//
-//    let (b, c) = temp.iter().next_tuple().unwrap();
-//
-//    println!("{:?}", b);
-//    println!("{:?}", c);
+    //    ////////////////////////////////////////////////////////////////////////////////////////////////
+    //
+    //    let mut a = ConfigMap::new();
+    //    a.push("lorem.ipsum.abc", iter_to_string(["a", "b", "c"]));
+    //    a.push("lorem.ipsum.123", iter_to_string(["1", "2"]));
+    //
+    //    println!("{}", a);
+    //
+    //    a.push("lorem.ipsum.123", iter_to_string(["3", "2"]));
+    //    a.push("lorem.dolor.sit", iter_to_string(["amet", "consectetur"]));
+    //
+    //    println!("{}", a);
+    //
+    //    let temp = a.extract_mapping("lorem");
+    //
+    //    println!("{:?}", temp);
+    //
+    //    let (b, c) = temp.iter().next_tuple().unwrap();
+    //
+    //    println!("{:?}", b);
+    //    println!("{:?}", c);
 }
