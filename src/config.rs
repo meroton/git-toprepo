@@ -14,8 +14,10 @@ use crate::config_loader::{
     MultiConfigLoader,
     StaticContentConfigLoader,
 };
-use crate::Repo;
-use crate::util::{iter_to_string, join_submodule_url};
+use crate::repo::{
+    Repo,
+};
+use crate::util::{iter_to_string, join_submodule_url, RawUrl, Url};
 
 
 //TODO: Create proper error enums instead of strings
@@ -39,18 +41,17 @@ pub struct RepoConfig {
     /// Exact matching against sub repos configs like .gitmodules.
     ///
     /// These URLs are not resolved any may be relative.
-    pub raw_urls: Vec<String>,
+    pub raw_urls: Vec<RawUrl>,
 
     /// Absolute URL to git-fetch from.
-    pub fetch_url: String, //TODO: Borrow these from Config?
+    pub fetch_url: Url, //TODO: Borrow these from Config?
 
     /// extra options for git-fetch.
     pub fetch_args: Vec<String>,
 
     /// Absolute URL to git-push to.
-    pub push_url: String,
+    pub push_url: Url,
 }
-
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -80,20 +81,20 @@ impl ConfigMap {
         ret
     }
 
-    pub fn parse(config_lines: &str) -> Result<ConfigMap, String> {
+    pub fn parse(config_lines: &str) -> ConfigMap {
         let mut ret = ConfigMap::new();
 
         for line in config_lines.split("\n").filter(|s| !s.is_empty()) {
             if let Some((key, value)) = line.split("=").next_tuple() {
                 ret.push(key.trim(), value.to_string());
             } else {
-                println!("Could not parse \"{}\"", line);
-                //panic!("Could not parse \"{}\"", line);
+                //println!("Could not parse \"{}\"", line);
+                panic!("Could not parse \"{}\"", line);
                 //return Err(format!("Could not parse \"{}\"", line).to_string());
             }
         }
 
-        Ok(ret)
+        ret
     }
 
     pub fn get(&self, key: &str) -> Option<&Vec<String>> {
@@ -160,20 +161,17 @@ impl ConfigMap {
         extracted
     }
 
-    pub fn get_singleton<'t>(&'t self, key: &str, default: Option<&'t str>) -> Result<&str, String> {
-        if !self.map.contains_key(key) {
-            return Ok(default.unwrap_or(CONFIGMAP_UNSET));
-        }
-
-        let mut values = self.map[key]
+    pub fn get_singleton(&self, key: &str) -> Option<&str> {
+        let mut values = self.get(key)?
             .iter().sorted();
 
         match values.len() {
             0 => panic!("The key {} should not exist without a value!", key),
-            1 => Ok(values.next().unwrap()),
+            1 => Some(values.next().unwrap()),
             _ => {
-                panic!("Conflicting values for {}: {}", key, values.join(", "));
-                Err(format!("Conflicting values for {}: {}", key, values.join(", ")))
+                None
+                //panic!("Conflicting values for {}: {}", key, values.join(", "));
+                //Err(format!("Conflicting values for {}: {}", key, values.join(", ")))
             }
         }
     }
@@ -233,7 +231,7 @@ impl ConfigAccumulator<'_> {
                 config_loader.fetch_remote_config();
             }
 
-            let current_configmap = config_loader.get_configmap()?;
+            let current_configmap = config_loader.get_configmap();
             let sub_config_loaders = self.get_config_loaders(
                 &current_configmap, &full_configmap,
             );
@@ -309,8 +307,8 @@ impl ConfigAccumulator<'_> {
 
 
                 // Translate.
-                let parent_url = self.monorepo.get_toprepo_fetch_url().unwrap();
-                let url = join_submodule_url(parent_url, raw_url);
+                let parent_url = self.monorepo.get_toprepo_fetch_url();
+                let url = join_submodule_url(&parent_url, raw_url);
                 let filename = PathBuf::from(&filename);
 
                 // Parse.
@@ -335,10 +333,10 @@ impl ConfigAccumulator<'_> {
 
 #[derive(Debug)]
 pub struct Config {
-    missing_commits: HashMap<String, HashSet<String>>, // TODO What data type is a commit hash?
-    pub(crate) top_fetch_url: String,
-    pub(crate) top_push_url: String,
-    repos: Vec<RepoConfig>,
+    pub missing_commits: HashMap<String, HashSet<String>>, // TODO What data type is a commit hash?
+    pub top_fetch_url: String,
+    pub top_push_url: String,
+    pub repos: Vec<RepoConfig>,
 }
 
 impl Config {
@@ -366,8 +364,8 @@ impl Config {
         let repo_configs = Config::parse_repo_configs(
             repo_configmaps,
             wanted_repos_patterns,
-            top_fetch_url.as_str(),
-            top_push_url.as_str(),
+            &top_fetch_url,
+            &top_push_url,
         );
 
         // Find configured missing commits.
@@ -440,10 +438,10 @@ impl Config {
             }
             Some(url) => url.to_string(),
         };
-        let fetch_url = join_submodule_url(parent_fetch_url, raw_fetch_url.as_str());
+        let fetch_url = join_submodule_url(parent_fetch_url, &raw_fetch_url);
 
         let raw_push_url = repo_configmap.get_last("pushurl")
-            .unwrap_or(raw_fetch_url.as_str());
+            .unwrap_or(&raw_fetch_url);
         let push_url = join_submodule_url(parent_push_url, raw_push_url);
 
         let fetch_args = repo_configmap.remove("fetchargs")
