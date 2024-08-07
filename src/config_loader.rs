@@ -2,20 +2,22 @@
 
 use enum_dispatch::enum_dispatch;
 use std::fs;
-use std::io::Write;
+use std::fs::File;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use clap::command;
 use colored::Colorize;
 use crate::config::ConfigMap;
-use crate::Repo;
+use crate::repo::Repo;
+use crate::util::log_run_git;
 
 
 #[enum_dispatch]
 pub trait ConfigLoaderTrait {
     fn fetch_remote_config(&self);
     fn git_config_list(self) -> String;
-    fn get_configmap(self) -> Result<ConfigMap, String>
+    fn get_configmap(self) -> ConfigMap
     where
         Self: Sized,
     {
@@ -152,7 +154,7 @@ impl StaticContentConfigLoader {
 impl ConfigLoaderTrait for StaticContentConfigLoader {
     fn fetch_remote_config(&self) { () }
     fn git_config_list(self) -> String {
-        parse_config_file(self.content.as_str())
+        parse_config_file(&self.content)
     }
 }
 
@@ -169,12 +171,14 @@ impl LocalFileConfigLoader {
 impl ConfigLoaderTrait for LocalFileConfigLoader {
     fn fetch_remote_config(&self) { todo!() }
     fn git_config_list(self) -> String {
-        todo!();
-        match fs::read_to_string(&self.filename) {
-            Ok(config) => config,
-            Err(_) if self.allow_missing => String::new(),
-            Err(err) => panic!("Failed to read config from {}", self.filename.to_str().unwrap()),
+        let mut content = String::new();
+        if self.filename.exists() || !self.allow_missing {
+            File::open(self.filename.clone())
+                .expect(&format!("File '{}' does not exist!", self.filename.to_str().unwrap()))
+                .read_to_string(&mut content).unwrap();
         }
+
+        parse_config_file(&content)
     }
 }
 
@@ -198,6 +202,17 @@ impl GitRemoteConfigLoader<'_> {
 }
 
 impl ConfigLoaderTrait for GitRemoteConfigLoader<'_> {
-    fn fetch_remote_config(&self) { todo!() }
+    fn fetch_remote_config(&self) {
+        log_run_git(
+            Some(&self.local_repo.path),
+            ["fetch",
+                "--quiet",
+                &self.url,
+                &format!("{}:{}", self.remote_ref, &self.local_ref),
+            ],
+            false,
+            true,
+        );
+    }
     fn git_config_list(self) -> String { todo!() }
 }

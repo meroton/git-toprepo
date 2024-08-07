@@ -5,8 +5,10 @@ mod cli;
 mod config;
 mod util;
 mod config_loader;
+mod repo;
+mod git;
 
-use crate::cli::{Cli, Commands};
+use crate::cli::{Cli, Commands, Fetch};
 use crate::config::{Config, ConfigAccumulator, ConfigMap, RepoConfig};
 
 use std::fmt::{Display, Formatter};
@@ -19,121 +21,16 @@ use clap::{Arg, Args, Parser, Subcommand};
 use colored::Colorize;
 use itertools::Itertools;
 use lazycell::LazyCell;
-use crate::util::{iter_to_string, join_submodule_url};
-
-
-const DEFAULT_FETCH_ARGS: [&str; 3] = ["--prune", "--prune-tags", "--tags"];
-
-#[derive(Debug)]
-struct Repo {
-    name: String,
-    path: PathBuf,
-    git_dir: LazyCell<PathBuf>,
-}
-
-impl Repo {
-    fn new(repo: String) -> Repo {
-        println!("Repo: {}", repo);
-
-        //PosixPath('/home/lack/Documents/Kod/RustRover/git-toprepo')
-        let command = Command::new("git")
-            .args(["-C", repo.as_str()])
-            .arg("rev-parse")
-            .arg("--show-toplevel")
-            .output()
-            .expect(format!("Failed to parse repo path {}", repo).as_str());
-        println!("stdout: {:?}", command.stdout);
-        let path = String::from_utf8(command.stdout).unwrap()
-            .strip_suffix("\n").unwrap().to_string();
-
-        let cwd = env::current_dir().unwrap_or(PathBuf::new());
-        let mut path = PathBuf::from(path);
-
-        if path == cwd {
-            path = PathBuf::from(".")
-        }
-        if let Ok(relative) = path.strip_prefix(cwd) {
-            path = relative.to_path_buf();
-        }
-
-        println!("Path: {:?}", path);
-
-        Repo {
-            name: "mono repo".to_string(),
-            path,
-            git_dir: LazyCell::new(),
-        }
-    }
-
-    fn from_config(path: PathBuf, config: Config) -> Repo {
-        todo!()
-    }
-
-    fn get_toprepo_fetch_url(&self) -> Option<&str> { todo!() }
-
-    fn get_toprepo_dir(&self) -> PathBuf {
-        self.get_subrepo_dir(TopRepo::NAME)
-    }
-
-    fn get_subrepo_dir(&self, name: &str) -> PathBuf {
-        if !self.git_dir.filled() {
-            self.git_dir.fill(determine_git_dir(&self.path))
-                .unwrap();
-        }
-
-        let git_dir = self.git_dir.borrow().unwrap().to_str().unwrap();
-        PathBuf::from(
-            format!("{}/repos/{}", git_dir, name)
-        )
-    }
-}
-
-
-#[derive(Debug)]
-struct TopRepo {
-    name: String,
-    path: PathBuf,
-    config: RepoConfig,
-}
-
-impl TopRepo {
-    const NAME: &'static str = "top";
-
-    fn new(path: PathBuf, fetch_url: &String, push_url: &String) -> TopRepo {
-        let config = RepoConfig {
-            name: TopRepo::NAME.to_string(),
-            enabled: true,
-            raw_urls: Vec::new(),
-            fetch_url: fetch_url.clone(),
-            fetch_args: iter_to_string(DEFAULT_FETCH_ARGS),
-            push_url: push_url.clone(),
-        };
-
-        TopRepo {
-            name: TopRepo::NAME.to_string(),
-            path,
-            config,
-        }
-    }
-    fn from_config(repo: PathBuf, config: &Config) -> TopRepo {
-        TopRepo::new(
-            repo,
-            &config.top_fetch_url,
-            &config.top_push_url,
-        )
-    }
-}
-
-
-fn determine_git_dir(repo: &PathBuf) -> PathBuf {
-    todo!()
-}
+use crate::config_loader::LocalFileConfigLoader;
+use crate::git::get_gitmodules_info;
+use crate::repo::{Repo, RepoFetcher, TopRepo};
+use crate::util::{iter_to_string, join_submodule_url, remote_to_repo};
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-fn fetch(args: Cli) -> u16 {
-    let monorepo = Repo::new(args.cwd);
+fn fetch(args: &Cli, fetch_args: &Fetch) -> u16 {
+    let monorepo = Repo::new(&args.cwd);
     println!("Monorepo path: {:?}", monorepo.path);
 
     let config_accumulator = ConfigAccumulator::new(&monorepo, true);
@@ -152,9 +49,17 @@ fn fetch(args: Cli) -> u16 {
     println!("{}\n{:?}", "Config:".blue(), config);
 
     let toprepo = TopRepo::from_config(monorepo.get_toprepo_dir(), &config);
+    let repo_fetcher = RepoFetcher::new(&monorepo);
+
+    let git_modules = get_gitmodules_info(
+        LocalFileConfigLoader::new(monorepo.path.join(".gitmodules"), true).into(),
+        &monorepo.get_toprepo_fetch_url()
+    );
+
+    let maybe = remote_to_repo(&fetch_args.remote, git_modules, config);
+
     todo!()
 }
-
 
 fn main() {
     // Make panic messages red.
@@ -176,7 +81,7 @@ fn main() {
         Commands::Init(_) => {}
         Commands::Config => {}
         Commands::Refilter => {}
-        Commands::Fetch(_) => { fetch(args); }
+        Commands::Fetch(ref fetch_args) => { fetch(&args, fetch_args); }
         Commands::Push => {}
     }
 

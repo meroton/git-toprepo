@@ -37,7 +37,7 @@ pub struct Fetch {
     skip_filter: bool,
 
     #[arg(default_value_t = String::from("origin"))]
-    remote: String,
+    pub remote: String,
 
     #[arg(id="ref")]
     reference: Option<String>,
