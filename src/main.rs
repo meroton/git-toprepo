@@ -2,30 +2,26 @@
 
 
 mod cli;
-mod config;
-mod util;
-mod config_loader;
-mod repo;
-mod git;
 
 use crate::cli::{Cli, Commands, Fetch};
-use crate::config::{Config, ConfigAccumulator, ConfigMap, RepoConfig};
+
+use git_toprepo::config::{Config, ConfigAccumulator, ConfigMap, RepoConfig};
+use git_toprepo::config_loader::LocalFileConfigLoader;
+use git_toprepo::git::get_gitmodules_info;
+use git_toprepo::repo::{remote_to_repo, Repo, RepoFetcher, TopRepo};
+
 
 use std::fmt::{Display, Formatter};
 use std::ops::Not;
 use std::{env, io, panic};
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, exit};
 
 use clap::{Arg, Args, Parser, Subcommand};
 use colored::Colorize;
 use itertools::Itertools;
 use anyhow::Result;
 use lazycell::LazyCell;
-use crate::config_loader::LocalFileConfigLoader;
-use crate::git::get_gitmodules_info;
-use crate::repo::{remote_to_repo, Repo, RepoFetcher, TopRepo};
-use crate::util::{iter_to_string, join_submodule_url};
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -90,17 +86,17 @@ fn fetch(args: &Cli, fetch_args: &Fetch) -> Result<u16> {
 }
 
 fn main() {
-//    // Make panic messages red.
-//    let default_hook = panic::take_hook();
-//    panic::set_hook(Box::new(move |panic| {
-//        if let Some(payload) = panic.payload().downcast_ref::<&str>() {
-//            println!("\n{}\n", payload.red());
-//        }
-//        if let Some(payload) = panic.payload().downcast_ref::<String>() {
-//            println!("\n{}\n", payload.red());
-//        }
-//        default_hook(panic);
-//    }));
+    // Make panic messages red.
+    let default_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |panic| {
+        if let Some(payload) = panic.payload().downcast_ref::<&str>() {
+            println!("\n{}\n", payload.red());
+        }
+        if let Some(payload) = panic.payload().downcast_ref::<String>() {
+            println!("\n{}\n", payload.red());
+        }
+        default_hook(panic);
+    }));
 
     let args = Cli::parse();
     println!("{:?}", args);

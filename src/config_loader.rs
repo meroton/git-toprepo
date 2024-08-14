@@ -66,7 +66,7 @@ pub struct GitRemoteConfigLoader<'a> {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 impl MultiConfigLoader<'_> {
-    pub(crate) fn new(config_loaders: Vec<ConfigLoader>) -> MultiConfigLoader {
+    pub fn new(config_loaders: Vec<ConfigLoader>) -> MultiConfigLoader {
         MultiConfigLoader {
             config_loaders
         }
@@ -100,7 +100,7 @@ impl ConfigLoaderTrait for MultiConfigLoader<'_> {
 
 
 impl LocalGitConfigLoader<'_> {
-    pub(crate) fn new(repo: &Repo) -> LocalGitConfigLoader {
+    pub fn new(repo: &Repo) -> LocalGitConfigLoader {
         LocalGitConfigLoader {
             repo
         }
@@ -146,7 +146,7 @@ fn parse_config_file(config_file: &str) -> String {
 }
 
 impl StaticContentConfigLoader {
-    pub(crate) fn new(content: String) -> StaticContentConfigLoader {
+    pub fn new(content: String) -> StaticContentConfigLoader {
         StaticContentConfigLoader {
             content
         }
@@ -162,7 +162,7 @@ impl ConfigLoaderTrait for StaticContentConfigLoader {
 
 
 impl LocalFileConfigLoader {
-    pub(crate) fn new(filename: PathBuf, allow_missing: bool) -> LocalFileConfigLoader {
+    pub fn new(filename: PathBuf, allow_missing: bool) -> LocalFileConfigLoader {
         LocalFileConfigLoader {
             filename,
             allow_missing,
@@ -186,7 +186,7 @@ impl ConfigLoaderTrait for LocalFileConfigLoader {
 
 
 impl GitRemoteConfigLoader<'_> {
-    pub(crate) fn new(
+    pub fn new(
         url: String,
         remote_ref: String,
         filename: PathBuf,

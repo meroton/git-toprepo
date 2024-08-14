@@ -28,7 +28,7 @@ pub fn join_submodule_url(parent: &str, mut other: &str) -> String {
                 (_, other) = other.split_at(2);
             } else if other.starts_with("../") {
                 match parent.rfind("/") {
-                    Some(i) => { parent.drain(..i); }
+                    Some(i) => { parent.drain(i..); }
 
                     //Too many "../", move it from other to parent.
                     None => parent += "/..",
@@ -88,9 +88,17 @@ pub fn strip_suffix<'a>(string: &'a str, suffix: &str) -> &'a str {
     }
 }
 
+pub fn annotate_message(message: &str, subdir: &str, orig_commit_hash: &CommitHash) -> String {
+    todo!()
+}
+
 pub fn iter_to_string<'a, I>(items: I) -> Vec<String>
 where
     I: IntoIterator<Item=&'a str>,
 {
     items.into_iter().map(|s| s.to_string()).collect()
+}
+
+pub fn commit_hash(hash: &str) -> CommitHash {
+    hash.bytes().collect_vec()
 }
