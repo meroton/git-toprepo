@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use itertools::Itertools;
 use regex::Regex;
+use anyhow::{bail, Result};
 use crate::config_loader::{
     ConfigLoaderTrait,
     ConfigLoader,
@@ -17,7 +18,7 @@ use crate::config_loader::{
 use crate::repo::{
     Repo,
 };
-use crate::util::{iter_to_string, join_submodule_url, RawUrl, Url};
+use crate::util::{CommitHash, iter_to_string, join_submodule_url, RawUrl, Url};
 
 
 //TODO: Create proper error enums instead of strings
@@ -81,20 +82,18 @@ impl ConfigMap {
         ret
     }
 
-    pub fn parse(config_lines: &str) -> ConfigMap {
+    pub fn parse(config_lines: &str) -> Result<ConfigMap> {
         let mut ret = ConfigMap::new();
 
         for line in config_lines.split("\n").filter(|s| !s.is_empty()) {
             if let Some((key, value)) = line.split("=").next_tuple() {
                 ret.push(key.trim(), value.to_string());
             } else {
-                //println!("Could not parse \"{}\"", line);
-                panic!("Could not parse \"{}\"", line);
-                //return Err(format!("Could not parse \"{}\"", line).to_string());
+                bail!("Could not parse '{}'", line)
             }
         }
 
-        ret
+        Ok(ret)
     }
 
     pub fn get(&self, key: &str) -> Option<&Vec<String>> {
@@ -135,30 +134,26 @@ impl ConfigMap {
 
     /// Extracts for example submodule.<name>.<key>=<value>.
     /// All entries that dont contain the prefix are returned in the residual
-    pub fn extract_mapping(&self, prefix: &str) -> HashMap<String, ConfigMap> {
+    pub fn extract_mapping(&self, prefix: &str) -> Result<HashMap<String, ConfigMap>> {
         let mut prefix = prefix.to_string();
         if !prefix.ends_with('.') {
             prefix.push('.');
         }
 
         let mut extracted = HashMap::new();
-        let mut residual = ConfigMap::new();
 
         for (key, values) in &self.map {
             if let Some(temp) = key.strip_prefix(&prefix) {
                 if let Some((name, subkey)) = temp.split(".").next_tuple() {
-                    if !extracted.contains_key(name) {
-                        extracted.insert(name.to_string(), ConfigMap::new());
-                    }
-
-                    extracted.get_mut(name).unwrap().append(subkey, values.clone());
+                    extracted.entry(name.to_string()).or_insert(ConfigMap::new())
+                        .append(subkey, values.clone());
                 } else {
-                    unreachable!("Illegal config {}", temp);
+                    bail!("Illegal config {}", temp);
                 }
             }
         }
 
-        extracted
+        Ok(extracted)
     }
 
     pub fn get_singleton(&self, key: &str) -> Option<&str> {
@@ -205,23 +200,23 @@ impl ConfigAccumulator<'_> {
         }
     }
 
-    pub fn load_main_config(&self) -> Result<ConfigMap, String> {
+    pub fn load_main_config(&self) -> Result<ConfigMap> {
         let config_loader = ConfigLoader::from(MultiConfigLoader::new(
-            vec![
-                ConfigLoader::from(LocalGitConfigLoader::new(self.monorepo)),
-                ConfigLoader::from(StaticContentConfigLoader::new("\
+            vec![ //Linter say's this is an error, it is not. Caused by enum_dispatch macro
+                  ConfigLoader::from(LocalGitConfigLoader::new(self.monorepo)),
+                  ConfigLoader::from(StaticContentConfigLoader::new("\
 [toprepo.config.default]
     type = \"git\"
     url = .
     ref = refs/meta/git-toprepo
     path = toprepo.config".to_string()
-                )),
+                  )),
             ]
         ));
         self.load_config(config_loader)
     }
 
-    fn load_config(&self, config_loader: ConfigLoader) -> Result<ConfigMap, String> {
+    fn load_config(&self, config_loader: ConfigLoader) -> Result<ConfigMap> {
         let mut full_configmap = ConfigMap::new();
         let mut existing_names = HashSet::new();
 
@@ -231,18 +226,18 @@ impl ConfigAccumulator<'_> {
                 config_loader.fetch_remote_config();
             }
 
-            let current_configmap = config_loader.get_configmap();
+            let current_configmap = config_loader.get_configmap()?;
             let sub_config_loaders = self.get_config_loaders(
                 &current_configmap, &full_configmap,
-            );
+            )?;
 
             // Earlier loaded configs overrides later loaded configs.
             full_configmap = ConfigMap::join([&current_configmap, &full_configmap]);
             // Traverse into sub-config-loaders.
-            for (name, sub_config_loader) in sub_config_loaders? {
+            for (name, sub_config_loader) in sub_config_loaders {
                 if existing_names.contains(&name) {
-                    panic!("toprepo.config.{} configurations found in multiple sources", name);
-                    return Err(format!("toprepo.config.{} configurations found in multiple sources", name));
+                    bail!("toprepo.config.{} configurations found in multiple sources", name)
+                    //panic!("toprepo.config.{} configurations found in multiple sources", name);
                 }
                 existing_names.insert(name);
                 queue.push(sub_config_loader);
@@ -253,12 +248,12 @@ impl ConfigAccumulator<'_> {
     }
 
     fn get_config_loaders(&self, configmap: &ConfigMap, overrides: &ConfigMap) ->
-    Result<HashMap<String, ConfigLoader>, String> {
+    Result<HashMap<String, ConfigLoader>> {
         let mut config_loaders = HashMap::new();
         // Accumulate toprepo.config.<id>.* keys.
-        let own_loader_configmaps = configmap.extract_mapping("toprepo.config");
+        let own_loader_configmaps = configmap.extract_mapping("toprepo.config")?;
         let full_loader_configmaps = ConfigMap::join([configmap, overrides])
-            .extract_mapping("toprepo.config");
+            .extract_mapping("toprepo.config")?;
 
         for (name, own_loader_values) in own_loader_configmaps.into_iter() {
             //Check if values are just for overriding or the actual configuration.
@@ -279,7 +274,7 @@ impl ConfigAccumulator<'_> {
         Ok(config_loaders)
     }
 
-    fn get_config_loader<'a>(&self, name: &str, configmap: &ConfigMap) -> Result<ConfigLoader, String> {
+    fn get_config_loader<'a>(&self, name: &str, configmap: &ConfigMap) -> Result<ConfigLoader> {
         let loader_type = configmap.get_last("type")
             .expect("Missing config loader type").to_lowercase();
 
@@ -321,8 +316,7 @@ impl ConfigAccumulator<'_> {
                 ))
             }
             _ => {
-                panic!("Invalid toprepo.config.type {}!", loader_type);
-                return Err(format!("Invalid toprepo.config.type {}!", loader_type));
+                bail!("Invalid toprepo.config.type {}!", loader_type);
             }
         };
 
@@ -333,7 +327,7 @@ impl ConfigAccumulator<'_> {
 
 #[derive(Debug)]
 pub struct Config {
-    pub missing_commits: HashMap<String, HashSet<String>>, // TODO What data type is a commit hash?
+    pub missing_commits: HashMap<String, HashSet<CommitHash>>, // TODO What data type is a commit hash?
     pub top_fetch_url: String,
     pub top_push_url: String,
     pub repos: Vec<RepoConfig>,
@@ -341,7 +335,8 @@ pub struct Config {
 
 impl Config {
     pub fn new(mut configmap: ConfigMap) -> Config {
-        let repo_configmaps = configmap.extract_mapping("toprepo.repo.");
+        let repo_configmaps = configmap.extract_mapping("toprepo.repo.")
+            .expect("Could not create config");
 
         // Resolve the role.
         configmap.set_default("toprepo.role.default.repos", vec!["+.*".to_string()]);
@@ -373,9 +368,11 @@ impl Config {
         let missing_commits_prefix = "toprepo.missing-commits.rev-";
         for (key, values) in configmap.map {
             if let Some(commit_hash) = key.strip_prefix(missing_commits_prefix) {
+                let commit_hash: CommitHash = commit_hash.bytes().collect_vec();
+
                 for raw_url in values {
                     missing_commits.entry(raw_url).or_insert(HashSet::new())
-                        .insert(commit_hash.to_string());
+                        .insert(commit_hash.clone());
                 }
             }
         }

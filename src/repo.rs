@@ -1,10 +1,13 @@
 use std::{env, io};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
+use itertools::Itertools;
 use lazycell::LazyCell;
+use anyhow::{Context, Result};
 use crate::config::{Config, RepoConfig};
-use crate::git::determine_git_dir;
-use crate::util::iter_to_string;
+use crate::git::{determine_git_dir, GitModuleInfo};
+use crate::util::{iter_to_string, strip_suffix};
 
 const DEFAULT_FETCH_ARGS: [&str; 3] = ["--prune", "--prune-tags", "--tags"];
 
@@ -16,7 +19,15 @@ pub(crate) struct Repo {
 }
 
 impl Repo {
-    pub(crate) fn new(repo: &str) -> Repo {
+    pub fn new(name: String, path: PathBuf) -> Repo {
+        Repo {
+            name,
+            path,
+            git_dir: LazyCell::new(),
+        }
+    }
+
+    pub fn from_str(repo: &str) -> Result<Repo> {
         println!("Repo: {}", repo);
 
         //PosixPath('/home/lack/Documents/Kod/RustRover/git-toprepo')
@@ -25,10 +36,10 @@ impl Repo {
             .arg("rev-parse")
             .arg("--show-toplevel")
             .output()
-            .expect(format!("Failed to parse repo path {}", repo).as_str());
+            .with_context(|| format!("Failed to parse repo path {}", repo))?;
         println!("stdout: {:?}", command.stdout);
-        let path = String::from_utf8(command.stdout).unwrap()
-            .strip_suffix("\n").unwrap().to_string();
+        let path = strip_suffix(&String::from_utf8(command.stdout)?, "\n")
+            .to_string();
 
         let cwd = env::current_dir().unwrap_or(PathBuf::new());
         let mut path = PathBuf::from(path);
@@ -36,17 +47,12 @@ impl Repo {
         if path == cwd {
             path = PathBuf::from(".")
         }
-        if let Ok(relative) = path.strip_prefix(cwd) {
-            path = relative.to_path_buf();
-        }
+        let path = path.strip_prefix(cwd)
+            .map(|path| path.to_path_buf()).unwrap_or(path);
 
         println!("Path: {:?}", path);
 
-        Repo {
-            name: "mono repo".to_string(),
-            path,
-            git_dir: LazyCell::new(),
-        }
+        Ok(Repo::new("mono repo".to_string(), path))
     }
 
     fn from_config(path: PathBuf, config: Config) -> Repo {
@@ -85,7 +91,7 @@ impl Repo {
         self.get_subrepo_dir(TopRepo::NAME)
     }
 
-    fn get_subrepo_dir(&self, name: &str) -> PathBuf {
+    pub(crate) fn get_subrepo_dir(&self, name: &str) -> PathBuf {
         if !self.git_dir.filled() {
             self.git_dir.fill(determine_git_dir(&self.path))
                 .unwrap();
@@ -136,11 +142,10 @@ impl TopRepo {
 
 
 pub(crate) struct RepoFetcher<'a> {
-    monorepo: &'a Repo
+    monorepo: &'a Repo,
 }
 
 impl RepoFetcher<'_> {
-
     pub(crate) fn new(monorepo: &Repo) -> RepoFetcher {
         RepoFetcher {
             monorepo
@@ -149,5 +154,112 @@ impl RepoFetcher<'_> {
 
     fn fetch_repo(&self) {
         todo!()
+    }
+}
+
+
+pub fn remote_to_repo(remote: &str, mut git_modules: Vec<GitModuleInfo>, config: &Config) ->
+(String, Option<GitModuleInfo>) {
+    // Map a remote or URL to a repository.
+    //
+    // A repo can be specified by subrepo path inside the toprepo or
+    // as a full or partial URL.
+
+    // Map a full or partial URL or path to one or more repos.
+    let mut remote_to_name = HashMap::from_iter([
+        ("origin", vec![(TopRepo::NAME, None)]),
+        (".", vec![(TopRepo::NAME, None)]),
+        ("", vec![(TopRepo::NAME, None)]),
+    ]);
+
+    fn add_url<'a>(
+        remote_to_name: &mut HashMap<&'a str, Vec<(&'a str, Option<&'a GitModuleInfo>)>>,
+        url: &'a str,
+        name: &'a str,
+        gitmod: Option<&'a GitModuleInfo>,
+    ) {
+        let entry = (name, gitmod);
+        remote_to_name.entry(url).or_insert(Vec::new()).push(entry);
+
+        // Also match partial URLs.
+        // Example: ssh://user@github.com:22/foo/bar.git
+        let url = url.strip_suffix(".git").unwrap_or(url);
+        remote_to_name.entry(url).or_insert(Vec::new()).push(entry);
+
+        if let Some(i) = url.find("://") {
+            let (_, url) = url.split_at(i);
+            remote_to_name.entry(url).or_insert(Vec::new()).push(entry);
+        }
+        if let Some(i) = url.find("@") {
+            let (_, url) = url.split_at(i);
+            remote_to_name.entry(url).or_insert(Vec::new()).push(entry);
+        }
+        if !url.starts_with(".") {
+            if let Some(i) = url.find("/") {
+                let (_, url) = url.split_at(i);
+                remote_to_name.entry(url).or_insert(Vec::new()).push(entry);
+            }
+        }
+    }
+
+    add_url(&mut remote_to_name, &config.top_fetch_url, TopRepo::NAME, None);
+    add_url(&mut remote_to_name, &config.top_push_url, TopRepo::NAME, None);
+
+    for module in &git_modules {
+        for cfg in &config.repos {
+            if cfg.raw_urls.contains(&module.raw_url) {
+                // Add URLs from .gitmodules.
+                add_url(&mut remote_to_name, &module.url, &cfg.name, Some(&module));
+                add_url(&mut remote_to_name, &module.raw_url, &cfg.name, Some(&module));
+
+                remote_to_name.get_mut(module.name.as_str()).unwrap()
+                    .push((&cfg.name, Some(&module)));
+                remote_to_name.get_mut(module.path.to_str().unwrap()).unwrap()
+                    .push((&cfg.name, Some(&module)));
+
+                // Add URLs from the toprepo config.
+                add_url(&mut remote_to_name, &cfg.fetch_url, &cfg.name, Some(&module));
+                add_url(&mut remote_to_name, &cfg.push_url, &cfg.name, Some(&module));
+                for raw_url in &cfg.raw_urls {
+                    add_url(&mut remote_to_name, &raw_url, &cfg.name, Some(&module));
+                }
+            }
+        }
+    }
+
+    //Now, try to find our repo.
+    let full_remote = remote;
+    let mut remote = remote;
+    remote = remote.strip_suffix("/").unwrap_or(remote);
+    remote = remote.strip_suffix(".git").unwrap_or(remote);
+    let mut entries = remote_to_name.get(remote);
+
+    if entries.is_none() && remote.contains("://") {
+        (_, remote) = remote.split_once("://").unwrap();
+        entries = remote_to_name.get(remote);
+    }
+    if entries.is_none() && remote.contains("@") {
+        (_, remote) = remote.split_once("@").unwrap();
+        entries = remote_to_name.get(remote);
+    }
+    if entries.is_none() && remote.contains("/") && !remote.starts_with(".") {
+        (_, remote) = remote.split_once("/").unwrap();
+        entries = remote_to_name.get(remote);
+    }
+    let entries = entries.expect(format!("Could not resolve '{}'", full_remote).as_str());
+
+    if entries.len() > 1 {
+        let names = entries.into_iter().map(|(name, _)| *name).join(", ");
+        panic!("Multiple remote candidates: [{}]", names)
+    }
+
+    match entries[0] {
+        (name, Some(gitmod)) => {
+            let i = git_modules.iter().position(|module| module == gitmod);
+            let name = name.to_string();
+            let gitmod = git_modules.swap_remove(i.unwrap());
+            (name, Some(gitmod))
+        }
+        (name, None) => (name.to_string(), None)
     }
 }

@@ -1,14 +1,19 @@
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
+use std::io::BufRead;
 use std::path::PathBuf;
 use std::process::Command;
+use itertools::Itertools;
+use anyhow::{anyhow, Result};
 use crate::config::ConfigMap;
 use crate::config_loader::{
     ConfigLoaderTrait,
     ConfigLoader,
 };
-use crate::util::{join_submodule_url, RawUrl, Url};
+use crate::repo::Repo;
+use crate::util::{CommitHash, join_submodule_url, RawUrl, Url};
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct GitModuleInfo {
     pub name: String,
     pub path: PathBuf,
@@ -56,9 +61,10 @@ pub(crate) fn determine_git_dir(repo: &PathBuf) -> PathBuf {
 
 pub(crate) fn get_gitmodules_info(
     config_loader: ConfigLoader, parent_url: &str,
-) -> Vec<GitModuleInfo> {
+) -> Result<Vec<GitModuleInfo>> {
     // Parses the output from 'git config --list --file .gitmodules'.
-    let submod_config_mapping: HashMap<String, ConfigMap> = config_loader.get_configmap().extract_mapping("submodule");
+    let submod_config_mapping: HashMap<String, ConfigMap> = config_loader.get_configmap()?
+        .extract_mapping("submodule")?;
 
     let mut configs = Vec::new();
     let mut used = HashSet::new();
@@ -83,5 +89,64 @@ pub(crate) fn get_gitmodules_info(
         configs.push(submod_info);
     }
 
-    configs
+    Ok(configs)
+}
+
+
+#[derive(Debug)]
+pub struct PushSplitter<'a> {
+    repo: &'a Repo,
+}
+
+impl PushSplitter<'_> { //TODO: verify
+    pub fn new(repo: &Repo) -> PushSplitter {
+        PushSplitter {
+            repo
+        }
+    }
+
+    pub fn _trim_push_commit_message(mono_message: &str) -> Result<&str> {
+        let mut trimmed_message = mono_message;
+
+        if let Some(i) = mono_message.rfind("\n^-- ") {
+            trimmed_message = &mono_message[..=i];
+        }
+
+        if trimmed_message.contains("\n^-- ") {
+            Err(anyhow!(
+                "'^-- ' was found in the following commit message. \
+                It looks like a commit that already exists upstream. {}",
+                mono_message
+            ))
+        } else {
+            Ok(trimmed_message)
+        }
+    }
+
+    pub fn get_top_commit_subrepos(&self, top_commit_hash: CommitHash) -> HashMap<Vec<u8>, CommitHash> {
+        let top_commit_hash = ""; //TODO
+        let ls_tree_subrepo_stdout = Command::new("git")
+            .args(["-C", self.repo.path.to_str().unwrap()])
+            .args(["ls-tree", "-r", top_commit_hash, "--"])
+            .output()
+            .unwrap()
+            .stdout;
+
+        let mut subrepo_map = HashMap::new();
+        for line in ls_tree_subrepo_stdout.lines() {
+            let line = line.unwrap();
+            let submodule_mode_and_type_prefix = "160000 commit ";
+
+            if line.starts_with(submodule_mode_and_type_prefix) {
+                let hash_and_path = &line[submodule_mode_and_type_prefix.len()..];
+                let (submod_hash, subdir) = hash_and_path.split_once("\t").unwrap();
+                subrepo_map.insert(
+                    subdir.bytes().collect_vec(),
+                    submod_hash.bytes().collect_vec(),
+                );
+            }
+        }
+
+        subrepo_map
+    }
 }
