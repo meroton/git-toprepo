@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use clap::command;
 use colored::Colorize;
+use anyhow::{Context, Result};
 use crate::config::ConfigMap;
 use crate::repo::Repo;
 use crate::util::log_run_git;
@@ -17,11 +18,12 @@ use crate::util::log_run_git;
 pub trait ConfigLoaderTrait {
     fn fetch_remote_config(&self);
     fn git_config_list(self) -> String;
-    fn get_configmap(self) -> ConfigMap
+    fn get_configmap(self) -> Result<ConfigMap>
     where
         Self: Sized,
     {
         ConfigMap::parse(&self.git_config_list())
+            .context("Could not load config.")
     }
 }
 

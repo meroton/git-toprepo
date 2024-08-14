@@ -20,26 +20,24 @@ use std::process::Command;
 use clap::{Arg, Args, Parser, Subcommand};
 use colored::Colorize;
 use itertools::Itertools;
+use anyhow::Result;
 use lazycell::LazyCell;
 use crate::config_loader::LocalFileConfigLoader;
 use crate::git::get_gitmodules_info;
-use crate::repo::{Repo, RepoFetcher, TopRepo};
-use crate::util::{iter_to_string, join_submodule_url, remote_to_repo};
+use crate::repo::{remote_to_repo, Repo, RepoFetcher, TopRepo};
+use crate::util::{iter_to_string, join_submodule_url};
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-fn fetch(args: &Cli, fetch_args: &Fetch) -> u16 {
-    let monorepo = Repo::new(&args.cwd);
+fn fetch(args: &Cli, fetch_args: &Fetch) -> Result<u16> {
+    let monorepo = Repo::from_str(&args.cwd)?;
     println!("Monorepo path: {:?}", monorepo.path);
 
     let config_accumulator = ConfigAccumulator::new(&monorepo, true);
-    let configmap = config_accumulator.load_main_config();
+    let configmap = config_accumulator.load_main_config()?;
 
-    if let Err(err) = configmap {
-        panic!("{}", err);
-    }
-    let configmap = configmap.unwrap();
+    let configmap = configmap;
     println!("{}", "Congifmap".blue());
     for (key, values) in &configmap.map {
         println!("{}: {:?}", key, values);
@@ -53,37 +51,69 @@ fn fetch(args: &Cli, fetch_args: &Fetch) -> u16 {
 
     let git_modules = get_gitmodules_info(
         LocalFileConfigLoader::new(monorepo.path.join(".gitmodules"), true).into(),
-        &monorepo.get_toprepo_fetch_url()
-    );
+        &monorepo.get_toprepo_fetch_url(),
+    )?;
 
-    let maybe = remote_to_repo(&fetch_args.remote, git_modules, config);
+
+    let (remote_name, git_module) = remote_to_repo(
+        &fetch_args.remote, git_modules, &config,
+    );
+    let (repo_to_fetch, _) = match remote_name.as_str() {
+        TopRepo::NAME => {
+            todo!()
+        }
+        _ => {
+            let git_module = git_module.expect(format!(
+                "git module information is required for remote: '{}'", remote_name).as_str()
+            );
+
+            config.repos.into_iter().find_map(|subrepo_config| {
+                if subrepo_config.name != remote_name {
+                    return None;
+                }
+
+                let name = subrepo_config.name;
+                let path = monorepo.get_subrepo_dir(&name);
+                let repo_to_fetch = Repo::new(name, path);
+
+                let subdir = git_module.path.to_str().unwrap().to_string();
+
+                Some((repo_to_fetch, subdir))
+            }).expect(format!(
+                "Could not resolve the remote '{}'", fetch_args.remote
+            ).as_str())
+        }
+    };
+
 
     todo!()
 }
 
 fn main() {
-    // Make panic messages red.
-    let default_hook = panic::take_hook();
-    panic::set_hook(Box::new(move |panic| {
-        if let Some(payload) = panic.payload().downcast_ref::<&str>() {
-            println!("\n{}\n", payload.red());
-        }
-        if let Some(payload) = panic.payload().downcast_ref::<String>() {
-            println!("\n{}\n", payload.red());
-        }
-        default_hook(panic);
-    }));
+//    // Make panic messages red.
+//    let default_hook = panic::take_hook();
+//    panic::set_hook(Box::new(move |panic| {
+//        if let Some(payload) = panic.payload().downcast_ref::<&str>() {
+//            println!("\n{}\n", payload.red());
+//        }
+//        if let Some(payload) = panic.payload().downcast_ref::<String>() {
+//            println!("\n{}\n", payload.red());
+//        }
+//        default_hook(panic);
+//    }));
 
     let args = Cli::parse();
     println!("{:?}", args);
 
-    match args.command {
-        Commands::Init(_) => {}
-        Commands::Config => {}
-        Commands::Refilter => {}
-        Commands::Fetch(ref fetch_args) => { fetch(&args, fetch_args); }
-        Commands::Push => {}
-    }
+    let res = match args.command {
+        Commands::Init(_) => todo!(),
+        Commands::Config => todo!(),
+        Commands::Refilter => todo!(),
+        Commands::Fetch(ref fetch_args) => { fetch(&args, fetch_args) }
+        Commands::Push => todo!(),
+    };
+
+    res.unwrap();
 
 
     //    ////////////////////////////////////////////////////////////////////////////////////////////////
