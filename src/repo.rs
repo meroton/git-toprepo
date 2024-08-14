@@ -7,14 +7,14 @@ use lazycell::LazyCell;
 use anyhow::{Context, Result};
 use crate::config::{Config, RepoConfig};
 use crate::git::{determine_git_dir, GitModuleInfo};
-use crate::util::{iter_to_string, strip_suffix};
+use crate::util::{iter_to_string, strip_suffix, Url};
 
 const DEFAULT_FETCH_ARGS: [&str; 3] = ["--prune", "--prune-tags", "--tags"];
 
 #[derive(Debug)]
-pub(crate) struct Repo {
+pub struct Repo {
     name: String,
-    pub(crate) path: PathBuf,
+    pub path: PathBuf,
     git_dir: LazyCell<PathBuf>,
 }
 
@@ -59,7 +59,7 @@ impl Repo {
         todo!()
     }
 
-    pub(crate) fn get_toprepo_fetch_url(&self) -> String {
+    pub fn get_toprepo_fetch_url(&self) -> String {
         let fetch_url = self.get_url("remote.origin.url");
         let fetch_url = match fetch_url.as_deref() {
             Err(_) | Ok("file:///dev/null") => todo!(),
@@ -87,11 +87,11 @@ impl Repo {
         command
     }
 
-    pub(crate) fn get_toprepo_dir(&self) -> PathBuf {
+    pub fn get_toprepo_dir(&self) -> PathBuf {
         self.get_subrepo_dir(TopRepo::NAME)
     }
 
-    pub(crate) fn get_subrepo_dir(&self, name: &str) -> PathBuf {
+    pub fn get_subrepo_dir(&self, name: &str) -> PathBuf {
         if !self.git_dir.filled() {
             self.git_dir.fill(determine_git_dir(&self.path))
                 .unwrap();
@@ -106,16 +106,16 @@ impl Repo {
 
 
 #[derive(Debug)]
-pub(crate) struct TopRepo {
+pub struct TopRepo {
     name: String,
     path: PathBuf,
     config: RepoConfig,
 }
 
 impl TopRepo {
-    pub(crate) const NAME: &'static str = "top";
+    pub const NAME: &'static str = "top";
 
-    fn new(path: PathBuf, fetch_url: &String, push_url: &String) -> TopRepo {
+    pub fn new(path: PathBuf, fetch_url: &String, push_url: &String) -> TopRepo {
         let config = RepoConfig {
             name: TopRepo::NAME.to_string(),
             enabled: true,
@@ -131,7 +131,7 @@ impl TopRepo {
             config,
         }
     }
-    pub(crate) fn from_config(repo: PathBuf, config: &Config) -> TopRepo {
+    pub fn from_config(repo: PathBuf, config: &Config) -> TopRepo {
         TopRepo::new(
             repo,
             &config.top_fetch_url,
@@ -141,12 +141,12 @@ impl TopRepo {
 }
 
 
-pub(crate) struct RepoFetcher<'a> {
+pub struct RepoFetcher<'a> {
     monorepo: &'a Repo,
 }
 
 impl RepoFetcher<'_> {
-    pub(crate) fn new(monorepo: &Repo) -> RepoFetcher {
+    pub fn new(monorepo: &Repo) -> RepoFetcher {
         RepoFetcher {
             monorepo
         }
@@ -262,4 +262,38 @@ pub fn remote_to_repo(remote: &str, mut git_modules: Vec<GitModuleInfo>, config:
         }
         (name, None) => (name.to_string(), None)
     }
+}
+
+pub fn repository_name(repository: Url) -> String {
+    let mut name: String = repository;
+
+    // Handle relative paths.
+    name = name.replace("../", "");
+    name = name.replace("./", "");
+
+    // Remove scheme.
+    if let Some(i) = name.find("://") {
+        name = name.split_off(i + 3);
+
+        // Remove the domain name.
+        if let Some(i) = name.find("/") {
+            name = name.split_off(i + 1);
+        }
+    }
+
+    //Annoying with double slash.
+    name = name.replace("//", "/");
+    name = name.trim_start_matches("/")
+        .trim_end_matches("/")
+        .to_string();
+
+    if let Some(temp) = name.strip_suffix(".git") {
+        name = temp.to_string();
+    }
+
+    name = name.replace("/", "-");
+    name = name.replace("\\", "-");
+    name = name.replace(":", "-");
+
+    name
 }

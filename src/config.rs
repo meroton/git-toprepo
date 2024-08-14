@@ -62,7 +62,7 @@ const CONFIGMAP_UNSET: &str = "git_toprepo_ConfigDict_unset"; //Should this be r
 //https://git-scm.com/docs/git-config#_configuration_file
 #[derive(Debug)]
 pub struct ConfigMap {
-    pub(crate) map: HashMap<String, Vec<String>>,
+    pub map: HashMap<String, Vec<String>>,
 }
 
 impl ConfigMap {
@@ -454,17 +454,24 @@ impl Config {
         }
     }
 
-    fn repo_is_wanted(name: &str, wanted_repos_patterns: &Vec<String>) -> Option<bool> {
-        for pattern in wanted_repos_patterns {
+    pub fn repo_is_wanted(name: &str, wanted_repos_patterns: &Vec<String>) -> Option<bool> {
+        // The rev is required to maintain the behaviour from python.
+        // The last pattern has priority.
+        for pattern in wanted_repos_patterns.iter().rev() {
             if !pattern.starts_with(&['+', '-']) {
                 panic!("Invalid wanted repo config {} for {}, \
                 should start with '+' or '-' followed by a regex.",
                        pattern, name);
             }
 
+            let wanted = pattern.starts_with('+');
+
+            // Force whole string to match
+            let pattern = format!("^{}$", &pattern[1..]);
+
             // Returns True if it matches with a '+' and false if it matches with a '-'.
-            if Regex::new(&pattern[1..]).unwrap().find(name).is_some() {
-                return Some(pattern.starts_with('+'));
+            if Regex::new(&pattern).unwrap().is_match(name) {
+                return Some(wanted);
             }
         }
 

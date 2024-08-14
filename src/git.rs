@@ -23,7 +23,7 @@ pub struct GitModuleInfo {
 }
 
 
-pub(crate) fn determine_git_dir(repo: &PathBuf) -> PathBuf {
+ pub fn determine_git_dir(repo: &PathBuf) -> PathBuf {
     let mut code = format!(
         "str(\"{}\").encode(\"utf-8\")",
         repo.to_str().unwrap()
@@ -59,7 +59,7 @@ pub(crate) fn determine_git_dir(repo: &PathBuf) -> PathBuf {
     PathBuf::from(path)
 }
 
-pub(crate) fn get_gitmodules_info(
+ pub fn get_gitmodules_info(
     config_loader: ConfigLoader, parent_url: &str,
 ) -> Result<Vec<GitModuleInfo>> {
     // Parses the output from 'git config --list --file .gitmodules'.
@@ -99,7 +99,7 @@ pub struct PushSplitter<'a> {
 }
 
 impl PushSplitter<'_> { //TODO: verify
-    pub fn new(repo: &Repo) -> PushSplitter {
+pub fn new(repo: &Repo) -> PushSplitter {
         PushSplitter {
             repo
         }
