@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use git_toprepo;
 use git_toprepo::util::{commit_hash, iter_to_string};
 

@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use std::{env, io};
 use std::collections::HashMap;
 use std::path::PathBuf;
