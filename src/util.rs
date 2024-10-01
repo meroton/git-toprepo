@@ -88,7 +88,13 @@ pub fn strip_suffix<'a>(string: &'a str, suffix: &str) -> &'a str {
 }
 
 pub fn annotate_message(message: &str, subdir: &str, orig_commit_hash: &CommitHash) -> String {
-    todo!()
+    let mut res = message.trim_end_matches("\n").to_string() + "\n";
+    if !res.contains("\n\n") {
+        // Single-line message. Only a subject.
+        res.push_str("\n")
+    }
+
+    format!("{}^-- {} {}\n", res, subdir, orig_commit_hash)
 }
 
 pub fn iter_to_string<'a, I>(items: I) -> Vec<String>
