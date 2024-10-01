@@ -11,7 +11,16 @@ use crate::config_loader::{
     ConfigLoader,
 };
 use crate::repo::Repo;
-use crate::util::{CommitHash, join_submodule_url, RawUrl, Url};
+use crate::util::{join_submodule_url, RawUrl, Url};
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone,Debug)]
+pub struct CommitHash(Vec<u8>);
+
+impl From<Vec<u8>> for CommitHash {
+    fn from(v: Vec<u8>) -> Self {
+        CommitHash(v)
+    }
+}
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct GitModuleInfo {
@@ -142,7 +151,7 @@ pub fn new(repo: &Repo) -> PushSplitter {
                 let (submod_hash, subdir) = hash_and_path.split_once("\t").unwrap();
                 subrepo_map.insert(
                     subdir.bytes().collect_vec(),
-                    submod_hash.bytes().collect_vec(),
+                    CommitHash(submod_hash.bytes().collect_vec()),
                 );
             }
         }
