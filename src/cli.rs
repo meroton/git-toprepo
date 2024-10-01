@@ -2,9 +2,13 @@ use clap::{Args, Parser, Subcommand};
 use std::env;
 use std::string::ToString;
 
-///TODO: Program description
+const ABOUT: &str = "git-submodule made easy with git-toprepo.
+
+git-toprepo merges subrepositories into a common history, similar to git-subtree.\
+";
+
 #[derive(Parser, Debug)]
-#[command(version)]
+#[command(version, about = ABOUT)]
 pub struct Cli {
     #[arg(default_value_t = get_cwd())]
     pub cwd: String,
