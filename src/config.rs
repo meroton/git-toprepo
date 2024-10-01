@@ -15,10 +15,9 @@ use crate::config_loader::{
     MultiConfigLoader,
     StaticContentConfigLoader,
 };
-use crate::repo::{
-    Repo,
-};
-use crate::util::{CommitHash, iter_to_string, join_submodule_url, RawUrl, Url};
+use crate::repo::Repo;
+use crate::util::{iter_to_string, join_submodule_url, RawUrl, Url};
+use crate::git::CommitHash;
 
 
 //TODO: Create proper error enums instead of strings
@@ -368,7 +367,7 @@ impl Config {
         let missing_commits_prefix = "toprepo.missing-commits.rev-";
         for (key, values) in configmap.map {
             if let Some(commit_hash) = key.strip_prefix(missing_commits_prefix) {
-                let commit_hash: CommitHash = commit_hash.bytes().collect_vec();
+                let commit_hash: CommitHash = commit_hash.bytes().collect_vec().into();
 
                 for raw_url in values {
                     missing_commits.entry(raw_url).or_insert(HashSet::new())
