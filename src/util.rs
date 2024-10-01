@@ -4,13 +4,12 @@ use std::path::PathBuf;
 use std::process::Command;
 use itertools::Itertools;
 use crate::config::Config;
-use crate::git::GitModuleInfo;
+use crate::git::{CommitHash,GitModuleInfo};
 use crate::repo::TopRepo;
 
 
 pub type RawUrl = String;
 pub type Url = String;
-pub type CommitHash = Vec<u8>;
 
 pub fn join_submodule_url(parent: &str, mut other: &str) -> String {
     if other.starts_with("./") || other.starts_with("../") || other == "." {
@@ -100,5 +99,5 @@ where
 }
 
 pub fn commit_hash(hash: &str) -> CommitHash {
-    hash.bytes().collect_vec()
+    hash.bytes().collect_vec().into()
 }
