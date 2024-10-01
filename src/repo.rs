@@ -28,7 +28,7 @@ impl Repo {
     }
 
     pub fn from_str(repo: &str) -> Result<Repo> {
-        println!("Repo: {}", repo);
+        println!("> Repo: {}", repo);
 
         //PosixPath('/home/lack/Documents/Kod/RustRover/git-toprepo')
         let command = Command::new("git")
@@ -37,7 +37,7 @@ impl Repo {
             .arg("--show-toplevel")
             .output()
             .with_context(|| format!("Failed to parse repo path {}", repo))?;
-        println!("stdout: {:?}", command.stdout);
+        println!("> stdout: {:?}", command.stdout);
         let path = strip_suffix(&String::from_utf8(command.stdout)?, "\n")
             .to_string();
 
@@ -50,7 +50,7 @@ impl Repo {
         let path = path.strip_prefix(cwd)
             .map(|path| path.to_path_buf()).unwrap_or(path);
 
-        println!("Path: {:?}", path);
+        println!("> Path: {:?}", path);
 
         Ok(Repo::new("mono repo".to_string(), path))
     }

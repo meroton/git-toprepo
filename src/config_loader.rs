@@ -1,12 +1,10 @@
 #![allow(dead_code)]
 
 use enum_dispatch::enum_dispatch;
-use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use clap::command;
 use colored::Colorize;
 use anyhow::{Context, Result};
 use crate::config::ConfigMap;
@@ -125,7 +123,7 @@ impl ConfigLoaderTrait for LocalGitConfigLoader<'_> {
 
 
 fn parse_config_file(config_file: &str) -> String {
-    println!("raw: {}", config_file);
+    println!("> raw: {}", config_file);
 
     let mut command = Command::new("git")
         .arg("config")
