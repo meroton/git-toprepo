@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::io::BufRead;
-use std::path::PathBuf;
+use std::{fmt, path::PathBuf};
 use std::process::Command;
 use itertools::Itertools;
 use anyhow::{anyhow, Result};
@@ -19,6 +19,17 @@ pub struct CommitHash(Vec<u8>);
 impl From<Vec<u8>> for CommitHash {
     fn from(v: Vec<u8>) -> Self {
         CommitHash(v)
+    }
+}
+
+impl fmt::Display for CommitHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let CommitHash(bytes) = self;
+        let s = match std::str::from_utf8(bytes) {
+            Ok(v) => v,
+            Err(e) => panic!("Invalid UTF-8 bytes: {}", e),
+        };
+        write!(f, "{}", s)
     }
 }
 
