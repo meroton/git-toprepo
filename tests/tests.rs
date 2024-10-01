@@ -80,8 +80,6 @@ fn test_config_repo_is_wanted() {
 fn test_annotate_message() {
     use git_toprepo::util::annotate_message;
 
-    todo!("Verify these test cases");
-
     // Don't fold the footer into the subject line, leave an empty line.
     assert_eq!(
         annotate_message(
