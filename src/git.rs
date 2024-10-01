@@ -79,7 +79,7 @@ pub struct GitModuleInfo {
     PathBuf::from(path)
 }
 
- pub fn get_gitmodules_info(
+pub fn get_gitmodules_info(
     config_loader: ConfigLoader, parent_url: &str,
 ) -> Result<Vec<GitModuleInfo>> {
     // Parses the output from 'git config --list --file .gitmodules'.
@@ -119,7 +119,7 @@ pub struct PushSplitter<'a> {
 }
 
 impl PushSplitter<'_> { //TODO: verify
-pub fn new(repo: &Repo) -> PushSplitter {
+    pub fn new(repo: &Repo) -> PushSplitter {
         PushSplitter {
             repo
         }
