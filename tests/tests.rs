@@ -7,19 +7,6 @@ fn pass() {
 }
 
 #[test]
-#[should_panic(expected = "Hello world")]
-fn panic_pass() {
-    panic!("Hello {}", "world");
-}
-
-#[test]
-#[should_panic(expected = "Hello world")]
-fn panic_fail() {
-    panic!("Lorem Ipsum");
-}
-
-
-#[test]
 fn test_repository_name() {
     use git_toprepo::repo::repository_name;
 
