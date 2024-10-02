@@ -116,15 +116,12 @@ impl ConfigLoaderTrait for LocalGitConfigLoader<'_> {
 
         let ret = String::from_utf8(command.stdout)
             .expect("Could not load Local git configuration.");
-        println!("\n{}\n{}", "Local Config".blue(), ret);
         ret
     }
 }
 
 
 fn parse_config_file(config_file: &str) -> String {
-    println!("> raw: {}", config_file);
-
     let mut command = Command::new("git")
         .arg("config")
         .args(["--file", "-"])
