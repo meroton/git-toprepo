@@ -22,10 +22,10 @@ pub struct Cli {
 #[command(version)]
 pub enum Commands {
     Init(Init),
-    Config,
-    Refilter,
+    Config(Config),
+    Refilter,  // Unimplemented
     Fetch(Fetch),
-    Push,
+    Push,  // Unimplemented
 }
 
 #[derive(Args, Debug)]
@@ -47,6 +47,14 @@ pub struct Fetch {
     reference: Option<String>,
 }
 
+
+#[derive(Args, Debug)]
+pub struct Config {
+    // TODO: Make this a subcommand
+    // https://jmmv.dev/2013/08/cli-design-putting-flags-to-good-use.html#bad-using-flags-to-select-subcommands
+    #[arg(long)]
+    pub list: bool,
+}
 
 fn get_cwd() -> String {
     env::current_dir().unwrap().to_str().unwrap().to_string()
