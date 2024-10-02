@@ -49,6 +49,7 @@ pub fn join_submodule_url(parent: &str, mut other: &str) -> String {
     other.to_string()
 }
 
+// TODO: Allow pipe to standard in?
 pub fn log_run_git<'a, I>(
     repo: Option<&PathBuf>,
     args: I,
