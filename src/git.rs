@@ -105,7 +105,6 @@ pub fn get_gitmodules_info(
         if used.insert(path.to_owned()) {
             panic!("Duplicate submodule configs for '{}'", path);
         }
-        println!("Submodule: {}", path);
         configs.push(submod_info);
     }
 
