@@ -211,7 +211,7 @@ impl ConfigLoaderTrait for GitRemoteConfigLoader<'_> {
                 "fetch",
                 "--quiet",
                 &self.url,
-                &format!("{}:{}", self.remote_ref, &self.local_ref),
+                &format!("+{}:{}", self.remote_ref, &self.local_ref),
             ],
             false,
             true,
