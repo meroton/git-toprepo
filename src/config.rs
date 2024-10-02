@@ -81,6 +81,9 @@ impl ConfigMap {
         ret
     }
 
+    /// Parse git config. This must be filtered through `git config --file - --list`.
+    /// The on-disk format with comments cannot be parsed.
+    /// It must be the porcelain `toprepo.role.default.repos=+ci-docker` syntax.
     pub fn parse(config_lines: &str) -> Result<ConfigMap> {
         let mut ret = ConfigMap::new();
 
@@ -88,6 +91,8 @@ impl ConfigMap {
             if let Some((key, value)) = line.split("=").next_tuple() {
                 ret.push(key.trim(), value.to_string());
             } else {
+                // TODO: ideally (optionally) print the entire corpus that was
+                // parsed and its source.
                 bail!("Could not parse '{}'", line)
             }
         }
@@ -487,5 +492,27 @@ impl Config {
             }
         }
         raw_url_to_repos
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn basic_parser() {
+        let cm = ConfigMap::parse("foo.bar=bazz").unwrap();
+        let foo = cm.get("foo.bar");
+        let expected =  Some(vec!["bazz".to_owned()]);
+        assert!(foo == expected.as_ref());
+    }
+
+    #[test]
+    fn parser_on_disk_representation() {
+        let on_disk = "[toprepo.role.default]
+        # Ignore all old repositories.
+        repos = -.*";
+        let cm = ConfigMap::parse(on_disk);
+        assert!(cm.is_err());
     }
 }
