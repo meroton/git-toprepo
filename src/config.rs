@@ -15,10 +15,9 @@ use crate::config_loader::{
     MultiConfigLoader,
     StaticContentConfigLoader,
 };
-use crate::repo::{
-    Repo,
-};
-use crate::util::{CommitHash, iter_to_string, join_submodule_url, RawUrl, Url};
+use crate::repo::Repo;
+use crate::util::{iter_to_string, join_submodule_url, RawUrl, Url};
+use crate::git::CommitHash;
 
 
 //TODO: Create proper error enums instead of strings
@@ -82,13 +81,21 @@ impl ConfigMap {
         ret
     }
 
+    /// Parse git config. This must be filtered through `git config --file - --list`.
+    /// The on-disk format with comments cannot be parsed.
+    /// It must be the porcelain `toprepo.role.default.repos=+ci-docker` syntax.
     pub fn parse(config_lines: &str) -> Result<ConfigMap> {
         let mut ret = ConfigMap::new();
 
         for line in config_lines.split("\n").filter(|s| !s.is_empty()) {
-            if let Some((key, value)) = line.split("=").next_tuple() {
-                ret.push(key.trim(), value.to_string());
+            if let Some(needle) = line.find("=") {
+                let key = &line[..needle];
+                let value = &line[needle + 1..line.len()];
+
+                ret.push(key, value.to_string());
             } else {
+                // TODO: ideally (optionally) print the entire corpus that was
+                // parsed and its source.
                 bail!("Could not parse '{}'", line)
             }
         }
@@ -202,9 +209,10 @@ impl ConfigAccumulator<'_> {
 
     pub fn load_main_config(&self) -> Result<ConfigMap> {
         let config_loader = ConfigLoader::from(MultiConfigLoader::new(
-            vec![ //Linter say's this is an error, it is not. Caused by enum_dispatch macro
-                  ConfigLoader::from(LocalGitConfigLoader::new(self.monorepo)),
-                  ConfigLoader::from(StaticContentConfigLoader::new("\
+            vec![
+                //Linter say's this is an error, it is not. Caused by enum_dispatch macro
+                ConfigLoader::from(LocalGitConfigLoader::new(self.monorepo)),
+                ConfigLoader::from(StaticContentConfigLoader::new("\
 [toprepo.config.default]
     type = \"git\"
     url = .
@@ -368,7 +376,7 @@ impl Config {
         let missing_commits_prefix = "toprepo.missing-commits.rev-";
         for (key, values) in configmap.map {
             if let Some(commit_hash) = key.strip_prefix(missing_commits_prefix) {
-                let commit_hash: CommitHash = commit_hash.bytes().collect_vec();
+                let commit_hash: CommitHash = commit_hash.bytes().collect_vec().into();
 
                 for raw_url in values {
                     missing_commits.entry(raw_url).or_insert(HashSet::new())
@@ -488,5 +496,32 @@ impl Config {
             }
         }
         raw_url_to_repos
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_basic_config() {
+        let expected = |s: &str| Some(vec![s.to_owned()]);
+
+        let cm = ConfigMap::parse("foo.bar=bazz").unwrap();
+        let foo = cm.get("foo.bar");
+        assert_eq!(foo, expected("bazz").as_ref());
+
+        let cm = ConfigMap::parse("toprepo.repo.foo.fetchargs=--depth=1000000000").unwrap();
+        let fetchargs = cm.get("toprepo.repo.foo.fetchargs");
+        assert_eq!(fetchargs, expected("--depth=1000000000").as_ref());
+    }
+
+    #[test]
+    fn parse_on_disk_representation() {
+        let on_disk = "[toprepo.role.default]
+        # Ignore all old repositories.
+        repos = -.*";
+        let cm = ConfigMap::parse(on_disk);
+        assert!(cm.is_err());
     }
 }

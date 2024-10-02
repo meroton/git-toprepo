@@ -4,13 +4,12 @@ use std::path::PathBuf;
 use std::process::Command;
 use itertools::Itertools;
 use crate::config::Config;
-use crate::git::GitModuleInfo;
+use crate::git::{CommitHash,GitModuleInfo};
 use crate::repo::TopRepo;
 
 
 pub type RawUrl = String;
 pub type Url = String;
-pub type CommitHash = Vec<u8>;
 
 pub fn join_submodule_url(parent: &str, mut other: &str) -> String {
     if other.starts_with("./") || other.starts_with("../") || other == "." {
@@ -50,6 +49,7 @@ pub fn join_submodule_url(parent: &str, mut other: &str) -> String {
     other.to_string()
 }
 
+// TODO: Allow pipe to standard in?
 pub fn log_run_git<'a, I>(
     repo: Option<&PathBuf>,
     args: I,
@@ -68,12 +68,17 @@ where
 
     command.args(args);
 
+    // TODO: Escape and quote! String representations are always annoying.
+    let args: Vec<&std::ffi::OsStr> = command.get_args().collect();
+    let joined = args.into_iter().map(|s| s.to_str().unwrap()).join(" ");
+    let mut display = format!("{} {}", command.get_program().to_str().unwrap(), joined);
+
     if dry_run {
-        println!("Would run {:?}", command);
+        eprintln!("Would run   {}", display);
         None
     } else {
         if log_command {
-            println!("Running {:?}", command);
+            eprintln!("Running   {}", display);
         }
 
         Some(command.output())
@@ -89,7 +94,13 @@ pub fn strip_suffix<'a>(string: &'a str, suffix: &str) -> &'a str {
 }
 
 pub fn annotate_message(message: &str, subdir: &str, orig_commit_hash: &CommitHash) -> String {
-    todo!()
+    let mut res = message.trim_end_matches("\n").to_string() + "\n";
+    if !res.contains("\n\n") {
+        // Single-line message. Only a subject.
+        res.push_str("\n")
+    }
+
+    format!("{}^-- {} {}\n", res, subdir, orig_commit_hash)
 }
 
 pub fn iter_to_string<'a, I>(items: I) -> Vec<String>
@@ -100,5 +111,5 @@ where
 }
 
 pub fn commit_hash(hash: &str) -> CommitHash {
-    hash.bytes().collect_vec()
+    hash.bytes().collect_vec().into()
 }

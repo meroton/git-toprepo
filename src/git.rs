@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::io::BufRead;
-use std::path::PathBuf;
+use std::{fmt, path::PathBuf};
 use std::process::Command;
 use itertools::Itertools;
 use anyhow::{anyhow, Result};
@@ -11,7 +11,27 @@ use crate::config_loader::{
     ConfigLoader,
 };
 use crate::repo::Repo;
-use crate::util::{CommitHash, join_submodule_url, RawUrl, Url};
+use crate::util::{join_submodule_url, RawUrl, Url};
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone,Debug)]
+pub struct CommitHash(String);
+
+impl From<Vec<u8>> for CommitHash {
+    fn from(bytes: Vec<u8>) -> Self {
+        let s = match std::str::from_utf8(&bytes) {
+            Ok(v) => v,
+            Err(e) => panic!("Invalid UTF-8 bytes: {}", e),
+        };
+        CommitHash(s.to_owned())
+    }
+}
+
+impl fmt::Display for CommitHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let CommitHash(s) = self;
+        write!(f, "{}", s)
+    }
+}
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct GitModuleInfo {
@@ -59,7 +79,7 @@ pub struct GitModuleInfo {
     PathBuf::from(path)
 }
 
- pub fn get_gitmodules_info(
+pub fn get_gitmodules_info(
     config_loader: ConfigLoader, parent_url: &str,
 ) -> Result<Vec<GitModuleInfo>> {
     // Parses the output from 'git config --list --file .gitmodules'.
@@ -85,7 +105,6 @@ pub struct GitModuleInfo {
         if used.insert(path.to_owned()) {
             panic!("Duplicate submodule configs for '{}'", path);
         }
-        println!("Submodule: {}", path);
         configs.push(submod_info);
     }
 
@@ -99,7 +118,7 @@ pub struct PushSplitter<'a> {
 }
 
 impl PushSplitter<'_> { //TODO: verify
-pub fn new(repo: &Repo) -> PushSplitter {
+    pub fn new(repo: &Repo) -> PushSplitter {
         PushSplitter {
             repo
         }
@@ -142,7 +161,7 @@ pub fn new(repo: &Repo) -> PushSplitter {
                 let (submod_hash, subdir) = hash_and_path.split_once("\t").unwrap();
                 subrepo_map.insert(
                     subdir.bytes().collect_vec(),
-                    submod_hash.bytes().collect_vec(),
+                    submod_hash.bytes().collect_vec().into(),
                 );
             }
         }

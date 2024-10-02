@@ -1,12 +1,10 @@
 #![allow(dead_code)]
 
 use enum_dispatch::enum_dispatch;
-use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use clap::command;
 use colored::Colorize;
 use anyhow::{Context, Result};
 use crate::config::ConfigMap;
@@ -118,15 +116,12 @@ impl ConfigLoaderTrait for LocalGitConfigLoader<'_> {
 
         let ret = String::from_utf8(command.stdout)
             .expect("Could not load Local git configuration.");
-        println!("\n{}\n{}", "Local Config".blue(), ret);
         ret
     }
 }
 
 
 fn parse_config_file(config_file: &str) -> String {
-    println!("raw: {}", config_file);
-
     let mut command = Command::new("git")
         .arg("config")
         .args(["--file", "-"])
@@ -204,17 +199,80 @@ impl GitRemoteConfigLoader<'_> {
 }
 
 impl ConfigLoaderTrait for GitRemoteConfigLoader<'_> {
+    // First fetch:
+    //   Running "git" "-C" "." "fetch" "--quiet" "ssh://csp-gerrit-ssh.volvocars.net/csp/hp/super" "refs/meta/git-toprepo:refs/toprepo/config/default"
+    // The show and parse:
+    //   git show refs/toprepo/config/default:toprepo.config \
+    //   | git config --file - --list
     fn fetch_remote_config(&self) {
         log_run_git(
             Some(&self.local_repo.path),
-            ["fetch",
+            [
+                "fetch",
                 "--quiet",
                 &self.url,
-                &format!("{}:{}", self.remote_ref, &self.local_ref),
+                &format!("+{}:{}", self.remote_ref, &self.local_ref),
             ],
             false,
             true,
         );
     }
-    fn git_config_list(self) -> String { todo!() }
+
+    fn git_config_list(self) -> String {
+        /*
+        let completed = log_run_git(
+            Some(&self.local_repo.path),
+            [
+                "show",
+                "--quiet",
+                &format!("{}:{}", self.local_ref, "toprepo.config"),
+            ],
+            false,
+            true,
+        );
+
+        let ok =  completed.unwrap().unwrap();
+        */
+
+        /*
+        let filtered = log_run_git(
+            None,
+            [
+                "config",
+                "--file=-",
+                "--list",
+            ],
+            false,
+            true,
+        );
+        */
+
+        // TODO: Unify this with the `log_run_git` code.
+        let raw_config = Command::new("git")
+            .args([
+                  "show",
+                  "--quiet",
+                  &format!("{}:{}", self.local_ref, "toprepo.config"),
+            ])
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("Could not show git-toprepo config ref.")
+            ;
+
+        let porcelain = Command::new("git")
+            .args(["config", "--file=-", "--list"])
+            .stdin(raw_config.stdout.unwrap())
+            .output()
+            .expect("Could not parse git-config syntax")
+            ;
+
+        let s = match String::from_utf8(porcelain.stdout) {
+            Ok(s) => s,
+            Err(e) => {
+                panic!("{:?}", e);
+            }
+        };
+
+        s
+    }
 }
