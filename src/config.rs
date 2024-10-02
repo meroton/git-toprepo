@@ -88,8 +88,11 @@ impl ConfigMap {
         let mut ret = ConfigMap::new();
 
         for line in config_lines.split("\n").filter(|s| !s.is_empty()) {
-            if let Some((key, value)) = line.split("=").next_tuple() {
-                ret.push(key.trim(), value.to_string());
+            if let Some(needle) = line.find("=") {
+                let key = &line[..needle];
+                let value = &line[needle + 1..line.len()];
+
+                ret.push(key, value.to_string());
             } else {
                 // TODO: ideally (optionally) print the entire corpus that was
                 // parsed and its source.
@@ -501,15 +504,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn basic_parser() {
+    fn parse_basic_config() {
+        let expected = |s: &str| Some(vec![s.to_owned()]);
+
         let cm = ConfigMap::parse("foo.bar=bazz").unwrap();
         let foo = cm.get("foo.bar");
-        let expected =  Some(vec!["bazz".to_owned()]);
-        assert!(foo == expected.as_ref());
+        assert_eq!(foo, expected("bazz").as_ref());
+
+        let cm = ConfigMap::parse("toprepo.repo.foo.fetchargs=--depth=1000000000").unwrap();
+        let fetchargs = cm.get("toprepo.repo.foo.fetchargs");
+        assert_eq!(fetchargs, expected("--depth=1000000000").as_ref());
     }
 
     #[test]
-    fn parser_on_disk_representation() {
+    fn parse_on_disk_representation() {
         let on_disk = "[toprepo.role.default]
         # Ignore all old repositories.
         repos = -.*";
