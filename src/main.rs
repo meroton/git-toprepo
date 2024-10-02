@@ -96,9 +96,6 @@ fn config(args: &Cli, c: &cli::Config) -> Result<u16> {
 
     let configmap = configmap;
 
-    println!("> args: {:?}", args);
-    println!("> config-cli: {:?}", c);
-
     if c.list {
         for (key, values) in &configmap.map {
             for val in values.into_iter() {
@@ -124,7 +121,6 @@ fn main() {
     }));
 
     let args = Cli::parse();
-    println!("{:?}", args);
 
     let res = match args.command {
         Commands::Init(_) => todo!(),
