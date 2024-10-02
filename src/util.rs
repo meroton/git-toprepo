@@ -68,12 +68,17 @@ where
 
     command.args(args);
 
+    // TODO: Escape and quote! String representations are always annoying.
+    let args: Vec<&std::ffi::OsStr> = command.get_args().collect();
+    let joined = args.into_iter().map(|s| s.to_str().unwrap()).join(" ");
+    let mut display = format!("{} {}", command.get_program().to_str().unwrap(), joined);
+
     if dry_run {
-        println!("Would run {:?}", command);
+        eprintln!("Would run   {}", display);
         None
     } else {
         if log_command {
-            println!("Running {:?}", command);
+            eprintln!("Running   {}", display);
         }
 
         Some(command.output())
