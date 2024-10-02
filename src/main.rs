@@ -3,7 +3,7 @@
 
 mod cli;
 
-use crate::cli::{Cli, Commands, Fetch};
+use crate::cli::{Cli, Commands};
 
 use git_toprepo::config::{Config, ConfigAccumulator, ConfigMap, RepoConfig};
 use git_toprepo::config_loader::LocalFileConfigLoader;
@@ -26,7 +26,7 @@ use lazycell::LazyCell;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-fn fetch(args: &Cli, fetch_args: &Fetch) -> Result<u16> {
+fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<u16> {
     let monorepo = Repo::from_str(&args.cwd)?;
     println!("Monorepo path: {:?}", monorepo.path);
 
@@ -85,6 +85,31 @@ fn fetch(args: &Cli, fetch_args: &Fetch) -> Result<u16> {
     todo!()
 }
 
+fn config(args: &Cli, c: &cli::Config) -> Result<u16> {
+    if ! c.list {
+        todo!();
+    }
+
+    let monorepo = Repo::from_str(&args.cwd)?;
+    let config_accumulator = ConfigAccumulator::new(&monorepo, true);
+    let configmap = config_accumulator.load_main_config()?;
+
+    let configmap = configmap;
+
+    println!("> args: {:?}", args);
+    println!("> config-cli: {:?}", c);
+
+    if c.list {
+        for (key, values) in &configmap.map {
+            for val in values.into_iter() {
+                println!("{}={}", key, val);
+            }
+        }
+    }
+
+    return Ok(0);
+}
+
 fn main() {
     // Make panic messages red.
     let default_hook = panic::take_hook();
@@ -103,9 +128,9 @@ fn main() {
 
     let res = match args.command {
         Commands::Init(_) => todo!(),
-        Commands::Config => todo!(),
+        Commands::Config(ref config_args) => config(&args, config_args),
         Commands::Refilter => todo!(),
-        Commands::Fetch(ref fetch_args) => { fetch(&args, fetch_args) }
+        Commands::Fetch(ref fetch_args) => fetch(&args, fetch_args),
         Commands::Push => todo!(),
     };
 
