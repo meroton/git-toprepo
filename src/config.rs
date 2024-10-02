@@ -206,9 +206,10 @@ impl ConfigAccumulator<'_> {
 
     pub fn load_main_config(&self) -> Result<ConfigMap> {
         let config_loader = ConfigLoader::from(MultiConfigLoader::new(
-            vec![ //Linter say's this is an error, it is not. Caused by enum_dispatch macro
-                  ConfigLoader::from(LocalGitConfigLoader::new(self.monorepo)),
-                  ConfigLoader::from(StaticContentConfigLoader::new("\
+            vec![
+                //Linter say's this is an error, it is not. Caused by enum_dispatch macro
+                ConfigLoader::from(LocalGitConfigLoader::new(self.monorepo)),
+                ConfigLoader::from(StaticContentConfigLoader::new("\
 [toprepo.config.default]
     type = \"git\"
     url = .
