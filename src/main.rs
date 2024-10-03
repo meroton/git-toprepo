@@ -7,7 +7,7 @@ use crate::cli::{Cli, Commands};
 
 use git_toprepo::config;
 use git_toprepo::config::{Config, ConfigMap, RepoConfig};
-use git_toprepo::config_loader::{ConfigLoaderTrait,LocalGitConfigLoader,LocalFileConfigLoader};
+use git_toprepo::config_loader::{ConfigLoader,ConfigLoaderTrait,LocalGitConfigLoader,LocalFileConfigLoader};
 use git_toprepo::git::get_gitmodules_info;
 use git_toprepo::repo::{remote_to_repo, Repo, RepoFetcher, TopRepo};
 
@@ -31,7 +31,10 @@ fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<u16> {
 
     let git_config = LocalGitConfigLoader::new(&monorepo).get_configmap().unwrap();
     let configloader = config::get_config_loader(&monorepo, &git_config).unwrap();
-    let toprepo_config = configloader.get_configmap().unwrap();
+    let toprepo_config = match configloader {
+        ConfigLoader::Local(c) => c.get_configmap(),
+        ConfigLoader::Remote(c) => c.get_configmap(),
+    }.unwrap();
 
     let configmap = ConfigMap::join(vec![&git_config, &toprepo_config]);
 
@@ -44,7 +47,7 @@ fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<u16> {
     let repo_fetcher = RepoFetcher::new(&monorepo);
 
     let git_modules = get_gitmodules_info(
-        LocalFileConfigLoader::new(monorepo.path.join(".gitmodules"), true).into(),
+        toprepo_config.extract_mapping("submodule")?,
         &monorepo.get_toprepo_fetch_url(),
     )?;
 
@@ -90,7 +93,10 @@ fn config(args: &Cli, c: &cli::Config) -> Result<u16> {
 
     let git_config = LocalGitConfigLoader::new(&monorepo).get_configmap().unwrap();
     let configloader = config::get_config_loader(&monorepo, &git_config).unwrap();
-    let toprepo_config = configloader.get_configmap().unwrap();
+    let toprepo_config = match configloader {
+        ConfigLoader::Local(c) => c.get_configmap(),
+        ConfigLoader::Remote(c) => c.get_configmap(),
+    }.unwrap();
 
     let configmap = ConfigMap::join(vec![&git_config, &toprepo_config]);
 
