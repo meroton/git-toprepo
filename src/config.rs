@@ -8,6 +8,7 @@ use regex::Regex;
 use anyhow::{bail, Result};
 use crate::config_loader::{
     ConfigLoader,
+    ConfigLoaderTrait,
     RemoteGitConfigLoader,
     LocalFileConfigLoader,
 };
@@ -209,7 +210,15 @@ impl Display for ConfigMap {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub fn get_config_loader<'a>(monorepo: &'a Repo, git_config: &'a ConfigMap) -> Result<ConfigLoader<'a>> {
+pub fn get_toprepo_config(monorepo: &Repo, git_config: &ConfigMap) -> Result<ConfigMap> {
+    let configloader = get_config_loader(&monorepo, &git_config).unwrap();
+    match configloader {
+        ConfigLoader::Local(c) => c.get_configmap(),
+        ConfigLoader::Remote(c) => c.get_configmap(),
+    }
+}
+
+fn get_config_loader<'a>(monorepo: &'a Repo, git_config: &'a ConfigMap) -> Result<ConfigLoader<'a>> {
     // TODO: configmap::get_last
     let last_wins = |vals: Option<&Vec<String>>| vals.map(|v| v[v.len() -1].clone());
 
