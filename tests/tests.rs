@@ -7,19 +7,6 @@ fn pass() {
 }
 
 #[test]
-#[should_panic(expected = "Hello world")]
-fn panic_pass() {
-    panic!("Hello {}", "world");
-}
-
-#[test]
-#[should_panic(expected = "Hello world")]
-fn panic_fail() {
-    panic!("Lorem Ipsum");
-}
-
-
-#[test]
 fn test_repository_name() {
     use git_toprepo::repo::repository_name;
 
@@ -92,8 +79,6 @@ fn test_config_repo_is_wanted() {
 #[test]
 fn test_annotate_message() {
     use git_toprepo::util::annotate_message;
-
-    todo!("Verify these test cases");
 
     // Don't fold the footer into the subject line, leave an empty line.
     assert_eq!(

@@ -7,18 +7,14 @@ use itertools::Itertools;
 use regex::Regex;
 use anyhow::{bail, Result};
 use crate::config_loader::{
-    ConfigLoaderTrait,
     ConfigLoader,
-    GitRemoteConfigLoader,
+    ConfigLoaderTrait,
+    RemoteGitConfigLoader,
     LocalFileConfigLoader,
-    LocalGitConfigLoader,
-    MultiConfigLoader,
-    StaticContentConfigLoader,
 };
-use crate::repo::{
-    Repo,
-};
-use crate::util::{CommitHash, iter_to_string, join_submodule_url, RawUrl, Url};
+use crate::repo::Repo;
+use crate::util::{iter_to_string, join_submodule_url, RawUrl, Url};
+use crate::git::CommitHash;
 
 
 //TODO: Create proper error enums instead of strings
@@ -29,6 +25,11 @@ Toprepo, super repo har alla submoduler
 Monorepo, utsorterat
  */
 const DEFAULT_FETCH_ARGS: [&str; 3] = ["--prune", "--prune-tags", "--tags"];
+
+const TOPREPO_CONFIG_DEFAULT_KEY: &str = "toprepo.config.default";
+const TOPREPO_DEFAULT_URL: &str = ".";
+const TOPREPO_DEFAULT_REF: &str = "refs/meta/git-toprepo";
+const TOPREPO_DEFAULT_NAME: &str = "default";
 
 
 #[derive(Debug)]
@@ -65,9 +66,19 @@ pub struct ConfigMap {
     pub map: HashMap<String, Vec<String>>,
 }
 
+pub type Mapping = HashMap<String, ConfigMap>;
+
 impl ConfigMap {
     pub fn new() -> ConfigMap {
         ConfigMap { map: HashMap::new() }
+    }
+
+    pub fn list(&self) {
+        for (key, values) in &self.map {
+            for val in values.into_iter() {
+                println!("{}={}", key, val);
+            }
+        }
     }
 
     pub fn join<'a, I: IntoIterator<Item=&'a ConfigMap>>(configs: I) -> ConfigMap {
@@ -82,13 +93,21 @@ impl ConfigMap {
         ret
     }
 
+    /// Parse git config. This must be filtered through `git config --file - --list`.
+    /// The on-disk format with comments cannot be parsed.
+    /// It must be the porcelain `toprepo.role.default.repos=+ci-docker` syntax.
     pub fn parse(config_lines: &str) -> Result<ConfigMap> {
         let mut ret = ConfigMap::new();
 
         for line in config_lines.split("\n").filter(|s| !s.is_empty()) {
-            if let Some((key, value)) = line.split("=").next_tuple() {
-                ret.push(key.trim(), value.to_string());
+            if let Some(needle) = line.find("=") {
+                let key = &line[..needle];
+                let value = &line[needle + 1..line.len()];
+
+                ret.push(key, value.to_string());
             } else {
+                // TODO: ideally (optionally) print the entire corpus that was
+                // parsed and its source.
                 bail!("Could not parse '{}'", line)
             }
         }
@@ -98,6 +117,12 @@ impl ConfigMap {
 
     pub fn get(&self, key: &str) -> Option<&Vec<String>> {
         self.map.get(key)
+    }
+
+    // Allow hierarchical notation.
+    pub fn get_subkey(&self, a: &str, b: &str) -> Option<&Vec<String>> {
+        let key = format!("{}.{}", a, b);
+        self.get(key.as_ref())
     }
 
     pub fn get_last(&self, key: &str) -> Option<&str> {
@@ -131,10 +156,9 @@ impl ConfigMap {
         }
     }
 
-
     /// Extracts for example submodule.<name>.<key>=<value>.
-    /// All entries that dont contain the prefix are returned in the residual
-    pub fn extract_mapping(&self, prefix: &str) -> Result<HashMap<String, ConfigMap>> {
+    /// All entries that don't contain the prefix are returned in the residual.
+    pub fn extract_mapping(&self, prefix: &str) -> Result<Mapping> {
         let mut prefix = prefix.to_string();
         if !prefix.ends_with('.') {
             prefix.push('.');
@@ -184,146 +208,73 @@ impl Display for ConfigMap {
     }
 }
 
-
 ///////////////////////////////////////////////////////////////////////////////
-#[derive(Debug)]
-pub struct ConfigAccumulator<'a> {
-    monorepo: &'a Repo,
-    online: bool,
+
+pub fn get_configmap(monorepo: &Repo, git_config: &ConfigMap) -> ConfigMap {
+    let configloader = get_config_loader(&monorepo, &git_config).unwrap();
+    let toprepo_config = match configloader {
+        ConfigLoader::Local(c) => c.get_configmap(),
+        ConfigLoader::Remote(c) => c.get_configmap(),
+    }.unwrap();
+    ConfigMap::join(vec![&git_config, &toprepo_config])
 }
 
-impl ConfigAccumulator<'_> {
-    pub fn new(monorepo: &Repo, online: bool) -> ConfigAccumulator {
-        ConfigAccumulator {
-            monorepo,
-            online,
-        }
+fn get_config_loader<'a>(monorepo: &'a Repo, git_config: &'a ConfigMap) -> Result<ConfigLoader<'a>> {
+    // TODO: configmap::get_last
+    let last_wins = |vals: Option<&Vec<String>>| vals.map(|v| v[v.len() -1].clone());
+
+    let loader_type = last_wins(git_config.get_subkey(TOPREPO_CONFIG_DEFAULT_KEY, "type"))
+        .map(|s| s.to_lowercase());
+    if loader_type.is_none() {
+        return Ok(ConfigLoader::Remote(RemoteGitConfigLoader::new(
+                TOPREPO_DEFAULT_URL.to_owned(),
+                TOPREPO_DEFAULT_REF.to_owned(),
+                &monorepo,
+                // TODO: default value in the constructor?,
+                format!("refs/toprepo/config/{}", TOPREPO_DEFAULT_NAME),
+        )));
     }
 
-    pub fn load_main_config(&self) -> Result<ConfigMap> {
-        let config_loader = ConfigLoader::from(MultiConfigLoader::new(
-            vec![ //Linter say's this is an error, it is not. Caused by enum_dispatch macro
-                  ConfigLoader::from(LocalGitConfigLoader::new(self.monorepo)),
-                  ConfigLoader::from(StaticContentConfigLoader::new("\
-[toprepo.config.default]
-    type = \"git\"
-    url = .
-    ref = refs/meta/git-toprepo
-    path = toprepo.config".to_string()
-                  )),
-            ]
-        ));
-        self.load_config(config_loader)
-    }
+    let loader_type = loader_type.unwrap();
+    let config_loader = match loader_type.as_str() {
+        "file" => {
+            let mut file_path = monorepo.path.clone();
+            file_path.push(PathBuf::from(
+                    git_config.get_last("file").expect("Missing file")
+            ));
 
-    fn load_config(&self, config_loader: ConfigLoader) -> Result<ConfigMap> {
-        let mut full_configmap = ConfigMap::new();
-        let mut existing_names = HashSet::new();
+            ConfigLoader::Local(LocalFileConfigLoader::new(file_path, false))
+        },
+        "git" => {
+            // Load
+            let raw_url = git_config.get_last("url").expect("Missing url");
+            let reference = git_config.get_last("ref").expect("Missing ref");
 
-        let mut queue = vec![config_loader];
-        while let Some(config_loader) = queue.pop() {
-            if self.online {
-                config_loader.fetch_remote_config();
-            }
+            /*
+             * .
+             * refs/meta/git-toprepo
+             * toprepo.config
+             */
 
-            let current_configmap = config_loader.get_configmap()?;
-            let sub_config_loaders = self.get_config_loaders(
-                &current_configmap, &full_configmap,
-            )?;
+            // Translate.
+            let parent_url = monorepo.get_toprepo_fetch_url();
+            let url = join_submodule_url(&parent_url, raw_url);
 
-            // Earlier loaded configs overrides later loaded configs.
-            full_configmap = ConfigMap::join([&current_configmap, &full_configmap]);
-            // Traverse into sub-config-loaders.
-            for (name, sub_config_loader) in sub_config_loaders {
-                if existing_names.contains(&name) {
-                    bail!("toprepo.config.{} configurations found in multiple sources", name)
-                    //panic!("toprepo.config.{} configurations found in multiple sources", name);
-                }
-                existing_names.insert(name);
-                queue.push(sub_config_loader);
-            }
-        }
-
-        Ok(full_configmap)
-    }
-
-    fn get_config_loaders(&self, configmap: &ConfigMap, overrides: &ConfigMap) ->
-    Result<HashMap<String, ConfigLoader>> {
-        let mut config_loaders = HashMap::new();
-        // Accumulate toprepo.config.<id>.* keys.
-        let own_loader_configmaps = configmap.extract_mapping("toprepo.config")?;
-        let full_loader_configmaps = ConfigMap::join([configmap, overrides])
-            .extract_mapping("toprepo.config")?;
-
-        for (name, own_loader_values) in own_loader_configmaps.into_iter() {
-            //Check if values are just for overriding or the actual configuration.
-            let partial_value = own_loader_values.get_last("partial");
-            if let Some(value) = partial_value {
-                match value.to_lowercase().as_str() {
-                    "1" | "true" => continue,
-                    _ => (),
-                }
-            }
-
-            // Actual configuration, load.
-            let full_loader_values = &full_loader_configmaps[&name];
-            let config_loader = self.get_config_loader(&name, full_loader_values)?;
-            config_loaders.insert(name, config_loader);
-        }
-
-        Ok(config_loaders)
-    }
-
-    fn get_config_loader<'a>(&self, name: &str, configmap: &ConfigMap) -> Result<ConfigLoader> {
-        let loader_type = configmap.get_last("type")
-            .expect("Missing config loader type").to_lowercase();
-
-        let config_loader = match loader_type.as_str() {
-            "none" => ConfigLoader::from(StaticContentConfigLoader::new(String::new())),
-            "file" => {
-                let mut file_path = self.monorepo.path.clone();
-                file_path.push(PathBuf::from(
-                    configmap.get_last("file").expect("Missing file")
-                ));
-
-                ConfigLoader::from(LocalFileConfigLoader::new(file_path, false))
-            }
-            "git" => {
-                // Load
-                let raw_url = configmap.get_last("url").expect("Missing url");
-                let reference = configmap.get_last("ref").expect("Missing ref");
-                let filename = PathBuf::from(configmap.get_last("url").expect("Missing filename"));
-
-                /*
-                .
-                refs/meta/git-toprepo
-                toprepo.config
-                 */
-
-
-                // Translate.
-                let parent_url = self.monorepo.get_toprepo_fetch_url();
-                let url = join_submodule_url(&parent_url, raw_url);
-                let filename = PathBuf::from(&filename);
-
-                // Parse.
-                ConfigLoader::from(GitRemoteConfigLoader::new(
+            // Parse.
+            ConfigLoader::Remote(RemoteGitConfigLoader::new(
                     url,
                     reference.to_string(),
-                    filename,
-                    &self.monorepo,
-                    format!("refs/toprepo/config/{}", name),
-                ))
-            }
-            _ => {
-                bail!("Invalid toprepo.config.type {}!", loader_type);
-            }
-        };
+                    &monorepo,
+                    format!("refs/toprepo/config/{}", TOPREPO_DEFAULT_NAME),
+            ))
+        }
+        _ => {
+            bail!("Invalid toprepo.config.type {}!", loader_type);
+        }
+    };
 
-        Ok(config_loader)
-    }
+    Ok(config_loader)
 }
-
 
 #[derive(Debug)]
 pub struct Config {
@@ -368,7 +319,7 @@ impl Config {
         let missing_commits_prefix = "toprepo.missing-commits.rev-";
         for (key, values) in configmap.map {
             if let Some(commit_hash) = key.strip_prefix(missing_commits_prefix) {
-                let commit_hash: CommitHash = commit_hash.bytes().collect_vec();
+                let commit_hash: CommitHash = commit_hash.bytes().collect_vec().into();
 
                 for raw_url in values {
                     missing_commits.entry(raw_url).or_insert(HashSet::new())
@@ -488,5 +439,44 @@ impl Config {
             }
         }
         raw_url_to_repos
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_basic_config() {
+        let expected = |s: &str| Some(vec![s.to_owned()]);
+
+        let cm = ConfigMap::parse("foo.bar=bazz").unwrap();
+        let foo = cm.get("foo.bar");
+        assert_eq!(foo, expected("bazz").as_ref());
+
+        let cm = ConfigMap::parse("toprepo.repo.foo.fetchargs=--depth=1000000000").unwrap();
+        let fetchargs = cm.get("toprepo.repo.foo.fetchargs");
+        assert_eq!(fetchargs, expected("--depth=1000000000").as_ref());
+    }
+
+    #[test]
+    fn parse_on_disk_representation() {
+        let on_disk = "[toprepo.role.default]
+        # Ignore all old repositories.
+        repos = -.*";
+        let cm = ConfigMap::parse(on_disk);
+        assert!(cm.is_err());
+    }
+
+    #[test]
+    fn join_config_maps() {
+        let expected = |s: &str| Some(vec![s.to_owned()]);
+
+        let a = ConfigMap::parse("a=1").unwrap();
+        let b = ConfigMap::parse("b=2").unwrap();
+        let joined = ConfigMap::join(vec![&a, &b]);
+
+        assert_eq!(joined.get("a"), expected("1").as_ref());
+        assert_eq!(joined.get("b"), expected("2").as_ref());
     }
 }
