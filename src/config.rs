@@ -210,12 +210,13 @@ impl Display for ConfigMap {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-pub fn get_toprepo_config(monorepo: &Repo, git_config: &ConfigMap) -> Result<ConfigMap> {
+pub fn get_configmap(monorepo: &Repo, git_config: &ConfigMap) -> ConfigMap {
     let configloader = get_config_loader(&monorepo, &git_config).unwrap();
-    match configloader {
+    let toprepo_config = match configloader {
         ConfigLoader::Local(c) => c.get_configmap(),
         ConfigLoader::Remote(c) => c.get_configmap(),
-    }
+    }.unwrap();
+    ConfigMap::join(vec![&git_config, &toprepo_config])
 }
 
 fn get_config_loader<'a>(monorepo: &'a Repo, git_config: &'a ConfigMap) -> Result<ConfigLoader<'a>> {
