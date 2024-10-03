@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
 use enum_dispatch::enum_dispatch;
+use std::fmt;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use colored::Colorize;
 use anyhow::{Context, Result};
 use crate::config::ConfigMap;
 use crate::repo::Repo;
@@ -28,24 +28,13 @@ pub trait ConfigLoaderTrait {
 // Similar to an abstract class, removes the need for Box<dyn &ConfigLoaderTrait>
 #[enum_dispatch(ConfigLoaderTrait)]
 pub enum ConfigLoader<'a> {
-    MultiConfigLoader(MultiConfigLoader<'a>),
-    LocalGitConfigLoader(LocalGitConfigLoader<'a>),
-    StaticContentConfigLoader,
     LocalFileConfigLoader,
+    LocalGitConfigLoader(LocalGitConfigLoader<'a>),
     GitRemoteConfigLoader(GitRemoteConfigLoader<'a>),
-}
-
-
-pub struct MultiConfigLoader<'a> {
-    config_loaders: Vec<ConfigLoader<'a>>,
 }
 
 pub struct LocalGitConfigLoader<'a> {
     repo: &'a Repo, // <---- This reference causes lifetime voodoo.
-}
-
-pub struct StaticContentConfigLoader {
-    content: String,
 }
 
 pub struct LocalFileConfigLoader {
@@ -61,64 +50,6 @@ pub struct GitRemoteConfigLoader<'a> {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-
-impl MultiConfigLoader<'_> {
-    pub fn new(config_loaders: Vec<ConfigLoader>) -> MultiConfigLoader {
-        MultiConfigLoader {
-            config_loaders
-        }
-    }
-}
-
-impl ConfigLoaderTrait for MultiConfigLoader<'_> {
-    fn fetch_remote_config(&self) {
-        for config_loader in &self.config_loaders {
-            config_loader.fetch_remote_config();
-        }
-    }
-
-    fn git_config_list(self) -> String {
-        let mut config_list = String::new();
-
-        // Joins all ConfigLoaders in reverse order.
-        for config_loader in self.config_loaders {
-            let mut part: String = config_loader.git_config_list();
-            if !part.is_empty() && !part.ends_with('\n') {
-                part.push('\n');
-            }
-
-            part.push_str(&config_list);
-            config_list = part;
-        }
-
-        config_list
-    }
-}
-
-
-impl LocalGitConfigLoader<'_> {
-    pub fn new(repo: &Repo) -> LocalGitConfigLoader {
-        LocalGitConfigLoader {
-            repo
-        }
-    }
-}
-
-impl ConfigLoaderTrait for LocalGitConfigLoader<'_> {
-    fn fetch_remote_config(&self) {}
-    fn git_config_list(self) -> String {
-        let command = Command::new("git")
-            .args(["-C", self.repo.path.to_str().unwrap().trim()])
-            .args(["config", "--list"])
-            .output()
-            .unwrap();
-
-        let ret = String::from_utf8(command.stdout)
-            .expect("Could not load Local git configuration.");
-        ret
-    }
-}
-
 
 fn parse_config_file(config_file: &str) -> String {
     let mut command = Command::new("git")
@@ -139,21 +70,28 @@ fn parse_config_file(config_file: &str) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
-impl StaticContentConfigLoader {
-    pub fn new(content: String) -> StaticContentConfigLoader {
-        StaticContentConfigLoader {
-            content
+impl LocalGitConfigLoader<'_> {
+    pub fn new(repo: &Repo) -> LocalGitConfigLoader {
+        LocalGitConfigLoader {
+            repo
         }
     }
 }
 
-impl ConfigLoaderTrait for StaticContentConfigLoader {
-    fn fetch_remote_config(&self) { () }
+impl ConfigLoaderTrait for LocalGitConfigLoader<'_> {
+    fn fetch_remote_config(&self) { todo!() }
     fn git_config_list(self) -> String {
-        parse_config_file(&self.content)
+        let command = Command::new("git")
+            .args(["-C", self.repo.path.to_str().unwrap().trim()])
+            .args(["config", "--list"])
+            .output()
+            .unwrap();
+
+        let ret = String::from_utf8(command.stdout)
+            .expect("Could not load Local git configuration.");
+        ret
     }
 }
-
 
 impl LocalFileConfigLoader {
     pub fn new(filename: PathBuf, allow_missing: bool) -> LocalFileConfigLoader {
