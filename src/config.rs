@@ -8,7 +8,7 @@ use regex::Regex;
 use anyhow::{bail, Result};
 use crate::config_loader::{
     ConfigLoader,
-    GitRemoteConfigLoader,
+    RemoteGitConfigLoader,
     LocalFileConfigLoader,
 };
 use crate::repo::Repo;
@@ -64,6 +64,8 @@ const CONFIGMAP_UNSET: &str = "git_toprepo_ConfigDict_unset"; //Should this be r
 pub struct ConfigMap {
     pub map: HashMap<String, Vec<String>>,
 }
+
+pub type Mapping = HashMap<String, ConfigMap>;
 
 impl ConfigMap {
     pub fn new() -> ConfigMap {
@@ -153,10 +155,9 @@ impl ConfigMap {
         }
     }
 
-
     /// Extracts for example submodule.<name>.<key>=<value>.
-    /// All entries that dont contain the prefix are returned in the residual
-    pub fn extract_mapping(&self, prefix: &str) -> Result<HashMap<String, ConfigMap>> {
+    /// All entries that don't contain the prefix are returned in the residual.
+    pub fn extract_mapping(&self, prefix: &str) -> Result<Mapping> {
         let mut prefix = prefix.to_string();
         if !prefix.ends_with('.') {
             prefix.push('.');
@@ -215,7 +216,7 @@ pub fn get_config_loader<'a>(monorepo: &'a Repo, git_config: &'a ConfigMap) -> R
     let loader_type = last_wins(git_config.get_subkey(TOPREPO_CONFIG_DEFAULT_KEY, "type"))
         .map(|s| s.to_lowercase());
     if loader_type.is_none() {
-        return Ok(ConfigLoader::from(GitRemoteConfigLoader::new(
+        return Ok(ConfigLoader::Remote(RemoteGitConfigLoader::new(
                 TOPREPO_DEFAULT_URL.to_owned(),
                 TOPREPO_DEFAULT_REF.to_owned(),
                 &monorepo,
@@ -232,7 +233,7 @@ pub fn get_config_loader<'a>(monorepo: &'a Repo, git_config: &'a ConfigMap) -> R
                     git_config.get_last("file").expect("Missing file")
             ));
 
-            ConfigLoader::from(LocalFileConfigLoader::new(file_path, false))
+            ConfigLoader::Local(LocalFileConfigLoader::new(file_path, false))
         },
         "git" => {
             // Load
@@ -250,7 +251,7 @@ pub fn get_config_loader<'a>(monorepo: &'a Repo, git_config: &'a ConfigMap) -> R
             let url = join_submodule_url(&parent_url, raw_url);
 
             // Parse.
-            ConfigLoader::from(GitRemoteConfigLoader::new(
+            ConfigLoader::Remote(RemoteGitConfigLoader::new(
                     url,
                     reference.to_string(),
                     &monorepo,
