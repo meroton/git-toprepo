@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 use enum_dispatch::enum_dispatch;
-use std::fmt;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -14,7 +13,6 @@ use crate::util::log_run_git;
 
 #[enum_dispatch]
 pub trait ConfigLoaderTrait {
-    fn fetch_remote_config(&self);
     fn git_config_list(self) -> String;
     fn get_configmap(self) -> Result<ConfigMap>
     where
@@ -25,12 +23,9 @@ pub trait ConfigLoaderTrait {
     }
 }
 
-// Similar to an abstract class, removes the need for Box<dyn &ConfigLoaderTrait>
-#[enum_dispatch(ConfigLoaderTrait)]
 pub enum ConfigLoader<'a> {
-    LocalFileConfigLoader,
-    LocalGitConfigLoader(LocalGitConfigLoader<'a>),
-    GitRemoteConfigLoader(GitRemoteConfigLoader<'a>),
+    Local(LocalFileConfigLoader),
+    Remote(RemoteGitConfigLoader<'a>),
 }
 
 pub struct LocalGitConfigLoader<'a> {
@@ -42,7 +37,7 @@ pub struct LocalFileConfigLoader {
     allow_missing: bool,
 }
 
-pub struct GitRemoteConfigLoader<'a> {
+pub struct RemoteGitConfigLoader<'a> {
     url: String,
     remote_ref: String,
     local_repo: &'a Repo, // <---- This reference causes lifetime voodoo.
@@ -79,7 +74,6 @@ impl LocalGitConfigLoader<'_> {
 }
 
 impl ConfigLoaderTrait for LocalGitConfigLoader<'_> {
-    fn fetch_remote_config(&self) { todo!() }
     fn git_config_list(self) -> String {
         let command = Command::new("git")
             .args(["-C", self.repo.path.to_str().unwrap().trim()])
@@ -103,7 +97,6 @@ impl LocalFileConfigLoader {
 }
 
 impl ConfigLoaderTrait for LocalFileConfigLoader {
-    fn fetch_remote_config(&self) { todo!() }
     fn git_config_list(self) -> String {
         let mut content = String::new();
         if self.filename.exists() || !self.allow_missing {
@@ -117,28 +110,21 @@ impl ConfigLoaderTrait for LocalFileConfigLoader {
 }
 
 
-impl GitRemoteConfigLoader<'_> {
+impl RemoteGitConfigLoader<'_> {
     pub fn new(
         url: String,
         remote_ref: String,
         local_repo: &Repo,
         local_ref: String,
-    ) -> GitRemoteConfigLoader {
-        GitRemoteConfigLoader {
+    ) -> RemoteGitConfigLoader {
+        RemoteGitConfigLoader {
             url,
             remote_ref,
             local_repo,
             local_ref,
         }
     }
-}
 
-impl ConfigLoaderTrait for GitRemoteConfigLoader<'_> {
-    // First fetch:
-    //   Running "git" "-C" "." "fetch" "--quiet" "ssh://gerrit.example/org/repo" "refs/meta/git-toprepo:refs/toprepo/config/default"
-    // The show and parse:
-    //   git show refs/toprepo/config/default:toprepo.config \
-    //   | git config --file - --list
     fn fetch_remote_config(&self) {
         log_run_git(
             Some(&self.local_repo.path),
@@ -152,7 +138,14 @@ impl ConfigLoaderTrait for GitRemoteConfigLoader<'_> {
             true,
         );
     }
+}
 
+impl ConfigLoaderTrait for RemoteGitConfigLoader<'_> {
+    // First fetch:
+    //   Running "git" "-C" "." "fetch" "--quiet" "ssh://gerrit.example/repo/path" "refs/meta/git-toprepo:refs/toprepo/config/default"
+    // The show and parse:
+    //   git show refs/toprepo/config/default:toprepo.config \
+    //   | git config --file - --list
     fn git_config_list(self) -> String {
         /*
         let completed = log_run_git(
