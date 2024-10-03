@@ -30,21 +30,18 @@ fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<u16> {
     let monorepo = Repo::from_str(&args.cwd)?;
 
     let git_config = LocalGitConfigLoader::new(&monorepo).get_configmap().unwrap();
-    let toprepo_config = config::get_toprepo_config(&monorepo, &git_config).unwrap();
-    let configmap = ConfigMap::join(vec![&git_config, &toprepo_config]);
+    let configmap = config::get_configmap(&monorepo, &git_config);
 
-    let configmap = configmap;
+    let git_modules = get_gitmodules_info(
+        configmap.extract_mapping("submodule")?,
+        &monorepo.get_toprepo_fetch_url(),
+    )?;
 
     let config = Config::new(configmap);
     println!("{}\n{:?}", "Config:".blue(), config);
 
     let toprepo = TopRepo::from_config(monorepo.get_toprepo_dir(), &config);
     let repo_fetcher = RepoFetcher::new(&monorepo);
-
-    let git_modules = get_gitmodules_info(
-        toprepo_config.extract_mapping("submodule")?,
-        &monorepo.get_toprepo_fetch_url(),
-    )?;
 
     let (remote_name, git_module) = remote_to_repo(
         &fetch_args.remote, git_modules, &config,
@@ -87,8 +84,7 @@ fn config(args: &Cli, c: &cli::Config) -> Result<u16> {
     let monorepo = Repo::from_str(&args.cwd)?;
 
     let git_config = LocalGitConfigLoader::new(&monorepo).get_configmap().unwrap();
-    let toprepo_config = config::get_toprepo_config(&monorepo, &git_config).unwrap();
-    let configmap = ConfigMap::join(vec![&git_config, &toprepo_config]);
+    let configmap = config::get_configmap(&monorepo, &git_config);
 
     if c.list {
         configmap.list();
