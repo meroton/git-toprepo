@@ -30,12 +30,7 @@ fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<u16> {
     let monorepo = Repo::from_str(&args.cwd)?;
 
     let git_config = LocalGitConfigLoader::new(&monorepo).get_configmap().unwrap();
-    let configloader = config::get_config_loader(&monorepo, &git_config).unwrap();
-    let toprepo_config = match configloader {
-        ConfigLoader::Local(c) => c.get_configmap(),
-        ConfigLoader::Remote(c) => c.get_configmap(),
-    }.unwrap();
-
+    let toprepo_config = config::get_toprepo_config(&monorepo, &git_config).unwrap();
     let configmap = ConfigMap::join(vec![&git_config, &toprepo_config]);
 
     let configmap = configmap;
@@ -92,12 +87,7 @@ fn config(args: &Cli, c: &cli::Config) -> Result<u16> {
     let monorepo = Repo::from_str(&args.cwd)?;
 
     let git_config = LocalGitConfigLoader::new(&monorepo).get_configmap().unwrap();
-    let configloader = config::get_config_loader(&monorepo, &git_config).unwrap();
-    let toprepo_config = match configloader {
-        ConfigLoader::Local(c) => c.get_configmap(),
-        ConfigLoader::Remote(c) => c.get_configmap(),
-    }.unwrap();
-
+    let toprepo_config = config::get_toprepo_config(&monorepo, &git_config).unwrap();
     let configmap = ConfigMap::join(vec![&git_config, &toprepo_config]);
 
     if c.list {
