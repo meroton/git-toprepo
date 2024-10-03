@@ -5,7 +5,7 @@ use std::{fmt, path::PathBuf};
 use std::process::Command;
 use itertools::Itertools;
 use anyhow::{anyhow, Result};
-use crate::config::ConfigMap;
+use crate::config::{ConfigMap, Mapping};
 use crate::config_loader::{
     ConfigLoaderTrait,
     ConfigLoader,
@@ -80,11 +80,8 @@ pub struct GitModuleInfo {
 }
 
 pub fn get_gitmodules_info(
-    config_loader: ConfigLoader, parent_url: &str,
+    submod_config_mapping: Mapping, parent_url: &str,
 ) -> Result<Vec<GitModuleInfo>> {
-    // Parses the output from 'git config --list --file .gitmodules'.
-    let submod_config_mapping: HashMap<String, ConfigMap> = config_loader.get_configmap()?
-        .extract_mapping("submodule")?;
 
     let mut configs = Vec::new();
     let mut used = HashSet::new();
