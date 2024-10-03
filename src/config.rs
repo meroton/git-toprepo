@@ -300,25 +300,22 @@ impl ConfigAccumulator<'_> {
                 // Load
                 let raw_url = configmap.get_last("url").expect("Missing url");
                 let reference = configmap.get_last("ref").expect("Missing ref");
-                let filename = PathBuf::from(configmap.get_last("url").expect("Missing filename"));
 
                 /*
-                .
-                refs/meta/git-toprepo
-                toprepo.config
+                 * .
+                 * refs/meta/git-toprepo
+                 * toprepo.config
                  */
 
 
                 // Translate.
                 let parent_url = self.monorepo.get_toprepo_fetch_url();
                 let url = join_submodule_url(&parent_url, raw_url);
-                let filename = PathBuf::from(&filename);
 
                 // Parse.
                 ConfigLoader::from(GitRemoteConfigLoader::new(
                     url,
                     reference.to_string(),
-                    filename,
                     &self.monorepo,
                     format!("refs/toprepo/config/{}", name),
                 ))
