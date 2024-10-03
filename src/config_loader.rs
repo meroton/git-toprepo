@@ -56,7 +56,6 @@ pub struct LocalFileConfigLoader {
 pub struct GitRemoteConfigLoader<'a> {
     url: String,
     remote_ref: String,
-    filename: PathBuf,
     local_repo: &'a Repo, // <---- This reference causes lifetime voodoo.
     local_ref: String,
 }
@@ -184,14 +183,12 @@ impl GitRemoteConfigLoader<'_> {
     pub fn new(
         url: String,
         remote_ref: String,
-        filename: PathBuf,
         local_repo: &Repo,
         local_ref: String,
     ) -> GitRemoteConfigLoader {
         GitRemoteConfigLoader {
             url,
             remote_ref,
-            filename,
             local_repo,
             local_ref,
         }
