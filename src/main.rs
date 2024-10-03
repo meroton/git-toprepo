@@ -5,8 +5,9 @@ mod cli;
 
 use crate::cli::{Cli, Commands};
 
-use git_toprepo::config::{Config, ConfigAccumulator, ConfigMap, RepoConfig};
-use git_toprepo::config_loader::LocalFileConfigLoader;
+use git_toprepo::config;
+use git_toprepo::config::{Config, ConfigMap, RepoConfig};
+use git_toprepo::config_loader::{ConfigLoaderTrait,LocalGitConfigLoader,LocalFileConfigLoader};
 use git_toprepo::git::get_gitmodules_info;
 use git_toprepo::repo::{remote_to_repo, Repo, RepoFetcher, TopRepo};
 
@@ -23,21 +24,18 @@ use itertools::Itertools;
 use anyhow::Result;
 use lazycell::LazyCell;
 
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<u16> {
     let monorepo = Repo::from_str(&args.cwd)?;
-    println!("Monorepo path: {:?}", monorepo.path);
 
-    let config_accumulator = ConfigAccumulator::new(&monorepo, true);
-    let configmap = config_accumulator.load_main_config()?;
+    let git_config = LocalGitConfigLoader::new(&monorepo).get_configmap().unwrap();
+    let configloader = config::get_config_loader(&monorepo, &git_config).unwrap();
+    let toprepo_config = configloader.get_configmap().unwrap();
+
+    let configmap = ConfigMap::join(vec![&git_config, &toprepo_config]);
 
     let configmap = configmap;
-    println!("{}", "Congifmap".blue());
-    for (key, values) in &configmap.map {
-        println!("{}: {:?}", key, values);
-    }
 
     let config = Config::new(configmap);
     println!("{}\n{:?}", "Config:".blue(), config);
@@ -49,7 +47,6 @@ fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<u16> {
         LocalFileConfigLoader::new(monorepo.path.join(".gitmodules"), true).into(),
         &monorepo.get_toprepo_fetch_url(),
     )?;
-
 
     let (remote_name, git_module) = remote_to_repo(
         &fetch_args.remote, git_modules, &config,
@@ -81,7 +78,6 @@ fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<u16> {
         }
     };
 
-
     todo!()
 }
 
@@ -91,17 +87,15 @@ fn config(args: &Cli, c: &cli::Config) -> Result<u16> {
     }
 
     let monorepo = Repo::from_str(&args.cwd)?;
-    let config_accumulator = ConfigAccumulator::new(&monorepo, true);
-    let configmap = config_accumulator.load_main_config()?;
 
-    let configmap = configmap;
+    let git_config = LocalGitConfigLoader::new(&monorepo).get_configmap().unwrap();
+    let configloader = config::get_config_loader(&monorepo, &git_config).unwrap();
+    let toprepo_config = configloader.get_configmap().unwrap();
+
+    let configmap = ConfigMap::join(vec![&git_config, &toprepo_config]);
 
     if c.list {
-        for (key, values) in &configmap.map {
-            for val in values.into_iter() {
-                println!("{}={}", key, val);
-            }
-        }
+        configmap.list();
     }
 
     return Ok(0);
