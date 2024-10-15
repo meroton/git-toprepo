@@ -133,10 +133,10 @@ class MonoRepo(Repo):
             raise
         return fetch_url
 
-    def get_toprepo_dir(self) -> Path:
-        return self.get_subrepo_dir(TopRepo.name)
+    def get_toprepo_git_dir(self) -> Path:
+        return self.get_subrepo_git_dir(TopRepo.name)
 
-    def get_subrepo_dir(self, name: RepoName) -> Path:
+    def get_subrepo_git_dir(self, name: RepoName) -> Path:
         return self.git_dir / "repos" / name
 
 
@@ -1419,7 +1419,7 @@ class TopRepoExpander(RepoExpanderBase):
                     continue
                 subrepo = SubRepo(
                     subrepo_config,
-                    self.monorepo.get_subrepo_dir(subrepo_config.name),
+                    self.monorepo.get_subrepo_git_dir(subrepo_config.name),
                 )
                 subrepos[subrepo_config.name] = subrepo
         # Print unknown urls.
@@ -2216,7 +2216,7 @@ class PushSplitter:
                 (repo_config,) = repo_configs
             repo = SubRepo(
                 repo_config,
-                self.monorepo.get_subrepo_dir(repo_config.name),
+                self.monorepo.get_subrepo_git_dir(repo_config.name),
             )
         return repo
 
@@ -2285,7 +2285,7 @@ def main_init(args) -> int:
             ["config", "remote.top.pushUrl", args.repository],
         )
         monorepo = MonoRepo(monorepo_dir)
-        toprepo_dir = monorepo.get_toprepo_dir()
+        toprepo_dir = monorepo.get_toprepo_git_dir()
         toprepo_dir.mkdir(parents=True)
         log_run_git(
             toprepo_dir,
@@ -2334,7 +2334,7 @@ def main_refilter(args) -> int:
     config = Config.try_create(config_dict)
     if config is None:
         return 1
-    toprepo = TopRepo.from_config(monorepo.get_toprepo_dir(), config)
+    toprepo = TopRepo.from_config(monorepo.get_toprepo_git_dir(), config)
 
     expander = TopRepoExpander(monorepo, toprepo, config)
     if args.from_scratch:
@@ -2357,7 +2357,7 @@ def main_fetch(args) -> int:
     config = Config.try_create(config_dict)
     if config is None:
         return 1
-    toprepo = TopRepo.from_config(monorepo.get_toprepo_dir(), config)
+    toprepo = TopRepo.from_config(monorepo.get_toprepo_git_dir(), config)
     repo_fetcher = RepoFetcher(monorepo)
 
     git_modules = get_gitmodules_info(
@@ -2381,7 +2381,7 @@ def main_fetch(args) -> int:
             if subrepo_config.name == remote_name:
                 repo_to_fetch = SubRepo(
                     subrepo_config,
-                    monorepo.get_subrepo_dir(subrepo_config.name),
+                    monorepo.get_subrepo_git_dir(subrepo_config.name),
                 )
                 subdir = git_module.path.as_posix().encode("utf-8")
                 break
@@ -2443,7 +2443,7 @@ def main_push(args) -> int:
     config = Config.try_create(config_dict)
     if config is None:
         return 1
-    toprepo = TopRepo.from_config(monorepo.get_toprepo_dir(), config)
+    toprepo = TopRepo.from_config(monorepo.get_toprepo_git_dir(), config)
 
     splitter = PushSplitter(monorepo, toprepo, config)
 
