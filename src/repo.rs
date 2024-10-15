@@ -80,11 +80,11 @@ impl Repo {
         command
     }
 
-    pub fn get_toprepo_dir(&self) -> PathBuf {
-        self.get_subrepo_dir(TopRepo::NAME)
+    pub fn get_toprepo_git_dir(&self) -> PathBuf {
+        self.get_subrepo_git_dir(TopRepo::NAME)
     }
 
-    pub fn get_subrepo_dir(&self, name: &str) -> PathBuf {
+    pub fn get_subrepo_git_dir(&self, name: &str) -> PathBuf {
         if !self.git_dir.filled() {
             self.git_dir.fill(determine_git_dir(&self.path))
                 .unwrap();
