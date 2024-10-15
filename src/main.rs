@@ -39,7 +39,7 @@ fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<u16> {
     let config = Config::new(configmap);
     println!("{}\n{:?}", "Config:".blue(), config);
 
-    let toprepo = TopRepo::from_config(monorepo.get_toprepo_dir(), &config);
+    let toprepo = TopRepo::from_config(monorepo.get_toprepo_git_dir(), &config);
     let repo_fetcher = RepoFetcher::new(&monorepo);
 
     let (remote_name, git_module) = remote_to_repo(
@@ -60,7 +60,7 @@ fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<u16> {
                 }
 
                 let name = subrepo_config.name;
-                let path = monorepo.get_subrepo_dir(&name);
+                let path = monorepo.get_subrepo_git_dir(&name);
                 let repo_to_fetch = Repo::new(name, path);
 
                 let subdir = git_module.path.to_str().unwrap().to_string();
