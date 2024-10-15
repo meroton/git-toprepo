@@ -44,28 +44,9 @@ pub struct GitModuleInfo {
 
 
  pub fn determine_git_dir(repo: &PathBuf) -> PathBuf {
-    let mut code = format!(
-        "str(\"{}\").encode(\"utf-8\")",
-        repo.to_str().unwrap()
-    );
-    code = format!(
-        "git_filter_repo_for_toprepo.GitUtils.determine_git_dir({})",
-        code
-    );
-    code = format!(
-        "print({})",
-        code
-    );
-
-    let command = Command::new("python")
-        // FIXME: Temporary bodge local to my file structure
-        .env("PYTHONPATH", "../../../..")
-
-        .arg("-c")
-        .arg(format!("{}\n{}",
-                     "import git_filter_repo_for_toprepo",
-                     code,
-        ))
+    let command = Command::new("git")
+        .arg("rev-parse")
+        .arg("--git-dir")
         .output()
         .unwrap();
 
@@ -76,7 +57,7 @@ pub struct GitModuleInfo {
     }
 
     let path = String::from_utf8(command.stdout).unwrap();
-    PathBuf::from(path)
+    PathBuf::from(path.trim())
 }
 
 pub fn get_gitmodules_info(
