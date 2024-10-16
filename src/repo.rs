@@ -1,5 +1,6 @@
 use std::{env, io};
 use std::collections::HashMap;
+use anyhow::anyhow;
 use std::path::PathBuf;
 use std::process::Command;
 use itertools::Itertools;
@@ -40,6 +41,30 @@ pub struct Submodule {
     branch: BString,
     // project
     // git_dir
+}
+
+
+/// Extract gerrit project from a (gerrit) fetch url.
+/// ```
+/// let url = "ssh://gerrit.server/path/to/project";
+/// let expected = String::from("path/to/project");
+///
+/// let result = git_toprepo::repo::gerrit_project(url);
+/// assert!(matches!(
+///     result, Ok(expected)
+/// ));
+/// ```
+// TODO: doctest for private functions? There is little need to export this
+// beside testing.
+pub fn gerrit_project(url: &str) -> Result<String> {
+    let protocol = "ssh://";
+    if !url.starts_with(protocol) {
+        return Err(anyhow!("Expected a gerrit url with protocol"));
+    }
+    let sans_url = url.replace(protocol, "");
+    let (_, tail) = sans_url.split_once("/").unwrap();
+
+    Ok(tail.to_owned())
 }
 
 impl Repo {
@@ -93,6 +118,7 @@ impl Repo {
     }
 
     fn get_url(&self, toprepo_fetchurl_key: &str) -> io::Result<String> {
+        // TODO: Parse `git-config` directly.
         let command = Command::new("git")
             .args(["-C", self.path.to_str().unwrap()])
             .args(["config", toprepo_fetchurl_key])
@@ -153,6 +179,10 @@ impl Repo {
             }
 
         Ok(res)
+    }
+
+    pub fn gerrit_project(&self) -> String {
+        gerrit_project(&self.get_toprepo_fetch_url()).unwrap()
     }
 }
 
