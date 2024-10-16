@@ -10,14 +10,38 @@ use anyhow::{Context, Result};
 use crate::config::{Config, RepoConfig};
 use crate::git::{determine_git_dir, GitModuleInfo};
 use crate::util::{iter_to_string, strip_suffix, Url};
+use bstr::{BStr,BString};
 
 const DEFAULT_FETCH_ARGS: [&str; 3] = ["--prune", "--prune-tags", "--tags"];
+
+/// Headers and keys for parsing `.gitmodule`
+const SUBMODULE_HEADER: &str = "submodule";
+const GIT_MODULE_PATH: &str = "path";
+const GIT_MODULE_URL: &str = "url";
+const GIT_MODULE_BRANCH: &str = "branch";
+
+
+#[derive(Debug)]
+struct RelativeGerritProject(BString);
+
 
 #[derive(Debug)]
 pub struct Repo {
     name: String,
     pub path: PathBuf,
     git_dir: LazyCell<PathBuf>,
+}
+
+#[derive(Debug)]
+/// NB: `gix-config` parses to `Bstr` for us.
+/// This is described well here: https://blog.burntsushi.net/bstr/#motivation-based-on-concepts
+pub struct Submodule {
+    // name: &'a BStr,
+    path: BString,
+    url: RelativeGerritProject,
+    branch: BString,
+    // project
+    // git_dir
 }
 
 impl Repo {
@@ -30,7 +54,6 @@ impl Repo {
     }
 
     pub fn from_str(repo: &str) -> Result<Repo> {
-        //PosixPath('/home/lack/Documents/Kod/RustRover/git-toprepo')
         let command = Command::new("git")
             .args(["-C", repo])
             .arg("rev-parse")
@@ -96,6 +119,42 @@ impl Repo {
         PathBuf::from(
             format!("{}/repos/{}", git_dir, name)
         )
+    }
+
+    pub fn submodules(&self) -> Result<Vec<Submodule>> {
+        let modules_file = self.path.join(".gitmodules");
+
+        let modules = gix_config::File::from_path_no_includes(
+            modules_file,
+            gix_config::Source::Worktree,
+        );
+
+        let mut res: Vec<Submodule> = Vec::new();
+
+        for section in modules?.sections() {
+            let header = section.header().name(); // Category
+            let subheader = section.header().subsection_name();
+
+            if header == SUBMODULE_HEADER {
+                let module_path = subheader.expect("Could not unpack submodule info");
+                let body = section.body();
+
+                let path = body.value(GIT_MODULE_PATH);
+                let url = body.value(GIT_MODULE_URL);
+                let branch = body.value(GIT_MODULE_BRANCH);
+
+                res.push(
+                    Submodule{
+                        path: path.unwrap().into_owned(),
+                        url: RelativeGerritProject(url.unwrap().into_owned()),
+                        branch: branch.unwrap().into_owned(),
+                    }
+                );
+            }
+
+            }
+
+        Ok(res)
     }
 }
 
