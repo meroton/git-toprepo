@@ -8,7 +8,7 @@ use git_toprepo::config;
 use git_toprepo::config::{Config, ConfigMap, RepoConfig};
 use git_toprepo::config_loader::{ConfigLoader,ConfigLoaderTrait,LocalGitConfigLoader,LocalFileConfigLoader};
 use git_toprepo::git::get_gitmodules_info;
-use git_toprepo::repo::{remote_to_repo, Repo, RepoFetcher, TopRepo};
+use git_toprepo::repo::{normalize, remote_to_repo, Repo, RepoFetcher, TopRepo};
 
 
 use std::fmt::{Display, Formatter};
@@ -23,13 +23,20 @@ use itertools::Itertools;
 use anyhow::Result;
 use lazycell::LazyCell;
 use gix_config::File;
+use bstr::BStr;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// Replace references to Gerrit projects to the local file paths of submodules.
 fn replace(args: &Cli, _: &cli::Replace) -> Result<u16> {
     let monorepo = Repo::from_str(&args.cwd)?;
-    println!("{:?}", monorepo.submodules()); // DEBUG
+    let main_project = monorepo.gerrit_project();
+    let submodules = monorepo.submodules()?;
+
+    for module in submodules {
+        println!("{}: {}", module.project, module.path);
+    }
+
     Ok(0)
 }
 
