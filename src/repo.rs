@@ -203,10 +203,13 @@ impl Repo {
         command
     }
 
+    /// The git directory for the repo itself.
     pub fn get_toprepo_git_dir(&self) -> PathBuf {
         self.get_subrepo_git_dir(TopRepo::NAME)
     }
 
+    /// The git directory for a submodule.
+    /// Not the submodule checkout path, but the git database.
     pub fn get_subrepo_git_dir(&self, name: &str) -> PathBuf {
         if !self.git_dir.filled() {
             self.git_dir.fill(determine_git_dir(&self.path))
