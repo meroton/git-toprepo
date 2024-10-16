@@ -26,6 +26,8 @@ pub enum Commands {
     Refilter,  // Unimplemented
     Fetch(Fetch),
     Push,  // Unimplemented
+    /// Scaffolding code to start writing `.gitmodule` mapping code.
+    Replace(Replace),
 }
 
 #[derive(Args, Debug)]
@@ -47,6 +49,9 @@ pub struct Fetch {
     reference: Option<String>,
 }
 
+#[derive(Args, Debug)]
+pub struct Replace {
+}
 
 #[derive(Args, Debug)]
 pub struct Config {
