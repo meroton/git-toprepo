@@ -48,7 +48,7 @@ pub struct Submodule {
 
 /// Extract gerrit project from a (gerrit) fetch url.
 /// ```
-/// let url = String::from("ssh://gerrit.server/path/to/project");
+/// let url = "ssh://gerrit.server/path/to/project";
 /// let expected = String::from("path/to/project");
 ///
 /// let result = git_toprepo::repo::gerrit_project(url);
@@ -58,7 +58,7 @@ pub struct Submodule {
 /// ```
 // TODO: doctest for private functions? There is little need to export this
 // beside testing.
-pub fn gerrit_project(url: String) -> Result<String> {
+pub fn gerrit_project(url: &str) -> Result<String> {
     let protocol = "ssh://";
     if !url.starts_with(protocol) {
         return Err(anyhow!("Expected a gerrit url with protocol"));
@@ -181,6 +181,10 @@ impl Repo {
             }
 
         Ok(res)
+    }
+
+    pub fn gerrit_project(&self) -> String {
+        gerrit_project(&self.get_toprepo_fetch_url()).unwrap()
     }
 }
 
