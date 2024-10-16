@@ -23,8 +23,16 @@ use colored::Colorize;
 use itertools::Itertools;
 use anyhow::Result;
 use lazycell::LazyCell;
+use gix_config::File;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Replace references to Gerrit projects to the local file paths of submodules.
+fn replace(args: &Cli, _: &cli::Replace) -> Result<u16> {
+    let monorepo = Repo::from_str(&args.cwd)?;
+    println!("{:?}", monorepo.submodules()); // DEBUG
+    Ok(0)
+}
 
 fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<u16> {
     let monorepo = Repo::from_str(&args.cwd)?;
@@ -114,6 +122,7 @@ fn main() {
         Commands::Refilter => todo!(),
         Commands::Fetch(ref fetch_args) => fetch(&args, fetch_args),
         Commands::Push => todo!(),
+        Commands::Replace(ref replace_args) => replace(&args, replace_args),
     };
 
     res.unwrap();
