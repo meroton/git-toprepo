@@ -17,6 +17,7 @@ use std::ops::Not;
 use std::{env, io, panic};
 use std::path::PathBuf;
 use std::process::{Command, exit};
+use std::collections::HashMap;
 
 use clap::{Arg, Args, Parser, Subcommand};
 use colored::Colorize;
@@ -24,18 +25,42 @@ use itertools::Itertools;
 use anyhow::Result;
 use lazycell::LazyCell;
 use gix_config::File;
-use bstr::BStr;
+use bstr::{io::BufReadExt,BStr,BString,ByteSlice,ByteVec};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// Replace references to Gerrit projects to the local file paths of submodules.
-fn replace(args: &Cli, _: &cli::Replace) -> Result<u16> {
+fn replace(args: &Cli, replace: &cli::Replace) -> Result<u16> {
     let monorepo = Repo::from_str(&args.cwd)?;
     let main_project = monorepo.gerrit_project();
     let submodules = monorepo.submodules()?;
 
-    for module in submodules {
-        println!("{}: {}", module.project, module.path);
+
+    // TODO: This became really cluttered :(
+    // In theory, we should also be able to do all the operations within the
+    // Byte-string world, but that too was fraught with type conversions.
+    let mut map: HashMap<String, String> = HashMap::new();
+    for module in submodules.into_iter() {
+        map.insert(
+            <Vec<u8> as Clone>::clone(&module.project).clone().into_string()?,
+            <Vec<u8> as Clone>::clone(&module.path).clone().into_string()?,
+        );
+    }
+
+    for result in std::io::stdin().lines() {
+        let line = result?;
+        let parts: Vec<&str> = line.split(" ").collect();
+        // TODO: Return error and usage instructions here.
+        assert!(parts.len() >= 1);
+
+        let mut project = parts[0].to_owned();
+        if !project.ends_with(".git") {
+            project = format!("{}.git", project);
+        }
+
+        let replacement = &map.get(&project).expect(&format!("Could not find key: '{}'", &project));
+        let replaced = line.replace(parts[0], replacement);
+        println!("{}", replaced);
     }
 
     Ok(0)
