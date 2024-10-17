@@ -34,6 +34,12 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<u16> {
     let main_project = monorepo.gerrit_project();
     let submodules = monorepo.submodules()?;
 
+    if replace.dump {
+        for module in submodules {
+            println!("{}: {}", module.project, module.path);
+        }
+        return Ok(0)
+    }
 
     // TODO: This became really cluttered :(
     // In theory, we should also be able to do all the operations within the
