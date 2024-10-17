@@ -45,7 +45,7 @@ pub struct GitModuleInfo {
 }
 
 
- pub fn determine_git_dir(repo: &PathBuf) -> PathBuf {
+pub fn determine_git_dir(repo: &PathBuf) -> PathBuf {
     let command = Command::new("git")
         .arg("rev-parse")
         .arg("--git-dir")
