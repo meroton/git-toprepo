@@ -121,15 +121,22 @@ fn parse_submodules(gitmodules: PathBuf) -> Result<Vec<RawSubmodule>> {
             let module_path = subheader.expect("Could not unpack submodule info");
             let body = section.body();
 
-            let path = body.value(GIT_MODULE_PATH);
-            let url = body.value(GIT_MODULE_URL);
-            let branch = body.value(GIT_MODULE_BRANCH);
+            let path = body.value(GIT_MODULE_PATH).unwrap().into_owned();
+            // TODO: We tend to use relative Gerrit project urls.
+            // This parsing must be updated to also support the regular formats.
+            let url = body.value(GIT_MODULE_URL).unwrap().into_owned();
+            let branch = body.value(GIT_MODULE_BRANCH).unwrap().into_owned();
+
+            let project = match url.strip_suffix(b".git") {
+                None => url,
+                Some(p) => p.into(),
+            };
 
             res.push(
                 RawSubmodule{
-                    path: path.unwrap().into_owned(),
-                    project: RelativeGerritProject(url.unwrap().into_owned()),
-                    branch: branch.unwrap().into_owned(),
+                    branch,
+                    path,
+                    project: RelativeGerritProject(project),
                 }
             );
         }
