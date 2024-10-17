@@ -51,6 +51,8 @@ pub struct Fetch {
 
 #[derive(Args, Debug)]
 pub struct Replace {
+    #[arg(long)]
+    pub dump: bool
 }
 
 #[derive(Args, Debug)]
