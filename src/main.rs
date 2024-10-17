@@ -73,9 +73,6 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<u16> {
         assert!(parts.len() >= 1);
 
         let mut project = parts[0].to_owned();
-        if !project.ends_with(".git") {
-            project = format!("{}.git", project);
-        }
 
         let replacement = &map.get(&project).expect(&format!("Could not find key: '{}'", &project));
         let replaced = line.replace(parts[0], replacement);
