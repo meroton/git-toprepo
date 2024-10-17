@@ -9,7 +9,7 @@ use git_toprepo::config;
 use git_toprepo::config::{Config, ConfigMap, RepoConfig};
 use git_toprepo::config_loader::{ConfigLoader,ConfigLoaderTrait,LocalGitConfigLoader,LocalFileConfigLoader};
 use git_toprepo::git::get_gitmodules_info;
-use git_toprepo::repo::{normalize, remote_to_repo, Repo, RepoFetcher, TopRepo};
+use git_toprepo::repo::{normalize, remote_to_repo, Repo, RepoFetcher, Submodule, TopRepo};
 
 
 use std::fmt::{Display, Formatter};
@@ -31,12 +31,26 @@ use bstr::{io::BufReadExt,BStr,BString,ByteSlice,ByteVec};
 
 /// Replace references to Gerrit projects to the local file paths of submodules.
 fn replace(args: &Cli, replace: &cli::Replace) -> Result<u16> {
+    /// The main repo is not technically a submodule.
+    /// But it is very convenient to have transparent handling of the main
+    /// project in code that iterates over projects provided by the users.
+    struct Mod {
+        project: BString,
+        path: BString,
+    };
     let monorepo = Repo::from_str(&args.cwd)?;
     let main_project = monorepo.gerrit_project();
-    let submodules = monorepo.submodules()?;
+    let mut modules: Vec<Mod> = monorepo.submodules()?.into_iter()
+        .map(|m| Mod{project: m.project, path: m.path}).collect();
+
+    modules.push(Mod{
+        project: main_project.into(),
+        // TODO: What is the path to the repo? May be upwards.
+        path: ".".into(),
+    });
 
     if replace.dump {
-        for module in submodules {
+        for module in modules {
             println!("{}: {}", module.project, module.path);
         }
         return Ok(0)
@@ -46,7 +60,7 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<u16> {
     // In theory, we should also be able to do all the operations within the
     // Byte-string world, but that too was fraught with type conversions.
     let mut map: HashMap<String, String> = HashMap::new();
-    for module in submodules.into_iter() {
+    for module in modules.into_iter() {
         map.insert(
             <Vec<u8> as Clone>::clone(&module.project).clone().into_string()?,
             <Vec<u8> as Clone>::clone(&module.path).clone().into_string()?,
