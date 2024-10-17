@@ -26,7 +26,18 @@ pub enum Commands {
     Refilter,  // Unimplemented
     Fetch(Fetch),
     Push,  // Unimplemented
+
     /// Scaffolding code to start writing `.gitmodule` mapping code.
+    /// This replaces the first field of every line on standard in
+    /// with the submodule path.
+    ///
+    /// This can be used in interactive shell pipelines where the Gerrit project
+    /// and the revision is known. To download review comments for commits in
+    /// submodules, or to checkout out a commit in a submodule
+    ///
+    /// Note, that checking out submodules this way is only for regular repo
+    /// checkouts. For a git-toprepo super repo purposeful checkout must be
+    /// implemented.
     Replace(Replace),
 }
 
@@ -52,6 +63,8 @@ pub struct Fetch {
 #[derive(Args, Debug)]
 pub struct Replace {
     #[arg(long)]
+    /// Dump the project to submodule mapping
+    ///    <project>: <module path>
     pub dump: bool
 }
 
