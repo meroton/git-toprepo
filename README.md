@@ -66,143 +66,15 @@ The algorithm steps are:
 
 ## Configuration
 
-The configuration is specified in git-config format and read by default
-from `refs/meta/git-toprepo:toprepo.config` from the top repo remote.
-This default loading location can be overridden by setting
-`toprepo.config.default.*` in your own git-config.
+The configuration is specified in [Toml](https://toml.io/) format.
+By default, it is read from `refs/remotes/origin/HEAD:.gittoprepo.toml`,
+but the location can be configured in super repository git-config using
+`git config --local toprepo.config <worktree-relative-path>`.
+Overriding the location is only recommended for testing out a new config and debugging purpose.
 
-### Edit default configuration
 
-To setup and edit the configuration in the default location, run
 
-```bash
-mkdir my-toprepo-config
-cd my-toprepo-config
-git init
-# Initial commits.
-vim toprepo.config
-git add toprepo.config
-git commit
-git push <repository> HEAD:refs/meta/git-toprepo
 
-# Fetch to edit
-git fetch <repository> refs/meta/git-toprepo
-git checkout FETCH_HEAD
-```
-
-Alternatively, setup the repository with a remote using:
-
-```bash
-mkdir my-toprepo-config
-cd my-toprepo-config
-git init
-git remote add origin <repository>
-git config remote.origin.fetch +refs/meta/*:refs/remotes/origin/meta/*
-git fetch origin
-```
-
-### Configuration loading
-
-The configuration is specified in the git-config under the section
-`toprepo.config.<name>`. The default setting is:
-
-```
-[toprepo.config.default]
-    type = "git"
-    url = .
-    ref = refs/meta/git-toprepo
-    path = toprepo.config
-```
-
-This will load configuration from `toprepo.config` at `refs/meta/git-toprepo`
-in the top repo remote.
-More configurations can be loaded recursively and they are parsed using
-`git config --file - --list`.
-
-#### Configuration loading related fields
-The following fields are available for different
-`toprepo.config.<config-name>.type`:
-
-* `toprepo.config.<config-name>.type=file` loads a file from local disk.
-  * `toprepo.config.<config-name>.path`: The path to the config file to load.
-* `toprepo.config.<config-name>.type=git` loads a file from local disk.
-  * `toprepo.config.<config-name>.url`: The local or remote repository
-    location. If the URL starts with `.`, it is assumed to be an URL relative
-    to the top repository remote origin.
-  * `toprepo.config.<config-name>.ref`: The remote reference to load.
-  * `toprepo.config.<config-name>.path`: The path to the config file
-    in the repository.
-* `toprepo.config.<config-name>.type=none` has no more fields.
-
-#### Configuration loading examples
-
-Load from worktree:
-
-```
-[toprepo.config.default]
-    type = "file"
-    path = .gittoprepo
-```
-
-Load from remote `HEAD` (instead of `refs/meta/git-toprepo`)
-
-```ini
-[toprepo.config.default]
-    type = "git"
-    url = .
-    ref = HEAD
-    path = .gittoprepo
-```
-
-or simply
-
-```ini
-[toprepo.config.default]
-    ref = HEAD
-    path = .gittoprepo
-```
-
-### Roles
-
-Roles are used to load and filter a set of repositories.
-The build-in default configuration includes:
-
-```ini
-[toprepo]
-    role = default
-[toprepo.role.default]
-    repos = +.*
-```
-
-This means that the role to load resolves to `default` if unset.
-The `default` role resolves to filtering all repositories if unset.
-
-#### Role related fields
-
-* `toprepo.role`: A named role to use. Defaults to `default`.
-* `toprepo.role.<role>.repos`: Tells which sub repos to use.
-  Multiple values are accumulated.
-  Each value starts with `+` or `-` followed by a regexp that should match a
-  whole repository name. The last matching regex decides whether the repo
-  should be expanded or not.
-  `toprepo.role.default.repos` defaults to `+.*`.
-
-#### Role configuration examples
-
-```ini
-[toprepo.role]
-    # Default to this role, git-config can override.
-    role = "active-only"
-
-[toprepo.role.all]
-    repos = +.*
-[toprepo.role.active-only]
-    # Remove all repositories.
-    repos = -.*
-    # Match certain ones.
-    repos = +git-toprepo
-    repos = +git-filter-repo
-```
 
 ### Sub repositories
 
@@ -272,4 +144,51 @@ git-toprepo will print the lines to add to your configuration when needed.
 [toprepo.missing-commits]
     rev-b6a50df1c26c6b0f8755cac88203a9f4547adccd = ../some-repo.git
     rev-bfd24a62a7d5d5c67e396dd78e28137f99757508 = https://my-git-server/some-repo.git
+```
+
+
+
+
+
+
+### Roles
+
+Roles are used to load and filter a set of repositories.
+The build-in default configuration includes:
+
+```ini
+[toprepo]
+    role = default
+[toprepo.role.default]
+    repos = +.*
+```
+
+This means that the role to load resolves to `default` if unset.
+The `default` role resolves to filtering all repositories if unset.
+
+#### Role related fields
+
+* `toprepo.role`: A named role to use. Defaults to `default`.
+* `toprepo.role.<role>.repos`: Tells which sub repos to use.
+  Multiple values are accumulated.
+  Each value starts with `+` or `-` followed by a regexp that should match a
+  whole repository name. The last matching regex decides whether the repo
+  should be expanded or not.
+  `toprepo.role.default.repos` defaults to `+.*`.
+
+#### Role configuration examples
+
+```ini
+[toprepo.role]
+    # Default to this role, git-config can override.
+    role = "active-only"
+
+[toprepo.role.all]
+    repos = +.*
+[toprepo.role.active-only]
+    # Remove all repositories.
+    repos = -.*
+    # Match certain ones.
+    repos = +git-toprepo
+    repos = +git-filter-repo
 ```
