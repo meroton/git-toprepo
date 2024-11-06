@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result};
 use crate::config::ConfigMap;
 use crate::repo::Repo;
-use crate::util::log_run_git;
+use crate::util::{commit_env, log_run_git};
 
 
 #[enum_dispatch]
