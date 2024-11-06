@@ -69,12 +69,9 @@ The algorithm steps are:
 The configuration is specified in [Toml](https://toml.io/) format.
 By default, it is read from `refs/remotes/origin/HEAD:.gittoprepo.toml`,
 but the location can be configured in super repository git-config using
-`git config --local toprepo.config <worktree-relative-path>`.
+`git config --local toprepo.config.ref worktree` and
+`git config --local toprepo.config.path <git-repo-relative-path>`.
 Overriding the location is only recommended for testing out a new config and debugging purpose.
-
-
-
-
 
 ### Sub repositories
 
@@ -83,6 +80,69 @@ the servers might be relocated, the repository configuration shows how to
 access each sub repository in the full history of the top repository.
 For example, multiple URLs might have been configured in
 the `.gitmodules` file, but all of them refers to the same repository.
+
+By default, each submodule is fetched using
+`git fetch --prune <url> +refs/heads/*:refs/repos/<repo-name>/heads/* +refs/tags/*:refs/repos/<repo-name>/tags/*`
+where `repo-name` is the path part of the absolute URL without the any `.git` extension.
+For example, the repo name for `ssh://git@github.com:meroton/git-toprepo.git` will be `meroton/git-toprepo`.
+
+```# Generated to .git/toprepo/generated-config.
+
+[expansion]
+# Default is ["+.*"].
+filter = [
+  "+.*",
+]
+
+# Repo name defaults to base name of url.
+[repos.toprepo]
+urls = [
+  "github.com/meroton/git-toprepo.git",
+  "server.internal/git-toprepo.git",
+]
+# The date of the oldest commit to import.
+# If a commit is filtered out, all its parents will also be removed.
+# Default is "1970-01-01T00:00:00Z".
+since = "2024-04-01T00:00:00Z"
+
+# push.url defaults to fetch.url.
+push.url = "ssh://git@github.com/meroton/git-toprepo.git"
+push.args = []
+
+[repos.toprepo.fetch]
+url = "ssh://git@github.com/meroton/git-toprepo.git"
+# Affects the --prune fetch arg, defaults to true.
+prune = true
+# Does not affect --prune, default is [].
+args = [
+  "--depth=1",
+]
+refspecs = [
+  "+refs/heads/*:refs/repos/toprepo/heads/*",
+  "+refs/tags/*:refs/repos/toprepo/tags/*",
+]
+
+[commits]
+missing = [
+"0123abc",
+"0123ab3",
+]
+
+[commits.override_parents]
+# An empty parents list will create a grafted commit.
+"01234" = [ "12345", "abcdef" ]
+```
+
+
+
+
+
+
+
+
+
+
+
 
 #### Repository related fields
 
