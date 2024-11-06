@@ -1,8 +1,10 @@
+use crate::git::CommitHash;
+use itertools::Itertools;
+use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
 use std::process::Command;
-use itertools::Itertools;
-use crate::git::CommitHash;
+
 
 pub type RawUrl = String;
 pub type Url = String;
@@ -40,12 +42,13 @@ pub fn normalize(p: &str) -> String {
 pub fn log_run_git<'a, I>(
     repo: Option<&PathBuf>,
     args: I,
+    env: Option<&HashMap<String, String>>,
     dry_run: bool,
     log_command: bool,
     //kwargs: HashMap<(), ()> TODO?
 ) -> Option<io::Result<std::process::Output>>
 where
-    I: IntoIterator<Item=&'a str>,
+    I: IntoIterator<Item = &'a str>,
 {
     let mut command = Command::new("git");
 
@@ -55,11 +58,14 @@ where
 
     command.args(args);
 
+     if let Some(e) = env {
+        command.envs(e);
+    }
+
     // TODO: Escape and quote! String representations are always annoying.
     let args: Vec<&std::ffi::OsStr> = command.get_args().collect();
     let joined = args.into_iter().map(|s| s.to_str().unwrap()).join(" ");
     let display = format!("{} {}", command.get_program().to_str().unwrap(), joined);
-
     if dry_run {
         eprintln!("Would run   {}", display);
         None
@@ -92,11 +98,139 @@ pub fn annotate_message(message: &str, subdir: &str, orig_commit_hash: &CommitHa
 
 pub fn iter_to_string<'a, I>(items: I) -> Vec<String>
 where
-    I: IntoIterator<Item=&'a str>,
+    I: IntoIterator<Item = &'a str>,
 {
     items.into_iter().map(|s| s.to_string()).collect()
 }
 
 pub fn commit_hash(hash: &str) -> CommitHash {
     hash.bytes().collect_vec().into()
+}
+
+pub fn commit_env() -> HashMap<String, String> {
+    let mut hashmap = HashMap::new();
+    let env = [
+        ("GIT_AUTHOR_NAME", "A Name"),
+        ("GIT_AUTHOR_EMAIL", "a@no.domain"),
+        ("GIT_AUTHOR_DATE", "2023-01-02T03:04:05Z+01:00"),
+        ("GIT_COMMITTER_NAME", "C Name"),
+        ("GIT_COMMITTER_EMAIL", "c@no.domain"),
+        ("GIT_COMMITTER_DATE", "2023-06-07T08:09:10Z+01:00"),
+    ];
+    env.map(|(k, v)| hashmap.insert(k.to_string(), v.to_string()));
+
+    hashmap
+}
+
+#[derive(Debug)]
+pub struct GitTopRepoExample {
+    pub tmp_path: PathBuf,
+}
+
+// TODO: add doc tests
+impl GitTopRepoExample {
+    pub fn new(tmp_path: PathBuf) -> GitTopRepoExample {
+        GitTopRepoExample { tmp_path }
+    }
+
+    pub fn init_server_top(self) -> PathBuf {
+        let env = commit_env();
+        let top_repo = self.tmp_path.join("top").to_path_buf();
+        let sub_repo = self.tmp_path.join("sub").to_path_buf();
+
+        std::fs::create_dir_all(&top_repo).unwrap();
+        std::fs::create_dir_all(&sub_repo).unwrap();
+
+        log_run_git(
+            Some(&top_repo),
+            ["init", "--quiet"],
+            Some(&env),
+            false,
+            false,
+        );
+
+        log_run_git(
+            Some(&sub_repo),
+            ["init", "--quiet"],
+            Some(&env),
+            false,
+            false,
+        );
+
+        commit(&sub_repo, &env, "1");
+        commit(&sub_repo, &env, "2");
+        commit(&top_repo, &env, "A");
+
+        log_run_git(
+            Some(&top_repo),
+            [
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                "../sub/", // TODO: Absolute or relative path?
+                           // sub_repo.to_str().unwrap(),
+            ],
+            Some(&env),
+            false,
+            false,
+        );
+        commit(&top_repo, &env, "B");
+        commit(&top_repo, &env, "C");
+        let sub_rev_3 = commit(&sub_repo, &env, "3");
+        update_index_submodule(&top_repo, &env, sub_rev_3);
+
+        commit(&top_repo, &env, "D");
+        commit(&sub_repo, &env, "4");
+        let sub_rev_5 = commit(&sub_repo, &env, "5");
+        update_index_submodule(&top_repo, &env, sub_rev_5);
+
+        commit(&top_repo, &env, "E");
+        commit(&top_repo, &env, "F");
+        commit(&sub_repo, &env, "6");
+        let sub_rev_7 = commit(&sub_repo, &env, "7");
+        update_index_submodule(&top_repo, &env, sub_rev_7);
+
+        commit(&top_repo, &env, "G");
+        commit(&top_repo, &env, "H");
+        commit(&sub_repo, &env, "8");
+
+        top_repo
+    }
+}
+
+fn commit(repo: &PathBuf, env: &HashMap<String, String>, message: &str) -> String {
+    log_run_git(
+        Some(&repo),
+        ["commit", "--allow-empty", "-m", message],
+        Some(&env),
+        false,
+        false,
+    );
+
+    // Returns commit hash as String.
+    // TODO: Return Result<String> instead?
+    std::string::String::from_utf8(
+        log_run_git(Some(&repo), ["rev-parse", "HEAD"], Some(&env), false, false)
+            .unwrap()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string()
+}
+
+fn update_index_submodule(repo: &PathBuf, env: &HashMap<String, String>, commit: String) {
+    log_run_git(
+        Some(repo),
+        [
+            "update-index",
+            "--cacheinfo",
+            &format!("160000,{},sub", commit),
+        ],
+        Some(&env),
+        false,
+        false,
+    );
 }

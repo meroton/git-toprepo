@@ -134,6 +134,7 @@ impl RemoteGitConfigLoader<'_> {
                 &self.url,
                 &format!("+{}:{}", self.remote_ref, &self.local_ref),
             ],
+            None,
             false,
             true,
         );
