@@ -123,17 +123,44 @@ pub fn commit_env() -> HashMap<String, String> {
 }
 
 #[derive(Debug)]
+/// A struct for example repo structures. The example repo consists of repos `top` and `sub`, with `sub` being a submodule in `top`. The commit history is shown below:
+/// ```text
+/// top  A---B---C---D-------E---F---G---H
+///          |       |       |       |
+/// sub  1---2-------3---4---5---6---7---8
+/// ```
+///
+/// # Examples
+///
+/// ```rust
+/// // The crate `tempfile` is used here to create temporary directories for testing
+/// use tempfile::tempdir;
+/// use git_toprepo::util::GitTopRepoExample;
+///
+/// let tmp_dir = tempdir().unwrap();
+/// let tmp_path = tmp_dir.path().to_path_buf();
+///
+/// // Use this instead for a persistent directory:
+/// // let tmp_path = tmp_dir.into_path();
+///
+/// let repo = GitTopRepoExample::new(&tmp_path);
+/// let top_repo_path = repo.init_server_top();
+/// assert!(top_repo_path.exists());
+/// ```
 pub struct GitTopRepoExample {
     pub tmp_path: PathBuf,
+    // TODO: store top/sub paths?
 }
 
-// TODO: add doc tests
 impl GitTopRepoExample {
     pub fn new(tmp_path: &PathBuf) -> GitTopRepoExample {
-        GitTopRepoExample { tmp_path: tmp_path.to_path_buf() }
+        GitTopRepoExample {
+            tmp_path: tmp_path.to_path_buf(),
+        }
     }
 
     pub fn init_server_top(&self) -> PathBuf {
+        //! Sets up the repo structure and returns the top repo path.
         let env = commit_env();
         let top_repo = self.tmp_path.join("top").to_path_buf();
         let sub_repo = self.tmp_path.join("sub").to_path_buf();
