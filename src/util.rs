@@ -129,11 +129,11 @@ pub struct GitTopRepoExample {
 
 // TODO: add doc tests
 impl GitTopRepoExample {
-    pub fn new(tmp_path: PathBuf) -> GitTopRepoExample {
-        GitTopRepoExample { tmp_path }
+    pub fn new(tmp_path: &PathBuf) -> GitTopRepoExample {
+        GitTopRepoExample { tmp_path: tmp_path.to_path_buf() }
     }
 
-    pub fn init_server_top(self) -> PathBuf {
+    pub fn init_server_top(&self) -> PathBuf {
         let env = commit_env();
         let top_repo = self.tmp_path.join("top").to_path_buf();
         let sub_repo = self.tmp_path.join("sub").to_path_buf();
