@@ -1,3 +1,4 @@
+use anyhow::Ok;
 use git_toprepo;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::util::{commit_hash, iter_to_string};
