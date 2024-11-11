@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use itertools::Itertools;
 use regex::Regex;
 use anyhow::{bail, Result};
+use serde::Deserialize;
 use crate::config_loader::{
     ConfigLoader,
     ConfigLoaderTrait,
@@ -17,9 +18,7 @@ use crate::repo::Repo;
 use crate::util::{iter_to_string, RawUrl, Url};
 use crate::git::CommitHash;
 
-
 //TODO: Create proper error enums instead of strings
-
 
 /*
 Toprepo, super repo har alla submoduler
@@ -31,7 +30,6 @@ const TOPREPO_CONFIG_DEFAULT_KEY: &str = "toprepo.config.default";
 const TOPREPO_DEFAULT_URL: &str = ".";
 const TOPREPO_DEFAULT_REF: &str = "refs/meta/git-toprepo";
 const TOPREPO_DEFAULT_NAME: &str = "default";
-
 
 #[derive(Debug)]
 pub struct RepoConfig {
@@ -71,7 +69,9 @@ pub type Mapping = HashMap<String, ConfigMap>;
 
 impl ConfigMap {
     pub fn new() -> ConfigMap {
-        ConfigMap { map: HashMap::new() }
+        ConfigMap {
+            map: HashMap::new()
+        }
     }
 
     pub fn list(&self) {
@@ -82,7 +82,7 @@ impl ConfigMap {
         }
     }
 
-    pub fn join<'a, I: IntoIterator<Item=&'a ConfigMap>>(configs: I) -> ConfigMap {
+    pub fn join<'a, I: IntoIterator<Item = &'a ConfigMap>>(configs: I) -> ConfigMap {
         let mut ret = ConfigMap::new();
 
         for config in configs {
@@ -140,12 +140,13 @@ impl ConfigMap {
 
     /// Inserts default value if key doesn't exist in the map
     pub fn set_default(&mut self, key: &str, default: Vec<String>) -> &Vec<String> {
-        self.map.entry(key.to_string())
-            .or_insert(default)
+        self.map.entry(key.to_string()).or_insert(default)
     }
 
     pub fn push(&mut self, key: &str, value: String) {
-        self.map.entry(key.to_string()).or_insert(Vec::new())
+        self.map
+            .entry(key.to_string())
+            .or_insert(Vec::new())
             .push(value);
     }
 
@@ -170,7 +171,9 @@ impl ConfigMap {
         for (key, values) in &self.map {
             if let Some(temp) = key.strip_prefix(&prefix) {
                 if let Some((name, subkey)) = temp.split(".").next_tuple() {
-                    extracted.entry(name.to_string()).or_insert(ConfigMap::new())
+                    extracted
+                        .entry(name.to_string())
+                        .or_insert(ConfigMap::new())
                         .append(subkey, values.clone());
                 } else {
                     bail!("Illegal config {}", temp);
@@ -182,8 +185,7 @@ impl ConfigMap {
     }
 
     pub fn get_singleton(&self, key: &str) -> Option<&str> {
-        let mut values = self.get(key)?
-            .iter().sorted();
+        let mut values = self.get(key)?.iter().sorted();
 
         match values.len() {
             0 => panic!("The key {} should not exist without a value!", key),
@@ -199,9 +201,11 @@ impl ConfigMap {
 
 impl Display for ConfigMap {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let temp = self.map.iter().map(|(key, values)|
-        format!("{}: [{}]", key, values.join(", "))
-        ).join(", ");
+        let temp = self
+            .map
+            .iter()
+            .map(|(key, values)| format!("{}: [{}]", key, values.join(", ")))
+            .join(", ");
 
         write!(f, "ConfigMap {{ {} }}", temp)?;
 
@@ -287,7 +291,8 @@ pub struct Config {
 
 impl Config {
     pub fn new(mut configmap: ConfigMap) -> Config {
-        let repo_configmaps = configmap.extract_mapping("toprepo.repo.")
+        let repo_configmaps = configmap
+            .extract_mapping("toprepo.repo.")
             .expect("Could not create config");
 
         // Resolve the role.
@@ -299,12 +304,14 @@ impl Config {
         let wanted_repos_patterns = configmap.remove(&wanted_repos_role).unwrap();
 
         let top_fetch_url = match configmap.remove_last("remote.origin.url").as_deref() {
-            None | Some("file:///dev/null") => configmap.remove_last("toprepo.top.fetchurl")
+            None | Some("file:///dev/null") => configmap
+                .remove_last("toprepo.top.fetchurl")
                 .expect("Config remote.origin.url is not set"),
             Some(url) => url.to_string(),
         };
         let top_push_url = match configmap.remove_last("remote.top.pushurl") {
-            None => configmap.remove_last("toprepo.top.pushurl")
+            None => configmap
+                .remove_last("toprepo.top.pushurl")
                 .expect(&"Config remote.top.pushurl is not set"),
             Some(url) => url,
         };
@@ -323,7 +330,9 @@ impl Config {
                 let commit_hash: CommitHash = commit_hash.bytes().collect_vec().into();
 
                 for raw_url in values {
-                    missing_commits.entry(raw_url).or_insert(HashSet::new())
+                    missing_commits
+                        .entry(raw_url)
+                        .or_insert(HashSet::new())
                         .insert(commit_hash.clone());
                 }
             }
@@ -373,14 +382,18 @@ impl Config {
         let enabled = Config::repo_is_wanted(&name, wanted_repos_patterns)
             .expect(format!("Could not determine if repo {} is wanted or not", name).as_str());
 
-        let mut raw_urls = repo_configmap.remove("urls")
+        let mut raw_urls = repo_configmap
+            .remove("urls")
             .expect(format!("toprepo.repo.{}.urls is unspecified", name).as_str());
 
         let raw_fetch_url = match repo_configmap.get_last("fetchurl") {
             None => {
                 if raw_urls.len() != 1 {
-                    panic!("Missing toprepo.repo.{}.fetchUrl and multiple \
-                    toprepo.repo.{}.urls gives an ambiguous default", name, name)
+                    panic!(
+                        "Missing toprepo.repo.{}.fetchUrl and multiple \
+                    toprepo.repo.{}.urls gives an ambiguous default",
+                        name, name
+                    )
                 }
 
                 raw_urls.pop().unwrap()
@@ -389,11 +402,11 @@ impl Config {
         };
         let fetch_url = join_submodule_url(parent_fetch_url, &raw_fetch_url);
 
-        let raw_push_url = repo_configmap.get_last("pushurl")
-            .unwrap_or(&raw_fetch_url);
+        let raw_push_url = repo_configmap.get_last("pushurl").unwrap_or(&raw_fetch_url);
         let push_url = join_submodule_url(parent_push_url, raw_push_url);
 
-        let fetch_args = repo_configmap.remove("fetchargs")
+        let fetch_args = repo_configmap
+            .remove("fetchargs")
             .unwrap_or(iter_to_string(DEFAULT_FETCH_ARGS));
 
         RepoConfig {
@@ -411,9 +424,11 @@ impl Config {
         // The last pattern has priority.
         for pattern in wanted_repos_patterns.iter().rev() {
             if !pattern.starts_with(&['+', '-']) {
-                panic!("Invalid wanted repo config {} for {}, \
+                panic!(
+                    "Invalid wanted repo config {} for {}, \
                 should start with '+' or '-' followed by a regex.",
-                       pattern, name);
+                       pattern, name
+                );
             }
 
             let wanted = pattern.starts_with('+');
@@ -434,13 +449,59 @@ impl Config {
         let mut raw_url_to_repos = HashMap::new();
         for repo_config in &self.repos {
             for raw_url in &repo_config.raw_urls {
-                raw_url_to_repos.entry(raw_url.as_str())
+                raw_url_to_repos
+                    .entry(raw_url.as_str())
                     .or_insert(Vec::new())
                     .push(repo_config);
             }
         }
         raw_url_to_repos
     }
+}
+
+// TODO: which of these fields are optional?
+// TODO: default values
+
+#[derive(Debug, Deserialize)]
+pub struct GitTopRepoConfig {
+    pub repo: HashMap<String, RepoTable>,
+    pub repos: ReposTable,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RepoTable {
+    // TODO: String or Datetime?
+    // pub since: toml::value::Datetime,
+    pub since: String,
+    pub urls: Vec<String>,
+    pub commits: CommitsTable,
+    pub fetch: FetchTable,
+    pub push: PushTable,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommitsTable {
+    pub missing: Vec<String>,
+    pub override_parents: HashMap<String, Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FetchTable {
+    pub args: Vec<String>,
+    pub prune: bool,
+    pub refspecs: Vec<String>,
+    pub url: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PushTable {
+    pub args: Vec<String>,
+    pub url: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReposTable {
+    filter: Vec<String>,
 }
 
 #[cfg(test)]
