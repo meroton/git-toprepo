@@ -1,5 +1,10 @@
 #![allow(dead_code)]
 
+use crate::config_loader::{
+    ConfigLoader, ConfigLoaderTrait, LocalFileConfigLoader,
+    LocalGitConfigLoader, RemoteGitConfigLoader,
+};
+use crate::repo::Repo;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
@@ -7,14 +12,7 @@ use itertools::Itertools;
 use regex::Regex;
 use anyhow::{bail, Result};
 use serde::Deserialize;
-use crate::config_loader::{
-    ConfigLoader,
-    ConfigLoaderTrait,
-    RemoteGitConfigLoader,
-    LocalFileConfigLoader,
-};
 use crate::gitmodules::join_submodule_url;
-use crate::repo::Repo;
 use crate::util::{iter_to_string, RawUrl, Url};
 use crate::git::CommitHash;
 
@@ -53,7 +51,6 @@ pub struct RepoConfig {
     /// Absolute URL to git-push to.
     pub push_url: Url,
 }
-
 
 ///////////////////////////////////////////////////////////////////////////////
 
