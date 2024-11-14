@@ -46,6 +46,9 @@ pub enum Commands {
     /// checkouts. For a git-toprepo super repo purposeful checkout must be
     /// implemented.
     Replace(Replace),
+
+    /// Scaffolding code to start writing Gerrit integration with `git-gr`.
+    Checkout(Checkout),
 }
 
 #[derive(Args, Debug)]
@@ -175,6 +178,19 @@ fn parse_refspec(refspec: &str) -> Result<(String, String), std::io::Error> {
     } else {
         Ok((refspec.to_owned(), "FETCH_HEAD".to_owned()))
     }
+}
+
+#[derive(Args, Debug)]
+pub struct Checkout {
+    /// ssh://gerrit@domain.com/path/to/project
+    pub remote: String,
+    /// refs/changes/nn/xxxnn/y
+    pub change: String,
+
+    #[arg(long)]
+    /// Dump the project to submodule mapping
+    ///    <project>: <module path>
+    pub dump: bool
 }
 
 #[derive(Args, Debug)]

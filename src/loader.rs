@@ -41,8 +41,14 @@ struct NeededCommit {
 }
 
 #[derive(Default)]
-struct GitModulesInfo {
+pub struct GitModulesInfo {
     pub submodules: BTreeMap<GitPath, gix::Url>,
+}
+
+#[derive(Default)]
+// TODO: name?
+pub struct GitProjectModulesInfo {
+    pub subprojects: BTreeMap<GitPath, String>,
 }
 
 pub struct CommitLoader {

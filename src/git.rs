@@ -14,7 +14,8 @@ pub type TreeId = gix::ObjectId;
 pub type BlobId = gix::ObjectId;
 
 #[derive(Debug, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct GitPath(BString);
+// TODO: export the inner struct through a conversion trait instead?
+pub struct GitPath(pub BString);
 
 impl GitPath {
     pub const fn new(path: BString) -> Self {

@@ -4,17 +4,26 @@ mod cli;
 
 use crate::cli::Cli;
 use crate::cli::Commands;
+
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::anyhow;
 use bstr::ByteSlice as _;
-use clap::Parser;
-use colored::Colorize;
+use bstr::BString;
+use bstr::ByteVec;
+
 use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
-use std::collections::HashMap;
+
+use git_gr_lib::git::Git;
+use git_gr_lib::query::QueryOptions;
+use git_gr_lib::gerrit::HTTPPasswordPolicy;
+
+use clap::Parser;
 use std::io::Read;
 use std::panic;
 use std::path::Path;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::vec;
@@ -42,6 +51,7 @@ fn init(init_args: &cli::Init) -> Result<ExitCode> {
     }
     Ok(ExitCode::SUCCESS)
 }
+
 
 fn config(config_args: &cli::Config) -> Result<ExitCode> {
     let load_config_from_file = |file: &Path| -> Result<GitTopRepoConfig> {
@@ -99,20 +109,90 @@ fn config(config_args: &cli::Config) -> Result<ExitCode> {
     }
     Ok(ExitCode::SUCCESS)
 }
-/*
+
+
+
+/* TODO: general interop between miette and anyhow.
+fn to_anyhow<T>(r: std::result::Result<T, Report>) -> Result<T> {
+    Ok(())
+}
+*/
+
+/// Checkout topics from Gerrit.
+fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<ExitCode> {
+    let git = Git::new();
+    let parsed_remote = git_gr_lib::gerrit_project::parse_remote_url(&checkout.remote).unwrap();
+    let gerrit = git.gerrit(
+        None,
+        parsed_remote.username,
+        None,
+        HTTPPasswordPolicy::Netrc,
+        /* cache: */ true,
+        /* persist ssh: */ false,
+    );
+    // TODO: Is this a full conversion to anyhow errors?
+    // It seems that we lose some of the miette context.
+    // Notably, where is the inner error?:
+    //     Err(  × Override: None
+    //     ╰─▶ Could not determine git remote username
+    //     )
+    //
+    // If this fails without the required override we just see:
+    //     called `Result::unwrap()` on an `Err` value: Failed to parse Gerrit configuration from Git remotes. Tried to parse these remotes:
+    //     • file:///dev/null
+    //     • ssh://csp-gerrit-ssh.volvocars.net/csp/hp/super
+    // which to its credit shows the remotes it tried
+    // but not the inner error.
+    let gerrit = match gerrit {
+        Ok(g) => g,
+        Err(error) => {
+            let box_dyn = Box::<dyn std::error::Error + Send + Sync>::from(error);
+            return Err(anyhow!(box_dyn.to_string()));
+        }
+    };
+
+    // refs/changes/32/261932/5
+    // 1    2       3  ^^^^^^ 5
+    let change = match checkout.change.split("/").collect::<Vec<&str>>()[..] {
+        [_, _, _, c, _] => c.to_owned(),
+        _ => { return Err(anyhow!("Could not parse change {:?} for its change number", checkout.change)) }
+    };
+
+    let res = gerrit.query(
+        QueryOptions::new(change)
+        .current_patch_set()
+        .dependencies()
+    );
+    let res = match res {
+        Ok(r) => r,
+        Err(error) => {
+            let box_dyn = Box::<dyn std::error::Error + Send + Sync>::from(error);
+            return Err(anyhow!(box_dyn.to_string()));
+        }
+    };
+    println!("{:?}", checkout);
+    println!("{:?}", gerrit);
+    println!("{:?}", res);
+
+    todo!();
+}
+
 /// Replace references to Gerrit projects to the local file paths of submodules.
 fn replace(args: &Cli, replace: &cli::Replace) -> Result<ExitCode> {
     /// The main repo is not technically a submodule.
     /// But it is very convenient to have transparent handling of the main
     /// project in code that iterates over projects provided by the users.
     struct Mod {
+        // TODO: use regular String
         project: BString,
+        // TODO: use regular PathBuf
         path: BString,
     }
-    let monorepo = Repo::from_str(&args.cwd)?;
-    let main_project = monorepo.gerrit_project();
-    let mut modules: Vec<Mod> = monorepo.submodules()?.into_iter()
-        .map(|m| Mod{project: m.project, path: m.path}).collect();
+    // TODO(nils): path?
+    let toprepo = git_toprepo::repo::TopRepo::open(PathBuf::from("."))?;
+    let main_project = toprepo.gerrit_project();
+    let mut modules: Vec<Mod> = toprepo.submodules()?.subprojects.into_iter()
+        .map(|(path, project)| Mod{project: project.into(), path: path.0}).collect();
 
     modules.push(Mod{
         project: main_project.into(),
@@ -153,7 +233,6 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<ExitCode> {
 
     Ok(ExitCode::SUCCESS)
 }
-*/
 
 fn refilter(args: &cli::Refilter) -> Result<ExitCode> {
     fetch_and_refilter(
@@ -241,17 +320,6 @@ where
 }
 
 fn main() -> Result<ExitCode> {
-    // Make panic messages red.
-    let default_hook = panic::take_hook();
-    panic::set_hook(Box::new(move |panic| {
-        if let Some(payload) = panic.payload().downcast_ref::<&str>() {
-            eprintln!("\n{}\n", payload.red());
-        }
-        if let Some(payload) = panic.payload().downcast_ref::<String>() {
-            eprintln!("\n{}\n", payload.red());
-        }
-        default_hook(panic);
-    }));
 
     let args = Cli::parse();
     if let Some(path) = &args.working_directory {
@@ -264,7 +332,8 @@ fn main() -> Result<ExitCode> {
         Commands::Refilter(ref refilter_args) => refilter(refilter_args)?,
         Commands::Fetch(ref fetch_args) => fetch(fetch_args)?,
         Commands::Push => todo!(),
-        Commands::Replace(ref _replace_args) => todo!(), //replace(&args, replace_args)?,
+        Commands::Replace(ref replace_args) => replace(&args, replace_args)?,
+        Commands::Checkout(ref checkout_args) => checkout(&args, checkout_args)?,
     };
     Ok(res)
 }

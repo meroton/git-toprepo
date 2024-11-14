@@ -6,6 +6,8 @@ use crate::git::TreeId;
 use crate::git::git_command;
 use crate::git::git_global_command;
 use crate::git_fast_export_import::ImportCommitRef;
+use crate::loader::GitModulesInfo;
+use crate::loader::GitProjectModulesInfo;
 use crate::log::Logger;
 use crate::util::CommandExtension as _;
 use anyhow::Context;
@@ -26,6 +28,28 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::str::FromStr;
+
+pub fn gerrit_project(url: &gix::url::Url) -> Result<String> {
+    // TODO use `url.scheme`
+    let tail = url.path_argument_safe().unwrap();
+    Ok(tail.to_string().to_owned())
+}
+
+pub fn resolve_subprojects(subs: &GitModulesInfo, main_project: String) -> Result<GitProjectModulesInfo> {
+    let mut resolved = GitProjectModulesInfo::default();
+
+    for (path, url) in subs.submodules.iter() {
+        // TODO: Nightly `as_str`: https://docs.rs/bstr/latest/bstr/struct.BString.html#deref-methods-%5BT%5D-1
+        let relative = gerrit_project(url)?;
+        let relative = relative.strip_prefix("/");
+        // let project = normalize(&format!("{}/{}", &main_project, relative));
+        let project = relative.unwrap().to_owned();
+
+        resolved.subprojects.insert(path.clone(), project);
+    }
+
+    Ok(resolved)
+}
 
 #[derive(Debug)]
 pub struct TopRepo {
@@ -342,6 +366,24 @@ impl TopRepo {
                 .context("Failed to update all the refs/remotes/origin/* references")?;
         }
         Ok(())
+    }
+
+    pub fn submodules(&self) -> Result<GitProjectModulesInfo> {
+        let gitmodules = self.gix_repo.to_thread_local().modules()?.unwrap();
+        let main_project = self.gerrit_project();
+
+        let mut info = GitModulesInfo::default();
+        for name in gitmodules.names() {
+            let path = gitmodules.path(name)?;
+            let url = gitmodules.url(name)?;
+            info.submodules.insert(GitPath::new(path.into_owned()), url);
+        }
+
+        resolve_subprojects(&info, main_project)
+    }
+
+    pub fn gerrit_project(&self) -> String {
+        gerrit_project(&self.url).unwrap()
     }
 }
 
@@ -698,7 +740,7 @@ pub struct ThinCommit {
 
 impl ThinCommit {
     pub fn is_descendant_of(&self, ancestor: &ThinCommit) -> bool {
-        // Doesn't matter which order we iterate.
+        // Doesn't matter in which order we iterate.
         let mut visited = HashSet::new();
         let mut queue = Vec::new();
         visited.insert(self.commit_id);
