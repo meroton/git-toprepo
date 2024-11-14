@@ -1,17 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::io::BufRead;
 use std::{fmt, path::PathBuf};
 use std::process::Command;
 use itertools::Itertools;
 use anyhow::{anyhow, Result};
-use crate::config::{ConfigMap, Mapping};
-use crate::config_loader::{
-    ConfigLoaderTrait,
-    ConfigLoader,
-};
 use crate::repo::Repo;
-use crate::util::{join_submodule_url, RawUrl, Url};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone,Debug)]
 pub struct CommitHash(String);
@@ -33,16 +27,7 @@ impl fmt::Display for CommitHash {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct GitModuleInfo {
-    pub name: String,
-    pub path: PathBuf,
-    pub branch: Option<String>,
-    pub url: Url,
-    pub raw_url: RawUrl,
-}
-
-
+#[allow(unused)]
 pub fn determine_git_dir(repo: &PathBuf) -> PathBuf {
     let command = Command::new("git")
         .arg("rev-parse")
@@ -59,36 +44,6 @@ pub fn determine_git_dir(repo: &PathBuf) -> PathBuf {
     let path = String::from_utf8(command.stdout).unwrap();
     PathBuf::from(path.trim())
 }
-
-pub fn get_gitmodules_info(
-    submod_config_mapping: Mapping, parent_url: &str,
-) -> Result<Vec<GitModuleInfo>> {
-
-    let mut configs = Vec::new();
-    let mut used = HashSet::new();
-
-    for (name, configmap) in submod_config_mapping {
-        let raw_url = configmap.get_singleton("url").unwrap().to_string();
-        let resolved_url = join_submodule_url(parent_url, &raw_url);
-        let path = configmap.get_singleton("path").unwrap();
-
-        let submod_info = GitModuleInfo {
-            name,
-            path: PathBuf::from(path),
-            branch: configmap.get_singleton("branch").map(|s| s.to_string()),
-            url: resolved_url,
-            raw_url,
-        };
-
-        if used.insert(path.to_owned()) {
-            panic!("Duplicate submodule configs for '{}'", path);
-        }
-        configs.push(submod_info);
-    }
-
-    Ok(configs)
-}
-
 
 #[derive(Debug)]
 pub struct PushSplitter<'a> {
@@ -120,6 +75,7 @@ impl PushSplitter<'_> { //TODO: verify
         }
     }
 
+    #[allow(unused)]
     pub fn get_top_commit_subrepos(&self, top_commit_hash: CommitHash) -> HashMap<Vec<u8>, CommitHash> {
         let top_commit_hash = ""; //TODO
         let ls_tree_subrepo_stdout = Command::new("git")

@@ -22,7 +22,7 @@ fn test_repository_name() {
 
 #[test]
 fn test_join_submodule_url() {
-    use git_toprepo::util::join_submodule_url;
+    use git_toprepo::gitmodules::join_submodule_url;
 
     // Relative.
     assert_eq!(join_submodule_url("https://github.com/org/repo", "."), "https://github.com/org/repo");
