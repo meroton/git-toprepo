@@ -12,8 +12,9 @@ use crate::config_loader::{
     RemoteGitConfigLoader,
     LocalFileConfigLoader,
 };
+use crate::gitmodules::join_submodule_url;
 use crate::repo::Repo;
-use crate::util::{iter_to_string, join_submodule_url, RawUrl, Url};
+use crate::util::{iter_to_string, RawUrl, Url};
 use crate::git::CommitHash;
 
 
