@@ -6,9 +6,11 @@ name = "git_toprepo"
 version = "0.1.0"
 edition = "2024"
 
+# TODO(nils):
+# # It is now merged: we wait for an upstream release
+# https://github.com/GitoxideLabs/gitoxide/pull/1954
 [patch.crates-io]
-# Include a correct ref filter when listing references.
-gix = { git = "https://github.com/GitoxideLabs/gitoxide", rev = "71275d16b6a3a22b5e6e33f441d50fc6d44ff20e" }
+gix = {path="/home/nwirekli/bin/gits/gitoxide/gix"}
 
 [dependencies]
 anyhow = "1.0.86"
@@ -28,6 +30,7 @@ serde_with = { version = "3.11.0", features = ["macros"] }
 threadpool = "1.8.1"
 toml = "0.8.19"
 url = "2.5.2"
+git-gr = { path = "/home/nwirekli/bin/gits/git-gr" }
 
 [dev-dependencies]
 tempfile = "3.13.0"
