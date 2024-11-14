@@ -7,22 +7,11 @@ use itertools::Itertools;
 use lazycell::LazyCell;
 use anyhow::{Context, Result};
 use crate::config::{Config, RepoConfig};
-use crate::git::{determine_git_dir, GitModuleInfo};
+use crate::gitmodules::{parse_submodules, resolve_submodules, GitModuleInfo, Submodule};
+use crate::git::determine_git_dir;
 use crate::util::{iter_to_string, strip_suffix, Url};
-use bstr::{BStr,BString,ByteSlice};
 
 const DEFAULT_FETCH_ARGS: [&str; 3] = ["--prune", "--prune-tags", "--tags"];
-
-/// Headers and keys for parsing `.gitmodule`
-const SUBMODULE_HEADER: &str = "submodule";
-const GIT_MODULE_PATH: &str = "path";
-const GIT_MODULE_URL: &str = "url";
-const GIT_MODULE_BRANCH: &str = "branch";
-
-
-#[derive(Debug)]
-struct RelativeGerritProject(BString);
-
 
 #[derive(Debug)]
 pub struct Repo {
@@ -30,28 +19,6 @@ pub struct Repo {
     pub path: PathBuf,
     git_dir: LazyCell<PathBuf>,
 }
-
-#[derive(Debug)]
-/// NB: `gix-config` parses to `Bstr` for us.
-/// This is described well here: https://blog.burntsushi.net/bstr/#motivation-based-on-concepts
-pub struct Submodule {
-    // name: &'a BStr,
-    pub path: BString,
-    pub project: BString,
-    branch: BString,
-    // project
-    // git_dir
-}
-
-pub struct RawSubmodule {
-    // name: &'a BStr,
-    pub path: BString,
-    project: RelativeGerritProject,
-    branch: BString,
-    // project
-    // git_dir
-}
-
 
 /// Extract gerrit project from a (gerrit) fetch url.
 /// ```
@@ -74,76 +41,6 @@ pub fn gerrit_project(url: &str) -> Result<String> {
     let (_, tail) = sans_url.split_once("/").unwrap();
 
     Ok(tail.to_owned())
-}
-
-/// Normalize a path in the abstract, without filesystem accesses.
-///
-/// This is not guaranteed to give correct paths,
-/// Notably, it will be incorrect in the presence of mounts or symlinks.
-/// But if the paths are known to be free of links,
-/// this is faster than `realpath(3)` et al.
-///
-/// ```
-/// assert_eq!(git_toprepo::repo::normalize("A/b/../C"), "A/C");
-/// assert_eq!(git_toprepo::repo::normalize("B/D"), "B/D");
-/// assert_eq!(git_toprepo::repo::normalize("E//./F"), "E/F");
-/// ```
-pub fn normalize(p: &str) -> String {
-    let mut stack: Vec<&str> = Vec::new();
-    let parts = p.split("/");
-    for p in parts {
-        if p == "" || p == "." {
-            continue
-        }
-        if p == ".." {
-            stack.pop();
-        } else {
-            stack.push(p)
-        }
-    }
-
-    stack.into_iter().map(|s| s.to_owned()).join("/")
-}
-
-fn parse_submodules(gitmodules: PathBuf) -> Result<Vec<RawSubmodule>> {
-    let modules = gix_config::File::from_path_no_includes(
-        gitmodules,
-        gix_config::Source::Worktree,
-    );
-
-    let mut res: Vec<RawSubmodule> = Vec::new();
-
-    for section in modules?.sections() {
-        let header = section.header().name(); // Category
-        let subheader = section.header().subsection_name();
-
-        if header == SUBMODULE_HEADER {
-            let module_path = subheader.expect("Could not unpack submodule info");
-            let body = section.body();
-
-            let path = body.value(GIT_MODULE_PATH).unwrap().into_owned();
-            // TODO: We tend to use relative Gerrit project urls.
-            // This parsing must be updated to also support the regular formats.
-            let url = body.value(GIT_MODULE_URL).unwrap().into_owned();
-            let branch = body.value(GIT_MODULE_BRANCH).unwrap().into_owned();
-
-            let project = match url.strip_suffix(b".git") {
-                None => url,
-                Some(p) => p.into(),
-            };
-
-            res.push(
-                RawSubmodule{
-                    branch,
-                    path,
-                    project: RelativeGerritProject(project),
-                }
-            );
-        }
-
-        }
-
-    Ok(res)
 }
 
 impl Repo {
@@ -177,6 +74,7 @@ impl Repo {
         Ok(Repo::new("mono repo".to_string(), path))
     }
 
+    #[allow(unused)]
     fn from_config(path: PathBuf, config: Config) -> Repo {
         todo!()
     }
@@ -230,24 +128,9 @@ impl Repo {
     pub fn submodules(&self) -> Result<Vec<Submodule>> {
         let modules_file = self.path.join(".gitmodules");
         let from_git = parse_submodules(modules_file)?;
-
         let main_project = self.gerrit_project();
-        let mut resolved: Vec<Submodule> = Vec::new();
 
-        for module in from_git {
-            // TODO: Nightly `as_str`: https://docs.rs/bstr/latest/bstr/struct.BString.html#deref-methods-%5BT%5D-1
-            let burrow: &BStr = module.project.0.as_ref();
-            let burrow: &str = burrow.to_str()?;
-            let project = normalize(&format!("{}/{}", &main_project, burrow));
-
-            resolved.push(Submodule{
-                path: module.path,
-                project: project.into(),
-                branch: module.branch
-            });
-        }
-
-        Ok(resolved)
+        resolve_submodules(from_git, main_project)
     }
 
     pub fn gerrit_project(&self) -> String {

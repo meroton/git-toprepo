@@ -1,31 +1,21 @@
 #![allow(dead_code)]
 
-
 mod cli;
 
 use crate::cli::{Cli, Commands};
 
 use git_toprepo::config;
-use git_toprepo::config::{Config, ConfigMap, RepoConfig};
-use git_toprepo::config_loader::{ConfigLoader,ConfigLoaderTrait,LocalGitConfigLoader,LocalFileConfigLoader};
-use git_toprepo::git::get_gitmodules_info;
-use git_toprepo::repo::{normalize, remote_to_repo, Repo, RepoFetcher, Submodule, TopRepo};
+use git_toprepo::gitmodules::get_gitmodules_info;
+use git_toprepo::{config::Config, config_loader::{ConfigLoaderTrait, LocalGitConfigLoader}};
+use git_toprepo::repo::{remote_to_repo, Repo, RepoFetcher, TopRepo};
 
-
-use std::fmt::{Display, Formatter};
-use std::ops::Not;
-use std::{env, io, panic};
-use std::path::PathBuf;
-use std::process::{Command, exit};
+use std::panic;
 use std::collections::HashMap;
 
-use clap::{Arg, Args, Parser, Subcommand};
+use clap::Parser;
 use colored::Colorize;
-use itertools::Itertools;
 use anyhow::Result;
-use lazycell::LazyCell;
-use gix_config::File;
-use bstr::{io::BufReadExt,BStr,BString,ByteSlice,ByteVec};
+use bstr::{BString,ByteVec};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -37,7 +27,7 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<u16> {
     struct Mod {
         project: BString,
         path: BString,
-    };
+    }
     let monorepo = Repo::from_str(&args.cwd)?;
     let main_project = monorepo.gerrit_project();
     let mut modules: Vec<Mod> = monorepo.submodules()?.into_iter()
@@ -73,7 +63,7 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<u16> {
         // TODO: Return error and usage instructions here.
         assert!(parts.len() >= 1);
 
-        let mut project = parts[0].to_owned();
+        let project = parts[0].to_owned();
 
         let replacement = &map.get(&project).expect(&format!("Could not find key: '{}'", &project));
         let replaced = line.replace(parts[0], replacement);
@@ -83,6 +73,7 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<u16> {
     Ok(0)
 }
 
+#[allow(unused)]
 fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<u16> {
     let monorepo = Repo::from_str(&args.cwd)?;
 
