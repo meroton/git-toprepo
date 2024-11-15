@@ -14,12 +14,14 @@ use bstr::ByteVec;
 
 use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
+use git_toprepo::gitreview::parse_git_review;
 
 use git_gr_lib::git::Git;
 use git_gr_lib::query::QueryOptions;
 use git_gr_lib::gerrit::HTTPPasswordPolicy;
 
 use clap::Parser;
+use std::fs::File;
 use std::io::Read;
 use std::panic;
 use std::path::Path;
@@ -111,7 +113,6 @@ fn config(config_args: &cli::Config) -> Result<ExitCode> {
 }
 
 
-
 /* TODO: general interop between miette and anyhow.
 fn to_anyhow<T>(r: std::result::Result<T, Report>) -> Result<T> {
     Ok(())
@@ -120,16 +121,37 @@ fn to_anyhow<T>(r: std::result::Result<T, Report>) -> Result<T> {
 
 /// Checkout topics from Gerrit.
 fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<ExitCode> {
+    let mut http_server_override = None;
+
+    // TODO(nils): path?
+    let toprepo = git_toprepo::repo::TopRepo::open(PathBuf::from("."))?;
+
+    let mut git_review_file = toprepo.gix_repo.path().to_owned();
+    git_review_file.push(".gitreview");
+
+    if git_review_file.exists() {
+        let mut content: String = "".to_owned();
+        File::open(git_review_file)
+                .unwrap()
+                .read_to_string(&mut content)
+                .unwrap();
+        let git_review = parse_git_review(&content)?;
+        http_server_override = Some(git_review.host);
+    }
+
     let git = Git::new();
     let parsed_remote = git_gr_lib::gerrit_project::parse_remote_url(&checkout.remote).unwrap();
+    let username_override = parsed_remote.username;
     let gerrit = git.gerrit(
         None,
-        parsed_remote.username,
-        None,
+        username_override,
+        http_server_override,
         HTTPPasswordPolicy::Netrc,
         /* cache: */ true,
         /* persist ssh: */ false,
     );
+
+
     // TODO: Is this a full conversion to anyhow errors?
     // It seems that we lose some of the miette context.
     // Notably, where is the inner error?:
@@ -143,7 +165,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<ExitCode> {
     //     • ssh://csp-gerrit-ssh.volvocars.net/csp/hp/super
     // which to its credit shows the remotes it tried
     // but not the inner error.
-    let gerrit = match gerrit {
+    let mut gerrit = match gerrit {
         Ok(g) => g,
         Err(error) => {
             let box_dyn = Box::<dyn std::error::Error + Send + Sync>::from(error);
@@ -170,8 +192,13 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<ExitCode> {
             return Err(anyhow!(box_dyn.to_string()));
         }
     };
+
+    let triplet_id = res.changes[0].triplet_id();
+    let res = gerrit.get_submitted_together(&triplet_id);
+
     println!("{:?}", checkout);
     println!("{:?}", gerrit);
+    println!("{:?}", triplet_id);
     println!("{:?}", res);
 
     todo!();
