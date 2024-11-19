@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 /// Order submitted_together
 ///
 /// Gerrit returns a partially ordered list of commits.
@@ -26,13 +28,149 @@
 /// Real data should use a small `From<Real Data>` impl.
 /// And then reconstruct the structure based on the id.
 #[derive(Clone,Debug,PartialEq,PartialOrd)]
-pub struct SubmittedTogether<T: PartialOrd> {
+pub struct SubmittedTogether<T> where
+    T: Eq + std::hash::Hash {
     id: String,
     topic: Option<String>,
     secondary: T,
 }
 
-pub fn order_submitted_together<T: PartialOrd>(cons: Vec<SubmittedTogether<T>>) -> Vec<Vec<SubmittedTogether<T>>> {
+pub fn order_submitted_together<T>(cons: Vec<SubmittedTogether<T>>) -> Vec<Vec<SubmittedTogether<T>>> where
+    T: Eq + std::hash::Hash + Clone + std::fmt::Debug {
+
+    /*
+    // first group based on secondary, it is possible that we could rely on this
+    // being done for us. In which case we save a lot of effort.
+    // Then we could just chunk the `cons` input based on `T` directly into
+    // Vec<Vec< >>.
+    let mut grouped: HashMap<T, Vec<SubmittedTogether<T>>> = HashMap::new();
+    for x in cons.into_iter() {
+        grouped.entry(x.secondary.clone())
+            .or_insert_with(Vec::new)
+            .push(x);
+    }
+
+    let key_order = grouped.keys().sorted_unstable();
+    */
+
+    let mut topic_counter: HashMap<String, usize> = HashMap::new();
+    for c in cons.iter() {
+        if let Some(topic) = c.topic.clone() {
+        topic_counter.entry(topic)
+            .and_modify(|e| { *e += 1 })
+            .or_insert(1);
+        }
+    }
+
+    // TODO: see if there is a better solution.
+    let mut res: Vec<Vec<SubmittedTogether<T>>> = Vec::new();
+    let mut grouped: Vec<Vec<SubmittedTogether<T>>> = Vec::new();
+    if cons.len() == 0 {
+        return res;
+    }
+    let mut iter = cons.into_iter();
+    grouped = vec!(vec!(iter.next().unwrap()));
+    let mut outer = 0;
+
+    while let Some(head) = iter.next() {
+        let inner = grouped[outer].len() -1;
+        match head.secondary == grouped[outer][inner].secondary {
+            true => grouped[outer].push(head),
+            false => {
+                grouped.push(Vec::new());
+                outer += 1;
+                grouped[outer].push(head);
+            }
+        }
+    }
+
+    // Find topic order. PartialOrd can be found within each grouping.
+    #[derive(Debug)]
+    struct partialord{before: String, after: String};
+    let mut ords = Vec::new();
+
+    for repo in grouped.iter() {
+        let sentinel = "".to_owned();
+        let mut last = sentinel;
+        for (index, commit) in repo.iter().enumerate() {
+            match (commit.topic.clone(), last.clone().as_ref()) {
+                (Some(t), "") => { last = t; },
+                (Some(after), before) => {
+                    last = after.clone();
+                    ords.push(partialord {before: before.to_owned(), after});
+                },
+                (None, _) => { () },
+            }
+        }
+    }
+    ords.retain(|e| e.before != e.after);
+
+    // Successively iterate through all the secondary groupings and pop all "free" commits.
+    // Then when all groupings have a topic barrier (or if they are empty they
+    // are no longer part of this iteration).
+    // Match the first topic in topological order.
+
+    println!("{:?}", grouped);
+
+    // An ordered list of iterators into the different repositories.
+    let mut iters = Vec::new();
+    for inner in grouped.into_iter() {
+        iters.push(inner.into_iter().peekable())
+    }
+
+    let mut iteration_limit = 1000;
+    let mut index = 0;
+    loop {
+        if iteration_limit == 0 {
+            break
+        }
+        iteration_limit -= 1;
+
+        let slot = index % iters.len();
+        let candidate = iters[slot].peek();
+        if candidate.is_none() {
+            index += 1;
+            continue
+        }
+        let candidate = candidate.unwrap();
+
+        if candidate.topic.is_none() {
+            res.push(vec![iters[slot].next().unwrap()]);
+            // Continue and try the same slot again, do not increment index.
+            continue
+        }
+
+        // Topic handling is a little more involved. We then need to look
+        // across all the iterators to understand whether we are good to
+        // finalize a topic.
+
+        let topic = candidate.topic.clone().unwrap();
+        let mut topics: Vec<Option<String>> = Vec::new();
+        let looking_for: usize = topic_counter[&topic];
+
+        for i in iters.iter_mut() {
+            topics.push(i.peek().map(|c| c.clone().topic.map(|t| t.clone())).flatten());
+        }
+
+        let available = topics.iter().filter(|t| **t == Some(topic.clone())).count();
+        if available != looking_for {
+            index += 1;
+            // We do not have the topics available in our iterator heads.
+            // continue with more work in other repos.
+            continue
+        }
+
+        // All the necessary topics are on the heads.
+
+        // TODO: This can never work if there are stacked commits within a repo.
+        // Then we will never find the topics unless we peek further into a
+        // single repo. Another facet: this means that the number required may
+        // be greater than the number of repos.
+
+        index += 1;
+    }
+
+    println!("{:?}", ords);
     todo!()
 }
 
@@ -117,5 +255,44 @@ mod tests {
 
         let res = order_submitted_together(vec![a.clone(), b.clone(), m.clone(), c.clone(), d.clone()]);
         assert_eq!(res, vec![vec![a, b], vec![m], vec![c, d]]);
+    }
+
+    #[test]
+    fn two_topics() {
+        let topic = Some("topic");
+        let other_topic = Some("other_topic");
+        let shared_secondary = 2;
+        let at = new("first_on_top", other_topic, 1);
+        let bu = new("first_under", topic, shared_secondary);
+        let bt = new("second_on_top", other_topic, shared_secondary);
+        let cu = new("second_under", topic, 3);
+
+        let res = order_submitted_together(vec![at.clone(), bu.clone(), bt.clone(), cu.clone()]);
+        assert_eq!(res, vec![vec![bu, cu], vec![at, bt]]);
+    }
+
+    #[test]
+    fn weird_topic() {
+        let topic = Some("topic");
+        let shared_secondary = 1;
+        let a = new("under", topic, shared_secondary);
+        let b = new("interloper", None, shared_secondary);
+        let c = new("on_top", topic, shared_secondary);
+
+        let res = order_submitted_together(vec![a.clone(), b.clone(), c.clone()]);
+        // TODO: This should fail?
+        assert_eq!(res, vec![vec![a, b, c]]);
+    }
+
+    #[test]
+    fn stacked_commits_in_topic() {
+        let topic = Some("topic");
+        let shared_secondary = 1;
+        let a = new("under", topic, shared_secondary);
+        let b = new("on_top", topic, shared_secondary);
+        let c = new("other", topic, 2);
+
+        let res = order_submitted_together(vec![a.clone(), b.clone(), c.clone()]);
+        assert_eq!(res, vec![vec![a, b, c]]);
     }
 }

@@ -8,4 +8,5 @@ pub mod gitreview;
 pub mod loader;
 pub mod log;
 pub mod repo;
+pub mod submitted_together;
 pub mod util;
