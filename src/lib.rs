@@ -11,4 +11,5 @@ pub mod log;
 pub mod repo;
 pub mod repo_cache_serde;
 pub mod repo_name;
+pub mod submitted_together;
 pub mod util;
