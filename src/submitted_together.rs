@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use itertools::Itertools;
 
 /// Order submitted_together
 ///
@@ -53,22 +54,22 @@ pub fn order_submitted_together<T>(cons: Vec<SubmittedTogether<T>>) -> Vec<Vec<S
     let key_order = grouped.keys().sorted_unstable();
     */
 
-    let mut topic_counter: HashMap<String, usize> = HashMap::new();
+    let mut topic_backlinks: HashMap<String, Vec<&SubmittedTogether<T>>> = HashMap::new();
     for c in cons.iter() {
         if let Some(topic) = c.topic.clone() {
-        topic_counter.entry(topic)
-            .and_modify(|e| { *e += 1 })
-            .or_insert(1);
+        topic_backlinks.entry(topic)
+            .or_insert_with(Vec::new)
+            .push(c)
         }
     }
 
     // TODO: see if there is a better solution.
     let mut res: Vec<Vec<SubmittedTogether<T>>> = Vec::new();
-    let mut grouped: Vec<Vec<SubmittedTogether<T>>> = Vec::new();
+    let mut grouped: Vec<Vec<&SubmittedTogether<T>>> = Vec::new();
     if cons.len() == 0 {
         return res;
     }
-    let mut iter = cons.into_iter();
+    let mut iter = cons.iter();
     grouped = vec!(vec!(iter.next().unwrap()));
     let mut outer = 0;
 
@@ -114,8 +115,11 @@ pub fn order_submitted_together<T>(cons: Vec<SubmittedTogether<T>>) -> Vec<Vec<S
 
     // An ordered list of iterators into the different repositories.
     let mut iters = Vec::new();
-    for inner in grouped.into_iter() {
-        iters.push(inner.into_iter().peekable())
+    let mut slots = HashMap::<&T, usize>::new();
+    for (i, inner) in grouped.into_iter().enumerate() {
+        let mut iter = inner.into_iter().peekable();
+        slots.insert(&iter.peek().unwrap().secondary, i);
+        iters.push(iter);
     }
 
     let mut iteration_limit = 1000;
@@ -127,6 +131,7 @@ pub fn order_submitted_together<T>(cons: Vec<SubmittedTogether<T>>) -> Vec<Vec<S
         iteration_limit -= 1;
 
         let slot = index % iters.len();
+
         let candidate = iters[slot].peek();
         if candidate.is_none() {
             index += 1;
@@ -135,7 +140,7 @@ pub fn order_submitted_together<T>(cons: Vec<SubmittedTogether<T>>) -> Vec<Vec<S
         let candidate = candidate.unwrap();
 
         if candidate.topic.is_none() {
-            res.push(vec![iters[slot].next().unwrap()]);
+            res.push(vec![iters[slot].next().unwrap().clone()]);
             // Continue and try the same slot again, do not increment index.
             continue
         }
@@ -145,33 +150,37 @@ pub fn order_submitted_together<T>(cons: Vec<SubmittedTogether<T>>) -> Vec<Vec<S
         // finalize a topic.
 
         let topic = candidate.topic.clone().unwrap();
-        let mut topics: Vec<Option<String>> = Vec::new();
-        let looking_for: usize = topic_counter[&topic];
+        let looking_for: &Vec<&SubmittedTogether<T>> = &topic_backlinks[&topic];
+        let within = looking_for.iter().map(|e| &e.secondary).unique();
 
-        for i in iters.iter_mut() {
-            topics.push(i.peek().map(|c| c.clone().topic.map(|t| t.clone())).flatten());
+        let mut ok = true;
+        for secondary in within {
+            ok &= iters[slots[secondary]].peek().map(|h| h.topic.clone()).flatten() == Some(topic.clone());
         }
-
-        let available = topics.iter().filter(|t| **t == Some(topic.clone())).count();
-        if available != looking_for {
-            index += 1;
+        if ! ok {
             // We do not have the topics available in our iterator heads.
             // continue with more work in other repos.
-            continue
+            index += 1;
+            continue;
         }
 
-        // All the necessary topics are on the heads.
+        // All the necessary topics are on the heads. Possibly stacked within an
+        // iterator.
+        // We can now pop them.
+        let mut commits = Vec::new();
+        for commit in looking_for.into_iter() {
+            let head = iters[slots[&commit.secondary]].next().unwrap();
+            assert_eq!(head.topic, commit.topic);
+            commits.push(head.clone())
+        }
 
-        // TODO: This can never work if there are stacked commits within a repo.
-        // Then we will never find the topics unless we peek further into a
-        // single repo. Another facet: this means that the number required may
-        // be greater than the number of repos.
-
+        res.push(commits);
         index += 1;
     }
 
     println!("{:?}", ords);
-    todo!()
+
+    res
 }
 
 
@@ -272,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn weird_topic() {
+    fn no_topic_inside_a_stacked_topic() {
         let topic = Some("topic");
         let shared_secondary = 1;
         let a = new("under", topic, shared_secondary);
@@ -280,7 +289,7 @@ mod tests {
         let c = new("on_top", topic, shared_secondary);
 
         let res = order_submitted_together(vec![a.clone(), b.clone(), c.clone()]);
-        // TODO: This should fail?
+        // TODO: This should fail! Cannot compute.
         assert_eq!(res, vec![vec![a, b, c]]);
     }
 
