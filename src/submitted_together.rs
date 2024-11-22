@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use itertools::Itertools;
+use git_gr_lib::change::NewChange;
 use anyhow::{anyhow,Result};
 
 /// Order submitted_together
@@ -37,9 +38,52 @@ pub struct SubmittedTogether<T> where
     secondary: T,
 }
 
+
+// https://stackoverflow.com/a/78372188
+pub trait VecInto<D> {
+  fn vec_into(self) -> Vec<D>;
+}
+
+impl<E, D> VecInto<D> for Vec<E>
+where
+  D: From<E>,
+{
+  fn vec_into(self) -> Vec<D> {
+    self.into_iter().map(std::convert::Into::into).collect()
+  }
+}
+
+impl From<NewChange> for SubmittedTogether<String> {
+    fn from(c: NewChange) -> Self {
+        Self{
+            id: c.triplet_id().to_string(),
+            topic: c.topic,
+            secondary: c.project,
+        }
+    }
+}
+
+pub fn order_submitted_together(cons: Vec<NewChange>) -> Result<Vec<Vec<NewChange>>> {
+    let substrate: Vec<SubmittedTogether<String>> = cons.clone().vec_into();
+    let restoration = cons.iter().map(|c| (c.triplet_id().to_string(), c)).collect::<HashMap<String, &NewChange>>();
+    let reordered = reorder_submitted_together(&substrate)?;
+
+    let mut res: Vec<Vec<NewChange>> = Vec::new();
+    for inner in reordered.into_iter() {
+        let mut changes = Vec::new();
+        for x in inner.into_iter() {
+            let found = restoration.get(&x.id).unwrap(); //.ok_or(Err(anyhow!("Could not restore commit: {}", x.id)))?;
+            changes.push((**found).clone());
+        }
+        res.push(changes);
+    }
+
+    Ok(res)
+}
+
 /// This assumes that the input is also grouped based on the secondary key.
 /// But the key is still used by the algorithm to chunk into iterators.
-pub fn order_submitted_together<T>(cons: Vec<SubmittedTogether<T>>) -> Result<Vec<Vec<SubmittedTogether<T>>>> where
+pub fn reorder_submitted_together<T>(cons: &Vec<SubmittedTogether<T>>) -> Result<Vec<Vec<SubmittedTogether<T>>>> where
     T: Eq + std::hash::Hash + Clone + std::fmt::Debug {
     let mut count = 0;
     let mut topic_backlinks: HashMap<String, Vec<&SubmittedTogether<T>>> = HashMap::new();
@@ -175,7 +219,7 @@ mod tests {
         let a = new("first", None, 1);
         let b = new("second", None, 2);
 
-        let res = order_submitted_together(vec![a.clone(), b.clone()]);
+        let res = reorder_submitted_together(&vec![a.clone(), b.clone()]);
         assert_eq!(res.unwrap(), vec![vec![a], vec![b]]);
     }
 
@@ -185,7 +229,7 @@ mod tests {
         let a = new("first", topic, 1);
         let b = new("second", topic, 2);
 
-        let res = order_submitted_together(vec![a.clone(), b.clone()]);
+        let res = reorder_submitted_together(&vec![a.clone(), b.clone()]);
         assert_eq!(res.unwrap(), vec![vec![a, b]]);
     }
 
@@ -196,7 +240,7 @@ mod tests {
         let a = new("first", topic, shared_secondary);
         let b = new("second", topic, shared_secondary);
 
-        let res = order_submitted_together(vec![a.clone(), b.clone()]);
+        let res = reorder_submitted_together(&vec![a.clone(), b.clone()]);
         assert_eq!(res.unwrap(), vec![vec![a, b]]);
     }
 
@@ -209,7 +253,7 @@ mod tests {
         let b = new("second", topic, shared_secondary);
         let u = new("under", None, shared_secondary);
 
-        let res = order_submitted_together(vec![u.clone(), a.clone(), b.clone()]);
+        let res = reorder_submitted_together(&vec![u.clone(), a.clone(), b.clone()]);
         assert_eq!(res.unwrap(), vec![vec![u], vec![a, b]]);
     }
 
@@ -221,7 +265,7 @@ mod tests {
         let b = new("second", topic, shared_secondary);
         let o = new("over", None, shared_secondary);
 
-        let res = order_submitted_together(vec![a.clone(), b.clone(), o.clone()]);
+        let res = reorder_submitted_together(&vec![a.clone(), b.clone(), o.clone()]);
         assert_eq!(res.unwrap(), vec![vec![a, b], vec![o]]);
     }
 
@@ -236,7 +280,7 @@ mod tests {
         let c = new("fourth", other_topic, shared_secondary);
         let d = new("fifth", other_topic, 3);
 
-        let res = order_submitted_together(vec![a.clone(), b.clone(), m.clone(), c.clone(), d.clone()]);
+        let res = reorder_submitted_together(&vec![a.clone(), b.clone(), m.clone(), c.clone(), d.clone()]);
         assert_eq!(res.unwrap(), vec![vec![a, b], vec![m], vec![c, d]]);
     }
 
@@ -250,7 +294,7 @@ mod tests {
         let bt = new("second_on_top", other_topic, shared_secondary);
         let cu = new("second_under", topic, 3);
 
-        let res = order_submitted_together(vec![at.clone(), bu.clone(), bt.clone(), cu.clone()]);
+        let res = reorder_submitted_together(&vec![at.clone(), bu.clone(), bt.clone(), cu.clone()]);
         assert_eq!(res.unwrap(), vec![vec![bu, cu], vec![at, bt]]);
     }
 
@@ -262,7 +306,7 @@ mod tests {
         let b = new("on_top", topic, shared_secondary);
         let c = new("other", topic, 2);
 
-        let res = order_submitted_together(vec![a.clone(), b.clone(), c.clone()]);
+        let res = reorder_submitted_together(&vec![a.clone(), b.clone(), c.clone()]);
         assert_eq!(res.unwrap(), vec![vec![a, b, c]]);
     }
 
@@ -274,7 +318,7 @@ mod tests {
         let b = new("interloper", None, shared_secondary);
         let c = new("on_top", topic, shared_secondary);
 
-        let res = order_submitted_together(vec![a.clone(), b.clone(), c.clone()]);
+        let res = reorder_submitted_together(&vec![a.clone(), b.clone(), c.clone()]);
         // TODO: This should fail! Cannot compute.
         assert!(res.is_err());
     }
@@ -286,7 +330,7 @@ mod tests {
         let b = new("other", None, 2);
         let c = new("also_first", None, shared_secondary);
 
-        let res = order_submitted_together(vec![a.clone(), b.clone(), c.clone()]);
+        let res = reorder_submitted_together(&vec![a.clone(), b.clone(), c.clone()]);
         // TODO: This should fail! Cannot compute.
         assert_eq!(res.unwrap(), vec![vec![a], vec![b], vec![c]]);
     }
