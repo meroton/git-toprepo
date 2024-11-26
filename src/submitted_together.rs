@@ -132,19 +132,23 @@ fn group_by_secondary<T>(cons: &Vec<SubmittedTogether<T>>) -> Vec<Vec<&Submitted
 pub fn reorder_submitted_together<T>(cons: &Vec<SubmittedTogether<T>>) -> Result<Vec<Vec<Vec<SubmittedTogether<T>>>>> where
     T: Eq + std::hash::Hash + Clone + std::fmt::Debug {
     // TODO: see if there is a better solution.
-    let mut res: Vec<Vec<SubmittedTogether<T>>> = Vec::new();
+    let mut res: Vec<Vec<Vec<SubmittedTogether<T>>>> = Vec::new();
     if cons.len() == 0 {
         return Ok(res);
     }
 
     let mut count = 0;
-    let mut topic_backlinks: HashMap<String, Vec<&SubmittedTogether<T>>> = HashMap::new();
+    // TODO: We do not necessarily need to own The ST<T> in here.
+    // but want to reuse `group_by_secondary` with the inner data.
+    // If we can make `group_by_secondary` work with either owned or reference
+    // data this can be improved.
+    let mut topic_backlinks: HashMap<String, Vec<SubmittedTogether<T>>> = HashMap::new();
     for c in cons.iter() {
         count += 1;
         if let Some(topic) = c.topic.clone() {
         topic_backlinks.entry(topic)
             .or_insert_with(Vec::new)
-            .push(c)
+            .push(c.clone())
         }
     }
 
@@ -186,7 +190,7 @@ pub fn reorder_submitted_together<T>(cons: &Vec<SubmittedTogether<T>>) -> Result
         let candidate = candidate.unwrap();
 
         if candidate.topic.is_none() {
-            res.push(vec![iters[slot].next().unwrap().clone()]);
+            res.push(vec![vec![iters[slot].next().unwrap().clone()]]);
             // Continue and try the same slot again, do not increment index.
             continue
         }
@@ -196,8 +200,9 @@ pub fn reorder_submitted_together<T>(cons: &Vec<SubmittedTogether<T>>) -> Result
         // finalize a topic.
 
         let topic = candidate.topic.clone().unwrap();
-        let looking_for: &Vec<&SubmittedTogether<T>> = &topic_backlinks[&topic];
+        let looking_for: &Vec<SubmittedTogether<T>> = &topic_backlinks[&topic];
         let within = looking_for.iter().map(|e| &e.secondary).unique();
+        let looking_for = group_by_secondary(looking_for);
 
         let mut ok = true;
         for secondary in within {
@@ -216,23 +221,29 @@ pub fn reorder_submitted_together<T>(cons: &Vec<SubmittedTogether<T>>) -> Result
         // otherwise.)
         // We can now pop them. (And assert that we do in fact find contiguous
         // topics.)
-        let mut commits = Vec::new();
-        for commit in looking_for.into_iter() {
-            let head = iters[slots[&commit.secondary]].next().unwrap();
-            if head.topic != commit.topic {
-                return Err(anyhow!("Unexpected non-topic commit, expected a topic in this repo."));
+        let mut topic = Vec::new();
+        for readrepo in looking_for.into_iter() {
+            let mut commits = Vec::new();
+            for commit in readrepo.iter() {
+                let head = iters[slots[&commit.secondary]].next().unwrap();
+                if head.topic != commit.topic {
+                    return Err(anyhow!("Unexpected non-topic commit, expected a topic in this repo."));
+                }
+                commits.push(head.clone())
             }
-            commits.push(head.clone())
+            topic.push(commits);
         }
 
-        res.push(commits);
+        res.push(topic);
         index += 1;
     }
 
     let mut res_count = 0;
-    for outer in res.iter() {
-        for _ in outer.iter() {
-            res_count += 1;
+    for topic in res.iter() {
+        for repo in topic.iter() {
+            for _commit in repo.iter() {
+                res_count += 1;
+            }
         }
     }
 
