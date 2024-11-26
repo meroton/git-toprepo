@@ -163,7 +163,13 @@ pub fn reorder_submitted_together<T>(cons: &Vec<SubmittedTogether<T>>) -> Result
     let mut slots = HashMap::<&T, usize>::new();
     for (i, inner) in grouped.into_iter().enumerate() {
         let mut iter = inner.into_iter().peekable();
-        slots.insert(&iter.peek().unwrap().secondary, i);
+        // TODO: wait for stabilization of `try_insert`: https://github.com/rust-lang/rust/issues/82766
+        // slots.try_insert(&iter.peek().unwrap().secondary, i)?;
+        let key = &iter.peek().unwrap().secondary;
+        if slots.get(key).is_some() {
+            return Err(anyhow!("Unexpected scrambled secondary. Have already indexed this secondary once."));
+        }
+        slots.insert(key, i);
         iters.push(iter);
     }
 
