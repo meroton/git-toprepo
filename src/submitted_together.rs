@@ -172,6 +172,10 @@ pub fn reorder_submitted_together<T>(cons: &Vec<SubmittedTogether<T>>) -> Result
         }
         iteration_limit -= 1;
 
+        if iters.iter_mut().map(|i| i.peek().is_none()).all(|id| id) {
+            break
+        }
+
         let slot = index % iters.len();
 
         let candidate = iters[slot].peek();
