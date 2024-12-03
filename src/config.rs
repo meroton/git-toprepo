@@ -493,7 +493,7 @@ impl GitTopRepoConfig {
 
     fn load_config(&mut self, repo_dir: Option<&PathBuf>) -> Result<()> {
         if let Some(_) = repo_dir {
-            // Load config ref
+            // Load config file location
             let config_location = command_output_to_string(log_run_git(
                 repo_dir,
                 ["config", "toprepo.config"],
@@ -502,11 +502,11 @@ impl GitTopRepoConfig {
                 false,
             )?);
 
-            // Load config
+            // Read config file
             let config_toml: String;
             if config_location.is_empty() {
-                // No config ref was provided, loading config ref from default location
-                // Will be an empty string if the ref does not exist
+                // No config file location was specified, reading from default location
+                // Will be an empty string if the file does not exist
                 config_toml = command_output_to_string(log_run_git(
                     repo_dir,
                     ["show", "refs/toprepo-super/HEAD:.gittoprepo.toml"],
@@ -515,16 +515,17 @@ impl GitTopRepoConfig {
                     false,
                 )?);
             } else {
-                // Load config ref from provided location
+                // Read config file from provided location
+                // Will panic if the file does not exist
                 config_toml = command_output_to_string(
                     log_run_git(repo_dir, ["show", &config_location], None, true, false)
-                        .context(format!("Invalid ref {}", config_location))?,
+                        .context(format!("Invalid config file location {}", config_location))?,
                 );
             }
 
-            // Load config from config file output (defaults on empty config)
+            // Load config from config file output (default config if empty output)
             let config: GitTopRepoConfig =
-                toml::from_str(&config_toml).context("Could not parse git ref")?;
+                toml::from_str(&config_toml).context("Could not parse TOML string")?;
 
             self.repo = config.repo;
             self.repos = config.repos;
@@ -534,9 +535,8 @@ impl GitTopRepoConfig {
         for (_, v) in self.repo.iter_mut() {
             if v.fetch.url.is_empty() {
                 if v.urls.len() == 1 {
-                    v.fetch.url = String::from(v.urls.first().context("urls seems to be empty")?);
+                    v.fetch.url = String::from(v.urls.first().unwrap());
                 } else {
-                    // Should we panic?
                     bail!("Toprepo requires a submodule fetch url")
                 }
             }
@@ -582,7 +582,7 @@ impl FromStr for GitTopRepoConfig {
             toml::from_str(&value).context("Could not parse TOML string")?;
         repo_config
             .init(None)
-            .context("Failed to initialize repo config")?;
+            .context("Failed to initialize repo config from string")?;
         Ok(repo_config)
     }
 }
@@ -592,7 +592,9 @@ impl TryFrom<&Path> for GitTopRepoConfig {
 
     fn try_from(repo_dir: &Path) -> Result<Self> {
         let mut top_repo_config = GitTopRepoConfig::new();
-        top_repo_config.init(Some(&repo_dir.to_path_buf()))?;
+        top_repo_config
+            .init(Some(&repo_dir.to_path_buf()))
+            .context("Failed to initialize repo config from path")?;
         Ok(top_repo_config)
     }
 }
