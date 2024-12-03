@@ -1,7 +1,9 @@
 use crate::git::CommitHash;
+use anyhow::{bail, Context};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::io;
+use std::path;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -39,13 +41,13 @@ pub fn normalize(p: &str) -> String {
 
 // TODO: Allow pipe to standard in?
 pub fn log_run_git<'a, I>(
-    repo: Option<&PathBuf>,
+    repo: Option<&PathBuf>, // Should this be a &Path?
     args: I,
     env: Option<&HashMap<String, String>>,
-    dry_run: bool,
+    check: bool,
     log_command: bool,
     //kwargs: HashMap<(), ()> TODO?
-) -> Option<io::Result<std::process::Output>>
+) -> anyhow::Result<std::process::Output>
 where
     I: IntoIterator<Item = &'a str>,
 {
@@ -65,16 +67,20 @@ where
     let args: Vec<&std::ffi::OsStr> = command.get_args().collect();
     let joined = args.into_iter().map(|s| s.to_str().unwrap()).join(" ");
     let display = format!("{} {}", command.get_program().to_str().unwrap(), joined);
-    if dry_run {
-        eprintln!("Would run   {}", display);
-        None
-    } else {
+
         if log_command {
             eprintln!("Running   {}", display);
+            Some(command.output());
         }
 
-        Some(command.output())
+
+    let command_result = command.output();
+    if let Ok(output) = &command_result {
+        if check && !output.status.success() {
+            bail!(output.status.to_string());
+        }
     }
+    command_result.context("Non-zero result")
 }
 
 pub fn strip_suffix<'a>(string: &'a str, suffix: &str) -> &'a str {
@@ -173,7 +179,8 @@ impl GitTopRepoExample {
             Some(&env),
             false,
             false,
-        );
+        )
+        .unwrap();
 
         log_run_git(
             Some(&sub_repo),
@@ -181,7 +188,8 @@ impl GitTopRepoExample {
             Some(&env),
             false,
             false,
-        );
+        )
+        .unwrap();
 
         commit(&sub_repo, &env, "1");
         commit(&sub_repo, &env, "2");
@@ -200,7 +208,8 @@ impl GitTopRepoExample {
             Some(&env),
             false,
             false,
-        );
+        )
+        .unwrap();
         commit(&top_repo, &env, "B");
         commit(&top_repo, &env, "C");
         let sub_rev_3 = commit(&sub_repo, &env, "3");
@@ -232,17 +241,14 @@ fn commit(repo: &PathBuf, env: &HashMap<String, String>, message: &str) -> Strin
         Some(&env),
         false,
         false,
-    );
+    )
+    .unwrap();
 
     // Returns commit hash as String.
     // TODO: Return Result<String> instead?
-    std::string::String::from_utf8(
-        log_run_git(Some(&repo), ["rev-parse", "HEAD"], Some(&env), false, false)
-            .unwrap()
-            .unwrap()
-            .stdout,
+    command_output_to_string(
+        log_run_git(Some(&repo), ["rev-parse", "HEAD"], Some(&env), false, false).unwrap(),
     )
-    .unwrap()
     .trim()
     .to_string()
 }
@@ -258,5 +264,24 @@ fn update_index_submodule(repo: &PathBuf, env: &HashMap<String, String>, commit:
         Some(&env),
         false,
         false,
-    );
+    )
+    .unwrap();
+}
+
+pub fn command_output_to_string(
+    command_output: std::process::Output,
+) -> String {
+    String::from_utf8(command_output.stdout)
+        .unwrap()
+        .trim()
+        .to_string()
+}
+
+pub fn get_basename(name: &str) -> String {
+    path::Path::new(name)
+        .file_stem()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string()
 }
