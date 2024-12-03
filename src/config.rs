@@ -5,16 +5,18 @@ use crate::config_loader::{
     LocalGitConfigLoader, RemoteGitConfigLoader,
 };
 use crate::repo::Repo;
-use std::collections::{HashMap, HashSet};
-use std::fmt::{Display, Formatter};
-use std::path::PathBuf;
+use crate::util::{
+    command_output_to_string, get_basename, iter_to_string, join_submodule_url, log_run_git,
+    CommitHash, RawUrl, Url,
+};
+use anyhow::{bail, Context, Result};
 use itertools::Itertools;
 use regex::Regex;
-use anyhow::{bail, Result};
-use serde::Deserialize;
-use crate::gitmodules::join_submodule_url;
-use crate::util::{iter_to_string, RawUrl, Url};
-use crate::git::CommitHash;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::fmt::{Display, Formatter};
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 //TODO: Create proper error enums instead of strings
 
@@ -456,19 +458,151 @@ impl Config {
     }
 }
 
-// TODO: which of these fields are optional?
-// TODO: default values
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
 pub struct GitTopRepoConfig {
     pub repo: HashMap<String, RepoTable>,
     pub repos: ReposTable,
 }
 
-#[derive(Debug, Deserialize)]
+impl GitTopRepoConfig {
+    fn new() -> Self {
+        GitTopRepoConfig::default()
+    }
+
+    fn init(&mut self, repo_dir: Option<&PathBuf>) -> Result<()> {
+        self.load_config(repo_dir)?;
+        self.ensure_unique_urls()?;
+        Ok(())
+    }
+
+    pub fn get_repo_config(&mut self, repo_url: &str) -> &RepoTable {
+        let repo_name = get_basename(repo_url);
+        if !self.repo.contains_key(&repo_name) {
+            self.repo.insert(
+                String::from(&repo_name),
+                RepoTable {
+                    urls: vec![String::from(repo_url)],
+                    ..Default::default()
+                },
+            );
+            self.init(None).unwrap();
+        }
+        self.repo.get(&repo_name).unwrap()
+    }
+
+    fn load_config(&mut self, repo_dir: Option<&PathBuf>) -> Result<()> {
+        if let Some(_) = repo_dir {
+            // Load config ref
+            let config_location = command_output_to_string(log_run_git(
+                repo_dir,
+                ["config", "toprepo.config"],
+                None,
+                false,
+                false,
+            )?);
+
+            // Load config
+            let config_toml: String;
+            if config_location.is_empty() {
+                // No config ref was provided, loading config ref from default location
+                // Will be an empty string if the ref does not exist
+                config_toml = command_output_to_string(log_run_git(
+                    repo_dir,
+                    ["show", "refs/toprepo-super/HEAD:.gittoprepo.toml"],
+                    None,
+                    false,
+                    false,
+                )?);
+            } else {
+                // Load config ref from provided location
+                config_toml = command_output_to_string(
+                    log_run_git(repo_dir, ["show", &config_location], None, true, false)
+                        .context(format!("Invalid ref {}", config_location))?,
+                );
+            }
+
+            // Load config from config file output (defaults on empty config)
+            let config: GitTopRepoConfig =
+                toml::from_str(&config_toml).context("Could not parse git ref")?;
+
+            self.repo = config.repo;
+            self.repos = config.repos;
+        }
+
+        // Set fetch/push urls
+        for (_, v) in self.repo.iter_mut() {
+            if v.fetch.url.is_empty() {
+                if v.urls.len() == 1 {
+                    v.fetch.url = String::from(v.urls.first().context("urls seems to be empty")?);
+                } else {
+                    // Should we panic?
+                    bail!("Toprepo requires a submodule fetch url")
+                }
+            }
+
+            if v.push.url.is_empty() {
+                v.push.url = String::from(&v.fetch.url);
+            }
+        }
+        Ok(())
+    }
+
+    fn ensure_unique_urls(&self) -> Result<()> {
+        let mut set = HashSet::<String>::new();
+        for (_, v) in self.repo.iter() {
+            for url in v.urls.iter() {
+                if set.contains(url) {
+                    bail!("URLs must be unique across all repos");
+                } else {
+                    set.insert(String::from(url));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Default for GitTopRepoConfig {
+    fn default() -> Self {
+        GitTopRepoConfig {
+            repo: HashMap::default(),
+            repos: ReposTable {
+                filter: repos_filter_default(),
+            },
+        }
+    }
+}
+
+impl FromStr for GitTopRepoConfig {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        let mut repo_config: GitTopRepoConfig =
+            toml::from_str(&value).context("Could not parse TOML string")?;
+        repo_config
+            .init(None)
+            .context("Failed to initialize repo config")?;
+        Ok(repo_config)
+    }
+}
+
+impl TryFrom<&Path> for GitTopRepoConfig {
+    type Error = anyhow::Error;
+
+    fn try_from(repo_dir: &Path) -> Result<Self> {
+        let mut top_repo_config = GitTopRepoConfig::new();
+        top_repo_config.init(Some(&repo_dir.to_path_buf()))?;
+        Ok(top_repo_config)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
 pub struct RepoTable {
     // TODO: String or Datetime?
     // pub since: toml::value::Datetime,
+    #[serde(default = "repo_since_default")]
     pub since: String,
     pub urls: Vec<String>,
     pub commits: CommitsTable,
@@ -476,29 +610,105 @@ pub struct RepoTable {
     pub push: PushTable,
 }
 
-#[derive(Debug, Deserialize)]
+impl RepoTable {
+    pub fn new(url: &str) -> Self {
+        let mut repo_table = RepoTable::default();
+        repo_table.fetch.url = url.to_string();
+        repo_table.push.url = url.to_string();
+        repo_table
+    }
+}
+
+impl Default for RepoTable {
+    fn default() -> Self {
+        RepoTable {
+            since: repo_since_default(),
+            urls: Vec::default(),
+            commits: CommitsTable::default(),
+            fetch: FetchTable::default(),
+            push: PushTable::default(),
+        }
+    }
+}
+
+fn repo_since_default() -> String {
+    "1970-01-01T00:00:00Z".to_string()
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
 pub struct CommitsTable {
     pub missing: Vec<String>,
     pub override_parents: HashMap<String, Vec<String>>,
 }
 
-#[derive(Debug, Deserialize)]
+impl Default for CommitsTable {
+    fn default() -> Self {
+        CommitsTable {
+            missing: Vec::new(),
+            override_parents: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
 pub struct FetchTable {
     pub args: Vec<String>,
+    #[serde(default = "fetch_prune_default")]
     pub prune: bool,
     pub refspecs: Vec<String>,
     pub url: String,
 }
 
-#[derive(Debug, Deserialize)]
+impl Default for FetchTable {
+    fn default() -> Self {
+        FetchTable {
+            args: Vec::new(),
+            prune: fetch_prune_default(),
+            refspecs: Vec::new(),
+            url: String::new(),
+        }
+    }
+}
+
+fn fetch_prune_default() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
 pub struct PushTable {
     pub args: Vec<String>,
     pub url: String,
 }
 
-#[derive(Debug, Deserialize)]
+impl Default for PushTable {
+    fn default() -> Self {
+        PushTable {
+            args: Vec::new(),
+            url: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
 pub struct ReposTable {
-    filter: Vec<String>,
+    #[serde(default = "repos_filter_default")]
+    pub filter: Vec<String>,
+}
+
+impl Default for ReposTable {
+    fn default() -> Self {
+        ReposTable {
+            filter: repos_filter_default(),
+        }
+    }
+}
+
+fn repos_filter_default() -> Vec<String> {
+    vec!["+.*".to_string()]
 }
 
 #[cfg(test)]
