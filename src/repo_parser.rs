@@ -41,6 +41,36 @@ pub struct FastExportRepo {
 }
 
 impl FastExportRepo {
+    pub fn load_from_path(repo_dir: &Path) -> Result<Self> {
+        let stdout = std::process::Command::new("git")
+            .args([
+                "-C",
+                repo_dir.to_str().unwrap(),
+                "fast-export",
+                "--all", // Parameters needed to delimit which revs to include
+                "--no-data",
+                "--use-done-feature",
+                "--show-original-ids",
+                "--reference-excluded-parents",
+                "--signed-tags=strip",
+            ])
+            .stdout(Stdio::piped())
+            .spawn()?
+            .stdout
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Could not capture standard output.",
+                )
+            })?;
+
+        Ok(FastExportRepo {
+            old_ids: HashMap::new(),
+            reader: BufReader::new(stdout),
+            current_line: Vec::new(),
+        })
+    }
+    
     fn advance_line(&mut self) -> Result<usize> {
         self.current_line.clear();
         let bytes = self.reader.read_until(b'\n', &mut self.current_line)?;
@@ -203,40 +233,6 @@ impl Iterator for FastExportRepo {
     }
 }
 
-impl TryFrom<&Path> for FastExportRepo {
-    type Error = anyhow::Error;
-
-    fn try_from(repo_dir: &Path) -> Result<Self> {
-        let stdout = std::process::Command::new("git")
-            .args([
-                "-C",
-                repo_dir.to_str().unwrap(),
-                "fast-export",
-                "--all", // Parameters needed to delimit which revs to include
-                "--no-data",
-                "--use-done-feature",
-                "--show-original-ids",
-                "--reference-excluded-parents",
-                "--signed-tags=strip",
-            ])
-            .stdout(Stdio::piped())
-            .spawn()?
-            .stdout
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Could not capture standard output.",
-                )
-            })?;
-
-        Ok(FastExportRepo {
-            old_ids: HashMap::new(),
-            reader: BufReader::new(stdout),
-            current_line: Vec::new(),
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,7 +245,7 @@ mod tests {
         let example_repo = crate::util::GitTopRepoExample::new(&tmp_path);
         let example_top_repo = example_repo.init_server_top();
 
-        let mut repo = FastExportRepo::try_from(example_top_repo.as_path()).unwrap();
+        let mut repo = FastExportRepo::load_from_path(example_top_repo.as_path()).unwrap();
         let commit_a = repo.next().unwrap();
         let commit_d = repo.nth(2).unwrap();
 
