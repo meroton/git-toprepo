@@ -1,3 +1,8 @@
+
+/** Command line argument definition using subcommands.
+ *
+ * See also https://jmmv.dev/2013/08/cli-design-putting-flags-to-good-use.html#bad-using-flags-to-select-subcommands.
+ */
 use clap::{Args, Parser, Subcommand};
 use std::env;
 use std::string::ToString;
@@ -49,6 +54,18 @@ pub struct Init {
 }
 
 #[derive(Args, Debug)]
+pub struct Config {
+    #[command(subcommand)]
+    pub config_command: ConfigCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigCommands {
+    /// Show the configuration of the current repository.
+    Show,
+}
+
+#[derive(Args, Debug)]
 pub struct Fetch {
     #[arg(long)]
     skip_filter: bool,
@@ -66,14 +83,6 @@ pub struct Replace {
     /// Dump the project to submodule mapping
     ///    <project>: <module path>
     pub dump: bool
-}
-
-#[derive(Args, Debug)]
-pub struct Config {
-    // TODO: Make this a subcommand
-    // https://jmmv.dev/2013/08/cli-design-putting-flags-to-good-use.html#bad-using-flags-to-select-subcommands
-    #[arg(long)]
-    pub list: bool,
 }
 
 fn get_cwd() -> String {
