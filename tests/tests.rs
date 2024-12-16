@@ -1,14 +1,11 @@
-use anyhow::Ok;
 use fs::File;
 use git_toprepo;
-use git_toprepo::config::{GitTopRepoConfig, RepoTable};
+use git_toprepo::config::GitTopRepoConfig;
+use git_toprepo::repo_parser::{ChangedFile, DiffStatus, FastExportRepo};
 use git_toprepo::util::{commit_env, commit_hash, iter_to_string, log_run_git, GitTopRepoExample};
-use std::collections::HashMap;
 use std::fs;
-use std::io::Read;
 use std::io::Write;
 use std::str::FromStr;
-use toml::Table;
 
 #[test]
 fn pass() {
@@ -414,4 +411,66 @@ fn test_config_with_duplicate_urls() {
         [repos]"#,
     )
     .unwrap();
+}
+
+#[test]
+fn test_parse_fast_export_output() {
+    let tmp_dir = tempfile::tempdir().unwrap();
+    let tmp_path = tmp_dir.path().to_path_buf();
+
+    let example_repo = GitTopRepoExample::new(&tmp_path);
+    let example_top_repo = example_repo.init_server_top();
+
+    let mut repo = FastExportRepo::try_from(example_top_repo.as_path()).unwrap();
+    let commit_a = repo.next().unwrap();
+    let commit_d = repo.nth(2).unwrap();
+
+    assert_eq!(commit_a.branch, b"refs/heads/main");
+    assert_eq!(
+        commit_a.author_info,
+        b"author A Name <a@no.domain> 1672625045 +0100"
+    );
+    assert_eq!(
+        commit_a.committer_info,
+        b"committer C Name <c@no.domain> 1686121750 +0100"
+    );
+    assert_eq!(commit_a.message, b"A\n");
+    assert!(commit_a.file_changes.is_empty());
+    assert!(commit_a.parents.is_empty());
+    assert_eq!(
+        commit_a.original_id,
+        b"6fc12aa7d6d06400a70bb522244bb184e3678416"
+    );
+    assert_eq!(commit_a.encoding, None);
+
+    assert_eq!(commit_d.branch, b"refs/heads/main");
+    assert_eq!(
+        commit_d.author_info,
+        b"author A Name <a@no.domain> 1672625045 +0100"
+    );
+    assert_eq!(
+        commit_d.committer_info,
+        b"committer C Name <c@no.domain> 1686121750 +0100"
+    );
+    assert_eq!(commit_d.message, b"D\n");
+    assert_eq!(
+        // CommitInfo and DiffStatus implements PartialEq trait for this test,
+        // might exclude PartialEq and this test if it's not needed elsewhere.
+        commit_d.file_changes.first().unwrap(),
+        &ChangedFile {
+            file: Vec::from(b"sub"),
+            mode: Some(Vec::from(b"160000")),
+            hash: Some(Vec::from(b"eeb85c77b614a7ec060f6df5825c9a5c10414307")),
+            status: DiffStatus::Modified
+        }
+    );
+    assert_eq!(
+        commit_d.parents,
+        Vec::from([b"ec67a8703750336a938bef740115009b6310892f"])
+    );
+    assert_eq!(
+        commit_d.original_id,
+        b"9f781a9707757573b16ee5946ab147e4e66857bc"
+    );
+    assert_eq!(commit_d.encoding, None);
 }
