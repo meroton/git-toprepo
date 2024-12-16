@@ -175,7 +175,7 @@ impl GitTopRepoExample {
 
         log_run_git(
             Some(&top_repo),
-            ["init", "--quiet"],
+            ["init", "--quiet", "--initial-branch", "main"],
             Some(&env),
             false,
             false,
@@ -184,7 +184,7 @@ impl GitTopRepoExample {
 
         log_run_git(
             Some(&sub_repo),
-            ["init", "--quiet"],
+            ["init", "--quiet", "--initial-branch", "main"],
             Some(&env),
             false,
             false,
