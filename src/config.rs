@@ -755,4 +755,228 @@ mod tests {
         assert_eq!(joined.get("a"), expected("1").as_ref());
         assert_eq!(joined.get("b"), expected("2").as_ref());
     }
+
+    #[test]
+    fn test_config_repo_is_wanted() {
+        assert!(Config::repo_is_wanted("Repo", &iter_to_string(["+Repo"])).unwrap());
+        assert!(!Config::repo_is_wanted("Repo", &iter_to_string(["+Repo", "-Repo"])).unwrap());
+        assert!(Config::repo_is_wanted("Repo", &iter_to_string(["+R"])).is_none());
+        assert!(Config::repo_is_wanted("Repo", &iter_to_string(["-o"])).is_none());
+        assert!(Config::repo_is_wanted("Repo", &iter_to_string(["-.*", "+Repo"])).unwrap());
+        assert!(!Config::repo_is_wanted("Repo", &iter_to_string(["+.*", "-Repo"])).unwrap());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_create_config_from_invalid_ref() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let tmp_path = tmp_dir.path().to_path_buf();
+        let env = crate::util::commit_env();
+
+        log_run_git(Some(&tmp_path), ["init"], Some(&env), false, false).unwrap();
+
+        log_run_git(
+            Some(&tmp_path),
+            ["config", "toprepo.config", ":foobar.toml"],
+            Some(&env),
+            false,
+            false,
+        )
+        .unwrap();
+
+        GitTopRepoConfig::try_from(tmp_path.as_path()).unwrap();
+    }
+
+    #[test]
+    fn test_create_config_from_worktree() {
+        use std::io::Write;
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let tmp_path = tmp_dir.path().to_path_buf();
+        let env = crate::util::commit_env();
+
+        log_run_git(Some(&tmp_path), ["init"], Some(&env), false, false).unwrap();
+
+        let mut tmp_file = std::fs::File::create(tmp_path.join("foobar.toml")).unwrap();
+
+        writeln!(
+            tmp_file,
+            r#"[repo]
+[repo.foo.fetch]
+url = "ssh://bar/baz.git"
+[repos]"#
+        )
+        .unwrap();
+
+        log_run_git(
+            Some(&tmp_path),
+            ["add", "foobar.toml"],
+            Some(&env),
+            false,
+            false,
+        )
+        .unwrap();
+
+        log_run_git(
+            Some(&tmp_path),
+            ["config", "toprepo.config", ":foobar.toml"],
+            Some(&env),
+            false,
+            false,
+        )
+        .unwrap();
+
+        let conf = GitTopRepoConfig::try_from(tmp_path.as_path()).unwrap();
+
+        assert!(conf.repo.contains_key("foo"));
+        assert_eq!(conf.repo.get("foo").unwrap().fetch.url, "ssh://bar/baz.git");
+        assert_eq!(conf.repo.get("foo").unwrap().push.url, "ssh://bar/baz.git");
+        assert_eq!(conf.repos.filter.first().unwrap(), "+.*");
+    }
+
+    #[test]
+    fn test_create_config_from_empty_string() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let tmp_path = tmp_dir.path().to_path_buf();
+        let env = crate::util::commit_env();
+
+        log_run_git(Some(&tmp_path), ["init"], Some(&env), false, false).unwrap();
+
+        log_run_git(
+            Some(&tmp_path),
+            ["commit", "--allow-empty", "-m", "Initial commit"],
+            Some(&env),
+            false,
+            false,
+        )
+        .unwrap();
+
+        log_run_git(
+            Some(&tmp_path),
+            ["update-ref", "refs/toprepo-super/HEAD", "HEAD"],
+            Some(&env),
+            false,
+            false,
+        )
+        .unwrap();
+
+        let config = GitTopRepoConfig::try_from(tmp_path.as_path()).unwrap();
+
+        assert!(config.repo.is_empty());
+        assert_eq!(config.repos.filter.first().unwrap(), "+.*");
+    }
+
+    #[test]
+    fn test_create_config_from_head() {
+        use std::io::Write;
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let tmp_path = tmp_dir.path().to_path_buf();
+        let env = crate::util::commit_env();
+
+        log_run_git(Some(&tmp_path), ["init"], Some(&env), false, false).unwrap();
+
+        let mut tmp_file = std::fs::File::create(tmp_path.join(".gittoprepo.toml")).unwrap();
+
+        writeln!(
+            tmp_file,
+            r#"[repo]
+[repo.foo.fetch]
+url = "ssh://bar/baz.git"
+[repos]"#
+        )
+        .unwrap();
+
+        log_run_git(
+            Some(&tmp_path),
+            ["add", ".gittoprepo.toml"],
+            Some(&env),
+            false,
+            false,
+        )
+        .unwrap();
+
+        log_run_git(
+            Some(&tmp_path),
+            ["commit", "-m", "Initial commit"],
+            Some(&env),
+            false,
+            false,
+        )
+        .unwrap();
+
+        log_run_git(
+            Some(&tmp_path),
+            ["update-ref", "refs/toprepo-super/HEAD", "HEAD"],
+            Some(&env),
+            false,
+            false,
+        )
+        .unwrap();
+
+        log_run_git(
+            Some(&tmp_path),
+            ["rm", ".gittoprepo.toml"],
+            Some(&env),
+            false,
+            false,
+        )
+        .unwrap();
+
+        log_run_git(
+            Some(&tmp_path),
+            ["commit", "-m", "Remove .gittoprepo.toml"],
+            Some(&env),
+            false,
+            false,
+        )
+        .unwrap();
+
+        let conf = GitTopRepoConfig::try_from(tmp_path.as_path()).unwrap();
+
+        assert!(conf.repo.contains_key("foo"));
+        assert_eq!(conf.repo.get("foo").unwrap().fetch.url, "ssh://bar/baz.git");
+        assert_eq!(conf.repo.get("foo").unwrap().push.url, "ssh://bar/baz.git");
+        assert_eq!(conf.repos.filter.first().unwrap(), "+.*");
+    }
+
+    #[test]
+    fn test_get_repo_with_new_entry() {
+        let mut config = GitTopRepoConfig::from_str("").unwrap();
+
+        config.get_repo_config("ssh://bar/baz.git");
+
+        assert!(config.repo.contains_key("baz"));
+        assert_eq!(config.repos.filter.first().unwrap(), "+.*");
+    }
+
+    #[test]
+    fn test_get_repo_without_new_entry() {
+        let mut config = GitTopRepoConfig::from_str(
+            r#"[repo.foo]
+        urls = ["../bar/repo.git"]
+
+        [repos]"#,
+        )
+        .unwrap();
+
+        config.get_repo_config("foo");
+
+        assert_eq!(config.repo.len(), 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_config_with_duplicate_urls() {
+        GitTopRepoConfig::from_str(
+            r#"[repo.foo]
+        urls = ["ssh://bar/baz.git"]
+
+        [repo.bar]
+        urls = ["ssh://bar/baz.git"]
+
+        [repos]"#,
+        )
+        .unwrap();
+    }
 }
