@@ -11,16 +11,27 @@ use git_toprepo::repo::{remote_to_repo, Repo, RepoFetcher, TopRepo};
 
 use std::panic;
 use std::collections::HashMap;
+use std::process::ExitCode;
 
-use clap::Parser;
-use colored::Colorize;
 use anyhow::Result;
 use bstr::{BString,ByteVec};
+use clap::Parser;
+use colored::Colorize;
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
+fn config(args: &Cli, config_args: &cli::Config) -> Result<ExitCode> {
+    match config_args.config_command {
+        cli::ConfigCommands::Show => {
+            let monorepo = Repo::from_str(&args.cwd)?;
+            let config = config::GitTopRepoConfig::try_from(monorepo.path.as_path())?;
+            let toml_config = toml::to_string(&config)?;
+            print!("{}", toml_config);
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
 
 /// Replace references to Gerrit projects to the local file paths of submodules.
-fn replace(args: &Cli, replace: &cli::Replace) -> Result<u16> {
+fn replace(args: &Cli, replace: &cli::Replace) -> Result<ExitCode> {
     /// The main repo is not technically a submodule.
     /// But it is very convenient to have transparent handling of the main
     /// project in code that iterates over projects provided by the users.
@@ -43,7 +54,7 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<u16> {
         for module in modules {
             println!("{}: {}", module.project, module.path);
         }
-        return Ok(0)
+        return Ok(ExitCode::SUCCESS)
     }
 
     // TODO: This became really cluttered :(
@@ -70,11 +81,11 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<u16> {
         println!("{}", replaced);
     }
 
-    Ok(0)
+    Ok(ExitCode::SUCCESS)
 }
 
 #[allow(unused)]
-fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<u16> {
+fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<ExitCode> {
     let monorepo = Repo::from_str(&args.cwd)?;
 
     let git_config = LocalGitConfigLoader::new(&monorepo).get_configmap().unwrap();
@@ -124,24 +135,7 @@ fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<u16> {
     todo!()
 }
 
-fn config(args: &Cli, c: &cli::Config) -> Result<u16> {
-    if ! c.list {
-        todo!();
-    }
-
-    let monorepo = Repo::from_str(&args.cwd)?;
-
-    let git_config = LocalGitConfigLoader::new(&monorepo).get_configmap().unwrap();
-    let configmap = config::get_configmap(&monorepo, &git_config);
-
-    if c.list {
-        configmap.list();
-    }
-
-    return Ok(0);
-}
-
-fn main() {
+fn main() -> Result<ExitCode> {
     // Make panic messages red.
     let default_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic| {
@@ -155,38 +149,13 @@ fn main() {
     }));
 
     let args = Cli::parse();
-
-    let res = match args.command {
+    let res: ExitCode = match args.command {
         Commands::Init(_) => todo!(),
-        Commands::Config(ref config_args) => config(&args, config_args),
+        Commands::Config(ref config_args) => config(&args, config_args)?,
         Commands::Refilter => todo!(),
-        Commands::Fetch(ref fetch_args) => fetch(&args, fetch_args),
+        Commands::Fetch(ref fetch_args) => fetch(&args, fetch_args)?,
         Commands::Push => todo!(),
-        Commands::Replace(ref replace_args) => replace(&args, replace_args),
+        Commands::Replace(ref replace_args) => replace(&args, replace_args)?,
     };
-
-    res.unwrap();
-
-
-    //    ////////////////////////////////////////////////////////////////////////////////////////////////
-    //
-    //    let mut a = ConfigMap::new();
-    //    a.push("lorem.ipsum.abc", iter_to_string(["a", "b", "c"]));
-    //    a.push("lorem.ipsum.123", iter_to_string(["1", "2"]));
-    //
-    //    println!("{}", a);
-    //
-    //    a.push("lorem.ipsum.123", iter_to_string(["3", "2"]));
-    //    a.push("lorem.dolor.sit", iter_to_string(["amet", "consectetur"]));
-    //
-    //    println!("{}", a);
-    //
-    //    let temp = a.extract_mapping("lorem");
-    //
-    //    println!("{:?}", temp);
-    //
-    //    let (b, c) = temp.iter().next_tuple().unwrap();
-    //
-    //    println!("{:?}", b);
-    //    println!("{:?}", c);
+    Ok(res)
 }
