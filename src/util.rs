@@ -27,7 +27,7 @@ pub fn normalize(p: &str) -> String {
     let parts = p.split("/");
     for p in parts {
         if p == "" || p == "." {
-            continue
+            continue;
         }
         if p == ".." {
             stack.pop();
@@ -59,7 +59,7 @@ where
 
     command.args(args);
 
-     if let Some(e) = env {
+    if let Some(e) = env {
         command.envs(e);
     }
 
@@ -68,11 +68,10 @@ where
     let joined = args.into_iter().map(|s| s.to_str().unwrap()).join(" ");
     let display = format!("{} {}", command.get_program().to_str().unwrap(), joined);
 
-        if log_command {
-            eprintln!("Running   {}", display);
-            Some(command.output());
-        }
-
+    if log_command {
+        eprintln!("Running   {}", display);
+        Some(command.output());
+    }
 
     let command_result = command.output();
     if let Ok(output) = &command_result {
@@ -268,9 +267,7 @@ fn update_index_submodule(repo: &PathBuf, env: &HashMap<String, String>, commit:
     .unwrap();
 }
 
-pub fn command_output_to_string(
-    command_output: std::process::Output,
-) -> String {
+pub fn command_output_to_string(command_output: std::process::Output) -> String {
     String::from_utf8(command_output.stdout)
         .unwrap()
         .trim()
@@ -284,4 +281,95 @@ pub fn get_basename(name: &str) -> String {
         .to_str()
         .unwrap()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_annotate_message() {
+        // Don't fold the footer into the subject line, leave an empty line.
+        assert_eq!(
+            annotate_message("Subject line\n", "sub/dir", &commit_hash("123hash"),),
+            "\
+Subject line
+
+^-- sub/dir 123hash
+"
+        );
+
+        assert_eq!(
+            annotate_message("Subject line, no LF", "sub/dir", &commit_hash("123hash"),),
+            "\
+Subject line, no LF
+
+^-- sub/dir 123hash
+"
+        );
+
+        assert_eq!(
+            annotate_message("Double subject line\n", "sub/dir", &commit_hash("123hash"),),
+            "\
+Double subject line
+
+^-- sub/dir 123hash
+"
+        );
+
+        assert_eq!(
+            annotate_message(
+                "Subject line, extra LFs\n\n\n",
+                "sub/dir",
+                &commit_hash("123hash"),
+            ),
+            "\
+Subject line, extra LFs
+
+^-- sub/dir 123hash
+",
+        );
+
+        assert_eq!(
+            annotate_message(
+                "Multi line\n\nmessage\n",
+                "sub/dir",
+                &commit_hash("123hash")
+            ),
+            "\
+Multi line
+
+message
+^-- sub/dir 123hash
+",
+        );
+
+        assert_eq!(
+            annotate_message(
+                "Multi line\n\nmessage, no LF",
+                "sub/dir",
+                &commit_hash("123hash"),
+            ),
+            "\
+Multi line
+
+message, no LF
+^-- sub/dir 123hash
+",
+        );
+
+        assert_eq!(
+            annotate_message(
+                "Multi line\n\nmessage, extra LFs\n\n\n",
+                "sub/dir",
+                &commit_hash("123hash"),
+            ),
+            "\
+Multi line
+
+message, extra LFs
+^-- sub/dir 123hash
+",
+        )
+    }
 }

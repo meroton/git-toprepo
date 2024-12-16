@@ -1,9 +1,9 @@
-use std::collections::HashSet;
-use std::path::PathBuf;
-use anyhow::Result;
-use bstr::{BStr,BString,ByteSlice};
 use crate::config::Mapping;
 use crate::util::{normalize, RawUrl, Url};
+use anyhow::Result;
+use bstr::{BStr, BString, ByteSlice};
+use std::collections::HashSet;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct GitModuleInfo {
@@ -47,10 +47,10 @@ pub fn resolve_submodules(subs: Vec<RawSubmodule>, main_project: String) -> Resu
         let burrow: &str = burrow.to_str()?;
         let project = normalize(&format!("{}/{}", &main_project, burrow));
 
-        resolved.push(Submodule{
+        resolved.push(Submodule {
             path: module.path,
             project: project.into(),
-            branch: module.branch
+            branch: module.branch,
         });
     }
 
@@ -59,10 +59,7 @@ pub fn resolve_submodules(subs: Vec<RawSubmodule>, main_project: String) -> Resu
 
 #[allow(unused)]
 pub fn parse_submodules(gitmodules: PathBuf) -> Result<Vec<RawSubmodule>> {
-    let modules = gix_config::File::from_path_no_includes(
-        gitmodules,
-        gix_config::Source::Worktree,
-    );
+    let modules = gix_config::File::from_path_no_includes(gitmodules, gix_config::Source::Worktree);
 
     let mut res: Vec<RawSubmodule> = Vec::new();
 
@@ -85,24 +82,21 @@ pub fn parse_submodules(gitmodules: PathBuf) -> Result<Vec<RawSubmodule>> {
                 Some(p) => p.into(),
             };
 
-            res.push(
-                RawSubmodule{
-                    branch,
-                    path,
-                    project: RelativeGerritProject(project),
-                }
-            );
+            res.push(RawSubmodule {
+                branch,
+                path,
+                project: RelativeGerritProject(project),
+            });
         }
-
     }
 
     Ok(res)
 }
 
 pub fn get_gitmodules_info(
-    submod_config_mapping: Mapping, parent_url: &str,
+    submod_config_mapping: Mapping,
+    parent_url: &str,
 ) -> Result<Vec<GitModuleInfo>> {
-
     let mut configs = Vec::new();
     let mut used = HashSet::new();
 
@@ -169,3 +163,62 @@ pub fn join_submodule_url(parent: &str, mut other: &str) -> String {
     other.to_string()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_join_submodule_url() {
+        // Relative.
+        assert_eq!(
+            join_submodule_url("https://github.com/org/repo", "."),
+            "https://github.com/org/repo"
+        );
+        assert_eq!(
+            join_submodule_url("https://github.com/org/repo", "./"),
+            "https://github.com/org/repo"
+        );
+        assert_eq!(
+            join_submodule_url("https://github.com/org/repo", "./foo"),
+            "https://github.com/org/repo/foo"
+        );
+        assert_eq!(
+            join_submodule_url("https://github.com/org/repo", "../foo"),
+            "https://github.com/org/foo"
+        );
+        assert_eq!(
+            join_submodule_url("https://github.com/org/repo", "../../foo"),
+            "https://github.com/foo"
+        );
+
+        // Ignore double slash.
+        assert_eq!(
+            join_submodule_url("https://github.com/org/repo", ".//foo"),
+            "https://github.com/org/repo/foo"
+        );
+
+        // Handle too many '../'.
+        assert_eq!(
+            join_submodule_url("https://github.com/org/repo", "../../../foo"),
+            "https://github.com/../foo"
+        );
+        assert_eq!(
+            join_submodule_url("file:///data/repo", "../../foo"),
+            "file:///foo"
+        );
+        assert_eq!(
+            join_submodule_url("file:///data/repo", "../../../foo"),
+            "file:///../foo"
+        );
+
+        // Absolute.
+        assert_eq!(
+            join_submodule_url("parent", "ssh://github.com/org/repo"),
+            "ssh://github.com/org/repo"
+        );
+
+        // Without scheme.
+        assert_eq!(join_submodule_url("parent", "/data/repo"), "/data/repo");
+        assert_eq!(join_submodule_url("/data/repo", "../other"), "/data/other");
+    }
+}

@@ -1,15 +1,15 @@
-use std::{env, io};
-use std::collections::HashMap;
+use crate::config::{Config, RepoConfig};
+use crate::git::determine_git_dir;
+use crate::gitmodules::{parse_submodules, resolve_submodules, GitModuleInfo, Submodule};
+use crate::util::{iter_to_string, strip_suffix, Url};
 use anyhow::anyhow;
-use std::path::PathBuf;
-use std::process::Command;
+use anyhow::{Context, Result};
 use itertools::Itertools;
 use lazycell::LazyCell;
-use anyhow::{Context, Result};
-use crate::config::{Config, RepoConfig};
-use crate::gitmodules::{parse_submodules, resolve_submodules, GitModuleInfo, Submodule};
-use crate::git::determine_git_dir;
-use crate::util::{iter_to_string, strip_suffix, Url};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::process::Command;
+use std::{env, io};
 
 const DEFAULT_FETCH_ARGS: [&str; 3] = ["--prune", "--prune-tags", "--tags"];
 
@@ -59,8 +59,7 @@ impl Repo {
             .arg("--show-toplevel")
             .output()
             .with_context(|| format!("Failed to parse repo path {}", repo))?;
-        let path = strip_suffix(&String::from_utf8(command.stdout)?, "\n")
-            .to_string();
+        let path = strip_suffix(&String::from_utf8(command.stdout)?, "\n").to_string();
 
         let cwd = env::current_dir().unwrap_or(PathBuf::new());
         let mut path = PathBuf::from(path);
@@ -68,8 +67,10 @@ impl Repo {
         if path == cwd {
             path = PathBuf::from(".")
         }
-        let path = path.strip_prefix(cwd)
-            .map(|path| path.to_path_buf()).unwrap_or(path);
+        let path = path
+            .strip_prefix(cwd)
+            .map(|path| path.to_path_buf())
+            .unwrap_or(path);
 
         Ok(Repo::new("mono repo".to_string(), path))
     }
@@ -115,14 +116,11 @@ impl Repo {
     /// Not the submodule checkout path, but the git database.
     pub fn get_subrepo_git_dir(&self, name: &str) -> PathBuf {
         if !self.git_dir.filled() {
-            self.git_dir.fill(determine_git_dir(&self.path))
-                .unwrap();
+            self.git_dir.fill(determine_git_dir(&self.path)).unwrap();
         }
 
         let git_dir = self.git_dir.borrow().unwrap().to_str().unwrap();
-        PathBuf::from(
-            format!("{}/repos/{}", git_dir, name)
-        )
+        PathBuf::from(format!("{}/repos/{}", git_dir, name))
     }
 
     pub fn submodules(&self) -> Result<Vec<Submodule>> {
@@ -137,7 +135,6 @@ impl Repo {
         gerrit_project(&self.get_toprepo_fetch_url()).unwrap()
     }
 }
-
 
 #[derive(Debug)]
 pub struct TopRepo {
@@ -166,14 +163,9 @@ impl TopRepo {
         }
     }
     pub fn from_config(repo: PathBuf, config: &Config) -> TopRepo {
-        TopRepo::new(
-            repo,
-            &config.top_fetch_url,
-            &config.top_push_url,
-        )
+        TopRepo::new(repo, &config.top_fetch_url, &config.top_push_url)
     }
 }
-
 
 pub struct RepoFetcher<'a> {
     monorepo: &'a Repo,
@@ -181,9 +173,7 @@ pub struct RepoFetcher<'a> {
 
 impl RepoFetcher<'_> {
     pub fn new(monorepo: &Repo) -> RepoFetcher {
-        RepoFetcher {
-            monorepo
-        }
+        RepoFetcher { monorepo }
     }
 
     fn fetch_repo(&self) {
@@ -191,9 +181,11 @@ impl RepoFetcher<'_> {
     }
 }
 
-
-pub fn remote_to_repo(remote: &str, mut git_modules: Vec<GitModuleInfo>, config: &Config) ->
-(String, Option<GitModuleInfo>) {
+pub fn remote_to_repo(
+    remote: &str,
+    mut git_modules: Vec<GitModuleInfo>,
+    config: &Config,
+) -> (String, Option<GitModuleInfo>) {
     // Map a remote or URL to a repository.
     //
     // A repo can be specified by subrepo path inside the toprepo or
@@ -236,23 +228,47 @@ pub fn remote_to_repo(remote: &str, mut git_modules: Vec<GitModuleInfo>, config:
         }
     }
 
-    add_url(&mut remote_to_name, &config.top_fetch_url, TopRepo::NAME, None);
-    add_url(&mut remote_to_name, &config.top_push_url, TopRepo::NAME, None);
+    add_url(
+        &mut remote_to_name,
+        &config.top_fetch_url,
+        TopRepo::NAME,
+        None,
+    );
+    add_url(
+        &mut remote_to_name,
+        &config.top_push_url,
+        TopRepo::NAME,
+        None,
+    );
 
     for module in &git_modules {
         for cfg in &config.repos {
             if cfg.raw_urls.contains(&module.raw_url) {
                 // Add URLs from .gitmodules.
                 add_url(&mut remote_to_name, &module.url, &cfg.name, Some(&module));
-                add_url(&mut remote_to_name, &module.raw_url, &cfg.name, Some(&module));
+                add_url(
+                    &mut remote_to_name,
+                    &module.raw_url,
+                    &cfg.name,
+                    Some(&module),
+                );
 
-                remote_to_name.get_mut(module.name.as_str()).unwrap()
+                remote_to_name
+                    .get_mut(module.name.as_str())
+                    .unwrap()
                     .push((&cfg.name, Some(&module)));
-                remote_to_name.get_mut(module.path.to_str().unwrap()).unwrap()
+                remote_to_name
+                    .get_mut(module.path.to_str().unwrap())
+                    .unwrap()
                     .push((&cfg.name, Some(&module)));
 
                 // Add URLs from the toprepo config.
-                add_url(&mut remote_to_name, &cfg.fetch_url, &cfg.name, Some(&module));
+                add_url(
+                    &mut remote_to_name,
+                    &cfg.fetch_url,
+                    &cfg.name,
+                    Some(&module),
+                );
                 add_url(&mut remote_to_name, &cfg.push_url, &cfg.name, Some(&module));
                 for raw_url in &cfg.raw_urls {
                     add_url(&mut remote_to_name, &raw_url, &cfg.name, Some(&module));
@@ -294,7 +310,7 @@ pub fn remote_to_repo(remote: &str, mut git_modules: Vec<GitModuleInfo>, config:
             let gitmod = git_modules.swap_remove(i.unwrap());
             (name, Some(gitmod))
         }
-        (name, None) => (name.to_string(), None)
+        (name, None) => (name.to_string(), None),
     }
 }
 
@@ -317,7 +333,8 @@ pub fn repository_name(repository: Url) -> String {
 
     //Annoying with double slash.
     name = name.replace("//", "/");
-    name = name.trim_start_matches("/")
+    name = name
+        .trim_start_matches("/")
         .trim_end_matches("/")
         .to_string();
 
@@ -330,4 +347,42 @@ pub fn repository_name(repository: Url) -> String {
     name = name.replace(":", "-");
 
     name
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_repository_name() {
+        assert_eq!(
+            repository_name(String::from("https://github.com/org/repo")),
+            "org-repo"
+        );
+        assert_eq!(
+            repository_name(String::from("https://github.com/org/repo.git")),
+            "org-repo"
+        );
+        assert_eq!(
+            repository_name(String::from("https://github.com//org/repo")),
+            "org-repo"
+        );
+        assert_eq!(
+            repository_name(String::from("https://github.com/org//repo")),
+            "org-repo"
+        );
+        assert_eq!(
+            repository_name(String::from("https://github.com:443/org/repo")),
+            "org-repo"
+        );
+        assert_eq!(
+            repository_name(String::from("git://github.com/org/repo")),
+            "org-repo"
+        );
+        assert_eq!(repository_name(String::from(".././org/repo")), "org-repo");
+        assert_eq!(
+            repository_name(String::from("abc\\org\\repo")),
+            "abc-org-repo"
+        );
+    }
 }
