@@ -15,7 +15,7 @@ use bstr::ByteSlice;
 use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -467,7 +467,7 @@ impl Config {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct GitTopRepoConfig {
-    pub repo: HashMap<String, RepoTable>,
+    pub repo: BTreeMap<String, RepoTable>,
     pub repos: ReposTable,
 }
 
@@ -557,13 +557,22 @@ impl GitTopRepoConfig {
     }
 
     fn ensure_unique_urls(&self) -> Result<()> {
-        let mut set = HashSet::<String>::new();
-        for (_, v) in self.repo.iter() {
+        let mut found = HashMap::<String, String>::new();
+        for (repo_name, v) in self.repo.iter() {
             for url in v.urls.iter() {
-                if set.contains(url) {
-                    bail!("URLs must be unique across all repos");
-                } else {
-                    set.insert(String::from(url));
+                match found.entry(url.to_string()) {
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(repo_name.clone());
+                    }
+                    std::collections::hash_map::Entry::Occupied(entry) => {
+                        let existing_repo_name = entry.get();
+                        bail!(
+                            "URLs must be unique across all repos, found {} in {} and {}",
+                            url,
+                            existing_repo_name,
+                            repo_name
+                        );
+                    }
                 }
             }
         }
@@ -574,7 +583,7 @@ impl GitTopRepoConfig {
 impl Default for GitTopRepoConfig {
     fn default() -> Self {
         GitTopRepoConfig {
-            repo: HashMap::default(),
+            repo: BTreeMap::default(),
             repos: ReposTable {
                 filter: repos_filter_default(),
             },
@@ -649,14 +658,14 @@ fn repo_since_default() -> String {
 #[serde(default)]
 pub struct CommitsTable {
     pub missing: Vec<String>,
-    pub override_parents: HashMap<String, Vec<String>>,
+    pub override_parents: BTreeMap<String, Vec<String>>,
 }
 
 impl Default for CommitsTable {
     fn default() -> Self {
         CommitsTable {
             missing: Vec::new(),
-            override_parents: HashMap::new(),
+            override_parents: BTreeMap::new(),
         }
     }
 }
@@ -955,9 +964,8 @@ url = "ssh://bar/baz.git"
     }
 
     #[test]
-    #[should_panic]
     fn test_config_with_duplicate_urls() {
-        GitTopRepoConfig::from_str(
+        let err = GitTopRepoConfig::from_str(
             r#"[repo.foo]
         urls = ["ssh://bar/baz.git"]
 
@@ -966,6 +974,10 @@ url = "ssh://bar/baz.git"
 
         [repos]"#,
         )
-        .unwrap();
+        .unwrap_err();
+        assert_eq!(
+            err.root_cause().to_string(),
+            "URLs must be unique across all repos, found ssh://bar/baz.git in bar and foo"
+        );
     }
 }
