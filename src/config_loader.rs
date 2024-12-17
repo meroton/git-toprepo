@@ -1,15 +1,14 @@
 #![allow(dead_code)]
 
+use crate::config::ConfigMap;
+use crate::repo::Repo;
+use crate::util::{CommandExtension, git_command};
+use anyhow::{Context, Result};
 use enum_dispatch::enum_dispatch;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use anyhow::{Context, Result};
-use crate::config::ConfigMap;
-use crate::repo::Repo;
-use crate::util::{commit_env, log_run_git};
-
 
 #[enum_dispatch]
 pub trait ConfigLoaderTrait {
@@ -126,18 +125,15 @@ impl RemoteGitConfigLoader<'_> {
     }
 
     fn fetch_remote_config(&self) {
-        log_run_git(
-            Some(&self.local_repo.path),
-            [
+        git_command(self.local_repo.path.as_path())
+            .args([
                 "fetch",
                 "--quiet",
                 &self.url,
                 &format!("+{}:{}", self.remote_ref, &self.local_ref),
-            ],
-            None,
-            false,
-            true,
-        );
+            ])
+            .log_cmdline()
+            .output();
     }
 }
 
@@ -176,12 +172,11 @@ impl ConfigLoaderTrait for RemoteGitConfigLoader<'_> {
         );
         */
 
-        // TODO: Unify this with the `log_run_git` code.
         let raw_config = Command::new("git")
             .args([
-                  "show",
-                  "--quiet",
-                  &format!("{}:{}", self.local_ref, "toprepo.config"),
+                "show",
+                "--quiet",
+                &format!("{}:{}", self.local_ref, "toprepo.config"),
             ])
             .stdout(Stdio::piped())
             .spawn()

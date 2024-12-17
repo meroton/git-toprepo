@@ -1,10 +1,10 @@
 use crate::git::CommitHash;
-use anyhow::{bail, Context};
+use anyhow::bail;
+use bstr::ByteSlice;
 use itertools::Itertools;
 use std::collections::HashMap;
-use std::io;
 use std::path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub type RawUrl = String;
@@ -39,47 +39,79 @@ pub fn normalize(p: &str) -> String {
     stack.into_iter().map(|s| s.to_owned()).join("/")
 }
 
-// TODO: Allow pipe to standard in?
-pub fn log_run_git<'a, I>(
-    repo: Option<&PathBuf>, // Should this be a &Path?
-    args: I,
-    env: Option<&HashMap<String, String>>,
-    check: bool,
-    log_command: bool,
-    //kwargs: HashMap<(), ()> TODO?
-) -> anyhow::Result<std::process::Output>
-where
-    I: IntoIterator<Item = &'a str>,
-{
-    let mut command = Command::new("git");
+pub trait CommandExtension {
+    fn log_cmdline(&mut self) -> &mut Self;
+    fn output_stdout_only(&mut self) -> std::io::Result<std::process::Output>;
+}
 
-    if let Some(repo) = repo {
-        command.args(["-C", repo.to_str().unwrap()]);
-    }
+impl CommandExtension for Command {
+    fn log_cmdline(&mut self) -> &mut Self {
+        // TODO: Escape and quote! String representations are always annoying.
+        let args: Vec<&std::ffi::OsStr> = self.get_args().collect();
+        let joined = args.into_iter().map(|s| s.to_str().unwrap()).join(" ");
+        let display = format!("{} {}", self.get_program().to_str().unwrap(), joined);
 
-    command.args(args);
-
-    if let Some(e) = env {
-        command.envs(e);
-    }
-
-    // TODO: Escape and quote! String representations are always annoying.
-    let args: Vec<&std::ffi::OsStr> = command.get_args().collect();
-    let joined = args.into_iter().map(|s| s.to_str().unwrap()).join(" ");
-    let display = format!("{} {}", command.get_program().to_str().unwrap(), joined);
-
-    if log_command {
         eprintln!("Running   {}", display);
-        Some(command.output());
+        self
     }
 
-    let command_result = command.output();
-    if let Ok(output) = &command_result {
-        if check && !output.status.success() {
-            bail!(output.status.to_string());
-        }
+    fn output_stdout_only(&mut self) -> std::io::Result<std::process::Output> {
+        self.stderr(std::process::Stdio::inherit()).output()
     }
-    command_result.context("Non-zero result")
+}
+
+pub trait OutputExtension {
+    fn check_success_with_stderr(&self) -> anyhow::Result<&Self>;
+}
+
+impl OutputExtension for std::process::Output {
+    /// Checks that the command was successful and otherwise returns an error
+    /// with the exit status together with the stderr content.
+    fn check_success_with_stderr(&self) -> anyhow::Result<&Self> {
+        // TODO: Print the command line as well?
+        if !self.status.success() {
+            if self.stderr.is_empty() {
+                bail!("{}", self.status);
+            } else {
+                bail!(
+                    "{}:\n{}",
+                    self.status,
+                    String::from_utf8_lossy(&self.stderr)
+                );
+            }
+        }
+        Ok(self)
+    }
+}
+
+pub fn git_command(repo: &Path) -> Command {
+    let mut command = Command::new("git");
+    command.args([std::ffi::OsStr::new("-C"), repo.as_os_str()]);
+    command
+}
+
+/// Removes trailing LF or CRLF from a string.
+///
+/// # Examples
+/// ```
+/// use git_toprepo::util::trim_newline_suffix;
+///
+/// assert_eq!(trim_newline_suffix("foo"), "foo");
+/// assert_eq!(trim_newline_suffix("foo\n"), "foo");
+/// assert_eq!(trim_newline_suffix("foo\r\n"), "foo");
+/// assert_eq!(trim_newline_suffix("foo\nbar\n"), "foo\nbar");
+/// assert_eq!(trim_newline_suffix("foo\r\nbar\r\n"), "foo\r\nbar");
+///
+/// assert_eq!(trim_newline_suffix("foo\n\r"), "foo\n\r");
+/// ```
+pub fn trim_newline_suffix(s: &str) -> &str {
+    if s.ends_with("\r\n") {
+        &s[..s.len() - 2]
+    } else if s.ends_with("\n") {
+        &s[..s.len() - 1]
+    } else {
+        s
+    }
 }
 
 pub fn strip_suffix<'a>(string: &'a str, suffix: &str) -> &'a str {
@@ -172,43 +204,34 @@ impl GitTopRepoExample {
         std::fs::create_dir_all(&top_repo).unwrap();
         std::fs::create_dir_all(&sub_repo).unwrap();
 
-        log_run_git(
-            Some(&top_repo),
-            ["init", "--quiet", "--initial-branch", "main"],
-            Some(&env),
-            false,
-            false,
-        )
-        .unwrap();
+        git_command(&top_repo)
+            .args(["init", "--quiet", "--initial-branch", "main"])
+            .envs(&env)
+            .output()
+            .unwrap();
 
-        log_run_git(
-            Some(&sub_repo),
-            ["init", "--quiet", "--initial-branch", "main"],
-            Some(&env),
-            false,
-            false,
-        )
-        .unwrap();
+        git_command(&sub_repo)
+            .args(["init", "--quiet", "--initial-branch", "main"])
+            .envs(&env)
+            .output()
+            .unwrap();
 
         commit(&sub_repo, &env, "1");
         commit(&sub_repo, &env, "2");
         commit(&top_repo, &env, "A");
 
-        log_run_git(
-            Some(&top_repo),
-            [
+        git_command(&top_repo)
+            .args([
                 "-c",
                 "protocol.file.allow=always",
                 "submodule",
                 "add",
                 "../sub/", // TODO: Absolute or relative path?
                            // sub_repo.to_str().unwrap(),
-            ],
-            Some(&env),
-            false,
-            false,
-        )
-        .unwrap();
+            ])
+            .envs(&env)
+            .output()
+            .unwrap();
         commit(&top_repo, &env, "B");
         commit(&top_repo, &env, "C");
         let sub_rev_3 = commit(&sub_repo, &env, "3");
@@ -234,44 +257,37 @@ impl GitTopRepoExample {
 }
 
 fn commit(repo: &PathBuf, env: &HashMap<String, String>, message: &str) -> String {
-    log_run_git(
-        Some(&repo),
-        ["commit", "--allow-empty", "-m", message],
-        Some(&env),
-        false,
-        false,
-    )
-    .unwrap();
+    git_command(repo)
+        .args(["commit", "--allow-empty", "-m", message])
+        .envs(env)
+        .output()
+        .unwrap();
 
     // Returns commit hash as String.
     // TODO: Return Result<String> instead?
-    command_output_to_string(
-        log_run_git(Some(&repo), ["rev-parse", "HEAD"], Some(&env), false, false).unwrap(),
+    trim_newline_suffix(
+        git_command(&repo)
+            .args(["rev-parse", "HEAD"])
+            .envs(env)
+            .output()
+            .unwrap()
+            .stdout
+            .to_str()
+            .unwrap(),
     )
-    .trim()
     .to_string()
 }
 
 fn update_index_submodule(repo: &PathBuf, env: &HashMap<String, String>, commit: String) {
-    log_run_git(
-        Some(repo),
-        [
+    git_command(repo)
+        .args([
             "update-index",
             "--cacheinfo",
             &format!("160000,{},sub", commit),
-        ],
-        Some(&env),
-        false,
-        false,
-    )
-    .unwrap();
-}
-
-pub fn command_output_to_string(command_output: std::process::Output) -> String {
-    String::from_utf8(command_output.stdout)
-        .unwrap()
-        .trim()
-        .to_string()
+        ])
+        .envs(env)
+        .output()
+        .unwrap();
 }
 
 pub fn get_basename(name: &str) -> String {

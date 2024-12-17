@@ -1,16 +1,17 @@
 #![allow(dead_code)]
 
 use crate::config_loader::{
-    ConfigLoader, ConfigLoaderTrait, LocalFileConfigLoader, LocalGitConfigLoader,
+    ConfigLoader, ConfigLoaderTrait, LocalFileConfigLoader,
     RemoteGitConfigLoader,
 };
 use crate::git::CommitHash;
 use crate::gitmodules::join_submodule_url;
 use crate::repo::Repo;
 use crate::util::{
-    command_output_to_string, get_basename, iter_to_string, log_run_git, RawUrl, Url,
+    get_basename, git_command, iter_to_string, trim_newline_suffix, CommandExtension, OutputExtension, RawUrl, Url
 };
 use anyhow::{bail, Context, Result};
+use bstr::ByteSlice;
 use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -499,33 +500,35 @@ impl GitTopRepoConfig {
     fn load_config(&mut self, repo_dir: Option<&PathBuf>) -> Result<()> {
         if let Some(_) = repo_dir {
             // Load config file location
-            let config_location = command_output_to_string(log_run_git(
-                repo_dir,
-                ["config", "toprepo.config"],
-                None,
-                false,
-                false,
-            )?);
+            let config_location = trim_newline_suffix(
+                git_command(repo_dir.unwrap_or(&PathBuf::new()))
+                    .args(["config", "toprepo.config"])
+                    .output()?
+                    .stdout
+                    .to_str()?
+            ).to_string();
 
             // Read config file
             let config_toml: String;
             if config_location.is_empty() {
                 // No config file location was specified, reading from default location
                 // Will be an empty string if the file does not exist
-                config_toml = command_output_to_string(log_run_git(
-                    repo_dir,
-                    ["show", "refs/toprepo-super/HEAD:.gittoprepo.toml"],
-                    None,
-                    false,
-                    false,
-                )?);
+                config_toml = git_command(repo_dir.unwrap_or(&PathBuf::new()))
+                    .args(["show", "refs/toprepo-super/HEAD:.gittoprepo.toml"])
+                    .output()?
+                    .stdout
+                    .to_str()?
+                    .to_string();
             } else {
                 // Read config file from provided location
                 // Will panic if the file does not exist
-                config_toml = command_output_to_string(
-                    log_run_git(repo_dir, ["show", &config_location], None, true, false)
-                        .context(format!("Invalid config file location {}", config_location))?,
-                );
+                config_toml = git_command(repo_dir.unwrap_or(&PathBuf::new()))
+                    .args(["show", &config_location])
+                    .output()?
+                    .check_success_with_stderr().with_context(|| format!("Invalid config file location {}", config_location))?
+                    .stdout
+                    .to_str()?
+                    .to_string();
             }
 
             // Load config from config file output (default config if empty output)
@@ -773,16 +776,17 @@ mod tests {
         let tmp_path = tmp_dir.path().to_path_buf();
         let env = crate::util::commit_env();
 
-        log_run_git(Some(&tmp_path), ["init"], Some(&env), false, false).unwrap();
+        git_command(&tmp_path)
+            .args(["init"])
+            .envs(&env)
+            .output()
+            .unwrap();
 
-        log_run_git(
-            Some(&tmp_path),
-            ["config", "toprepo.config", ":foobar.toml"],
-            Some(&env),
-            false,
-            false,
-        )
-        .unwrap();
+        git_command(&tmp_path)
+            .args(["config", "toprepo.config", ":foobar.toml"])
+            .envs(&env)
+            .output()
+            .unwrap();
 
         GitTopRepoConfig::try_from(tmp_path.as_path()).unwrap();
     }
@@ -795,7 +799,11 @@ mod tests {
         let tmp_path = tmp_dir.path().to_path_buf();
         let env = crate::util::commit_env();
 
-        log_run_git(Some(&tmp_path), ["init"], Some(&env), false, false).unwrap();
+        git_command(&tmp_path)
+            .args(["init"])
+            .envs(&env)
+            .output()
+            .unwrap();
 
         let mut tmp_file = std::fs::File::create(tmp_path.join("foobar.toml")).unwrap();
 
@@ -808,23 +816,17 @@ url = "ssh://bar/baz.git"
         )
         .unwrap();
 
-        log_run_git(
-            Some(&tmp_path),
-            ["add", "foobar.toml"],
-            Some(&env),
-            false,
-            false,
-        )
-        .unwrap();
+        git_command(&tmp_path)
+            .args(["add", "foobar.toml"])
+            .envs(&env)
+            .output()
+            .unwrap();
 
-        log_run_git(
-            Some(&tmp_path),
-            ["config", "toprepo.config", ":foobar.toml"],
-            Some(&env),
-            false,
-            false,
-        )
-        .unwrap();
+        git_command(&tmp_path)
+            .args(["config", "toprepo.config", ":foobar.toml"])
+            .envs(&env)
+            .output()
+            .unwrap();
 
         let conf = GitTopRepoConfig::try_from(tmp_path.as_path()).unwrap();
 
@@ -840,25 +842,23 @@ url = "ssh://bar/baz.git"
         let tmp_path = tmp_dir.path().to_path_buf();
         let env = crate::util::commit_env();
 
-        log_run_git(Some(&tmp_path), ["init"], Some(&env), false, false).unwrap();
+        git_command(&tmp_path)
+            .args(["init"])
+            .envs(&env)
+            .output()
+            .unwrap();
 
-        log_run_git(
-            Some(&tmp_path),
-            ["commit", "--allow-empty", "-m", "Initial commit"],
-            Some(&env),
-            false,
-            false,
-        )
-        .unwrap();
+        git_command(&tmp_path)
+            .args(["commit", "--allow-empty", "-m", "Initial commit"])
+            .envs(&env)
+            .output()
+            .unwrap();
 
-        log_run_git(
-            Some(&tmp_path),
-            ["update-ref", "refs/toprepo-super/HEAD", "HEAD"],
-            Some(&env),
-            false,
-            false,
-        )
-        .unwrap();
+        git_command(&tmp_path)
+            .args(["update-ref", "refs/toprepo-super/HEAD", "HEAD"])
+            .envs(&env)
+            .output()
+            .unwrap();
 
         let config = GitTopRepoConfig::try_from(tmp_path.as_path()).unwrap();
 
@@ -874,7 +874,11 @@ url = "ssh://bar/baz.git"
         let tmp_path = tmp_dir.path().to_path_buf();
         let env = crate::util::commit_env();
 
-        log_run_git(Some(&tmp_path), ["init"], Some(&env), false, false).unwrap();
+        git_command(&tmp_path)
+            .args(["init"])
+            .envs(&env)
+            .output()
+            .unwrap();
 
         let mut tmp_file = std::fs::File::create(tmp_path.join(".gittoprepo.toml")).unwrap();
 
@@ -887,50 +891,35 @@ url = "ssh://bar/baz.git"
         )
         .unwrap();
 
-        log_run_git(
-            Some(&tmp_path),
-            ["add", ".gittoprepo.toml"],
-            Some(&env),
-            false,
-            false,
-        )
-        .unwrap();
+        git_command(&tmp_path)
+            .args(["add", ".gittoprepo.toml"])
+            .envs(&env)
+            .output()
+            .unwrap();
 
-        log_run_git(
-            Some(&tmp_path),
-            ["commit", "-m", "Initial commit"],
-            Some(&env),
-            false,
-            false,
-        )
-        .unwrap();
+        git_command(&tmp_path)
+            .args(["commit", "-m", "Initial commit"])
+            .envs(&env)
+            .output()
+            .unwrap();
 
-        log_run_git(
-            Some(&tmp_path),
-            ["update-ref", "refs/toprepo-super/HEAD", "HEAD"],
-            Some(&env),
-            false,
-            false,
-        )
-        .unwrap();
+        git_command(&tmp_path)
+            .args(["update-ref", "refs/toprepo-super/HEAD", "HEAD"])
+            .envs(&env)
+            .output()
+            .unwrap();
 
-        log_run_git(
-            Some(&tmp_path),
-            ["rm", ".gittoprepo.toml"],
-            Some(&env),
-            false,
-            false,
-        )
-        .unwrap();
+        git_command(&tmp_path)
+            .args(["rm", ".gittoprepo.toml"])
+            .envs(&env)
+            .output()
+            .unwrap();
 
-        log_run_git(
-            Some(&tmp_path),
-            ["commit", "-m", "Remove .gittoprepo.toml"],
-            Some(&env),
-            false,
-            false,
-        )
-        .unwrap();
+        git_command(&tmp_path)
+            .args(["commit", "-m", "Remove .gittoprepo.toml"])
+            .envs(&env)
+            .output()
+            .unwrap();
 
         let conf = GitTopRepoConfig::try_from(tmp_path.as_path()).unwrap();
 
