@@ -29,13 +29,13 @@ struct RelativeGerritProject(BString);
 pub struct Submodule {
     pub path: BString,
     pub project: BString,
-    branch: BString,
+    branch: Option<BString>,
 }
 
 pub struct RawSubmodule {
     pub path: BString,
     project: RelativeGerritProject,
-    branch: BString,
+    branch: Option<BString>,
 }
 
 pub fn resolve_submodules(subs: Vec<RawSubmodule>, main_project: String) -> Result<Vec<Submodule>> {
@@ -75,7 +75,7 @@ pub fn parse_submodules(gitmodules: PathBuf) -> Result<Vec<RawSubmodule>> {
             // TODO: We tend to use relative Gerrit project urls.
             // This parsing must be updated to also support the regular formats.
             let url = body.value(GIT_MODULE_URL).unwrap().into_owned();
-            let branch = body.value(GIT_MODULE_BRANCH).unwrap().into_owned();
+            let branch = body.value(GIT_MODULE_BRANCH).map(|b| b.into_owned());
 
             let project = match url.strip_suffix(b".git") {
                 None => url,
