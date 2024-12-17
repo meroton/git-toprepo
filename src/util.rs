@@ -90,6 +90,18 @@ pub fn git_command(repo: &Path) -> Command {
     command
 }
 
+/// Returns the value of a single entry git configuration key
+/// or `None` if the key is not set.
+pub fn git_config_get(repo: &Path, key: &str) -> anyhow::Result<Option<String>> {
+    let res = git_command(repo).args(["config", key]).output()?;
+    if res.status.code() == Some(1) {
+        Ok(None)
+    } else {
+        res.check_success_with_stderr()?;
+        Ok(Some(trim_newline_suffix(res.stdout.to_str()?).to_string()))
+    }
+}
+
 /// Removes trailing LF or CRLF from a string.
 ///
 /// # Examples

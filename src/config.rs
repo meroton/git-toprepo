@@ -1,24 +1,22 @@
 #![allow(dead_code)]
 
 use crate::config_loader::{
-    ConfigLoader, ConfigLoaderTrait, LocalFileConfigLoader,
-    RemoteGitConfigLoader,
+    ConfigLoader, ConfigLoaderTrait, LocalFileConfigLoader, RemoteGitConfigLoader,
 };
 use crate::git::CommitHash;
 use crate::gitmodules::join_submodule_url;
 use crate::repo::Repo;
 use crate::util::{
-    get_basename, git_command, iter_to_string, trim_newline_suffix, CommandExtension, OutputExtension, RawUrl, Url
+    get_basename, git_command, git_config_get, iter_to_string, OutputExtension, RawUrl, Url,
 };
 use anyhow::{bail, Context, Result};
-use bstr::ByteSlice;
+use chrono::TimeZone as _;
 use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fmt::{Display, Formatter};
+use std::fmt::{self, Display, Formatter};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 
 //TODO: Create proper error enums instead of strings
 
@@ -467,8 +465,8 @@ impl Config {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct GitTopRepoConfig {
-    pub repo: BTreeMap<String, RepoTable>,
-    pub repos: ReposTable,
+    repo: BTreeMap<String, SubrepoConfig>,
+    repos: RepoListConfig,
 }
 
 impl GitTopRepoConfig {
@@ -476,83 +474,98 @@ impl GitTopRepoConfig {
         GitTopRepoConfig::default()
     }
 
-    fn init(&mut self, repo_dir: Option<&PathBuf>) -> Result<()> {
-        self.load_config(repo_dir)?;
-        self.ensure_unique_urls()?;
-        Ok(())
-    }
-
-    pub fn get_repo_config(&mut self, repo_url: &str) -> &RepoTable {
+    pub fn get_subrepo_config(&mut self, repo_url: &str) -> &SubrepoConfig {
         let repo_name = get_basename(repo_url);
         if !self.repo.contains_key(&repo_name) {
             self.repo.insert(
                 String::from(&repo_name),
-                RepoTable {
+                SubrepoConfig {
                     urls: vec![String::from(repo_url)],
                     ..Default::default()
                 },
             );
-            self.init(None).unwrap();
         }
         self.repo.get(&repo_name).unwrap()
     }
 
-    fn load_config(&mut self, repo_dir: Option<&PathBuf>) -> Result<()> {
-        if let Some(_) = repo_dir {
-            // Load config file location
-            let config_location = trim_newline_suffix(
-                git_command(repo_dir.unwrap_or(&PathBuf::new()))
-                    .args(["config", "toprepo.config"])
-                    .output()?
-                    .stdout
-                    .to_str()?
-            ).to_string();
+    /// Loads the configuration from a repository.
+    ///
+    /// The location of the configuration file is set in the git-config
+    /// of the super repository using
+    /// `git config --local toprepo.config <ref>:<git-repo-relative-path>`
+    /// which defaults to `refs/remotes/origin/HEAD:.gittoprepo.toml`.
+    /// An empty `ref`, for example `:.gittoprepo.user.toml`, means that the
+    /// file is read from the worktree instead of the commits.
+    ///
+    /// Overriding the location is only recommended for testing out a new
+    /// config and debugging purpose.
+    pub fn load_config_from_repo(repo_dir: &Path) -> Result<Self> {
+        // Load config file location.
+        let config_location = git_config_get(repo_dir, "toprepo.config")?;
+        let (using_default_location, config_location) = match &config_location {
+            Some(location) => (false, location.as_str()),
+            None => (true, "refs/toprepo-super/HEAD:.gittoprepo.toml"),
+        };
 
-            // Read config file
-            let config_toml: String;
-            if config_location.is_empty() {
-                // No config file location was specified, reading from default location
-                // Will be an empty string if the file does not exist
-                config_toml = git_command(repo_dir.unwrap_or(&PathBuf::new()))
-                    .args(["show", "refs/toprepo-super/HEAD:.gittoprepo.toml"])
-                    .output()?
-                    .stdout
-                    .to_str()?
-                    .to_string();
-            } else {
-                // Read config file from provided location
-                // Will panic if the file does not exist
-                config_toml = git_command(repo_dir.unwrap_or(&PathBuf::new()))
+        if config_location.starts_with(":") {
+            let config_path = repo_dir.join(&config_location[1..]);
+            Self::load_config_from_file(&config_path).with_context(|| {
+                format!(
+                    "Loading from configured toprepo.config path in {}",
+                    repo_dir.display()
+                )
+            })
+        } else {
+            || -> Result<GitTopRepoConfig> {
+                // Read config file from the repository.
+                let config_toml_output = git_command(&repo_dir)
                     .args(["show", &config_location])
-                    .output()?
-                    .check_success_with_stderr().with_context(|| format!("Invalid config file location {}", config_location))?
-                    .stdout
-                    .to_str()?
-                    .to_string();
-            }
-
-            // Load config from config file output (default config if empty output)
-            let config: GitTopRepoConfig =
-                toml::from_str(&config_toml).context("Could not parse TOML string")?;
-
-            self.repo = config.repo;
-            self.repos = config.repos;
-        }
-
-        // Set fetch/push urls
-        for (_, v) in self.repo.iter_mut() {
-            if v.fetch.url.is_empty() {
-                if v.urls.len() == 1 {
-                    v.fetch.url = String::from(v.urls.first().unwrap());
-                } else {
-                    bail!("Toprepo requires a submodule fetch url")
+                    .output()?;
+                match config_toml_output.check_success_with_stderr() {
+                    Ok(_) => {
+                        let config_toml = String::from_utf8(config_toml_output.stdout)?.to_string();
+                        Self::load_config_from_toml_string(&config_toml)
+                    }
+                    Err(e) => {
+                        if using_default_location {
+                            // If no config location has been specified, having the file is optional.
+                            return Ok(GitTopRepoConfig::default());
+                        } else {
+                            bail!(e)
+                        }
+                    }
                 }
-            }
-
-            if v.push.url.is_empty() {
-                v.push.url = String::from(&v.fetch.url);
-            }
+            }()
+            .with_context(|| format!("Loading config from {}", config_location))
         }
+    }
+
+    pub fn load_config_from_file(config_path: &Path) -> Result<GitTopRepoConfig> {
+        || -> Result<GitTopRepoConfig> {
+            let config_toml = std::fs::read_to_string(config_path)?;
+            Self::load_config_from_toml_string(&config_toml)
+        }()
+        .context(format!(
+            "Could not read config file {}",
+            config_path.display()
+        ))
+    }
+
+    pub fn load_config_from_toml_string(config_toml: &str) -> Result<GitTopRepoConfig> {
+        let mut res: GitTopRepoConfig =
+            toml::from_str(&config_toml).context("Could not parse TOML string")?;
+        res.validate()?;
+        Ok(res)
+    }
+
+    /// Validates that the configuration is sane.
+    pub fn validate(&mut self) -> Result<()> {
+        for (repo_name, subrepo_config) in self.repo.iter_mut() {
+            subrepo_config
+                .validate()
+                .with_context(|| format!("Invalid subrepo configuration for {}", repo_name))?;
+        }
+        self.ensure_unique_urls()?;
         Ok(())
     }
 
@@ -584,95 +597,116 @@ impl Default for GitTopRepoConfig {
     fn default() -> Self {
         GitTopRepoConfig {
             repo: BTreeMap::default(),
-            repos: ReposTable {
+            repos: RepoListConfig {
                 filter: repos_filter_default(),
             },
         }
     }
 }
 
-impl FromStr for GitTopRepoConfig {
-    type Err = anyhow::Error;
-
-    fn from_str(value: &str) -> Result<Self> {
-        let mut repo_config: GitTopRepoConfig =
-            toml::from_str(&value).context("Could not parse TOML string")?;
-        repo_config
-            .init(None)
-            .context("Failed to initialize repo config from string")?;
-        Ok(repo_config)
-    }
-}
-
-impl TryFrom<&Path> for GitTopRepoConfig {
-    type Error = anyhow::Error;
-
-    fn try_from(repo_dir: &Path) -> Result<Self> {
-        let mut top_repo_config = GitTopRepoConfig::new();
-        top_repo_config
-            .init(Some(&repo_dir.to_path_buf()))
-            .context("Failed to initialize repo config from path")?;
-        Ok(top_repo_config)
-    }
-}
-
+/// SubrepoConfig holds the configuration for a subrepo in the super repo. In
+/// case `fetch.url` is empty, the first entry in `urls` is used. In case
+/// `push.url` is empty, the value of `fetch.url` is used. A sane configuration
+/// has either exactly one entry in `urls` or a fetch URL set.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
-pub struct RepoTable {
-    // TODO: String or Datetime?
-    // pub since: toml::value::Datetime,
+pub struct SubrepoConfig {
     #[serde(default = "repo_since_default")]
-    pub since: String,
+    pub since: chrono::DateTime<chrono::Utc>,
     pub urls: Vec<String>,
-    pub commits: CommitsTable,
-    pub fetch: FetchTable,
-    pub push: PushTable,
+    pub commits: CommitFilterConfig,
+    pub fetch: FetchConfig,
+    pub push: PushConfig,
 }
 
-impl RepoTable {
+impl SubrepoConfig {
     pub fn new(url: &str) -> Self {
-        let mut repo_table = RepoTable::default();
+        let mut repo_table = SubrepoConfig::default();
         repo_table.fetch.url = url.to_string();
         repo_table.push.url = url.to_string();
         repo_table
     }
+
+    /// Validates that the configuration is sane.
+    /// This will check that a fetch URL is set
+    /// if `urls` does not contain exacly one entry.
+    pub fn validate(&self) -> Result<()> {
+        // Set fetch/push urls.
+        if self.fetch.url.is_empty() && self.urls.len() != 1 {
+            bail!("Either .fetch.url needs to be set or .urls must have exactly one element")
+        }
+        Ok(())
+    }
+
+    pub fn resolve_fetch_url(&self) -> &str {
+        if self.fetch.url.is_empty() {
+            assert!(self.validate().is_ok());
+            &self.urls[0]
+        } else {
+            &self.fetch.url
+        }
+    }
+
+    pub fn resolve_push_url(&self) -> &str {
+        if self.push.url.is_empty() {
+            self.resolve_fetch_url()
+        } else {
+            &self.push.url
+        }
+    }
+
+    pub fn get_fetch_config_with_url(&self) -> FetchConfig {
+        let mut fetch = self.fetch.clone();
+        if fetch.url.is_empty() {
+            fetch.url = self.resolve_fetch_url().to_owned();
+        }
+        fetch
+    }
+
+    pub fn get_push_config_with_url(&self) -> PushConfig {
+        let mut push = self.push.clone();
+        if push.url.is_empty() {
+            push.url = self.resolve_push_url().to_owned();
+        }
+        push
+    }
 }
 
-impl Default for RepoTable {
+impl Default for SubrepoConfig {
     fn default() -> Self {
-        RepoTable {
+        SubrepoConfig {
             since: repo_since_default(),
             urls: Vec::default(),
-            commits: CommitsTable::default(),
-            fetch: FetchTable::default(),
-            push: PushTable::default(),
+            commits: CommitFilterConfig::default(),
+            fetch: FetchConfig::default(),
+            push: PushConfig::default(),
         }
     }
 }
 
-fn repo_since_default() -> String {
-    "1970-01-01T00:00:00Z".to_string()
+fn repo_since_default() -> chrono::DateTime<chrono::Utc> {
+    chrono::Utc.timestamp_micros(0).unwrap()
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
-pub struct CommitsTable {
+pub struct CommitFilterConfig {
     pub missing: Vec<String>,
     pub override_parents: BTreeMap<String, Vec<String>>,
 }
 
-impl Default for CommitsTable {
+impl Default for CommitFilterConfig {
     fn default() -> Self {
-        CommitsTable {
+        CommitFilterConfig {
             missing: Vec::new(),
             override_parents: BTreeMap::new(),
         }
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
-pub struct FetchTable {
+pub struct FetchConfig {
     pub args: Vec<String>,
     #[serde(default = "fetch_prune_default")]
     pub prune: bool,
@@ -680,9 +714,9 @@ pub struct FetchTable {
     pub url: String,
 }
 
-impl Default for FetchTable {
+impl Default for FetchConfig {
     fn default() -> Self {
-        FetchTable {
+        FetchConfig {
             args: Vec::new(),
             prune: fetch_prune_default(),
             refspecs: Vec::new(),
@@ -695,39 +729,88 @@ fn fetch_prune_default() -> bool {
     true
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
-pub struct PushTable {
+pub struct PushConfig {
     pub args: Vec<String>,
     pub url: String,
 }
 
-impl Default for PushTable {
+impl Default for PushConfig {
     fn default() -> Self {
-        PushTable {
+        PushConfig {
             args: Vec::new(),
             url: String::new(),
         }
     }
 }
 
+/// Configuration for the list of subrepos to use.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
-pub struct ReposTable {
+pub struct RepoListConfig {
+    /// Tells which sub repos to use. Each value starts with `+` or `-` followed
+    /// by a regexp that should match a whole repository name. The expressions
+    /// are matched in the order specified and the first matching regex decides
+    /// whether the repo should be expanded or not.
+    ///
+    /// Defaults to `["+.*"]`.
     #[serde(default = "repos_filter_default")]
-    pub filter: Vec<String>,
+    pub filter: Vec<RepoListFilter>,
 }
 
-impl Default for ReposTable {
+impl Default for RepoListConfig {
     fn default() -> Self {
-        ReposTable {
+        RepoListConfig {
             filter: repos_filter_default(),
         }
     }
 }
 
-fn repos_filter_default() -> Vec<String> {
-    vec!["+.*".to_string()]
+fn repos_filter_default() -> Vec<RepoListFilter> {
+    vec![RepoListFilter::new(true, Regex::new("^.*$").unwrap()).unwrap()]
+}
+
+#[derive(Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
+pub struct RepoListFilter {
+    pub wanted: bool,
+    pattern: Regex,
+}
+
+impl RepoListFilter {
+    pub fn new(wanted: bool, pattern: Regex) -> Result<Self> {
+        if !pattern.as_str().starts_with('^') || !pattern.as_str().ends_with('$') {
+            bail!("Pattern must start with ^ and end with $");
+        }
+        Ok(RepoListFilter { wanted, pattern })
+    }
+}
+
+impl Display for RepoListFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let wanted_str = if self.wanted { "+" } else { "-" };
+        let full_pattern_str = self.pattern.as_str();
+        assert!(full_pattern_str.starts_with('^'));
+        assert!(full_pattern_str.ends_with('$'));
+        let short_pattern_str = &full_pattern_str[1..full_pattern_str.len() - 1];
+        write!(f, "{}{}", wanted_str, short_pattern_str)
+    }
+}
+
+impl std::str::FromStr for RepoListFilter {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let wanted = match s.chars().next() {
+            Some('+') => true,
+            Some('-') => false,
+            _ => return Err("Expected + or - prefix".to_string()),
+        };
+        let pattern = match Regex::new(&format!("^{}$", &s[1..])) {
+            Ok(r) => r,
+            Err(e) => return Err(format!("Invalid regex: {}", e)),
+        };
+        Ok(RepoListFilter { wanted, pattern })
+    }
 }
 
 #[cfg(test)]
@@ -797,7 +880,7 @@ mod tests {
             .output()
             .unwrap();
 
-        GitTopRepoConfig::try_from(tmp_path.as_path()).unwrap();
+        GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap();
     }
 
     #[test]
@@ -837,12 +920,19 @@ url = "ssh://bar/baz.git"
             .output()
             .unwrap();
 
-        let conf = GitTopRepoConfig::try_from(tmp_path.as_path()).unwrap();
+        let config = GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap();
 
-        assert!(conf.repo.contains_key("foo"));
-        assert_eq!(conf.repo.get("foo").unwrap().fetch.url, "ssh://bar/baz.git");
-        assert_eq!(conf.repo.get("foo").unwrap().push.url, "ssh://bar/baz.git");
-        assert_eq!(conf.repos.filter.first().unwrap(), "+.*");
+        assert!(config.repo.contains_key("foo"));
+        assert_eq!(
+            config.repo.get("foo").unwrap().resolve_fetch_url(),
+            "ssh://bar/baz.git"
+        );
+        assert_eq!(
+            config.repo.get("foo").unwrap().resolve_push_url(),
+            "ssh://bar/baz.git"
+        );
+        assert_eq!(config.repos.filter.len(), 1);
+        assert_eq!(config.repos.filter[0].to_string(), "+.*");
     }
 
     #[test]
@@ -869,10 +959,11 @@ url = "ssh://bar/baz.git"
             .output()
             .unwrap();
 
-        let config = GitTopRepoConfig::try_from(tmp_path.as_path()).unwrap();
+        let config = GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap();
 
         assert!(config.repo.is_empty());
-        assert_eq!(config.repos.filter.first().unwrap(), "+.*");
+        assert_eq!(config.repos.filter.len(), 1);
+        assert_eq!(config.repos.filter[0].to_string(), "+.*");
     }
 
     #[test]
@@ -930,27 +1021,35 @@ url = "ssh://bar/baz.git"
             .output()
             .unwrap();
 
-        let conf = GitTopRepoConfig::try_from(tmp_path.as_path()).unwrap();
+        let config = GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap();
 
-        assert!(conf.repo.contains_key("foo"));
-        assert_eq!(conf.repo.get("foo").unwrap().fetch.url, "ssh://bar/baz.git");
-        assert_eq!(conf.repo.get("foo").unwrap().push.url, "ssh://bar/baz.git");
-        assert_eq!(conf.repos.filter.first().unwrap(), "+.*");
+        assert!(config.repo.contains_key("foo"));
+        assert_eq!(
+            config.repo.get("foo").unwrap().resolve_fetch_url(),
+            "ssh://bar/baz.git"
+        );
+        assert_eq!(
+            config.repo.get("foo").unwrap().resolve_push_url(),
+            "ssh://bar/baz.git"
+        );
+        assert_eq!(config.repos.filter.len(), 1);
+        assert_eq!(config.repos.filter[0].to_string(), "+.*");
     }
 
     #[test]
     fn test_get_repo_with_new_entry() {
-        let mut config = GitTopRepoConfig::from_str("").unwrap();
+        let mut config = GitTopRepoConfig::load_config_from_toml_string("").unwrap();
 
-        config.get_repo_config("ssh://bar/baz.git");
+        config.get_subrepo_config("ssh://bar/baz.git");
 
         assert!(config.repo.contains_key("baz"));
-        assert_eq!(config.repos.filter.first().unwrap(), "+.*");
+        assert_eq!(config.repos.filter.len(), 1);
+        assert_eq!(config.repos.filter[0].to_string(), "+.*");
     }
 
     #[test]
     fn test_get_repo_without_new_entry() {
-        let mut config = GitTopRepoConfig::from_str(
+        let mut config = GitTopRepoConfig::load_config_from_toml_string(
             r#"[repo.foo]
         urls = ["../bar/repo.git"]
 
@@ -958,14 +1057,14 @@ url = "ssh://bar/baz.git"
         )
         .unwrap();
 
-        config.get_repo_config("foo");
+        config.get_subrepo_config("foo");
 
         assert_eq!(config.repo.len(), 1);
     }
 
     #[test]
     fn test_config_with_duplicate_urls() {
-        let err = GitTopRepoConfig::from_str(
+        let err = GitTopRepoConfig::load_config_from_toml_string(
             r#"[repo.foo]
         urls = ["ssh://bar/baz.git"]
 

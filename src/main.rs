@@ -22,7 +22,7 @@ fn config(args: &Cli, config_args: &cli::Config) -> Result<ExitCode> {
     match config_args.config_command {
         cli::ConfigCommands::Show => {
             let monorepo = Repo::from_str(&args.cwd)?;
-            let config = config::GitTopRepoConfig::try_from(monorepo.path.as_path())?;
+            let config = config::GitTopRepoConfig::load_config_from_repo(monorepo.path.as_path())?;
             let toml_config = toml::to_string(&config)?;
             print!("{}", toml_config);
         }
