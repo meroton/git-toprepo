@@ -5,9 +5,7 @@ mod cli;
 use crate::cli::{Cli, Commands};
 
 use git_toprepo::config;
-use git_toprepo::gitmodules::get_gitmodules_info;
-use git_toprepo::{config::Config, config_loader::{ConfigLoaderTrait, LocalGitConfigLoader}};
-use git_toprepo::repo::{remote_to_repo, Repo, RepoFetcher, TopRepo};
+use git_toprepo::repo::Repo;
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -107,52 +105,7 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<ExitCode> {
 #[allow(unused)]
 fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<ExitCode> {
     let monorepo = Repo::from_str(&args.cwd)?;
-
-    let git_config = LocalGitConfigLoader::new(&monorepo).get_configmap().unwrap();
-    let configmap = config::get_configmap(&monorepo, &git_config);
-
-    let git_modules = get_gitmodules_info(
-        configmap.extract_mapping("submodule")?,
-        &monorepo.get_toprepo_fetch_url(),
-    )?;
-
-    let config = Config::new(configmap);
-    println!("{}\n{:?}", "Config:".blue(), config);
-
-    let toprepo = TopRepo::from_config(monorepo.get_toprepo_git_dir(), &config);
-    let repo_fetcher = RepoFetcher::new(&monorepo);
-
-    let (remote_name, git_module) = remote_to_repo(
-        &fetch_args.remote, git_modules, &config,
-    );
-    let (repo_to_fetch, _) = match remote_name.as_str() {
-        TopRepo::NAME => {
-            todo!()
-        }
-        _ => {
-            let git_module = git_module.expect(format!(
-                "git module information is required for remote: '{}'", remote_name).as_str()
-            );
-
-            config.repos.into_iter().find_map(|subrepo_config| {
-                if subrepo_config.name != remote_name {
-                    return None;
-                }
-
-                let name = subrepo_config.name;
-                let path = monorepo.get_subrepo_git_dir(&name);
-                let repo_to_fetch = Repo::new(name, path);
-
-                let subdir = git_module.path.to_str().unwrap().to_string();
-
-                Some((repo_to_fetch, subdir))
-            }).expect(format!(
-                "Could not resolve the remote '{}'", fetch_args.remote
-            ).as_str())
-        }
-    };
-
-    todo!()
+    todo!("Implement fetch");
 }
 
 fn main() -> Result<ExitCode> {

@@ -1,8 +1,5 @@
 #![allow(dead_code)]
 
-use crate::config_loader::{
-    ConfigLoader, ConfigLoaderTrait, LocalFileConfigLoader, RemoteGitConfigLoader,
-};
 use crate::git::CommitHash;
 use crate::gitmodules::join_submodule_url;
 use crate::repo::Repo;
@@ -213,76 +210,6 @@ impl Display for ConfigMap {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-
-pub fn get_configmap(monorepo: &Repo, git_config: &ConfigMap) -> ConfigMap {
-    let configloader = get_config_loader(&monorepo, &git_config).unwrap();
-    let toprepo_config = match configloader {
-        ConfigLoader::Local(c) => c.get_configmap(),
-        ConfigLoader::Remote(c) => c.get_configmap(),
-    }
-    .unwrap();
-    ConfigMap::join(vec![&git_config, &toprepo_config])
-}
-
-fn get_config_loader<'a>(
-    monorepo: &'a Repo,
-    git_config: &'a ConfigMap,
-) -> Result<ConfigLoader<'a>> {
-    // TODO: configmap::get_last
-    let last_wins = |vals: Option<&Vec<String>>| vals.map(|v| v[v.len() - 1].clone());
-
-    let loader_type = last_wins(git_config.get_subkey(TOPREPO_CONFIG_DEFAULT_KEY, "type"))
-        .map(|s| s.to_lowercase());
-    if loader_type.is_none() {
-        return Ok(ConfigLoader::Remote(RemoteGitConfigLoader::new(
-            TOPREPO_DEFAULT_URL.to_owned(),
-            TOPREPO_DEFAULT_REF.to_owned(),
-            &monorepo,
-            // TODO: default value in the constructor?,
-            format!("refs/toprepo/config/{}", TOPREPO_DEFAULT_NAME),
-        )));
-    }
-
-    let loader_type = loader_type.unwrap();
-    let config_loader = match loader_type.as_str() {
-        "file" => {
-            let mut file_path = monorepo.path.clone();
-            file_path.push(PathBuf::from(
-                git_config.get_last("file").expect("Missing file"),
-            ));
-
-            ConfigLoader::Local(LocalFileConfigLoader::new(file_path, false))
-        }
-        "git" => {
-            // Load
-            let raw_url = git_config.get_last("url").expect("Missing url");
-            let reference = git_config.get_last("ref").expect("Missing ref");
-
-            /*
-             * .
-             * refs/meta/git-toprepo
-             * toprepo.config
-             */
-
-            // Translate.
-            let parent_url = monorepo.get_toprepo_fetch_url();
-            let url = join_submodule_url(&parent_url, raw_url);
-
-            // Parse.
-            ConfigLoader::Remote(RemoteGitConfigLoader::new(
-                url,
-                reference.to_string(),
-                &monorepo,
-                format!("refs/toprepo/config/{}", TOPREPO_DEFAULT_NAME),
-            ))
-        }
-        _ => {
-            bail!("Invalid toprepo.config.type {}!", loader_type);
-        }
-    };
-
-    Ok(config_loader)
-}
 
 #[derive(Debug)]
 pub struct Config {
