@@ -2,16 +2,18 @@
 
 use crate::git::CommitHash;
 use crate::gitmodules::join_submodule_url;
-use crate::repo::Repo;
 use crate::util::{
-    get_basename, git_command, git_config_get, iter_to_string, OutputExtension, RawUrl, Url,
+    get_basename, git_command, git_config_get, iter_to_string, trim_newline_suffix,
+    OutputExtension, RawUrl, Url,
 };
 use anyhow::{bail, Context, Result};
+use bstr::ByteSlice;
 use chrono::TimeZone as _;
 use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt::Write as _;
 use std::fmt::{self, Display, Formatter};
 use std::path::{Path, PathBuf};
 
@@ -417,72 +419,93 @@ impl GitTopRepoConfig {
 
     /// Loads the configuration from a repository.
     ///
-    /// The location of the configuration file is set in the git-config
-    /// of the super repository using
-    /// `git config --local toprepo.config <ref>:<git-repo-relative-path>`
-    /// which defaults to `refs/remotes/origin/HEAD:.gittoprepo.toml`.
-    /// An empty `ref`, for example `:.gittoprepo.user.toml`, means that the
-    /// file is read from the worktree instead of the commits.
+    /// The location of the configuration file is set in the git-config of the
+    /// super repository using `git config --local toprepo.config
+    /// <ref>:<git-repo-relative-path>` which defaults to
+    /// `refs/remotes/origin/HEAD:.gittoprepo.toml`. An empty `ref`, for example
+    /// `:.gittoprepo.user.toml`, means that the file is read from the worktree
+    /// instead of the commits.
     ///
-    /// Overriding the location is only recommended for testing out a new
-    /// config and debugging purpose.
-    pub fn load_config_from_repo(repo_dir: &Path) -> Result<Self> {
+    /// Overriding the location is only recommended for testing out a new config
+    /// and debugging purpose.
+    ///
+    /// The `search_log` will be filled with information about how the config
+    /// was found.
+    ///
+    /// Returns the configuration and the location it was loaded from.
+    pub fn load_config_toml_from_repo(
+        repo_dir: &Path,
+        mut search_log: Option<&mut String>,
+    ) -> Result<(String, String)> {
         // Load config file location.
-        let config_location = git_config_get(repo_dir, "toprepo.config")?;
-        let (using_default_location, config_location) = match &config_location {
-            Some(location) => (false, location.as_str()),
-            None => (true, "refs/toprepo-super/HEAD:.gittoprepo.toml"),
+        let git_config_key = "toprepo.config";
+        let default_location = "refs/toprepo-super/HEAD:.gittoprepo.toml";
+
+        let config_location = git_config_get(repo_dir, git_config_key)?;
+        let (using_default_location, mut config_location, found_str) = match &config_location {
+            Some(location) => (false, location.as_str(), "Found"),
+            None => (true, default_location, "Not found"),
         };
-
-        if config_location.starts_with(":") {
-            let config_path = repo_dir.join(&config_location[1..]);
-            Self::load_config_from_file(&config_path).with_context(|| {
-                format!(
-                    "Loading from configured toprepo.config path in {}",
-                    repo_dir.display()
-                )
-            })
-        } else {
-            || -> Result<GitTopRepoConfig> {
-                // Read config file from the repository.
-                let config_toml_output = git_command(&repo_dir)
-                    .args(["show", &config_location])
-                    .output()?;
-                match config_toml_output.check_success_with_stderr() {
-                    Ok(_) => {
-                        let config_toml = String::from_utf8(config_toml_output.stdout)?.to_string();
-                        Self::load_config_from_toml_string(&config_toml)
-                    }
-                    Err(e) => {
-                        if using_default_location {
-                            // If no config location has been specified, having the file is optional.
-                            return Ok(GitTopRepoConfig::default());
-                        } else {
-                            bail!(e)
-                        }
-                    }
-                }
-            }()
-            .with_context(|| format!("Loading config from {}", config_location))
+        if let Some(ref mut search_log) = search_log {
+            writeln!(search_log, "git config {} -> {}", git_config_key, found_str)?;
+            writeln!(search_log, "Location: {}", config_location)?;
         }
+
+        let config_toml = if config_location.starts_with(":") {
+            let config_path = repo_dir.join(&config_location[1..]);
+            if let Some(ref mut search_log) = search_log {
+                writeln!(search_log, "Reading file {}", config_path.to_string_lossy())?;
+            }
+            std::fs::read_to_string(&config_path).with_context(|| {
+                format!(
+                    "Could not read config file {} configured in git-config by {}",
+                    config_path.display(),
+                    git_config_key,
+                )
+            })?
+        } else {
+            // Read config file from the repository.
+            let config_toml_output = git_command(&repo_dir)
+                .args(["show", &config_location])
+                .output()?;
+            if config_toml_output.status.code() == Some(128) && using_default_location {
+                // If no config location has been specified, having the file is optional.
+                if let Some(ref mut search_log) = search_log {
+                    writeln!(
+                        search_log,
+                        "git show reported {}",
+                        trim_newline_suffix(&config_toml_output.stderr.to_str_lossy())
+                    )?;
+                    writeln!(search_log, "Falling back to default configuration")?;
+                }
+                config_location = "<default-empty>";
+                String::new()
+            } else {
+                std::str::from_utf8(&config_toml_output.check_success_with_stderr()?.stdout)?
+                    .to_owned()
+            }
+        };
+        Ok((config_toml, config_location.to_owned()))
     }
 
-    pub fn load_config_from_file(config_path: &Path) -> Result<GitTopRepoConfig> {
-        || -> Result<GitTopRepoConfig> {
-            let config_toml = std::fs::read_to_string(config_path)?;
-            Self::load_config_from_toml_string(&config_toml)
-        }()
-        .context(format!(
-            "Could not read config file {}",
-            config_path.display()
-        ))
-    }
-
-    pub fn load_config_from_toml_string(config_toml: &str) -> Result<GitTopRepoConfig> {
-        let mut res: GitTopRepoConfig =
-            toml::from_str(&config_toml).context("Could not parse TOML string")?;
+    pub fn load_config_from_toml_string(config_toml: &str) -> Result<Self> {
+        let mut res: Self = toml::from_str(&config_toml).context("Could not parse TOML string")?;
         res.validate()?;
         Ok(res)
+    }
+
+    pub fn load_config_from_repo_with_log(
+        repo_dir: &Path,
+        search_log: Option<&mut String>,
+    ) -> Result<Self> {
+        let (config_toml, config_location) =
+            Self::load_config_toml_from_repo(repo_dir, search_log)?;
+        Self::load_config_from_toml_string(&config_toml)
+            .with_context(|| format!("Loading {}", config_location))
+    }
+
+    pub fn load_config_from_repo(repo_dir: &Path) -> Result<Self> {
+        Self::load_config_from_repo_with_log(repo_dir, None)
     }
 
     /// Validates that the configuration is sane.
