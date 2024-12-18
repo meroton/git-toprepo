@@ -16,6 +16,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::fmt::{self, Display, Formatter};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 //TODO: Create proper error enums instead of strings
 
@@ -398,6 +399,25 @@ pub struct GitTopRepoConfig {
     repos: RepoListConfig,
 }
 
+pub enum ConfigLocation {
+    /// Load a blob from the repo.
+    RepoBlob(String),
+    /// Load from the path relative to the repository root.
+    Worktree(PathBuf),
+    /// Default empty configuration should be loaded.
+    None,
+}
+
+impl Display for ConfigLocation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            ConfigLocation::RepoBlob(blob) => write!(f, "blob: {}", blob),
+            ConfigLocation::Worktree(path) => write!(f, "worktree file: {}", path.display()),
+            ConfigLocation::None => write!(f, "<default-empty>"),
+        }
+    }
+}
+
 impl GitTopRepoConfig {
     fn new() -> Self {
         GitTopRepoConfig::default()
@@ -417,7 +437,7 @@ impl GitTopRepoConfig {
         self.repo.get(&repo_name).unwrap()
     }
 
-    /// Loads the configuration from a repository.
+    /// Finds the location of the configuration to load.
     ///
     /// The location of the configuration file is set in the git-config of the
     /// super repository using `git config --local toprepo.config
@@ -433,62 +453,92 @@ impl GitTopRepoConfig {
     /// was found.
     ///
     /// Returns the configuration and the location it was loaded from.
-    pub fn load_config_toml_from_repo(
+    pub fn find_configuration_location(
         repo_dir: &Path,
         mut search_log: Option<&mut String>,
-    ) -> Result<(String, String)> {
+    ) -> Result<ConfigLocation> {
         // Load config file location.
         let git_config_key = "toprepo.config";
         let default_location = "refs/toprepo-super/HEAD:.gittoprepo.toml";
 
-        let config_location = git_config_get(repo_dir, git_config_key)?;
-        let (using_default_location, mut config_location, found_str) = match &config_location {
-            Some(location) => (false, location.as_str(), "Found"),
-            None => (true, default_location, "Not found"),
+        let user_location = git_config_get(repo_dir, git_config_key)?;
+        let (using_default_location, location) = match user_location.as_deref().unwrap_or("") {
+            "" => (true, default_location),
+            s => (false, s),
         };
+        // Log the search.
         if let Some(ref mut search_log) = search_log {
-            writeln!(search_log, "git config {} -> {}", git_config_key, found_str)?;
-            writeln!(search_log, "Location: {}", config_location)?;
+            writeln!(
+                search_log,
+                "git config {}: {}",
+                git_config_key,
+                user_location.as_deref().unwrap_or("<unset>")
+            )?;
+            if using_default_location {
+                writeln!(search_log, "Using default location: {}", default_location)?;
+            }
         }
 
-        let config_toml = if config_location.starts_with(":") {
-            let config_path = repo_dir.join(&config_location[1..]);
-            if let Some(ref mut search_log) = search_log {
-                writeln!(search_log, "Reading file {}", config_path.to_string_lossy())?;
-            }
-            std::fs::read_to_string(&config_path).with_context(|| {
-                format!(
-                    "Could not read config file {} configured in git-config by {}",
-                    config_path.display(),
-                    git_config_key,
-                )
-            })?
+        let parsed_location = if location.starts_with(":") {
+            ConfigLocation::Worktree(PathBuf::from_str(&location[1..])?)
         } else {
-            // Read config file from the repository.
+            // R¨ead config file from the repository.
             let config_toml_output = git_command(&repo_dir)
-                .args(["show", &config_location])
+                .args(["cat-file", "-e", location])
                 .output()?;
-            if config_toml_output.status.code() == Some(128) && using_default_location {
-                // If no config location has been specified, having the file is optional.
-                if let Some(ref mut search_log) = search_log {
-                    writeln!(
-                        search_log,
-                        "git show reported {}",
-                        trim_newline_suffix(&config_toml_output.stderr.to_str_lossy())
-                    )?;
-                    writeln!(search_log, "Falling back to default configuration")?;
+            match config_toml_output.check_success_with_stderr() {
+                Ok(_) => {
+                    // The config file blob exists in the repo.
+                    ConfigLocation::RepoBlob(location.to_owned())
                 }
-                config_location = "<default-empty>";
-                String::new()
-            } else {
-                std::str::from_utf8(&config_toml_output.check_success_with_stderr()?.stdout)?
-                    .to_owned()
+                Err(e) => {
+                    // The config file does not exist in the commit.
+                    if using_default_location {
+                        // If no config location has been specified, having the file is optional.
+                        if let Some(ref mut search_log) = search_log {
+                            writeln!(
+                                search_log,
+                                "'git cat-file -e' reported {}",
+                                trim_newline_suffix(&config_toml_output.stderr.to_str_lossy())
+                            )?;
+                            writeln!(search_log, "Falling back to default configuration")?;
+                        }
+                        ConfigLocation::None
+                    } else {
+                        bail!(
+                            "Config file {} does not exist in the commit: {}",
+                            location,
+                            e
+                        )
+                    }
+                }
             }
         };
-        Ok((config_toml, config_location.to_owned()))
+        Ok(parsed_location)
     }
 
-    pub fn load_config_from_toml_string(config_toml: &str) -> Result<Self> {
+    /// Loads the TOML configuration string without parsing it.
+    pub fn load_config_toml(repo_dir: &Path, location: &ConfigLocation) -> Result<String> {
+        || -> Result<String> {
+            match location {
+                ConfigLocation::RepoBlob(object) => Ok(git_command(&repo_dir)
+                    .args(["show", object])
+                    .output()?
+                    .check_success_with_stderr()?
+                    .stdout
+                    .to_str()?
+                    .to_owned()),
+                ConfigLocation::Worktree(path) => {
+                    std::fs::read_to_string(repo_dir.join(path)).context("Reading config file")
+                }
+                ConfigLocation::None => Ok(String::new()),
+            }
+        }()
+        .with_context(|| format!("Loading {}", location))
+    }
+
+    /// Parse a TOML configuration string.
+    pub fn parse_config_toml_string(config_toml: &str) -> Result<Self> {
         let mut res: Self = toml::from_str(&config_toml).context("Could not parse TOML string")?;
         res.validate()?;
         Ok(res)
@@ -498,10 +548,10 @@ impl GitTopRepoConfig {
         repo_dir: &Path,
         search_log: Option<&mut String>,
     ) -> Result<Self> {
-        let (config_toml, config_location) =
-            Self::load_config_toml_from_repo(repo_dir, search_log)?;
-        Self::load_config_from_toml_string(&config_toml)
-            .with_context(|| format!("Loading {}", config_location))
+        let location = Self::find_configuration_location(repo_dir, search_log)?;
+        let config_toml = Self::load_config_toml(repo_dir, &location)?;
+        Self::parse_config_toml_string(&config_toml)
+            .with_context(|| format!("Parsing {}", &location))
     }
 
     pub fn load_config_from_repo(repo_dir: &Path) -> Result<Self> {
@@ -812,7 +862,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn test_create_config_from_invalid_ref() {
         let tmp_dir = tempfile::tempdir().unwrap();
         let tmp_path = tmp_dir.path().to_path_buf();
@@ -830,7 +879,16 @@ mod tests {
             .output()
             .unwrap();
 
-        GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap();
+        let err = GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap_err();
+        print!("{:?}", err);
+        assert_eq!(
+            format!("{:?}", err),
+            "Loading worktree file: foobar.toml
+
+Caused by:
+    0: Reading config file
+    1: No such file or directory (os error 2)"
+        );
     }
 
     #[test]
@@ -988,7 +1046,7 @@ url = "ssh://bar/baz.git"
 
     #[test]
     fn test_get_repo_with_new_entry() {
-        let mut config = GitTopRepoConfig::load_config_from_toml_string("").unwrap();
+        let mut config = GitTopRepoConfig::parse_config_toml_string("").unwrap();
 
         config.get_subrepo_config("ssh://bar/baz.git");
 
@@ -999,7 +1057,7 @@ url = "ssh://bar/baz.git"
 
     #[test]
     fn test_get_repo_without_new_entry() {
-        let mut config = GitTopRepoConfig::load_config_from_toml_string(
+        let mut config = GitTopRepoConfig::parse_config_toml_string(
             r#"[repo.foo]
         urls = ["../bar/repo.git"]
 
@@ -1014,7 +1072,7 @@ url = "ssh://bar/baz.git"
 
     #[test]
     fn test_config_with_duplicate_urls() {
-        let err = GitTopRepoConfig::load_config_from_toml_string(
+        let err = GitTopRepoConfig::parse_config_toml_string(
             r#"[repo.foo]
         urls = ["ssh://bar/baz.git"]
 
@@ -1025,7 +1083,7 @@ url = "ssh://bar/baz.git"
         )
         .unwrap_err();
         assert_eq!(
-            err.root_cause().to_string(),
+            format!("{:?}", err),
             "URLs must be unique across all repos, found ssh://bar/baz.git in bar and foo"
         );
     }

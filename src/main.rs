@@ -24,38 +24,46 @@ fn config(global_args: &Cli, config_args: &cli::Config) -> Result<ExitCode> {
             || -> Result<GitTopRepoConfig> {
                 let mut toml_string = String::new();
                 std::io::stdin().read_to_string(&mut toml_string)?;
-                config::GitTopRepoConfig::load_config_from_toml_string(&toml_string)
+                config::GitTopRepoConfig::parse_config_toml_string(&toml_string)
             }()
             .context("Loading from stdin")
         } else {
             || -> Result<GitTopRepoConfig> {
                 let toml_string = std::fs::read_to_string(file)?;
-                config::GitTopRepoConfig::load_config_from_toml_string(&toml_string)
+                config::GitTopRepoConfig::parse_config_toml_string(&toml_string)
             }()
             .with_context(|| format!("Loading config file {}", file.display()))
         }
     };
     match &config_args.config_command {
         cli::ConfigCommands::Location(args) => {
-            let mut search_log = String::new();
-            let (_, location) = config::GitTopRepoConfig::load_config_toml_from_repo(
+            let mut search_log = match args.verbose {
+                true => Some(String::new()),
+                false => None,
+            };
+            let location = config::GitTopRepoConfig::find_configuration_location(
                 PathBuf::from(global_args.cwd.to_owned()).as_path(),
-                Some(&mut search_log),
+                search_log.as_mut(),
             )?;
-            if args.verbose {
-                eprint!("{}", &search_log);
-            }
+            match search_log {
+                Some(log) => eprint!("{}", log),
+                None => (),
+            };
             println!("{}", location);
         }
         cli::ConfigCommands::Show(args) => {
-            let mut search_log = String::new();
+            let mut search_log = match args.verbose {
+                true => Some(String::new()),
+                false => None,
+            };
             let config = config::GitTopRepoConfig::load_config_from_repo_with_log(
                 PathBuf::from(global_args.cwd.to_owned()).as_path(),
-                Some(&mut search_log),
+                search_log.as_mut(),
             )?;
-            if args.verbose {
-                eprint!("{}", &search_log);
-            }
+            match search_log {
+                Some(log) => eprint!("{}", log),
+                None => (),
+            };
             print!("{}", toml::to_string(&config)?);
         }
         cli::ConfigCommands::Normalize(args) => {
