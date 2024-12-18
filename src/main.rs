@@ -9,22 +9,42 @@ use git_toprepo::gitmodules::get_gitmodules_info;
 use git_toprepo::{config::Config, config_loader::{ConfigLoaderTrait, LocalGitConfigLoader}};
 use git_toprepo::repo::{remote_to_repo, Repo, RepoFetcher, TopRepo};
 
-use std::panic;
 use std::collections::HashMap;
+use std::io::Read;
+use std::panic;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bstr::{BString,ByteVec};
 use clap::Parser;
 use colored::Colorize;
 
-fn config(args: &Cli, config_args: &cli::Config) -> Result<ExitCode> {
-    match config_args.config_command {
+fn config(global_args: &Cli, config_args: &cli::Config) -> Result<ExitCode> {
+    let load_config_from_file = |file: &Path| -> Result<config::GitTopRepoConfig> {
+        if file == PathBuf::from("-") {
+            let mut toml_string = String::new();
+            std::io::stdin()
+                .read_to_string(&mut toml_string)
+                .context("Reading from stdin")?;
+            config::GitTopRepoConfig::load_config_from_toml_string(&toml_string)
+        } else {
+            config::GitTopRepoConfig::load_config_from_file(file)
+        }
+    };
+    match &config_args.config_command {
         cli::ConfigCommands::Show => {
-            let monorepo = Repo::from_str(&args.cwd)?;
-            let config = config::GitTopRepoConfig::load_config_from_repo(monorepo.path.as_path())?;
-            let toml_config = toml::to_string(&config)?;
-            print!("{}", toml_config);
+            let config = config::GitTopRepoConfig::load_config_from_repo(
+                PathBuf::from(global_args.cwd.to_owned()).as_path(),
+            )?;
+            print!("{}", toml::to_string(&config)?);
+        }
+        cli::ConfigCommands::Normalize(args) => {
+            let config = load_config_from_file(args.file.as_path())?;
+            print!("{}", toml::to_string(&config)?);
+        }
+        cli::ConfigCommands::Validate(args) => {
+            let _ = load_config_from_file(args.file.as_path())?;
         }
     }
     Ok(ExitCode::SUCCESS)

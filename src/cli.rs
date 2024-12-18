@@ -5,6 +5,7 @@
  */
 use clap::{Args, Parser, Subcommand};
 use std::env;
+use std::path::PathBuf;
 use std::string::ToString;
 
 const ABOUT: &str = "git-submodule made easy with git-toprepo.
@@ -63,6 +64,24 @@ pub struct Config {
 pub enum ConfigCommands {
     /// Show the configuration of the current repository.
     Show,
+    /// Reads a configuration and prints it in normalized form.
+    Normalize(ConfigNormalize),
+    /// Verifies that a given configuration can be loaded.
+    Validate(ConfigValidate),
+}
+
+#[derive(Args, Debug)]
+pub struct ConfigNormalize {
+    /// The configuration file to normalize or - for stdin.
+    #[arg(id="file")]
+    pub file: PathBuf,
+}
+
+#[derive(Args, Debug)]
+pub struct ConfigValidate {
+    /// The configuration file to validate or - for stdin.
+    #[arg(id="file")]
+    pub file: PathBuf,
 }
 
 #[derive(Args, Debug)]
