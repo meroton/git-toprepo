@@ -5,6 +5,7 @@ mod cli;
 use crate::cli::{Cli, Commands};
 
 use git_toprepo::config::{self, GitTopRepoConfig};
+use git_toprepo::gitmodules;
 use git_toprepo::repo::Repo;
 
 use std::collections::HashMap;
@@ -151,6 +152,7 @@ fn main() -> Result<ExitCode> {
     }));
 
     let args = Cli::parse();
+    gitmodules::doit(&PathBuf::from(&args.cwd))?;
     let res: ExitCode = match args.command {
         Commands::Init(_) => todo!(),
         Commands::Config(ref config_args) => config(&args, config_args)?,
