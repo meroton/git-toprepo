@@ -1,11 +1,13 @@
 use anyhow::Result;
-use bstr::ByteSlice;
+use bstr::{ByteSlice, ByteVec};
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Read},
     path::Path,
     process::Stdio,
 };
+
+use crate::util::git_command;
 
 #[derive(Debug, Default)]
 pub struct FastExportCommit {
@@ -34,18 +36,18 @@ pub enum DiffStatus {
 }
 
 #[derive(Debug)]
+// TODO: Change name to FastExportParser
 pub struct FastExportRepo {
-    old_ids: HashMap<Vec<u8>, Vec<u8>>,
+    mark_oid_map: HashMap<Vec<u8>, Vec<u8>>,
     reader: BufReader<std::process::ChildStdout>,
     current_line: Vec<u8>,
 }
 
+// TODO: Add access function to get committer date
 impl FastExportRepo {
     pub fn load_from_path(repo_dir: &Path) -> Result<Self> {
-        let stdout = std::process::Command::new("git")
+        let stdout = git_command(&repo_dir)
             .args([
-                "-C",
-                repo_dir.to_str().unwrap(),
                 "fast-export",
                 "--all", // Parameters needed to delimit which revs to include
                 "--no-data",
@@ -65,12 +67,12 @@ impl FastExportRepo {
             })?;
 
         Ok(FastExportRepo {
-            old_ids: HashMap::new(),
+            mark_oid_map: HashMap::new(),
             reader: BufReader::new(stdout),
             current_line: Vec::new(),
         })
     }
-    
+
     fn advance_line(&mut self) -> Result<usize> {
         self.current_line.clear();
         let bytes = self.reader.read_until(b'\n', &mut self.current_line)?;
@@ -125,7 +127,7 @@ impl FastExportRepo {
             self.advance_line().unwrap();
 
             if let Some(mark) = opt_mark {
-                self.old_ids.insert(mark, original_id.clone());
+                self.mark_oid_map.insert(mark, original_id.clone());
             }
         }
 
@@ -167,22 +169,27 @@ impl FastExportRepo {
             self.advance_line().unwrap();
         }
 
+        // TODO: Handle more than 1 parent
         if self.starts_with(b"from") {
             let baseref = self.current_line.split_once_str(b"from ").unwrap().1;
             if baseref.starts_with_str(b":") {
                 let key = baseref.split_at(1).1.to_vec();
-                commit.parents.push(self.old_ids.get(&key).unwrap().clone());
+                commit
+                    .parents
+                    .push(self.mark_oid_map.get(&key).unwrap().clone());
             } else if baseref.len() == 40 {
                 commit.parents.push(baseref.to_vec());
             }
             self.advance_line().unwrap();
         }
 
-        if self.starts_with(b"merge") {
+        while self.starts_with(b"merge") {
             let baseref = self.current_line.split_once_str(b"merge ").unwrap().1;
             if baseref.starts_with_str(":") {
                 let key = baseref.split_at(1).1.to_vec();
-                commit.parents.push(self.old_ids.get(&key).unwrap().clone());
+                commit
+                    .parents
+                    .push(self.mark_oid_map.get(&key).unwrap().clone());
             } else if baseref.len() == 40 {
                 commit.parents.push(baseref.to_vec());
             }
@@ -231,6 +238,84 @@ impl Iterator for FastExportRepo {
         }
         None
     }
+}
+
+pub fn export_to_fast_import<I>(commit_container: &mut I) -> Vec<u8>
+where
+    I: Iterator<Item = FastExportCommit>,
+{
+    let mut mark_counter: usize = 1;
+    let mut out = Vec::<u8>::new();
+    let mut oid_mark_map: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
+    out.push_str(b"feature done\n");
+
+    for commit in commit_container.by_ref() {
+        if commit.parents.is_empty() {
+            out.push_str(b"reset ");
+            out.push_str(&commit.branch);
+            out.push_byte(b'\n');
+        }
+
+        out.push_str(b"commit ");
+        out.push_str(&commit.branch);
+        out.push_byte(b'\n');
+
+        let mark_as_bytes = mark_counter.to_string().as_bytes().to_vec();
+        out.push_str(b"mark :");
+        out.push_str(&mark_as_bytes);
+        out.push_byte(b'\n');
+        oid_mark_map.insert(commit.original_id.clone(), mark_as_bytes.clone());
+        mark_counter += 1;
+
+        out.push_str(b"original-oid ");
+        out.push_str(&commit.original_id);
+        out.push_byte(b'\n');
+
+        out.push_str(&commit.author_info);
+        out.push_byte(b'\n');
+
+        out.push_str(&commit.committer_info);
+        out.push_byte(b'\n');
+
+        out.push_str(b"data ");
+        out.push_str(&commit.message.len().to_string().as_bytes());
+        out.push_byte(b'\n');
+        out.push_str(&commit.message);
+
+        if !commit.parents.is_empty() {
+            out.push_str(b"from :");
+            out.push_str(&oid_mark_map.get(commit.parents.first().unwrap()).unwrap());
+            out.push_byte(b'\n');
+
+            for parent in commit.parents[1..].iter() {
+                out.push_str(b"merge :");
+                out.push_str(&oid_mark_map.get(parent).unwrap());
+                out.push_byte(b'\n');
+            }
+        }
+
+        for changed_file in commit.file_changes {
+            match changed_file.status {
+                DiffStatus::Modified => {
+                    out.push_str(b"M ");
+                    out.push_str(&changed_file.mode.unwrap());
+                    out.push_byte(b' ');
+                    out.push_str(&changed_file.hash.unwrap());
+                    out.push_byte(b' ');
+                }
+                DiffStatus::Deleted => {
+                    out.push_str(b"D ");
+                }
+            }
+            out.push_str(&changed_file.file);
+            out.push_byte(b'\n');
+        }
+
+        out.push_byte(b'\n');
+    }
+    out.push_str(b"done\n");
+
+    out
 }
 
 #[cfg(test)]
@@ -297,5 +382,72 @@ mod tests {
             b"9f781a9707757573b16ee5946ab147e4e66857bc"
         );
         assert_eq!(commit_d.encoding, None);
+    }
+
+    #[test]
+    fn test_fast_import() {
+        use crate::util::git_command;
+        use crate::util::GitTopRepoExample;
+        use std::io::Write;
+        use tempfile::tempdir;
+
+        let temp_dir = tempdir().unwrap();
+        let from_repo_path =
+            GitTopRepoExample::new(&temp_dir.path().join("from")).init_server_top();
+        let to_repo_path = temp_dir.path().join("to");
+        std::fs::create_dir(&to_repo_path).unwrap();
+
+        git_command(&to_repo_path).args(["init"]).output().unwrap();
+        std::fs::copy(
+            from_repo_path.as_path().join(".gitmodules"),
+            to_repo_path.as_path().join(".gitmodules"),
+        )
+        .unwrap();
+        git_command(&to_repo_path)
+            .args(["add", ".gitmodules"])
+            .output()
+            .unwrap();
+
+        let mut fast_export_repo =
+            FastExportRepo::load_from_path(from_repo_path.as_path()).unwrap();
+
+        let fast_import_input = export_to_fast_import(&mut fast_export_repo);
+
+        let mut child = git_command(&to_repo_path)
+            .args(["fast-import", "--done"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("Could not start fast-import process");
+
+        let mut stdin = child.stdin.take().unwrap();
+        std::thread::spawn(move || {
+            stdin
+                .write_all(&fast_import_input)
+                .expect("Could not write to stdin");
+        });
+
+        child.wait().expect("Could not read stdin");
+
+        let from_ref = git_command(&from_repo_path)
+            .args(["rev-parse", "refs/heads/main"])
+            .output()
+            .unwrap()
+            .stdout
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let to_ref = git_command(&to_repo_path)
+            .args(["rev-parse", "refs/heads/main"])
+            .output()
+            .unwrap()
+            .stdout
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        assert_eq!(from_ref, to_ref);
     }
 }
