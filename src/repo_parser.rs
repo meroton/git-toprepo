@@ -1,5 +1,6 @@
 use anyhow::Result;
 use bstr::{ByteSlice, ByteVec};
+use itertools::Itertools;
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Read},
@@ -21,6 +22,19 @@ pub struct FastExportCommit {
     pub encoding: Option<Vec<u8>>,
 }
 
+impl FastExportCommit {
+    pub fn get_timestamp(&self) -> i64 {
+        // TODO: Handle different timestamp formats.
+        let substrings = self.committer_info.split_str(b" ").collect_vec();
+
+        // In the default (`raw`) date format, the second to last word should always be the timestamp.
+        // https://git-scm.com/docs/git-fast-import#_commit
+        // https://git-scm.com/docs/git-fast-import#Documentation/git-fast-import.txt-coderawcode
+        let timestamp = substrings.get(substrings.len() - 2).unwrap();
+        timestamp.to_str().unwrap().parse().unwrap()        
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct ChangedFile {
     pub file: Vec<u8>,
@@ -36,14 +50,12 @@ pub enum DiffStatus {
 }
 
 #[derive(Debug)]
-// TODO: Change name to FastExportParser
 pub struct FastExportRepo {
     mark_oid_map: HashMap<Vec<u8>, Vec<u8>>,
     reader: BufReader<std::process::ChildStdout>,
     current_line: Vec<u8>,
 }
 
-// TODO: Add access function to get committer date
 impl FastExportRepo {
     pub fn load_from_path(repo_dir: &Path) -> Result<Self> {
         let stdout = git_command(&repo_dir)
