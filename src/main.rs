@@ -148,6 +148,11 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<ExitCode> {
 }
 */
 
+fn refilter() -> Result<ExitCode> {
+    let toprepo = git_toprepo::repo::TopRepo::open(PathBuf::new())?;
+    todo!("Implement refilter");
+}
+
 fn fetch(_fetch_args: &cli::Fetch) -> Result<ExitCode> {
     //let monorepo = Repo::from_str(&args.cwd)?;
     todo!("Implement fetch");
@@ -174,7 +179,7 @@ fn main() -> Result<ExitCode> {
     let res: ExitCode = match args.command {
         Commands::Init(ref init_args) => init(init_args)?,
         Commands::Config(ref config_args) => config(config_args)?,
-        Commands::Refilter => todo!(),
+        Commands::Refilter => refilter()?,
         Commands::Fetch(ref fetch_args) => fetch(fetch_args)?,
         Commands::Push => todo!(),
         Commands::Replace(ref _replace_args) => todo!(), //replace(&args, replace_args)?,
