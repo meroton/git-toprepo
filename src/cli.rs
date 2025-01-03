@@ -1,4 +1,3 @@
-
 /** Command line argument definition using subcommands.
  *
  * See also https://jmmv.dev/2013/08/cli-design-putting-flags-to-good-use.html#bad-using-flags-to-select-subcommands.
@@ -21,7 +20,6 @@ pub struct Cli {
 
     #[command(subcommand)]
     pub command: Commands,
-
 }
 
 #[derive(Subcommand, Debug)]
@@ -29,9 +27,9 @@ pub struct Cli {
 pub enum Commands {
     Init(Init),
     Config(Config),
-    Refilter,  // Unimplemented
+    Refilter, // Unimplemented
     Fetch(Fetch),
-    Push,  // Unimplemented
+    Push, // Unimplemented
 
     /// Scaffolding code to start writing `.gitmodule` mapping code.
     /// This replaces the first field of every line on standard in
@@ -74,27 +72,27 @@ pub enum ConfigCommands {
 
 #[derive(Args, Debug)]
 pub struct ConfigLocation {
-    #[arg(short='v')]
+    #[arg(short = 'v', long = "verbose")]
     pub verbose: bool,
 }
 
 #[derive(Args, Debug)]
 pub struct ConfigShow {
-    #[arg(short='v')]
+    #[arg(short = 'v', long = "verbose")]
     pub verbose: bool,
 }
 
 #[derive(Args, Debug)]
 pub struct ConfigNormalize {
     /// The configuration file to normalize or - for stdin.
-    #[arg(id="file")]
+    #[arg(id = "file")]
     pub file: PathBuf,
 }
 
 #[derive(Args, Debug)]
 pub struct ConfigValidate {
     /// The configuration file to validate or - for stdin.
-    #[arg(id="file")]
+    #[arg(id = "file")]
     pub file: PathBuf,
 }
 
@@ -106,7 +104,7 @@ pub struct Fetch {
     #[arg(default_value_t = String::from("origin"))]
     pub remote: String,
 
-    #[arg(id="ref")]
+    #[arg(id = "ref")]
     reference: Option<String>,
 }
 
@@ -115,7 +113,7 @@ pub struct Replace {
     #[arg(long)]
     /// Dump the project to submodule mapping
     ///    <project>: <module path>
-    pub dump: bool
+    pub dump: bool,
 }
 
 fn get_cwd() -> String {

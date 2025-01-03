@@ -1,13 +1,19 @@
+use anyhow::{anyhow, Result};
+use itertools::Itertools;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::io::BufRead;
-use std::{fmt, path::PathBuf};
 use std::process::Command;
-use itertools::Itertools;
-use anyhow::{anyhow, Result};
-use crate::repo::Repo;
+use std::{fmt, path::PathBuf};
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone,Debug)]
+#[derive(Debug)]
+pub struct Repo {
+    pub path: PathBuf,
+}
+
+#[derive(
+    PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug, serde::Serialize, serde::Deserialize,
+)]
 pub struct CommitHash(String);
 
 impl From<Vec<u8>> for CommitHash {
@@ -50,11 +56,10 @@ pub struct PushSplitter<'a> {
     repo: &'a Repo,
 }
 
-impl PushSplitter<'_> { //TODO: verify
+impl PushSplitter<'_> {
+    //TODO: verify
     pub fn new(repo: &Repo) -> PushSplitter {
-        PushSplitter {
-            repo
-        }
+        PushSplitter { repo }
     }
 
     pub fn _trim_push_commit_message(mono_message: &str) -> Result<&str> {
@@ -76,7 +81,10 @@ impl PushSplitter<'_> { //TODO: verify
     }
 
     #[allow(unused)]
-    pub fn get_top_commit_subrepos(&self, top_commit_hash: CommitHash) -> HashMap<Vec<u8>, CommitHash> {
+    pub fn get_top_commit_subrepos(
+        &self,
+        top_commit_hash: CommitHash,
+    ) -> HashMap<Vec<u8>, CommitHash> {
         let top_commit_hash = ""; //TODO
         let ls_tree_subrepo_stdout = Command::new("git")
             .args(["-C", self.repo.path.to_str().unwrap()])

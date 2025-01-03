@@ -1,12 +1,10 @@
 use anyhow::Result;
 use bstr::{ByteSlice, ByteVec};
 use itertools::Itertools;
-use std::{
-    collections::HashMap,
-    io::{BufRead, BufReader, Read},
-    path::Path,
-    process::Stdio,
-};
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Read};
+use std::path::Path;
+use std::process::Stdio;
 
 use crate::util::git_command;
 
@@ -31,7 +29,7 @@ impl FastExportCommit {
         // https://git-scm.com/docs/git-fast-import#_commit
         // https://git-scm.com/docs/git-fast-import#Documentation/git-fast-import.txt-coderawcode
         let timestamp = substrings.get(substrings.len() - 2).unwrap();
-        timestamp.to_str().unwrap().parse().unwrap()        
+        timestamp.to_str().unwrap().parse().unwrap()
     }
 }
 

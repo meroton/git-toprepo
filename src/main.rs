@@ -2,22 +2,16 @@
 
 mod cli;
 
-use crate::cli::{Cli, Commands};
-
 use git_toprepo::config::{self, GitTopRepoConfig};
-use git_toprepo::gitmodules;
-use git_toprepo::repo::Repo;
 
-use std::collections::HashMap;
+use crate::cli::{Cli, Commands};
+use anyhow::{Context, Result};
+use clap::Parser;
+use colored::Colorize;
 use std::io::Read;
 use std::panic;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-
-use anyhow::{Context, Result};
-use bstr::{BString, ByteVec};
-use clap::Parser;
-use colored::Colorize;
 
 fn config(global_args: &Cli, config_args: &cli::Config) -> Result<ExitCode> {
     let load_config_from_file = |file: &Path| -> Result<GitTopRepoConfig> {
@@ -77,7 +71,7 @@ fn config(global_args: &Cli, config_args: &cli::Config) -> Result<ExitCode> {
     }
     Ok(ExitCode::SUCCESS)
 }
-
+/*
 /// Replace references to Gerrit projects to the local file paths of submodules.
 fn replace(args: &Cli, replace: &cli::Replace) -> Result<ExitCode> {
     /// The main repo is not technically a submodule.
@@ -131,10 +125,10 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<ExitCode> {
 
     Ok(ExitCode::SUCCESS)
 }
-
+*/
 #[allow(unused)]
 fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<ExitCode> {
-    let monorepo = Repo::from_str(&args.cwd)?;
+    //let monorepo = Repo::from_str(&args.cwd)?;
     todo!("Implement fetch");
 }
 
@@ -152,14 +146,13 @@ fn main() -> Result<ExitCode> {
     }));
 
     let args = Cli::parse();
-    gitmodules::doit(&PathBuf::from(&args.cwd))?;
     let res: ExitCode = match args.command {
         Commands::Init(_) => todo!(),
         Commands::Config(ref config_args) => config(&args, config_args)?,
         Commands::Refilter => todo!(),
         Commands::Fetch(ref fetch_args) => fetch(&args, fetch_args)?,
         Commands::Push => todo!(),
-        Commands::Replace(ref replace_args) => replace(&args, replace_args)?,
+        Commands::Replace(ref _replace_args) => todo!(), //replace(&args, replace_args)?,
     };
     Ok(res)
 }

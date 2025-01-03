@@ -1,11 +1,11 @@
-use crate::git::CommitHash;
 use anyhow::bail;
 use bstr::ByteSlice;
 use itertools::Itertools;
 use std::collections::HashMap;
-use std::path;
-use std::path::{Path, PathBuf};
+use std::path::{self, Path, PathBuf};
 use std::process::Command;
+
+use crate::git::CommitHash;
 
 pub type RawUrl = String;
 pub type Url = String;
