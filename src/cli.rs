@@ -2,7 +2,7 @@
  *
  * See also https://jmmv.dev/2013/08/cli-design-putting-flags-to-good-use.html#bad-using-flags-to-select-subcommands.
  */
-use clap::{Args, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand};
 use std::path::PathBuf;
 
 const ABOUT: &str = "git-submodule made easy with git-toprepo.
@@ -46,9 +46,17 @@ pub enum Commands {
 
 #[derive(Args, Debug)]
 pub struct Init {
-    repository: String,
+    /// Skip the initial fetch of the super repository. This means the the
+    /// default configuration will not be fetched either.
+    #[clap(long = "no-fetch", action = ArgAction::SetFalse)]
+    pub fetch: bool,
 
-    directory: String,
+    /// The remote repository to clone from.
+    pub repository: String,
+
+    /// The name of a new directory to clone into. If no directory is given, the
+    /// basename of the repository is used.
+    pub directory: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]

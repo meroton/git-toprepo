@@ -6,12 +6,33 @@ use git_toprepo::config::{self, GitTopRepoConfig};
 
 use crate::cli::{Cli, Commands};
 use anyhow::{Context, Result};
+use bstr::ByteSlice;
 use clap::Parser;
 use colored::Colorize;
 use std::io::Read;
 use std::panic;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+fn init(init_args: &cli::Init) -> Result<ExitCode> {
+    let url = gix_url::Url::from_bytes(init_args.repository.as_bytes().as_bstr())?;
+    let directory = match &init_args.directory {
+        Some(dir) => dir.clone(),
+        None => {
+            let url_path = url.path.to_str()?;
+            let name = Path::new(url_path)
+                .file_stem()
+                .context("URL path contains no basename")?;
+            PathBuf::from(name)
+        }
+    };
+
+    let toprepo = git_toprepo::repo::TopRepo::create(directory, url)?;
+    if init_args.fetch {
+        toprepo.fetch()?;
+    }
+    Ok(ExitCode::SUCCESS)
+}
 
 fn config(config_args: &cli::Config) -> Result<ExitCode> {
     let load_config_from_file = |file: &Path| -> Result<GitTopRepoConfig> {
@@ -151,7 +172,7 @@ fn main() -> Result<ExitCode> {
         None => (),
     };
     let res: ExitCode = match args.command {
-        Commands::Init(_) => todo!(),
+        Commands::Init(ref init_args) => init(init_args)?,
         Commands::Config(ref config_args) => config(config_args)?,
         Commands::Refilter => todo!(),
         Commands::Fetch(ref fetch_args) => fetch(fetch_args)?,

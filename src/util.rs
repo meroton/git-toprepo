@@ -84,6 +84,25 @@ impl OutputExtension for std::process::Output {
     }
 }
 
+pub trait ExitStatusExtension {
+    fn check_success(&self) -> anyhow::Result<&Self>;
+}
+
+impl ExitStatusExtension for std::process::ExitStatus {
+    /// Checks that the command was successful and otherwise returns an error
+    /// with the exit status.
+    fn check_success(&self) -> anyhow::Result<&Self> {
+        if !self.success() {
+            bail!("{}", self);
+        }
+        Ok(self)
+    }
+}
+
+pub fn git_global_command() -> Command {
+    Command::new("git")
+}
+
 pub fn git_command(repo: &Path) -> Command {
     let mut command = Command::new("git");
     command.args([std::ffi::OsStr::new("-C"), repo.as_os_str()]);

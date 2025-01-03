@@ -1,4 +1,87 @@
-use anyhow::Result;
+use crate::util::{git_command, ExitStatusExtension};
+use anyhow::{Context, Result};
+use gix::remote::Direction;
+use std::path::PathBuf;
+
+#[derive(Debug)]
+pub struct TopRepo {
+    pub directory: PathBuf,
+    pub gix_repo: gix::Repository,
+    pub url: gix_url::Url,
+}
+
+impl TopRepo {
+    pub fn create(directory: PathBuf, url: gix_url::Url) -> Result<TopRepo> {
+        crate::util::git_global_command()
+            .arg("init")
+            .arg("--quiet")
+            .arg(directory.as_os_str())
+            .status()?
+            .check_success()
+            .context("Failed to initialize git repository")?;
+        git_command(&directory)
+            .args(["config", "remote.origin.pushUrl", "file:///dev/null"])
+            .status()?
+            .check_success()
+            .context("Failed to set git-config remote.origin.pushUrl")?;
+        git_command(&directory)
+            .args(["config", "remote.origin.url", &url.to_string()])
+            .status()?
+            .check_success()
+            .context("Failed to set git-config remote.origin.url")?;
+        git_command(&directory)
+            .args([
+                "config",
+                "--replace-all",
+                "remote.origin.fetch",
+                "refs/heads/*:refs/toprepo-super/heads/*",
+            ])
+            .status()?
+            .check_success()
+            .context("Failed to set git-config remote.origin.fetch (heads)")?;
+        git_command(&directory)
+            .args([
+                "config",
+                "--add",
+                "remote.origin.fetch",
+                "refs/tags/*:refs/toprepo-super/tags/*",
+            ])
+            .status()?
+            .check_success()
+            .context("Failed to set git-config remote.origin.fetch (tags)")?;
+        git_command(&directory)
+            .args(["config", "remote.origin.tagOpt", "--no-tags"])
+            .status()?
+            .check_success()
+            .context("Failed to set git-config remote.origin.tagOpt")?;
+        Self::open(directory)
+    }
+
+    pub fn open(directory: PathBuf) -> Result<TopRepo> {
+        let gix_repo = gix::open(&directory)?;
+        let url = gix_repo
+            .find_default_remote(Direction::Fetch)
+            .context("Missing default git-remote")?
+            .context("Error getting default git-remote")?
+            .url(Direction::Fetch)
+            .context("Missing default git-remote fetch url")?
+            .to_owned();
+
+        Ok(TopRepo {
+            directory,
+            gix_repo,
+            url,
+        })
+    }
+
+    pub fn fetch(&self) -> Result<()> {
+        crate::util::git_command(&self.directory)
+            .arg("fetch")
+            .status()?
+            .check_success()?;
+        Ok(())
+    }
+}
 
 pub struct SubRepo {
     pub name: String,
@@ -16,10 +99,6 @@ pub enum RepoName {
     SubRepo(String),
 }
 
-/// Map a remote or URL to a repository.
-///
-/// A repo can be specified by subrepo path inside the toprepo or as a full or
-/// partial URL.
 pub fn remote_to_repo(
     // toprepo: &TopRepo,
     _direction: gix::remote::Direction,
