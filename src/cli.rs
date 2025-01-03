@@ -3,9 +3,7 @@
  * See also https://jmmv.dev/2013/08/cli-design-putting-flags-to-good-use.html#bad-using-flags-to-select-subcommands.
  */
 use clap::{Args, Parser, Subcommand};
-use std::env;
 use std::path::PathBuf;
-use std::string::ToString;
 
 const ABOUT: &str = "git-submodule made easy with git-toprepo.
 
@@ -15,8 +13,9 @@ git-toprepo merges subrepositories into a common history, similar to git-subtree
 #[derive(Parser, Debug)]
 #[command(version, about = ABOUT)]
 pub struct Cli {
-    #[arg(default_value_t = get_cwd())]
-    pub cwd: String,
+    /// Run as if started in <path> as current working directory.
+    #[arg(name = "path", short = 'C')]
+    pub working_directory: Option<PathBuf>,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -114,8 +113,4 @@ pub struct Replace {
     /// Dump the project to submodule mapping
     ///    <project>: <module path>
     pub dump: bool,
-}
-
-fn get_cwd() -> String {
-    env::current_dir().unwrap().to_str().unwrap().to_string()
 }

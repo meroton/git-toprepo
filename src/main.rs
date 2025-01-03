@@ -13,7 +13,7 @@ use std::panic;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-fn config(global_args: &Cli, config_args: &cli::Config) -> Result<ExitCode> {
+fn config(config_args: &cli::Config) -> Result<ExitCode> {
     let load_config_from_file = |file: &Path| -> Result<GitTopRepoConfig> {
         if file == PathBuf::from("-") {
             || -> Result<GitTopRepoConfig> {
@@ -37,7 +37,7 @@ fn config(global_args: &Cli, config_args: &cli::Config) -> Result<ExitCode> {
                 false => None,
             };
             let location = config::GitTopRepoConfig::find_configuration_location(
-                PathBuf::from(global_args.cwd.to_owned()).as_path(),
+                Path::new(""),
                 search_log.as_mut(),
             )?;
             match search_log {
@@ -52,7 +52,7 @@ fn config(global_args: &Cli, config_args: &cli::Config) -> Result<ExitCode> {
                 false => None,
             };
             let config = config::GitTopRepoConfig::load_config_from_repo_with_log(
-                PathBuf::from(global_args.cwd.to_owned()).as_path(),
+                Path::new(""),
                 search_log.as_mut(),
             )?;
             match search_log {
@@ -126,8 +126,8 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 */
-#[allow(unused)]
-fn fetch(args: &Cli, fetch_args: &cli::Fetch) -> Result<ExitCode> {
+
+fn fetch(_fetch_args: &cli::Fetch) -> Result<ExitCode> {
     //let monorepo = Repo::from_str(&args.cwd)?;
     todo!("Implement fetch");
 }
@@ -146,11 +146,15 @@ fn main() -> Result<ExitCode> {
     }));
 
     let args = Cli::parse();
+    match args.working_directory {
+        Some(ref path) => std::env::set_current_dir(path)?,
+        None => (),
+    };
     let res: ExitCode = match args.command {
         Commands::Init(_) => todo!(),
-        Commands::Config(ref config_args) => config(&args, config_args)?,
+        Commands::Config(ref config_args) => config(config_args)?,
         Commands::Refilter => todo!(),
-        Commands::Fetch(ref fetch_args) => fetch(&args, fetch_args)?,
+        Commands::Fetch(ref fetch_args) => fetch(fetch_args)?,
         Commands::Push => todo!(),
         Commands::Replace(ref _replace_args) => todo!(), //replace(&args, replace_args)?,
     };
