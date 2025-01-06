@@ -231,3 +231,57 @@ pub fn remote_to_repo(
     }
     */
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_and_fetch() {
+        use tempfile::tempdir;
+
+        let from_dir = tempdir().unwrap();
+        let from_path = from_dir.path();
+
+        let to_dir = tempdir().unwrap();
+        let to_path = to_dir.path();
+        let env = crate::util::commit_env();
+
+        git_command(from_path)
+            .arg("init")
+            .arg("--quiet")
+            .envs(&env)
+            .status()
+            .unwrap();
+        git_command(from_path)
+            .arg("commit")
+            .arg("--allow-empty")
+            .arg("-m")
+            .arg("Initial commit")
+            .envs(&env)
+            .status()
+            .unwrap();
+
+        let toprepo = TopRepo::create(
+            to_path.to_path_buf(),
+            gix_url::Url::try_from(from_path).unwrap(),
+        )
+        .unwrap();
+
+        toprepo.fetch().unwrap();
+
+        let from_rev = git_command(from_path)
+            .arg("rev-parse")
+            .arg("HEAD")
+            .output()
+            .unwrap();
+
+        let to_rev = git_command(&toprepo.directory)
+            .arg("rev-parse")
+            .arg("FETCH_HEAD")
+            .output()
+            .unwrap();
+
+        assert_eq!(from_rev.stdout, to_rev.stdout);
+    }
+}
