@@ -21,15 +21,22 @@ pub struct FastExportCommit {
 }
 
 impl FastExportCommit {
-    pub fn get_timestamp(&self) -> i64 {
-        // TODO: Handle different timestamp formats.
+    pub fn get_timestamp(&self) -> chrono::DateTime<chrono::Utc> {
         let substrings = self.committer_info.split_str(b" ").collect_vec();
 
-        // In the default (`raw`) date format, the second to last word should always be the timestamp.
-        // https://git-scm.com/docs/git-fast-import#_commit
+        // For the default (`raw`) date format, the second to last word of the commit command should always be the timestamp.
+        // The last word (UTC offset) does not affect the timestamp.
+        // Example committer command: `committer C Name <c@no.domain> 1686121750 +0100`
         // https://git-scm.com/docs/git-fast-import#Documentation/git-fast-import.txt-coderawcode
-        let timestamp = substrings.get(substrings.len() - 2).unwrap();
-        timestamp.to_str().unwrap().parse().unwrap()
+        let timestamp: i64 = substrings
+            .get(substrings.len() - 2)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+
+        chrono::DateTime::from_timestamp(timestamp, 0).unwrap()
     }
 }
 
