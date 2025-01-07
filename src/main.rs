@@ -16,6 +16,7 @@ use std::process::ExitCode;
 
 fn init(init_args: &cli::Init) -> Result<ExitCode> {
     let url = gix_url::Url::from_bytes(init_args.repository.as_bytes().as_bstr())?;
+    // TODO: Should url.path be canonicalized for scheme=File like git does?
     let directory = match &init_args.directory {
         Some(dir) => dir.clone(),
         None => {
@@ -28,7 +29,10 @@ fn init(init_args: &cli::Init) -> Result<ExitCode> {
     };
 
     let toprepo = git_toprepo::repo::TopRepo::create(directory, url)?;
+    eprintln!("Initialized git-toprepo in {}", toprepo.directory.display());
+
     if init_args.fetch {
+        eprintln!("Fetching from {}", toprepo.url);
         toprepo.fetch()?;
     }
     Ok(ExitCode::SUCCESS)
