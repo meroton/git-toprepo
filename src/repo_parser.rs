@@ -1,8 +1,8 @@
-use anyhow::Result;
-use bstr::{ByteSlice, ByteVec};
+use anyhow::{anyhow, bail, Context, Result};
+use bstr::ByteSlice;
 use itertools::Itertools;
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::Stdio;
 
@@ -41,17 +41,21 @@ impl FastExportCommit {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct ChangedFile {
-    pub file: Vec<u8>,
-    pub mode: Option<Vec<u8>>,
-    pub hash: Option<Vec<u8>>,
-    pub status: DiffStatus,
+pub enum ChangedFile {
+    Deleted(FileDelete),
+    Modified(FileModify),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum DiffStatus {
-    Deleted,
-    Modified,
+pub struct FileModify {
+    pub path: Vec<u8>,
+    pub mode: Vec<u8>,
+    pub hash: Vec<u8>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct FileDelete {
+    pub path: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -62,19 +66,29 @@ pub struct FastExportRepo {
 }
 
 impl FastExportRepo {
-    pub fn load_from_path(repo_dir: &Path) -> Result<Self> {
-        let stdout = git_command(&repo_dir)
-            .args([
-                "fast-export",
-                "--all", // Parameters needed to delimit which revs to include
-                "--no-data",
-                "--use-done-feature",
-                "--show-original-ids",
-                "--reference-excluded-parents",
-                "--signed-tags=strip",
-            ])
+    pub fn load_from_path(repo_dir: &Path, refs: Option<Vec<&str>>) -> Result<Self> {
+        let mut cmd = git_command(&repo_dir);
+        cmd.args([
+            "fast-export",
+            "--no-data",
+            "--use-done-feature",
+            "--show-original-ids",
+            "--reference-excluded-parents",
+            "--signed-tags=strip",
+        ]);
+        match refs {
+            Some(refs) => {
+                cmd.arg("--").args(refs);
+            }
+            None => {
+                cmd.arg("--all").arg("--");
+            }
+        }
+        let stdout = cmd
             .stdout(Stdio::piped())
             .spawn()?
+            // Just release the process. git-fast-export will terminate when
+            // stdout is closed.
             .stdout
             .ok_or_else(|| {
                 std::io::Error::new(
@@ -90,249 +104,296 @@ impl FastExportRepo {
         })
     }
 
+    /// Reads the next line from git-fast-export output and stores it in
+    /// `current_line` without the trailing newline.
     fn advance_line(&mut self) -> Result<usize> {
         self.current_line.clear();
         let bytes = self.reader.read_until(b'\n', &mut self.current_line)?;
-        self.current_line = self.current_line.trim().to_vec();
+        let without_newline_len = crate::util::trim_bytes_newline_suffix(&self.current_line).len();
+        self.current_line.truncate(without_newline_len);
         Ok(bytes)
     }
 
-    fn read_bytes(&mut self, buf: &mut Vec<u8>, bytes: usize) -> Result<()> {
-        let mut tmp_buf = vec![0u8; bytes];
-        self.reader.read_exact(&mut tmp_buf)?;
-        *buf = tmp_buf;
+    /// Same as `advance_line`, but returns an `Err` if the end of the file is reached.
+    fn must_advance_line(&mut self) -> Result<()> {
+        let bytes = self.advance_line()?;
+        if bytes == 0 {
+            bail!(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "Unexpected end of file",
+            ));
+        }
         Ok(())
     }
 
-    fn starts_with(&self, pat: &[u8]) -> bool {
-        self.current_line.starts_with_str(pat)
+    fn read_bytes(&mut self, buf: &mut Vec<u8>, bytes: usize) -> Result<()> {
+        *buf = vec![0u8; bytes];
+        self.reader.read_exact(buf)?;
+        Ok(())
     }
 
-    fn read_commit(&mut self) -> FastExportCommit {
+    /// Reads a 'commit' command according to documentation in git-fast-import.
+    fn read_commit(&mut self) -> Result<FastExportCommit> {
         let mut commit = FastExportCommit::default();
         commit.branch = self
             .current_line
-            .split_once_str(b"commit ")
-            .unwrap()
-            .1
+            .strip_prefix(b"commit ")
+            .ok_or(anyhow!("Expected 'commit' line"))?
             .into();
+        self.must_advance_line()?;
 
-        self.advance_line().unwrap();
-
-        let mut opt_mark: Option<Vec<u8>> = None;
-        if self.starts_with(b"mark") {
-            opt_mark = Some(
-                self.current_line
-                    .split_once_str(b"mark :")
-                    .unwrap()
-                    .1
-                    .into(),
-            );
-            self.advance_line().unwrap();
-        }
-
-        if self.starts_with(b"original-oid") {
-            let original_id: Vec<u8> = self
-                .current_line
-                .split_once_str(b"original-oid ")
-                .unwrap()
-                .1
-                .into();
-
-            commit.original_id = original_id.clone();
-
-            self.advance_line().unwrap();
-
-            if let Some(mark) = opt_mark {
-                self.mark_oid_map.insert(mark, original_id.clone());
-            }
-        }
-
-        if self.starts_with(b"author") {
-            commit.author_info = self.current_line.clone().into();
-            self.advance_line().unwrap();
-        }
-
-        commit.committer_info = self.current_line.clone().into();
-        self.advance_line().unwrap();
-
-        if commit.author_info.is_empty() {
-            commit.author_info = commit.committer_info.clone();
-        }
-
-        if self.current_line.starts_with(b"encoding") {
-            commit.encoding = Some(self.current_line.clone().into());
-            self.advance_line().unwrap();
-        }
-
-        let chars: usize = self
+        // TODO: Convert to a GitFastExportMark struct.
+        let opt_mark = self
             .current_line
-            .split_once_str(b"data ")
-            .unwrap()
-            .1
-            .to_str()
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap();
-
-        self.read_bytes(&mut commit.message, chars).unwrap();
-        self.advance_line().unwrap();
-
-        if self.current_line == b"\n" {
-            // Unsure where the potential newline comes from (and if we need to care about it),
-            // but this is checked in git-filter-repo:
-            // https://github.com/newren/git-filter-repo/blob/main/git-filter-repo#L1196
-            self.advance_line().unwrap();
+            .strip_prefix(b"mark :")
+            .map(|mark| mark.into());
+        if opt_mark.is_some() {
+            self.must_advance_line()?;
         }
 
-        // TODO: Handle more than 1 parent
-        if self.starts_with(b"from") {
-            let baseref = self.current_line.split_once_str(b"from ").unwrap().1;
-            if baseref.starts_with_str(b":") {
-                let key = baseref.split_at(1).1.to_vec();
-                commit
-                    .parents
-                    .push(self.mark_oid_map.get(&key).unwrap().clone());
-            } else if baseref.len() == 40 {
-                commit.parents.push(baseref.to_vec());
-            }
-            self.advance_line().unwrap();
+        // TODO: Convert to a CommitHash struct.
+        commit.original_id = self
+            .current_line
+            .strip_prefix(b"original-oid ")
+            .ok_or(anyhow!("Expected 'original-oid' line"))?
+            .into();
+        if let Some(mark) = opt_mark {
+            self.mark_oid_map.insert(mark, commit.original_id.clone());
+        }
+        self.must_advance_line()?;
+
+        let author_info_opt = self.current_line.strip_prefix(b"author ").map(|a| a.into());
+        if author_info_opt.is_some() {
+            self.must_advance_line()?;
+        }
+        commit.committer_info = self
+            .current_line
+            .strip_prefix(b"committer ")
+            .ok_or(anyhow!("Expected 'committer' line"))?
+            .into();
+        self.must_advance_line()?;
+        commit.author_info = author_info_opt.unwrap_or_else(|| commit.committer_info.clone());
+
+        commit.encoding = self
+            .current_line
+            .strip_prefix(b"encoding ")
+            .map(|e| e.into());
+        if commit.encoding.is_some() {
+            self.must_advance_line()?;
         }
 
-        while self.starts_with(b"merge") {
-            let baseref = self.current_line.split_once_str(b"merge ").unwrap().1;
-            if baseref.starts_with_str(":") {
-                let key = baseref.split_at(1).1.to_vec();
-                commit
-                    .parents
-                    .push(self.mark_oid_map.get(&key).unwrap().clone());
-            } else if baseref.len() == 40 {
-                commit.parents.push(baseref.to_vec());
-            }
-            self.advance_line().unwrap();
+        let msg_byte_count = self
+            .current_line
+            .strip_prefix(b"data ")
+            .ok_or(anyhow!("Expected 'data' line"))?
+            .to_str()?
+            .parse::<usize>()
+            .context("Could not parse commit message size")?;
+        self.read_bytes(&mut commit.message, msg_byte_count)
+            .context("Error reading commit message")?;
+        self.must_advance_line()?;
+        if self.current_line.is_empty() {
+            // Optional newline after commit message detected.
+            self.must_advance_line()?;
+        }
+        if self.current_line.is_empty() {
+            // Optional additional newline if there is nothing more.
+            self.must_advance_line()?;
         }
 
-        let mut line_components: Vec<&[u8]> = self.current_line.splitn_str(4, b" ").collect();
-        while let Some(&change_type) = line_components.get(0) {
-            if self.current_line.is_empty() {
+        if let Some(first_parent) = self.current_line.strip_prefix(b"from ") {
+            let parent_hash = if first_parent.get(0) == Some(&b':') {
+                let mark = &first_parent[1..];
+                self.mark_oid_map
+                    .get(mark)
+                    .ok_or(anyhow!(
+                        "Could not find parent mark {}",
+                        first_parent.to_str_lossy()
+                    ))?
+                    .clone()
+            } else {
+                first_parent.into()
+            };
+            commit.parents.push(parent_hash);
+            self.must_advance_line()?;
+        } else if self.current_line.starts_with(b"merge ") {
+            bail!("'merge' line without 'from' line is not supported");
+        }
+        while self.current_line.starts_with(b"merge ") {
+            let parent = self.current_line.strip_prefix(b"merge ").unwrap();
+            let parent_hash = if parent.get(0) == Some(&b':') {
+                let mark = &parent[1..];
+                self.mark_oid_map
+                    .get(mark)
+                    .ok_or(anyhow!(
+                        "Could not find parent mark {}",
+                        parent.to_str_lossy()
+                    ))?
+                    .clone()
+            } else {
+                parent.into()
+            };
+            commit.parents.push(parent_hash);
+            self.must_advance_line()?;
+        }
+
+        loop {
+            let changed_file = if let Some(change_data) = self.current_line.strip_prefix(b"M ") {
+                // filemodify: 'M' SP <mode> SP <dataref> SP <path> LF
+                let (mode, hash, path) =
+                    change_data
+                        .splitn_str(3, b" ")
+                        .collect_tuple()
+                        .ok_or(anyhow!(
+                            "Expected 3 parts in filemodify line {:?}",
+                            self.current_line
+                        ))?;
+                ChangedFile::Modified(FileModify {
+                    path: path.to_vec(),
+                    mode: mode.to_vec(),
+                    hash: hash.to_vec(),
+                })
+            } else if let Some(change_data) = self.current_line.strip_prefix(b"D ") {
+                // filedelete: 'D' SP <path> LF
+                ChangedFile::Deleted(FileDelete {
+                    path: change_data.to_vec(),
+                })
+            } else if let Some(_change_data) = self.current_line.strip_prefix(b"C ") {
+                // filecopy: 'C' SP <path> SP <path> LF
+                bail!("filecopy line is not implemented yet");
+            } else if let Some(_change_data) = self.current_line.strip_prefix(b"R ") {
+                // filerename: 'R' SP <path> SP <path> LF
+                bail!("filerename line is not implemented yet");
+            } else if self.current_line == b"deleteall" {
+                // filedeleteall: 'deleteall' LF
+                bail!("filedeleteall line is not supported");
+            } else if let Some(_change_data) = self.current_line.strip_prefix(b"N ") {
+                // notemodify: 'N' SP <dataref> SP <commit-ish> LF
+                bail!("notemodify line is not supported");
+            } else {
                 break;
-            } else if change_type == b"M" {
-                let mode = line_components.get(1).unwrap().to_vec();
-                let hash = line_components.get(2).unwrap().to_vec();
-                let path = line_components.get(3).unwrap().trim().to_vec();
-
-                commit.file_changes.push(ChangedFile {
-                    file: path,
-                    mode: Some(mode),
-                    hash: Some(hash),
-                    status: DiffStatus::Modified,
-                });
-            } else if change_type == b"D" {
-                let path = line_components.get(1).unwrap().trim().to_vec();
-                commit.file_changes.push(ChangedFile {
-                    file: path,
-                    mode: None,
-                    hash: None,
-                    status: DiffStatus::Deleted,
-                });
-            }
-            self.advance_line().unwrap();
-            line_components = self.current_line.splitn_str(4, b" ").collect();
+            };
+            commit.file_changes.push(changed_file);
+            self.must_advance_line()?;
         }
-        return commit;
+        return Ok(commit);
     }
 }
 
 impl Iterator for FastExportRepo {
-    type Item = FastExportCommit;
+    type Item = Result<FastExportCommit>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.advance_line().unwrap() > 0 {
-            if self.starts_with(b"commit") {
-                return Some(self.read_commit());
+        loop {
+            if self.current_line.is_empty() {
+                // noop
+            } else if self.current_line == b"done" {
+                break;
+            } else if self.current_line == b"feature done" {
+                // noop
+            } else if self.current_line.starts_with(b"commit ") {
+                return Some(self.read_commit().with_context(|| {
+                    format!(
+                        "Error parsing git-fast-export commit line {:?}",
+                        self.current_line.to_str_lossy()
+                    )
+                }));
+            } else if self.current_line.starts_with(b"reset ") {
+                // Unintresting command.
+            } else {
+                return Some(Err(anyhow!(
+                    "Unexpected git-fast-export command: {}",
+                    self.current_line.to_str_lossy()
+                )));
+            }
+            match self.advance_line() {
+                Ok(0) => break,
+                Ok(_) => continue,
+                Err(err) => return Some(Err(err)),
             }
         }
         None
     }
 }
 
-pub fn export_to_fast_import<I>(commit_container: &mut I) -> Vec<u8>
+pub fn export_to_fast_import<W, I>(buf: &mut W, commit_container: &mut I) -> Result<()>
 where
-    I: Iterator<Item = FastExportCommit>,
+    W: Write,
+    I: Iterator<Item = Result<FastExportCommit>>,
 {
     let mut mark_counter: usize = 1;
-    let mut out = Vec::<u8>::new();
     let mut oid_mark_map: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
-    out.push_str(b"feature done\n");
+    buf.write_all(b"feature done\n")?;
 
     for commit in commit_container.by_ref() {
+        let commit = commit?;
         if commit.parents.is_empty() {
-            out.push_str(b"reset ");
-            out.push_str(&commit.branch);
-            out.push_byte(b'\n');
+            buf.write_all(b"reset ")?;
+            buf.write_all(&commit.branch)?;
+            buf.write_all(b"\n")?;
         }
 
-        out.push_str(b"commit ");
-        out.push_str(&commit.branch);
-        out.push_byte(b'\n');
+        buf.write_all(b"commit ")?;
+        buf.write_all(&commit.branch)?;
+        buf.write_all(b"\n")?;
 
         let mark_as_bytes = mark_counter.to_string().as_bytes().to_vec();
-        out.push_str(b"mark :");
-        out.push_str(&mark_as_bytes);
-        out.push_byte(b'\n');
+        buf.write_all(b"mark :")?;
+        buf.write_all(&mark_as_bytes)?;
+        buf.write_all(b"\n")?;
         oid_mark_map.insert(commit.original_id.clone(), mark_as_bytes.clone());
         mark_counter += 1;
 
-        out.push_str(b"original-oid ");
-        out.push_str(&commit.original_id);
-        out.push_byte(b'\n');
+        buf.write_all(b"author ")?;
+        buf.write_all(&commit.author_info)?;
+        buf.write_all(b"\n")?;
 
-        out.push_str(&commit.author_info);
-        out.push_byte(b'\n');
+        buf.write_all(b"committer ")?;
+        buf.write_all(&commit.committer_info)?;
+        buf.write_all(b"\n")?;
 
-        out.push_str(&commit.committer_info);
-        out.push_byte(b'\n');
-
-        out.push_str(b"data ");
-        out.push_str(&commit.message.len().to_string().as_bytes());
-        out.push_byte(b'\n');
-        out.push_str(&commit.message);
+        buf.write_all(b"data ")?;
+        buf.write_all(&commit.message.len().to_string().as_bytes())?;
+        buf.write_all(b"\n")?;
+        buf.write_all(&commit.message)?;
+        if !commit.message.ends_with(b"\n") {
+            // Optional LF but nice when looking at the text output.
+            buf.write_all(b"\n")?;
+        }
 
         if !commit.parents.is_empty() {
-            out.push_str(b"from :");
-            out.push_str(&oid_mark_map.get(commit.parents.first().unwrap()).unwrap());
-            out.push_byte(b'\n');
+            buf.write_all(b"from :")?;
+            buf.write_all(&oid_mark_map.get(commit.parents.first().unwrap()).unwrap())?;
+            buf.write_all(b"\n")?;
 
             for parent in commit.parents[1..].iter() {
-                out.push_str(b"merge :");
-                out.push_str(&oid_mark_map.get(parent).unwrap());
-                out.push_byte(b'\n');
+                buf.write_all(b"merge :")?;
+                buf.write_all(&oid_mark_map.get(parent).unwrap())?;
+                buf.write_all(b"\n")?;
             }
         }
 
         for changed_file in commit.file_changes {
-            match changed_file.status {
-                DiffStatus::Modified => {
-                    out.push_str(b"M ");
-                    out.push_str(&changed_file.mode.unwrap());
-                    out.push_byte(b' ');
-                    out.push_str(&changed_file.hash.unwrap());
-                    out.push_byte(b' ');
+            match changed_file {
+                ChangedFile::Modified(changed_file) => {
+                    buf.write_all(b"M ")?;
+                    buf.write_all(&changed_file.mode)?;
+                    buf.write_all(b" ")?;
+                    buf.write_all(&changed_file.hash)?;
+                    buf.write_all(b" ")?;
+                    buf.write_all(&changed_file.path)?;
                 }
-                DiffStatus::Deleted => {
-                    out.push_str(b"D ");
+                ChangedFile::Deleted(changed_file) => {
+                    buf.write_all(b"D ")?;
+                    buf.write_all(&changed_file.path)?;
                 }
             }
-            out.push_str(&changed_file.file);
-            out.push_byte(b'\n');
+            buf.write_all(b"\n")?;
         }
-
-        out.push_byte(b'\n');
+        buf.write_all(b"\n")?;
     }
-    out.push_str(b"done\n");
-
-    out
+    buf.write_all(b"done\n")?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -347,18 +408,18 @@ mod tests {
         let example_repo = crate::util::GitTopRepoExample::new(&tmp_path);
         let example_top_repo = example_repo.init_server_top();
 
-        let mut repo = FastExportRepo::load_from_path(example_top_repo.as_path()).unwrap();
-        let commit_a = repo.next().unwrap();
-        let commit_d = repo.nth(2).unwrap();
+        let mut repo = FastExportRepo::load_from_path(example_top_repo.as_path(), None).unwrap();
+        let commit_a = repo.next().unwrap().unwrap();
+        let commit_d = repo.nth(2).unwrap().unwrap();
 
         assert_eq!(commit_a.branch, b"refs/heads/main");
         assert_eq!(
             commit_a.author_info,
-            b"author A Name <a@no.domain> 1672625045 +0100"
+            b"A Name <a@no.domain> 1672625045 +0100"
         );
         assert_eq!(
             commit_a.committer_info,
-            b"committer C Name <c@no.domain> 1686121750 +0100"
+            b"C Name <c@no.domain> 1686121750 +0100"
         );
         assert_eq!(commit_a.message, b"A\n");
         assert!(commit_a.file_changes.is_empty());
@@ -372,23 +433,22 @@ mod tests {
         assert_eq!(commit_d.branch, b"refs/heads/main");
         assert_eq!(
             commit_d.author_info,
-            b"author A Name <a@no.domain> 1672625045 +0100"
+            b"A Name <a@no.domain> 1672625045 +0100"
         );
         assert_eq!(
             commit_d.committer_info,
-            b"committer C Name <c@no.domain> 1686121750 +0100"
+            b"C Name <c@no.domain> 1686121750 +0100"
         );
         assert_eq!(commit_d.message, b"D\n");
         assert_eq!(
             // CommitInfo and DiffStatus implements PartialEq trait for this test,
             // might exclude PartialEq and this test if it's not needed elsewhere.
             commit_d.file_changes.first().unwrap(),
-            &ChangedFile {
-                file: Vec::from(b"sub"),
-                mode: Some(Vec::from(b"160000")),
-                hash: Some(Vec::from(b"eeb85c77b614a7ec060f6df5825c9a5c10414307")),
-                status: DiffStatus::Modified
-            }
+            &ChangedFile::Modified(FileModify {
+                path: Vec::from(b"sub"),
+                mode: Vec::from(b"160000"),
+                hash: Vec::from(b"eeb85c77b614a7ec060f6df5825c9a5c10414307"),
+            })
         );
         assert_eq!(
             commit_d.parents,
@@ -426,9 +486,10 @@ mod tests {
             .unwrap();
 
         let mut fast_export_repo =
-            FastExportRepo::load_from_path(from_repo_path.as_path()).unwrap();
+            FastExportRepo::load_from_path(from_repo_path.as_path(), None).unwrap();
 
-        let fast_import_input = export_to_fast_import(&mut fast_export_repo);
+        let mut fast_import_input: Vec<u8> = Vec::new();
+        export_to_fast_import(&mut fast_import_input, &mut fast_export_repo).unwrap();
 
         let mut child = git_command(&to_repo_path)
             .args(["fast-import", "--done"])

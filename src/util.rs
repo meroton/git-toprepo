@@ -145,6 +145,32 @@ pub fn trim_newline_suffix(s: &str) -> &str {
     }
 }
 
+/// Removes trailing LF or CRLF from a byte string.
+///
+/// # Examples
+/// ```
+/// use git_toprepo::util::trim_bytes_newline_suffix;
+///
+/// assert_eq!(trim_bytes_newline_suffix(b"foo"), b"foo");
+/// assert_eq!(trim_bytes_newline_suffix(b"foo\n"), b"foo");
+/// assert_eq!(trim_bytes_newline_suffix(b"foo\r\n"), b"foo");
+/// assert_eq!(trim_bytes_newline_suffix(b"foo\nbar\n"), b"foo\nbar");
+/// assert_eq!(trim_bytes_newline_suffix(b"foo\r\nbar\r\n"), b"foo\r\nbar");
+///
+/// assert_eq!(trim_bytes_newline_suffix(b"foo\n\r"), b"foo\n\r");
+/// ```
+pub fn trim_bytes_newline_suffix(s: &[u8]) -> &[u8] {
+    // Even if the string ends with LF, the character before needs to be ASCII
+    // or the LF is a continuation of a multi-byte UTF-8 character.
+    if s.ends_with(b"\r\n") && (s.len() == 2 || s[s.len() - 3].is_ascii()) {
+        &s[..s.len() - 2]
+    } else if s.ends_with(b"\n") && (s.len() == 1 || s[s.len() - 2].is_ascii()) {
+        &s[..s.len() - 1]
+    } else {
+        s
+    }
+}
+
 pub fn strip_suffix<'a>(string: &'a str, suffix: &str) -> &'a str {
     if string.ends_with(suffix) {
         string.strip_suffix(suffix).unwrap()
