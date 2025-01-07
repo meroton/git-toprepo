@@ -106,17 +106,30 @@ impl FastExportRepo {
 
     /// Reads the next line from git-fast-export output and stores it in
     /// `current_line` without the trailing newline.
-    fn advance_line(&mut self) -> Result<usize> {
+    fn advance_line_or_eof(&mut self) -> Result<usize> {
         self.current_line.clear();
         let bytes = self.reader.read_until(b'\n', &mut self.current_line)?;
-        let without_newline_len = crate::util::trim_bytes_newline_suffix(&self.current_line).len();
-        self.current_line.truncate(without_newline_len);
+        if bytes == 0 {
+            // EOF
+        } else if (bytes == 1 && self.current_line[0] == b'\n')
+            || (bytes >= 2
+                // Check that the LF is not part of a multi-byte character.
+                && self.current_line[bytes - 1] == b'\n'
+                && self.current_line[bytes - 2].is_ascii())
+        {
+            self.current_line.truncate(bytes - 1);
+        } else {
+            bail!(
+                "Expected newline at the end of the line, found {:?}",
+                self.current_line
+            );
+        }
         Ok(bytes)
     }
 
     /// Same as `advance_line`, but returns an `Err` if the end of the file is reached.
     fn must_advance_line(&mut self) -> Result<()> {
-        let bytes = self.advance_line()?;
+        let bytes = self.advance_line_or_eof()?;
         if bytes == 0 {
             bail!(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
@@ -260,10 +273,12 @@ impl FastExportRepo {
                 })
             } else if let Some(_change_data) = self.current_line.strip_prefix(b"C ") {
                 // filecopy: 'C' SP <path> SP <path> LF
-                bail!("filecopy line is not implemented yet");
+                // Should not happen when git-fast-export is called without -C.
+                bail!("filecopy line is not supported");
             } else if let Some(_change_data) = self.current_line.strip_prefix(b"R ") {
                 // filerename: 'R' SP <path> SP <path> LF
-                bail!("filerename line is not implemented yet");
+                // Should not happen when git-fast-export is called without -R.
+                bail!("filerename line is not supported");
             } else if self.current_line == b"deleteall" {
                 // filedeleteall: 'deleteall' LF
                 bail!("filedeleteall line is not supported");
@@ -306,11 +321,14 @@ impl Iterator for FastExportRepo {
                     self.current_line.to_str_lossy()
                 )));
             }
-            match self.advance_line() {
+            match self.advance_line_or_eof() {
+                // EOF
                 Ok(0) => break,
-                Ok(_) => continue,
+                // Normal line.
+                Ok(_) => {}
+                // Error, stop immediately.
                 Err(err) => return Some(Err(err)),
-            }
+            };
         }
         None
     }
@@ -356,10 +374,6 @@ where
         buf.write_all(&commit.message.len().to_string().as_bytes())?;
         buf.write_all(b"\n")?;
         buf.write_all(&commit.message)?;
-        if !commit.message.ends_with(b"\n") {
-            // Optional LF but nice when looking at the text output.
-            buf.write_all(b"\n")?;
-        }
 
         if !commit.parents.is_empty() {
             buf.write_all(b"from :")?;
