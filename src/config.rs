@@ -458,15 +458,13 @@ mod tests {
             .output()
             .unwrap();
 
-        let err = GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap_err();
-        print!("{:?}", err);
+        let err: anyhow::Error =
+            GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap_err();
         assert_eq!(
-            format!("{:?}", err),
-            "Loading worktree file: foobar.toml
-
-Caused by:
-    0: Reading config file
-    1: No such file or directory (os error 2)"
+            format!("{:#}", err),
+            "Loading worktree file: foobar.toml\
+            : Reading config file\
+            : No such file or directory (os error 2)"
         );
     }
 
@@ -662,7 +660,7 @@ url = "ssh://bar/baz.git"
         )
         .unwrap_err();
         assert_eq!(
-            format!("{:?}", err),
+            format!("{:#}", err),
             "URLs must be unique across all repos, found ssh://bar/baz.git in bar and foo"
         );
     }
