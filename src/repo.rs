@@ -34,7 +34,7 @@ impl TopRepo {
                 "config",
                 "--replace-all",
                 "remote.origin.fetch",
-                "refs/heads/*:refs/toprepo-super/heads/*",
+                "+refs/heads/*:refs/toprepo-super/heads/*",
             ])
             .status()?
             .check_success()
@@ -44,7 +44,17 @@ impl TopRepo {
                 "config",
                 "--add",
                 "remote.origin.fetch",
-                "refs/tags/*:refs/toprepo-super/tags/*",
+                "+refs/tags/*:refs/toprepo-super/tags/*",
+            ])
+            .status()?
+            .check_success()
+            .context("Failed to set git-config remote.origin.fetch (tags)")?;
+        git_command(&directory)
+            .args([
+                "config",
+                "--add",
+                "remote.origin.fetch",
+                "+HEAD:refs/toprepo-super/HEAD",
             ])
             .status()?
             .check_success()
@@ -77,6 +87,15 @@ impl TopRepo {
     pub fn fetch(&self) -> Result<()> {
         crate::util::git_command(&self.directory)
             .arg("fetch")
+            .status()?
+            .check_success()?;
+        Ok(())
+    }
+
+    pub fn fetch_quiet(&self) -> Result<()> {
+        crate::util::git_command(&self.directory)
+            .arg("fetch")
+            .arg("--quiet")
             .status()?
             .check_success()?;
         Ok(())
@@ -258,6 +277,7 @@ mod tests {
             .arg("--allow-empty")
             .arg("-m")
             .arg("Initial commit")
+            .arg("--quiet")
             .envs(&env)
             .status()
             .unwrap();
@@ -268,7 +288,7 @@ mod tests {
         )
         .unwrap();
 
-        toprepo.fetch().unwrap();
+        toprepo.fetch_quiet().unwrap();
 
         let from_rev = git_command(from_path)
             .arg("rev-parse")
@@ -276,12 +296,19 @@ mod tests {
             .output()
             .unwrap();
 
-        let to_rev = git_command(&toprepo.directory)
+        let toprepo_head_rev = git_command(&toprepo.directory)
             .arg("rev-parse")
-            .arg("FETCH_HEAD")
+            .arg("refs/toprepo-super/HEAD")
             .output()
             .unwrap();
 
-        assert_eq!(from_rev.stdout, to_rev.stdout);
+        let toprepo_main_rev = git_command(&toprepo.directory)
+            .arg("rev-parse")
+            .arg("refs/toprepo-super/heads/main")
+            .output()
+            .unwrap();
+
+        assert_eq!(from_rev.stdout, toprepo_head_rev.stdout);
+        assert_eq!(from_rev.stdout, toprepo_main_rev.stdout);
     }
 }
