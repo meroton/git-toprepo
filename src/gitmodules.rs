@@ -79,7 +79,6 @@ impl SubmoduleUrlExt for gix_url::Url {
     /// );
     /// ```
     fn join(&self, other: &Self) -> Self {
-        println!("FRME: {:?} {:?}", self, other);
         if other.scheme == gix_url::Scheme::File
             && other.user().is_none()
             && other.password().is_none()
