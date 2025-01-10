@@ -227,8 +227,8 @@ pub fn join_relative_url_paths(base: &str, other: &str) -> String {
 /// "#;
 /// println!("{}", outer_gitmodules);
 /// let inner_gitmodules = r#"# First line.
-/// [submodule "inner"]
-///     path = inner
+/// [submodule "inner-name"]
+///     path = inner/path
 ///     url = ../../inner.git
 ///     branch = .
 /// ## Another comment that should be kept.
@@ -260,12 +260,11 @@ pub fn join_relative_url_paths(base: &str, other: &str) -> String {
 ///     url = ../../somewhere/org/submod.git
 ///     branch = .
 ///
-///
-/// ## *** Import of submod/dir/.gitmodules ***
+/// ## *** Import of submod/outer/.gitmodules ***
 ///
 /// ## First line.
-/// [submodule "submod/dir/inner"]
-///     path = submod/dir/inner
+/// [submodule "submod/dir/inner-name"]
+///     path = submod/dir/inner/path
 ///     url = ssh://server.com/inner.git
 ///     branch = .
 /// ## Another comment that should be kept.
@@ -426,4 +425,237 @@ pub fn append_inner_submodule_config(
     .expect("known comment only git-config");
     config.append(description_config);
     config.append(inner_config);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_configs_and_append(
+        outer_gitmodules: &str,
+        base_url: &[u8],
+        path: &[u8],
+        inner_gitmodules: &str,
+    ) -> (gix::config::File<'static>, gix::config::File<'static>) {
+        let mut outer_config = gix::config::File::from_bytes_owned(
+            &mut outer_gitmodules.as_bytes().to_vec(),
+            gix::config::file::Metadata::default(),
+            Default::default(),
+        )
+        .unwrap();
+        let inner_config = gix::config::File::from_bytes_owned(
+            &mut inner_gitmodules.as_bytes().to_vec(),
+            gix::config::file::Metadata::default(),
+            Default::default(),
+        )
+        .unwrap();
+        append_inner_submodule_config(
+            &mut outer_config,
+            &gix::url::parse(bstr::BStr::new(base_url)).unwrap(),
+            bstr::BStr::new(path),
+            inner_config.clone(),
+        );
+
+        (outer_config, inner_config)
+    }
+
+    // Key-value pairs (e.g. `path` and `branch`) are tested in the doc test for `append_inner_submodule_config`.
+
+    #[test]
+    fn test_urls() {
+        let outer_gitmodules_relative = r#"
+[submodule "submod-outer"]
+    path = submod/outer
+    url = ../../outer.git
+    branch = .
+"#;
+        let outer_gitmodules_absolute = r#"
+[submodule "submod-outer"]
+    path = submod/outer
+    url = https://server/abs/path/outer.git
+    branch = .
+"#;
+        let inner_gitmodules = r#"
+[submodule "inner-name-relative"]
+    path = inner/path/relative
+    url = ../../inner.git
+    branch = .
+[submodule "inner-name-absolute"]
+    path = inner/path/absolute
+    url = https://server/abs/path/inner.git
+    branch = .
+"#;
+
+        let (outer_config_relative, _) = create_configs_and_append(
+            &outer_gitmodules_relative,
+            b"ssh://server.com/example/outer.git",
+            b"submod/dir",
+            &inner_gitmodules,
+        );
+        let (outer_config_absolute, _) = create_configs_and_append(
+            &outer_gitmodules_absolute,
+            b"ssh://server.com/example/outer.git",
+            b"submod/dir",
+            &inner_gitmodules,
+        );
+
+        assert_eq!(
+            outer_config_relative
+                .section("submodule", Some("submod-outer".into()))
+                .unwrap()
+                .value("url")
+                .unwrap()
+                .to_string(),
+            "../../outer.git"
+        );
+        assert_eq!(
+            outer_config_absolute
+                .section("submodule", Some("submod-outer".into()))
+                .unwrap()
+                .value("url")
+                .unwrap()
+                .to_string(),
+            "https://server/abs/path/outer.git"
+        );
+        assert_eq!(
+            outer_config_relative
+                .section("submodule", Some("submod/dir/inner-name-relative".into()))
+                .unwrap()
+                .value("url")
+                .unwrap()
+                .to_string(),
+            "ssh://server.com/inner.git"
+        );
+        assert_eq!(
+            // `outer_config_relative` and `outer_config_absolute` have identical inner submodules.
+            outer_config_relative
+                .section("submodule", Some("submod/dir/inner-name-absolute".into()))
+                .unwrap()
+                .value("url")
+                .unwrap()
+                .to_string(),
+            "https://server/abs/path/inner.git"
+        );
+    }
+
+    #[test]
+    fn test_append_existing_section() {
+        let outer_gitmodules = r#"
+[submodule "submod-outer"]
+    path = submod/outer
+    url = ../../somewhere/org/submod.git
+    branch = .
+"#;
+        let inner_gitmodules = r#"
+[submodule "inner"]
+    path = inner
+    url = ../../inner.git
+    branch = .
+"#;
+
+        let (mut outer_config, inner_config) = create_configs_and_append(
+            outer_gitmodules,
+            b"ssh://server.com/example/outer.git",
+            b"submod/dir",
+            inner_gitmodules,
+        );
+        // Append `inner_gitmodules` twice (first appended in `create_configs_and_append`)
+        append_inner_submodule_config(
+            &mut outer_config,
+            &gix::url::parse(bstr::BStr::new(b"ssh://server.com/example/outer.git")).unwrap(),
+            bstr::BStr::new(b"submod/dir"),
+            inner_config,
+        );
+
+        assert!(outer_config
+            .to_string()
+            .find("\n# Section already exists: submod/dir/inner\n")
+            .is_some());
+    }
+
+    #[test]
+    fn test_append_missing_submodule_path() {
+        let outer_gitmodules = r#"
+[submodule "submod-outer"]
+    path = submod/outer
+    url = ../../somewhere/org/submod.git
+    branch = .
+"#;
+        // Missing `path` variable in `inner_gitmodules`
+        let inner_gitmodules = r#"
+[submodule "inner"]
+    url = ../../inner.git
+    branch = .
+"#;
+
+        let (outer_config, _) = create_configs_and_append(
+            outer_gitmodules,
+            b"ssh://server.com/example/outer.git",
+            b"submod/dir",
+            inner_gitmodules,
+        );
+
+        assert!(outer_config
+            .to_string()
+            .find("\n# Submodule path missing in inner .gitmodules file.\n")
+            .is_some());
+    }
+
+    #[test]
+    fn test_append_existing_path() {
+        let outer_gitmodules = r#"
+[submodule "submod-outer"]
+    path = submod/outer
+    url = ../../somewhere/org/submod.git
+    branch = .
+"#;
+        // Variable `path` in `inner_gitmodules` will be evaluated to `submod/outer`, which already exists in `outer_gitmodules`
+        let inner_gitmodules = r#"
+[submodule "inner"]
+    path = outer
+    url = ../../inner.git
+    branch = .
+"#;
+
+        let (outer_config, _) = create_configs_and_append(
+            outer_gitmodules,
+            b"ssh://server.com/example/outer.git",
+            b"submod",
+            inner_gitmodules,
+        );
+
+        assert!(outer_config
+            .to_string()
+            .find("\n# Submodule path already described: submod/outer\n")
+            .is_some());
+    }
+
+    #[test]
+    fn test_append_unused_section() {
+        let outer_gitmodules = r#"
+[submodule "submod-outer"]
+    path = submod/outer
+    url = ../../somewhere/org/submod.git
+    branch = .
+"#;
+        // Non-submodule header in `inner_gitmodules`
+        let inner_gitmodules = r#"
+[foo "bar"]
+    path = inner
+    url = ../../inner.git
+    branch = .
+"#;
+
+        let (outer_config, _) = create_configs_and_append(
+            outer_gitmodules,
+            b"ssh://server.com/example/outer.git",
+            b"submod",
+            inner_gitmodules,
+        );
+
+        assert!(outer_config
+            .to_string()
+            .find("\n# Skipping unused section: foo.bar\n")
+            .is_some());
+    }
 }
