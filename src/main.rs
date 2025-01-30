@@ -122,6 +122,10 @@ fn to_anyhow<T>(r: std::result::Result<T, Report>) -> Result<T> {
 
 /// Checkout topics from Gerrit.
 fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<ExitCode> {
+    if ! checkout.dry_run{
+        assert!(false, "only --dry-run is supported.");
+    }
+
     let mut http_server_override = None;
 
     // TODO(nils): path?
@@ -151,7 +155,6 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<ExitCode> {
         /* cache: */ true,
         /* persist ssh: */ false,
     );
-
 
     // TODO: Is this a full conversion to anyhow errors?
     // It seems that we lose some of the miette context.
@@ -199,17 +202,19 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<ExitCode> {
 
     let res = order_submitted_together(res.unwrap())?;
 
-
     println!("Cherry-pick order:");
+    let fetch_stem = "git toprepo fetch";
     for (index, atomic) in res.into_iter().rev().enumerate() {
         for repo in atomic.into_iter() {
             for commit in repo.into_iter() {
-                println!("{} {} {}", index, commit.project, commit.current_revision.unwrap());
+                let remote = format!("ssh://{}/{}.git", gerrit.ssh_host(), commit.project);
+                let cherry_pick = "; git cherry-pick FETCH_HEAD";
+                println!("{fetch_stem} {remote} {} {cherry_pick} # topic index: {index}", commit.current_revision.unwrap());
             }
         }
     }
 
-    todo!();
+    Ok(0.into())
 }
 
 /// Replace references to Gerrit projects to the local file paths of submodules.
