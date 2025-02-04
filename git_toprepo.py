@@ -475,14 +475,8 @@ class ConfigDict(DefaultDict[str, List[str]]):
     def parse(config_lines: str) -> "ConfigDict":
         ret = ConfigDict()
         for line in config_lines.splitlines(keepends=False):
-            try:
-                key, value = line.split("=", 1)
-                ret[key].append(value)
-            except ValueError:
-                print("Warning: git config: could not parse config entry:", file=sys.stderr)
-                print(line, file=sys.stderr)
-                print("ignoring", file=sys.stderr)
-                pass
+            key, value = line.split("=", 1)
+            ret[key].append(value)
         return ret
 
     @staticmethod
