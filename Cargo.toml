@@ -1,7 +1,14 @@
+[profile.release]
+debug = 1
+
 [package]
 name = "git_toprepo"
 version = "0.1.0"
 edition = "2024"
+
+[patch.crates-io]
+# Include a correct ref filter when listing references.
+gix = { git = "https://github.com/GitoxideLabs/gitoxide", rev = "71275d16b6a3a22b5e6e33f441d50fc6d44ff20e" }
 
 [dependencies]
 anyhow = "1.0.86"
@@ -9,17 +16,22 @@ bstr = "1.11.0"
 chrono = { version = "0.4.39", features = ["serde"] }
 clap = { version = "4.5.8", features = ["derive", "string"] }
 colored = "2.1.0"
-enum_dispatch = "0.3.13"
-git2 = "0.19.0"
-gix = "0.68.0"
-gix-config = "0.40.0"
-gix-submodule = "0.16.0"
-gix-url = "0.28.1"
+gix = "0.71.0"
+gix-features = "0.41.1"
+indicatif = "0.17.9"
 itertools = "0.13.0"
-lazycell = "1.3.0"
+lazy_static = "1.5.0"
+lru = "0.13.0"
 regex = "1.10.5"
 serde = { version = "1.0.214", features = ["default", "derive"] }
 serde_with = { version = "3.11.0", features = ["macros"] }
-tempfile = "3.13.0"
+threadpool = "1.8.1"
 toml = "0.8.19"
 url = "2.5.2"
+
+[dev-dependencies]
+tempfile = "3.13.0"
+
+[[bin]]
+name = "git-toprepo"
+path = "src/main.rs"

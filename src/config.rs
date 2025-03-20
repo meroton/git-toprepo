@@ -1,25 +1,89 @@
-#![allow(dead_code)]
-
-use crate::git::CommitHash;
-use crate::util::{
-    get_basename, git_command, git_config_get, trim_newline_suffix, OutputExtension,
-};
-use anyhow::{bail, Context, Result};
-use bstr::ByteSlice;
-use chrono::TimeZone as _;
-use regex::Regex;
-use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use crate::git::CommitId;
+use crate::git::git_command;
+use crate::git::git_config_get;
+use crate::util::CommandExtension as _;
+use crate::util::is_default;
+use crate::util::trim_newline_suffix;
+use anyhow::Context;
+use anyhow::Result;
+use anyhow::bail;
+use bstr::BStr;
+use bstr::ByteSlice as _;
+use itertools::Itertools;
+use serde::Deserialize;
+use serde::Serialize;
+use serde_with::DeserializeAs;
+use serde_with::SerializeAs;
+use serde_with::serde_as;
+use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::fmt;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::fmt::Write as _;
-use std::fmt::{self, Display, Formatter};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::str::FromStr;
 
-#[derive(Debug, Deserialize, Serialize)]
+struct SerdeGixUrl;
+
+impl SerializeAs<gix::Url> for SerdeGixUrl {
+    fn serialize_as<S>(source: &gix::Url, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(
+            source
+                .to_bstring()
+                .to_str()
+                .map_err(|err| serde::ser::Error::custom(format!("Invalid URL {source}: {err}")))?,
+        )
+    }
+}
+
+impl<'de> DeserializeAs<'de, gix::Url> for SerdeGixUrl {
+    fn deserialize_as<D>(deserializer: D) -> Result<gix::Url, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let url: Option<_> = SerdeGixUrl::deserialize_as(deserializer)?;
+        url.ok_or_else(|| serde::de::Error::custom("URL must not be empty"))
+    }
+}
+
+impl SerializeAs<Option<gix::Url>> for SerdeGixUrl {
+    fn serialize_as<S>(source: &Option<gix::Url>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match source {
+            Some(url) => SerdeGixUrl::serialize_as(url, serializer),
+            None => serializer.serialize_str(""),
+        }
+    }
+}
+
+impl<'de> DeserializeAs<'de, Option<gix::Url>> for SerdeGixUrl {
+    fn deserialize_as<D>(deserializer: D) -> Result<Option<gix::Url>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if s.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(gix::Url::from_bytes(s.as_bytes().as_bstr()).map_err(
+                |err| serde::de::Error::custom(format!("Invalid URL {s}: {err}")),
+            )?))
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct GitTopRepoConfig {
-    repo: BTreeMap<String, SubrepoConfig>,
-    repos: RepoListConfig,
+    #[serde(rename = "repo")]
+    pub subrepos: BTreeMap<String, SubrepoConfig>,
 }
 
 pub enum ConfigLocation {
@@ -42,22 +106,107 @@ impl Display for ConfigLocation {
 }
 
 impl GitTopRepoConfig {
-    fn new() -> Self {
-        GitTopRepoConfig::default()
+    /// Trims the URL path from optional `.git` and `/` suffixes.
+    fn trim_url_path(url: &gix::Url) -> &BStr {
+        let mut p = url.path.as_bstr();
+        if p.ends_with(b".git") {
+            p = p[..p.len() - 4].as_bstr();
+        } else if p.ends_with(b"/") {
+            p = p[..p.len() - 1].as_bstr();
+        }
+        p
     }
 
-    pub fn get_subrepo_config(&mut self, repo_url: &str) -> &SubrepoConfig {
-        let repo_name = get_basename(repo_url);
-        if !self.repo.contains_key(&repo_name) {
-            self.repo.insert(
-                String::from(&repo_name),
-                SubrepoConfig {
-                    urls: vec![String::from(repo_url)],
-                    ..Default::default()
-                },
-            );
+    /// Gets a `SubrepoConfig` based on a URL using exact matching. If an URL is
+    /// missing, the user should add it to the `SubrepoConfig::urls` list.
+    pub fn get_name_from_url(&self, url: &gix::Url) -> Result<Option<String>> {
+        let matches: Vec<_> = self
+            .subrepos
+            .iter()
+            .filter(|(_name, subrepo_config)| subrepo_config.urls.iter().any(|u| u == url))
+            .collect();
+        match matches.len() {
+            0 => Ok(None),
+            1 => Ok(Some(matches[0].0.clone())),
+            _ => {
+                let names = matches.into_iter().map(|(name, _)| name).join(", ");
+                bail!("Multiple remote candidates for {url}: {names}");
+            }
         }
-        self.repo.get(&repo_name).unwrap()
+    }
+
+    pub fn default_name_from_url(&self, repo_url: &gix::Url) -> String {
+        // TODO: UTF-8 validation.
+        let mut name: &str = &repo_url.path.to_str_lossy();
+        if name.ends_with(".git") {
+            name = &name[..name.len() - 4];
+        } else if name.ends_with("/") {
+            name = &name[..name.len() - 1];
+        }
+        loop {
+            if name.starts_with("../") {
+                name = &name[3..];
+            } else if name.starts_with("./") {
+                name = &name[2..];
+            } else if name.starts_with("/") {
+                name = &name[1..];
+            } else {
+                break;
+            }
+        }
+        name.replace("/", "_")
+    }
+
+    /// Get a subrepo configuration without creating a new entry if missing.
+    pub fn get_from_url(&self, repo_url: &gix::Url) -> Result<Option<(String, &SubrepoConfig)>> {
+        match self.get_name_from_url(repo_url)? {
+            Some(repo_name) => {
+                let subrepo_config = self.subrepos.get(&repo_name).expect("valid subrepo name");
+                Ok(Some((repo_name, subrepo_config)))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Get a subrepo configuration or create a new entry if missing.
+    pub fn get_or_insert_from_url(
+        &mut self,
+        repo_url: &gix::Url,
+    ) -> Result<(String, &SubrepoConfig)> {
+        let (repo_name, subrepo_config) = match self.get_name_from_url(repo_url)? {
+            Some(name) => {
+                let subrepo_config = self.subrepos.get_mut(&name).expect("valid subrepo name");
+                (name, subrepo_config)
+            }
+            None => {
+                let repo_name = self.default_name_from_url(repo_url);
+                // Instead of just self.subrepos.get(&repo_name), also check for
+                // case insensitive repo name uniqueness. It's confusing for the
+                // user to get multiple repos with the same name and not
+                // realising that it's just the casing that is different.
+                // Manually adding multiple entries with different casing is
+                // allowed but not recommended.
+                for (existing_name, subrepo_config) in &self.subrepos {
+                    if repo_name.to_lowercase() == existing_name.to_lowercase() {
+                        // TODO: Improve error message with how to write such a config.
+                        let existing_url = subrepo_config.resolve_fetch_url();
+                        bail!(
+                            "URL {repo_url} would duplicate repo name {existing_name:?} with URL {existing_url}. \
+                            Please create a manual config entry with both URLS."
+                        );
+                    }
+                }
+                let subrepo_config =
+                    self.subrepos
+                        .entry(repo_name.clone())
+                        .or_insert(SubrepoConfig {
+                            urls: vec![repo_url.clone()],
+                            ..Default::default()
+                        });
+                (repo_name, subrepo_config)
+            }
+        };
+        Ok((repo_name, subrepo_config))
     }
 
     /// Finds the location of the configuration to load.
@@ -82,7 +231,16 @@ impl GitTopRepoConfig {
     ) -> Result<ConfigLocation> {
         // Load config file location.
         const GIT_CONFIG_KEY: &str = "toprepo.config";
-        const DEFAULT_LOCATION: &str = "refs/toprepo-super/HEAD:.gittoprepo.toml";
+        const DEFAULT_LOCATION: &str = "refs/namespaces/top/HEAD:.gittoprepo.toml";
+
+        #[cfg(test)]
+        assert_eq!(
+            DEFAULT_LOCATION,
+            format!(
+                "{}HEAD:.gittoprepo.toml",
+                crate::repo::RepoName::Top.to_ref_prefix()
+            )
+        );
 
         let user_location = git_config_get(repo_dir, GIT_CONFIG_KEY)?;
         let (using_default_location, location) = match user_location.as_deref().unwrap_or("") {
@@ -102,13 +260,13 @@ impl GitTopRepoConfig {
             }
         }
 
-        let parsed_location = if location.starts_with(":") {
-            ConfigLocation::Worktree(PathBuf::from_str(&location[1..])?)
+        let parsed_location = if let Some(path) = location.strip_prefix(':') {
+            ConfigLocation::Worktree(PathBuf::from_str(path)?)
         } else {
-            // R¨ead config file from the repository.
-            let config_toml_output = git_command(&repo_dir)
+            // Read config file from the repository.
+            let config_toml_output = git_command(repo_dir)
                 .args(["cat-file", "-e", location])
-                .output()?;
+                .safe_output()?;
             match config_toml_output.check_success_with_stderr() {
                 Ok(_) => {
                     // The config file blob exists in the repo.
@@ -144,9 +302,8 @@ impl GitTopRepoConfig {
     pub fn load_config_toml(repo_dir: &Path, location: &ConfigLocation) -> Result<String> {
         || -> Result<String> {
             match location {
-                ConfigLocation::RepoBlob(object) => Ok(git_command(&repo_dir)
+                ConfigLocation::RepoBlob(object) => Ok(git_command(repo_dir)
                     .args(["show", object])
-                    .output()?
                     .check_success_with_stderr()?
                     .stdout
                     .to_str()?
@@ -162,7 +319,7 @@ impl GitTopRepoConfig {
 
     /// Parse a TOML configuration string.
     pub fn parse_config_toml_string(config_toml: &str) -> Result<Self> {
-        let mut res: Self = toml::from_str(&config_toml).context("Could not parse TOML string")?;
+        let mut res: Self = toml::from_str(config_toml).context("Could not parse TOML string")?;
         res.validate()?;
         Ok(res)
     }
@@ -183,7 +340,8 @@ impl GitTopRepoConfig {
 
     /// Validates that the configuration is sane.
     pub fn validate(&mut self) -> Result<()> {
-        for (repo_name, subrepo_config) in self.repo.iter_mut() {
+        for (repo_name, subrepo_config) in self.subrepos.iter_mut() {
+            // Validate each subrepo config.
             subrepo_config
                 .validate()
                 .with_context(|| format!("Invalid subrepo configuration for {}", repo_name))?;
@@ -194,7 +352,7 @@ impl GitTopRepoConfig {
 
     fn ensure_unique_urls(&self) -> Result<()> {
         let mut found = HashMap::<String, String>::new();
-        for (repo_name, v) in self.repo.iter() {
+        for (repo_name, v) in self.subrepos.iter() {
             for url in v.urls.iter() {
                 match found.entry(url.to_string()) {
                     std::collections::hash_map::Entry::Vacant(entry) => {
@@ -216,80 +374,74 @@ impl GitTopRepoConfig {
     }
 }
 
-impl Default for GitTopRepoConfig {
-    fn default() -> Self {
-        GitTopRepoConfig {
-            repo: BTreeMap::default(),
-            repos: RepoListConfig {
-                filter: repos_filter_default(),
-            },
-        }
-    }
-}
-
 /// SubrepoConfig holds the configuration for a subrepo in the super repo. In
 /// case `fetch.url` is empty, the first entry in `urls` is used. In case
 /// `push.url` is empty, the value of `fetch.url` is used. A sane configuration
-/// has either exactly one entry in `urls` or a fetch URL set.
+#[serde_as]
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct SubrepoConfig {
-    #[serde(default = "repo_since_default")]
-    pub since: chrono::DateTime<chrono::Utc>,
-    pub urls: Vec<String>,
+    // TODO: Remove
+    // #[serde(default = "repo_since_default")]
+    // #[serde(skip_serializing_if = "is_repo_since_default")]
+    // pub since: chrono::DateTime<chrono::Utc>,
+    #[serde_as(as = "Vec<SerdeGixUrl>")]
+    pub urls: Vec<gix::Url>,
+    #[serde(skip_serializing_if = "is_default")]
     pub commits: CommitFilterConfig,
     pub fetch: FetchConfig,
+    #[serde(skip_serializing_if = "is_default")]
     pub push: PushConfig,
+    #[serde(default = "return_true")]
+    #[serde(skip_serializing_if = "is_default")]
+    pub enabled: bool,
+}
+
+fn return_true() -> bool {
+    true
 }
 
 impl SubrepoConfig {
-    pub fn new(url: &str) -> Self {
-        let mut repo_table = SubrepoConfig::default();
-        repo_table.fetch.url = url.to_string();
-        repo_table.push.url = url.to_string();
-        repo_table
-    }
-
     /// Validates that the configuration is sane.
     /// This will check that a fetch URL is set
     /// if `urls` does not contain exacly one entry.
     pub fn validate(&self) -> Result<()> {
         // Set fetch/push urls.
-        if self.fetch.url.is_empty() && self.urls.len() != 1 {
+        if self.fetch.url.is_none() && self.urls.len() != 1 {
             bail!("Either .fetch.url needs to be set or .urls must have exactly one element")
         }
         Ok(())
     }
 
-    pub fn resolve_fetch_url(&self) -> &str {
-        if self.fetch.url.is_empty() {
-            assert!(self.validate().is_ok());
-            &self.urls[0]
-        } else {
-            &self.fetch.url
+    pub fn resolve_fetch_url(&self) -> &gix::Url {
+        match &self.fetch.url {
+            Some(url) => url,
+            None => {
+                assert!(self.validate().is_ok());
+                &self.urls[0]
+            }
         }
     }
 
-    pub fn resolve_push_url(&self) -> &str {
-        if self.push.url.is_empty() {
-            self.resolve_fetch_url()
-        } else {
-            &self.push.url
+    pub fn resolve_push_url(&self) -> &gix::Url {
+        match &self.push.url {
+            Some(url) => url,
+            None => self.resolve_fetch_url(),
         }
     }
 
     pub fn get_fetch_config_with_url(&self) -> FetchConfig {
         let mut fetch = self.fetch.clone();
-        if fetch.url.is_empty() {
-            fetch.url = self.resolve_fetch_url().to_owned();
+        if fetch.url.is_none() {
+            fetch.url = Some(self.resolve_fetch_url().to_owned());
         }
         fetch
     }
 
     pub fn get_push_config_with_url(&self) -> PushConfig {
         let mut push = self.push.clone();
-        if push.url.is_empty() {
-            push.url = self.resolve_push_url().to_owned();
+        if push.url.is_none() {
+            push.url = Some(self.resolve_push_url().to_owned());
         }
         push
     }
@@ -298,52 +450,58 @@ impl SubrepoConfig {
 impl Default for SubrepoConfig {
     fn default() -> Self {
         SubrepoConfig {
-            since: repo_since_default(),
-            urls: Vec::default(),
-            commits: CommitFilterConfig::default(),
-            fetch: FetchConfig::default(),
-            push: PushConfig::default(),
+            urls: Vec::new(),
+            commits: Default::default(),
+            fetch: Default::default(),
+            push: Default::default(),
+            enabled: true,
         }
     }
 }
 
-fn repo_since_default() -> chrono::DateTime<chrono::Utc> {
-    chrono::Utc.timestamp_micros(0).unwrap()
-}
+// TODO: Remove
+// use chrono::TimeZone as _;
+// fn repo_since_default() -> chrono::DateTime<chrono::Utc> {
+//     chrono::Utc.timestamp_micros(0).unwrap()
+// }
+//
+// fn is_repo_since_default(dt: &chrono::DateTime<chrono::Utc>) -> bool {
+//     dt.timestamp_micros() == 0
+// }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[serde_as]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct CommitFilterConfig {
-    pub missing: Vec<CommitHash>,
-    pub missing_while_filtering: Vec<CommitHash>,
+    #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub missing: Vec<CommitId>,
+    #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub missing_while_filtering: Vec<CommitId>,
 }
 
-impl Default for CommitFilterConfig {
-    fn default() -> Self {
-        CommitFilterConfig {
-            missing: Vec::new(),
-            missing_while_filtering: Vec::new(),
-        }
-    }
-}
-
+#[serde_as]
+#[serde_with::skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct FetchConfig {
-    pub args: Vec<String>,
     #[serde(default = "fetch_prune_default")]
+    #[serde(skip_serializing_if = "eq_fetch_prune_default")]
     pub prune: bool,
-    pub refspecs: Vec<String>,
-    pub url: String,
+    #[serde(skip_serializing_if = "is_default")]
+    pub depth: i32,
+    #[serde_as(as = "SerdeGixUrl")]
+    pub url: Option<gix::Url>,
 }
 
 impl Default for FetchConfig {
     fn default() -> Self {
         FetchConfig {
-            args: Vec::new(),
             prune: fetch_prune_default(),
-            refspecs: Vec::new(),
-            url: String::new(),
+            depth: 0,
+            url: None,
         }
     }
 }
@@ -352,110 +510,42 @@ fn fetch_prune_default() -> bool {
     true
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+fn eq_fetch_prune_default(value: &bool) -> bool {
+    *value == fetch_prune_default()
+}
+
+#[serde_as]
+#[serde_with::skip_serializing_none]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(default)]
 pub struct PushConfig {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
-    pub url: String,
-}
-
-impl Default for PushConfig {
-    fn default() -> Self {
-        PushConfig {
-            args: Vec::new(),
-            url: String::new(),
-        }
-    }
-}
-
-/// Configuration for the list of subrepos to use.
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(default)]
-pub struct RepoListConfig {
-    /// Tells which sub repos to use. Each value starts with `+` or `-` followed
-    /// by a regexp that should match a whole repository name. The expressions
-    /// are matched in the order specified and the first matching regex decides
-    /// whether the repo should be expanded or not.
-    ///
-    /// Defaults to `["+.*"]`.
-    #[serde(default = "repos_filter_default")]
-    pub filter: Vec<RepoListFilter>,
-}
-
-impl Default for RepoListConfig {
-    fn default() -> Self {
-        RepoListConfig {
-            filter: repos_filter_default(),
-        }
-    }
-}
-
-fn repos_filter_default() -> Vec<RepoListFilter> {
-    vec![RepoListFilter::new(true, Regex::new("^.*$").unwrap()).unwrap()]
-}
-
-#[derive(Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
-pub struct RepoListFilter {
-    pub wanted: bool,
-    pattern: Regex,
-}
-
-impl RepoListFilter {
-    pub fn new(wanted: bool, pattern: Regex) -> Result<Self> {
-        if !pattern.as_str().starts_with('^') || !pattern.as_str().ends_with('$') {
-            bail!("Pattern must start with ^ and end with $");
-        }
-        Ok(RepoListFilter { wanted, pattern })
-    }
-}
-
-impl Display for RepoListFilter {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let wanted_str = if self.wanted { "+" } else { "-" };
-        let full_pattern_str = self.pattern.as_str();
-        assert!(full_pattern_str.starts_with('^'));
-        assert!(full_pattern_str.ends_with('$'));
-        let short_pattern_str = &full_pattern_str[1..full_pattern_str.len() - 1];
-        write!(f, "{}{}", wanted_str, short_pattern_str)
-    }
-}
-
-impl std::str::FromStr for RepoListFilter {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let wanted = match s.chars().next() {
-            Some('+') => true,
-            Some('-') => false,
-            _ => return Err("Expected + or - prefix".to_string()),
-        };
-        let pattern = match Regex::new(&format!("^{}$", &s[1..])) {
-            Ok(r) => r,
-            Err(e) => return Err(format!("Invalid regex: {}", e)),
-        };
-        Ok(RepoListFilter { wanted, pattern })
-    }
+    #[serde_as(as = "SerdeGixUrl")]
+    pub url: Option<gix::Url>,
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::git::tests::commit_env;
     use super::*;
 
     #[test]
     fn test_create_config_from_invalid_ref() {
         let tmp_dir = tempfile::tempdir().unwrap();
         let tmp_path = tmp_dir.path().to_path_buf();
-        let env = crate::util::commit_env();
+        let env = commit_env();
 
         git_command(&tmp_path)
             .args(["init"])
             .envs(&env)
-            .output()
+            .check_success_with_stderr()
             .unwrap();
 
         git_command(&tmp_path)
             .args(["config", "toprepo.config", ":foobar.toml"])
             .envs(&env)
-            .output()
+            .check_success_with_stderr()
             .unwrap();
 
         let err: anyhow::Error =
@@ -474,12 +564,12 @@ mod tests {
 
         let tmp_dir = tempfile::tempdir().unwrap();
         let tmp_path = tmp_dir.path().to_path_buf();
-        let env = crate::util::commit_env();
+        let env = commit_env();
 
         git_command(&tmp_path)
             .args(["init"])
             .envs(&env)
-            .output()
+            .check_success_with_stderr()
             .unwrap();
 
         let mut tmp_file = std::fs::File::create(tmp_path.join("foobar.toml")).unwrap();
@@ -496,59 +586,77 @@ url = "ssh://bar/baz.git"
         git_command(&tmp_path)
             .args(["add", "foobar.toml"])
             .envs(&env)
-            .output()
+            .check_success_with_stderr()
             .unwrap();
 
         git_command(&tmp_path)
             .args(["config", "toprepo.config", ":foobar.toml"])
             .envs(&env)
-            .output()
+            .check_success_with_stderr()
             .unwrap();
 
         let config = GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap();
 
-        assert!(config.repo.contains_key("foo"));
+        assert!(config.subrepos.contains_key("foo"));
         assert_eq!(
-            config.repo.get("foo").unwrap().resolve_fetch_url(),
-            "ssh://bar/baz.git"
+            config
+                .subrepos
+                .get("foo")
+                .unwrap()
+                .resolve_fetch_url()
+                .to_bstring(),
+            b"ssh://bar/baz.git".as_bstr()
         );
         assert_eq!(
-            config.repo.get("foo").unwrap().resolve_push_url(),
-            "ssh://bar/baz.git"
+            config
+                .subrepos
+                .get("foo")
+                .unwrap()
+                .resolve_push_url()
+                .to_bstring(),
+            b"ssh://bar/baz.git".as_bstr()
         );
-        assert_eq!(config.repos.filter.len(), 1);
-        assert_eq!(config.repos.filter[0].to_string(), "+.*");
     }
 
     #[test]
     fn test_create_config_from_empty_string() {
         let tmp_dir = tempfile::tempdir().unwrap();
-        let tmp_path = tmp_dir.path().to_path_buf();
-        let env = crate::util::commit_env();
+        let tmp_path: PathBuf = tmp_dir.path().to_path_buf();
+        let env = commit_env();
 
         git_command(&tmp_path)
             .args(["init"])
             .envs(&env)
-            .output()
+            .check_success_with_stderr()
             .unwrap();
 
         git_command(&tmp_path)
             .args(["commit", "--allow-empty", "-m", "Initial commit"])
             .envs(&env)
-            .output()
+            .check_success_with_stderr()
             .unwrap();
 
         git_command(&tmp_path)
-            .args(["update-ref", "refs/toprepo-super/HEAD", "HEAD"])
+            .args(["update-ref", "refs/namespaces/top/HEAD", "HEAD"])
             .envs(&env)
-            .output()
+            .check_success_with_stderr()
             .unwrap();
 
-        let config = GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap();
+        let mut search_log = String::new();
+        let config = GitTopRepoConfig::load_config_from_repo_with_log(
+            tmp_path.as_path(),
+            Some(&mut search_log),
+        )
+        .unwrap();
+        assert_eq!(
+            search_log,
+            "git config toprepo.config: <unset>\n\
+            Using default location: refs/namespaces/top/HEAD:.gittoprepo.toml\n\
+            'git cat-file -e' reported fatal: path '.gittoprepo.toml' does not exist in 'refs/namespaces/top/HEAD'\n\
+            Falling back to default configuration\n"
+        );
 
-        assert!(config.repo.is_empty());
-        assert_eq!(config.repos.filter.len(), 1);
-        assert_eq!(config.repos.filter[0].to_string(), "+.*");
+        assert!(config.subrepos.is_empty());
     }
 
     #[test]
@@ -557,12 +665,12 @@ url = "ssh://bar/baz.git"
 
         let tmp_dir = tempfile::tempdir().unwrap();
         let tmp_path = tmp_dir.path().to_path_buf();
-        let env = crate::util::commit_env();
+        let env = commit_env();
 
         git_command(&tmp_path)
             .args(["init"])
             .envs(&env)
-            .output()
+            .check_success_with_stderr()
             .unwrap();
 
         let mut tmp_file = std::fs::File::create(tmp_path.join(".gittoprepo.toml")).unwrap();
@@ -579,72 +687,85 @@ url = "ssh://bar/baz.git"
         git_command(&tmp_path)
             .args(["add", ".gittoprepo.toml"])
             .envs(&env)
-            .output()
+            .check_success_with_stderr()
             .unwrap();
 
         git_command(&tmp_path)
             .args(["commit", "-m", "Initial commit"])
             .envs(&env)
-            .output()
+            .check_success_with_stderr()
             .unwrap();
 
         git_command(&tmp_path)
-            .args(["update-ref", "refs/toprepo-super/HEAD", "HEAD"])
+            .args(["update-ref", "refs/namespaces/top/HEAD", "HEAD"])
             .envs(&env)
-            .output()
+            .check_success_with_stderr()
             .unwrap();
 
         git_command(&tmp_path)
             .args(["rm", ".gittoprepo.toml"])
             .envs(&env)
-            .output()
+            .check_success_with_stderr()
             .unwrap();
 
         git_command(&tmp_path)
             .args(["commit", "-m", "Remove .gittoprepo.toml"])
             .envs(&env)
-            .output()
+            .check_success_with_stderr()
             .unwrap();
 
         let config = GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap();
 
-        assert!(config.repo.contains_key("foo"));
+        assert!(config.subrepos.contains_key("foo"));
         assert_eq!(
-            config.repo.get("foo").unwrap().resolve_fetch_url(),
-            "ssh://bar/baz.git"
+            config
+                .subrepos
+                .get("foo")
+                .unwrap()
+                .resolve_fetch_url()
+                .to_bstring(),
+            b"ssh://bar/baz.git".as_bstr()
         );
         assert_eq!(
-            config.repo.get("foo").unwrap().resolve_push_url(),
-            "ssh://bar/baz.git"
+            config
+                .subrepos
+                .get("foo")
+                .unwrap()
+                .resolve_push_url()
+                .to_bstring(),
+            b"ssh://bar/baz.git".as_bstr()
         );
-        assert_eq!(config.repos.filter.len(), 1);
-        assert_eq!(config.repos.filter[0].to_string(), "+.*");
     }
 
     #[test]
-    fn test_get_repo_with_new_entry() {
-        let mut config = GitTopRepoConfig::parse_config_toml_string("").unwrap();
+    fn test_get_repo_with_new_entry() -> Result<()> {
+        let mut config = GitTopRepoConfig::parse_config_toml_string("")?;
 
-        config.get_subrepo_config("ssh://bar/baz.git");
-
-        assert!(config.repo.contains_key("baz"));
-        assert_eq!(config.repos.filter.len(), 1);
-        assert_eq!(config.repos.filter[0].to_string(), "+.*");
+        assert_eq!(config.subrepos.len(), 0);
+        config.get_or_insert_from_url(&gix::Url::from_bytes(b"ssh://bar/baz.git".as_bstr())?)?;
+        assert!(config.subrepos.contains_key("baz"));
+        Ok(())
     }
 
     #[test]
-    fn test_get_repo_without_new_entry() {
+    fn test_get_repo_without_new_entry() -> Result<()> {
         let mut config = GitTopRepoConfig::parse_config_toml_string(
             r#"[repo.foo]
         urls = ["../bar/repo.git"]
 
         [repos]"#,
-        )
-        .unwrap();
+        )?;
 
-        config.get_subrepo_config("foo");
-
-        assert_eq!(config.repo.len(), 1);
+        assert!(config.subrepos.contains_key("foo"));
+        assert!(
+            config
+                .get_or_insert_from_url(&gix::Url::from_bytes(
+                    b"https://example.com/foo.git".as_bstr()
+                )?)
+                .is_err()
+        );
+        assert_eq!(config.subrepos.len(), 1);
+        Ok(())
     }
 
     #[test]

@@ -1,14 +1,112 @@
+use crate::git::CommitId;
 use anyhow::bail;
-use bstr::ByteSlice;
+use bstr::ByteSlice as _;
+use bstr::ByteVec;
 use itertools::Itertools;
-use std::collections::HashMap;
-use std::path::{self, Path, PathBuf};
+use std::hash::Hash;
+use std::ops::Deref;
+use std::ops::DerefMut;
 use std::process::Command;
-
-use crate::git::CommitHash;
+use std::process::ExitStatus;
+use std::sync::atomic::AtomicBool;
 
 pub type RawUrl = String;
 pub type Url = String;
+
+/// Interface for returning a unique element, possibly duplicated, from an
+/// iterator.
+pub trait IterSingleUnique<T> {
+    fn single_unique(self) -> Option<T>;
+}
+
+impl<I, T> IterSingleUnique<T> for I
+where
+    I: IntoIterator<Item = T>,
+    T: PartialEq,
+{
+    /// Returns the first element of an iterator if all elements are equal.
+    /// Otherwise, returns None.
+    ///
+    /// ```
+    /// use git_toprepo::util::IterSingleUnique as _;
+    ///
+    /// assert_eq!(Vec::<i32>::new().single_unique(), None);
+    /// assert_eq!(vec![1].single_unique(), Some(1));
+    /// assert_eq!(vec![1,1,1].single_unique(), Some(1));
+    /// assert_eq!(vec![1,2,1].single_unique(), None);
+    /// ```
+    fn single_unique(self) -> Option<T> {
+        single_unique(self)
+    }
+}
+
+pub fn single_unique<I, T>(items: I) -> Option<T>
+where
+    I: IntoIterator<Item = T>,
+    T: PartialEq,
+{
+    let mut iter = items.into_iter();
+    let first = iter.next()?;
+    for item in iter {
+        if item != first {
+            return None;
+        }
+    }
+    Some(first)
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+/// A container that can hold either no entry or a single entry.
+pub enum UniqueContainer<T> {
+    /// No entry in the container.
+    #[default]
+    Empty,
+    /// Only a single entry has been added.
+    Single(T),
+    /// Multiple different entries have been added, the last one is inserted.
+    Multiple,
+}
+
+impl<T> UniqueContainer<T>
+where
+    T: PartialEq,
+{
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns the first element of an iterator if all elements are equal.
+    /// Otherwise, returns None.
+    ///
+    /// ```
+    /// use git_toprepo::util::UniqueContainer;
+    ///
+    /// let mut container = UniqueContainer::Empty;
+    /// container.insert(1);
+    /// assert_eq!(container, UniqueContainer::Single(1));
+    /// container.insert(1);
+    /// assert_eq!(container, UniqueContainer::Single(1));
+    /// container.insert(2);
+    /// assert_eq!(container, UniqueContainer::Multiple);
+    /// container.insert(1);
+    /// assert_eq!(container, UniqueContainer::Multiple);
+    /// container.insert(3);
+    /// assert_eq!(container, UniqueContainer::Multiple);
+    /// ```
+    pub fn insert(&mut self, item: T) {
+        match self {
+            UniqueContainer::Empty => {
+                *self = UniqueContainer::Single(item);
+            }
+            UniqueContainer::Single(first) => {
+                if *first != item {
+                    *self = UniqueContainer::Multiple;
+                }
+            }
+            UniqueContainer::Multiple => {}
+        }
+    }
+}
 
 /// Normalize a path in the abstract, without filesystem accesses.
 ///
@@ -26,7 +124,7 @@ pub fn normalize(p: &str) -> String {
     let mut stack: Vec<&str> = Vec::new();
     let parts = p.split("/");
     for p in parts {
-        if p == "" || p == "." {
+        if p.is_empty() || p == "." {
             continue;
         }
         if p == ".." {
@@ -41,7 +139,15 @@ pub fn normalize(p: &str) -> String {
 
 pub trait CommandExtension {
     fn log_cmdline(&mut self) -> &mut Self;
-    fn output_stdout_only(&mut self) -> std::io::Result<std::process::Output>;
+    fn safe_output(&mut self) -> std::io::Result<SafeOutput>;
+    fn safe_status(&mut self) -> std::io::Result<SafeExitStatus>;
+    fn output_stdout_only(&mut self) -> std::io::Result<SafeOutput>;
+
+    fn check_success_with_stderr(&mut self) -> anyhow::Result<SafeOutput> {
+        let ret = self.safe_output()?;
+        ret.check_success_with_stderr()?;
+        Ok(ret)
+    }
 }
 
 impl CommandExtension for Command {
@@ -55,19 +161,76 @@ impl CommandExtension for Command {
         self
     }
 
-    fn output_stdout_only(&mut self) -> std::io::Result<std::process::Output> {
-        self.stderr(std::process::Stdio::inherit()).output()
+    fn safe_output(&mut self) -> std::io::Result<SafeOutput> {
+        self.output().map(|output| {
+            let status = SafeExitStatus::new(output.status);
+            SafeOutput { output, status }
+        })
+    }
+
+    fn safe_status(&mut self) -> std::io::Result<SafeExitStatus> {
+        self.status().map(SafeExitStatus::new)
+    }
+
+    fn output_stdout_only(&mut self) -> std::io::Result<SafeOutput> {
+        self.stderr(std::process::Stdio::inherit()).safe_output()
     }
 }
 
-pub trait OutputExtension {
-    fn check_success_with_stderr(&self) -> anyhow::Result<&Self>;
+pub struct SafeOutput {
+    output: std::process::Output,
+    pub status: SafeExitStatus,
 }
 
-impl OutputExtension for std::process::Output {
+pub struct SafeExitStatus {
+    status: ExitStatus,
+    retreived: AtomicBool,
+}
+
+impl SafeExitStatus {
+    pub fn new(status: ExitStatus) -> Self {
+        SafeExitStatus {
+            status,
+            retreived: AtomicBool::new(false),
+        }
+    }
+
+    pub fn check_success(&self) -> anyhow::Result<&Self> {
+        if !self.success() {
+            bail!("{self}");
+        }
+        Ok(self)
+    }
+}
+
+impl Drop for SafeExitStatus {
+    fn drop(&mut self) {
+        if !self.retreived.load(std::sync::atomic::Ordering::Acquire) {
+            panic!("SafeOutput dropped without status being retrieved");
+        }
+    }
+}
+
+impl Deref for SafeExitStatus {
+    type Target = ExitStatus;
+
+    fn deref(&self) -> &Self::Target {
+        self.retreived
+            .store(true, std::sync::atomic::Ordering::Release);
+        &self.status
+    }
+}
+
+impl std::fmt::Display for SafeExitStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.status.fmt(f)
+    }
+}
+
+impl SafeOutput {
     /// Checks that the command was successful and otherwise returns an error
     /// with the exit status together with the stderr content.
-    fn check_success_with_stderr(&self) -> anyhow::Result<&Self> {
+    pub fn check_success_with_stderr(&self) -> anyhow::Result<&Self> {
         // TODO: Print the command line as well?
         if !self.status.success() {
             if self.stderr.is_empty() {
@@ -84,41 +247,101 @@ impl OutputExtension for std::process::Output {
     }
 }
 
-pub trait ExitStatusExtension {
-    fn check_success(&self) -> anyhow::Result<&Self>;
+impl Deref for SafeOutput {
+    type Target = std::process::Output;
+
+    fn deref(&self) -> &Self::Target {
+        &self.output
+    }
 }
 
-impl ExitStatusExtension for std::process::ExitStatus {
-    /// Checks that the command was successful and otherwise returns an error
-    /// with the exit status.
-    fn check_success(&self) -> anyhow::Result<&Self> {
-        if !self.success() {
-            bail!("{}", self);
+impl DerefMut for SafeOutput {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.output
+    }
+}
+
+pub struct ReadLossyCrOrLfLines<R> {
+    reader: R,
+    buf: Vec<u8>,
+}
+
+impl<R: std::io::BufRead> ReadLossyCrOrLfLines<R> {
+    pub fn new(reader: R) -> Self {
+        ReadLossyCrOrLfLines {
+            reader,
+            buf: Vec::new(),
         }
-        Ok(self)
     }
 }
 
-pub fn git_global_command() -> Command {
-    Command::new("git")
-}
+impl<R: std::io::BufRead> Iterator for ReadLossyCrOrLfLines<R> {
+    type Item = String;
 
-pub fn git_command(repo: &Path) -> Command {
-    let mut command = Command::new("git");
-    command.args([std::ffi::OsStr::new("-C"), repo.as_os_str()]);
-    command
-}
-
-/// Returns the value of a single entry git configuration key
-/// or `None` if the key is not set.
-pub fn git_config_get(repo: &Path, key: &str) -> anyhow::Result<Option<String>> {
-    let res = git_command(repo).args(["config", key]).output()?;
-    if res.status.code() == Some(1) {
-        Ok(None)
-    } else {
-        res.check_success_with_stderr()?;
-        Ok(Some(trim_newline_suffix(res.stdout.to_str()?).to_string()))
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Ok(bytes) = self.reader.fill_buf() {
+            if bytes.is_empty() {
+                // End of file.
+                let line_str = self.buf.to_str_lossy().to_string();
+                if line_str.is_empty() {
+                    return None;
+                }
+                self.buf.clear();
+                return Some(line_str);
+            }
+            let idx = bytes.find_byteset(b"\r\n").unwrap_or(bytes.len() - 1);
+            self.buf.push_str(bytes[..idx + 1].as_bstr());
+            self.reader.consume(idx + 1);
+            let line_str = self.buf.to_str_lossy().to_string();
+            // Check what codepoints are terminating the line.
+            if line_str.ends_with('\r') || line_str.ends_with('\n') {
+                self.buf.clear();
+                return Some(line_str);
+            }
+        }
+        None
     }
+}
+
+/// Reads for example the stderr of a process and sends each line to a callback,
+/// with CR or LF stripped. All test after the last CR will be returned.
+pub fn read_stderr_progress_status<R, F>(input: R, status_callback: F) -> String
+where
+    R: std::io::Read,
+    F: Fn(String),
+{
+    let stderr_reader = std::io::BufReader::new(input);
+    let mut last_paragraph = String::new();
+    for mut line in crate::util::ReadLossyCrOrLfLines::new(stderr_reader) {
+        if line.ends_with('\r') {
+            last_paragraph.clear();
+            line.pop();
+        } else {
+            last_paragraph += &line;
+            if line.ends_with('\n') {
+                line.pop();
+            }
+        }
+        status_callback(line);
+    }
+    last_paragraph
+}
+
+/// Returns true if the given value is the default value for the type.
+///
+/// # Examples
+/// ```
+/// use git_toprepo::util::is_default;
+///
+/// use serde::Serialize;
+/// #[derive(Serialize)]
+/// pub struct Config {
+///     #[serde(skip_serializing_if = "is_default")]
+///     value: i32,
+/// }
+/// ```
+pub fn is_default<T: Default + PartialEq>(t: &T) -> bool {
+    *t == Default::default()
 }
 
 /// Removes trailing LF or CRLF from a string.
@@ -136,10 +359,10 @@ pub fn git_config_get(repo: &Path, key: &str) -> anyhow::Result<Option<String>> 
 /// assert_eq!(trim_newline_suffix("foo\n\r"), "foo\n\r");
 /// ```
 pub fn trim_newline_suffix(s: &str) -> &str {
-    if s.ends_with("\r\n") {
-        &s[..s.len() - 2]
-    } else if s.ends_with("\n") {
-        &s[..s.len() - 1]
+    if let Some(stripped) = s.strip_suffix("\r\n") {
+        stripped
+    } else if let Some(stripped) = s.strip_suffix('\n') {
+        stripped
     } else {
         s
     }
@@ -179,11 +402,11 @@ pub fn strip_suffix<'a>(string: &'a str, suffix: &str) -> &'a str {
     }
 }
 
-pub fn annotate_message(message: &str, subdir: &str, orig_commit_hash: &CommitHash) -> String {
+pub fn annotate_message(message: &str, subdir: &str, orig_commit_hash: &CommitId) -> String {
     let mut res = message.trim_end_matches("\n").to_string() + "\n";
     if !res.contains("\n\n") {
         // Single-line message. Only a subject.
-        res.push_str("\n")
+        res.push('\n');
     }
 
     format!("{}^-- {} {}\n", res, subdir, orig_commit_hash)
@@ -196,238 +419,110 @@ where
     items.into_iter().map(|s| s.to_string()).collect()
 }
 
-pub fn commit_hash(hash: &str) -> CommitHash {
-    hash.bytes().collect_vec().into()
+#[derive(Debug, Clone)]
+pub struct PtrKey<T> {
+    phantom: std::marker::PhantomData<T>,
+    key: usize,
 }
 
-pub fn commit_env() -> HashMap<String, String> {
-    let mut hashmap = HashMap::new();
-    let env = [
-        ("GIT_AUTHOR_NAME", "A Name"),
-        ("GIT_AUTHOR_EMAIL", "a@no.domain"),
-        ("GIT_AUTHOR_DATE", "2023-01-02T03:04:05Z+01:00"),
-        ("GIT_COMMITTER_NAME", "C Name"),
-        ("GIT_COMMITTER_EMAIL", "c@no.domain"),
-        ("GIT_COMMITTER_DATE", "2023-06-07T08:09:10Z+01:00"),
-    ];
-    env.map(|(k, v)| hashmap.insert(k.to_string(), v.to_string()));
+impl<T> Eq for PtrKey<T> {}
 
-    hashmap
+impl<T> PartialEq for PtrKey<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
 }
 
-#[derive(Debug)]
-/// A struct for example repo structures. The example repo consists of repos `top` and `sub`, with `sub` being a submodule in `top`. The commit history is shown below:
-/// ```text
-/// top  A---B---C---D-------E---F---G---H
-///          |       |       |       |
-/// sub  1---2-------3---4---5---6---7---8
-/// ```
-///
-/// # Examples
-///
-/// ```rust
-/// // The crate `tempfile` is used here to create temporary directories for testing
-/// use tempfile::tempdir;
-/// use git_toprepo::util::GitTopRepoExample;
-///
-/// let tmp_dir = tempdir().unwrap();
-/// let tmp_path = tmp_dir.path().to_path_buf();
-///
-/// // Use this instead for a persistent directory:
-/// // let tmp_path = tmp_dir.into_path();
-///
-/// let repo = GitTopRepoExample::new(&tmp_path);
-/// let top_repo_path = repo.init_server_top();
-/// assert!(top_repo_path.exists());
-/// ```
-pub struct GitTopRepoExample {
-    pub tmp_path: PathBuf,
-    // TODO: store top/sub paths?
+impl<T> Hash for PtrKey<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.key.hash(state);
+    }
 }
 
-impl GitTopRepoExample {
-    pub fn new(tmp_path: &PathBuf) -> GitTopRepoExample {
-        GitTopRepoExample {
-            tmp_path: tmp_path.to_path_buf(),
+pub type ArcKey<T> = PtrKey<std::sync::Arc<T>>;
+pub type RcKey<T> = PtrKey<std::rc::Rc<T>>;
+
+impl<T> ArcKey<T> {
+    pub fn new(value: &std::sync::Arc<T>) -> Self {
+        ArcKey {
+            phantom: std::marker::PhantomData,
+            key: std::sync::Arc::as_ptr(value).addr(),
         }
     }
+}
 
-    pub fn init_server_top(&self) -> PathBuf {
-        //! Sets up the repo structure and returns the top repo path.
-        let env = commit_env();
-        let top_repo = self.tmp_path.join("top").to_path_buf();
-        let sub_repo = self.tmp_path.join("sub").to_path_buf();
-
-        std::fs::create_dir_all(&top_repo).unwrap();
-        std::fs::create_dir_all(&sub_repo).unwrap();
-
-        git_command(&top_repo)
-            .args(["init", "--quiet", "--initial-branch", "main"])
-            .envs(&env)
-            .output()
-            .unwrap();
-
-        git_command(&sub_repo)
-            .args(["init", "--quiet", "--initial-branch", "main"])
-            .envs(&env)
-            .output()
-            .unwrap();
-
-        commit(&sub_repo, &env, "1");
-        commit(&sub_repo, &env, "2");
-        commit(&top_repo, &env, "A");
-
-        git_command(&top_repo)
-            .args([
-                "-c",
-                "protocol.file.allow=always",
-                "submodule",
-                "add",
-                "../sub/", // TODO: Absolute or relative path?
-                           // sub_repo.to_str().unwrap(),
-            ])
-            .envs(&env)
-            .output()
-            .unwrap();
-        commit(&top_repo, &env, "B");
-        commit(&top_repo, &env, "C");
-        let sub_rev_3 = commit(&sub_repo, &env, "3");
-        update_index_submodule(&top_repo, &env, sub_rev_3);
-
-        commit(&top_repo, &env, "D");
-        commit(&sub_repo, &env, "4");
-        let sub_rev_5 = commit(&sub_repo, &env, "5");
-        update_index_submodule(&top_repo, &env, sub_rev_5);
-
-        commit(&top_repo, &env, "E");
-        commit(&top_repo, &env, "F");
-        commit(&sub_repo, &env, "6");
-        let sub_rev_7 = commit(&sub_repo, &env, "7");
-        update_index_submodule(&top_repo, &env, sub_rev_7);
-
-        commit(&top_repo, &env, "G");
-        commit(&top_repo, &env, "H");
-        commit(&sub_repo, &env, "8");
-
-        top_repo
+impl<T> RcKey<T> {
+    pub fn new(value: &std::rc::Rc<T>) -> Self {
+        RcKey {
+            phantom: std::marker::PhantomData,
+            key: std::rc::Rc::as_ptr(value).addr(),
+        }
     }
-}
-
-fn commit(repo: &PathBuf, env: &HashMap<String, String>, message: &str) -> String {
-    git_command(repo)
-        .args(["commit", "--allow-empty", "-m", message])
-        .envs(env)
-        .output()
-        .unwrap();
-
-    // Returns commit hash as String.
-    // TODO: Return Result<String> instead?
-    trim_newline_suffix(
-        git_command(&repo)
-            .args(["rev-parse", "HEAD"])
-            .envs(env)
-            .output()
-            .unwrap()
-            .stdout
-            .to_str()
-            .unwrap(),
-    )
-    .to_string()
-}
-
-fn update_index_submodule(repo: &PathBuf, env: &HashMap<String, String>, commit: String) {
-    git_command(repo)
-        .args([
-            "update-index",
-            "--cacheinfo",
-            &format!("160000,{},sub", commit),
-        ])
-        .envs(env)
-        .output()
-        .unwrap();
-}
-
-pub fn get_basename(name: &str) -> String {
-    path::Path::new(name)
-        .file_stem()
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_string()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::git::CommitId;
+    use anyhow::Result;
 
     #[test]
-    fn test_annotate_message() {
+    fn test_annotate_message() -> Result<()> {
+        let commit_id = CommitId::from_hex(b"0123456789abcdef0123456789abcdef01234567")?;
         // Don't fold the footer into the subject line, leave an empty line.
         assert_eq!(
-            annotate_message("Subject line\n", "sub/dir", &commit_hash("123hash"),),
+            annotate_message("Subject line\n", "sub/dir", &commit_id),
             "\
 Subject line
 
-^-- sub/dir 123hash
+^-- sub/dir 0123456789abcdef0123456789abcdef01234567
 "
         );
 
         assert_eq!(
-            annotate_message("Subject line, no LF", "sub/dir", &commit_hash("123hash"),),
+            annotate_message("Subject line, no LF", "sub/dir", &commit_id),
             "\
 Subject line, no LF
 
-^-- sub/dir 123hash
+^-- sub/dir 0123456789abcdef0123456789abcdef01234567
 "
         );
 
         assert_eq!(
-            annotate_message("Double subject line\n", "sub/dir", &commit_hash("123hash"),),
+            annotate_message("Double subject line\n", "sub/dir", &commit_id),
             "\
 Double subject line
 
-^-- sub/dir 123hash
+^-- sub/dir 0123456789abcdef0123456789abcdef01234567
 "
         );
 
         assert_eq!(
-            annotate_message(
-                "Subject line, extra LFs\n\n\n",
-                "sub/dir",
-                &commit_hash("123hash"),
-            ),
+            annotate_message("Subject line, extra LFs\n\n\n", "sub/dir", &commit_id),
             "\
 Subject line, extra LFs
 
-^-- sub/dir 123hash
+^-- sub/dir 0123456789abcdef0123456789abcdef01234567
 ",
         );
 
         assert_eq!(
-            annotate_message(
-                "Multi line\n\nmessage\n",
-                "sub/dir",
-                &commit_hash("123hash")
-            ),
+            annotate_message("Multi line\n\nmessage\n", "sub/dir", &commit_id),
             "\
 Multi line
 
 message
-^-- sub/dir 123hash
+^-- sub/dir 0123456789abcdef0123456789abcdef01234567
 ",
         );
 
         assert_eq!(
-            annotate_message(
-                "Multi line\n\nmessage, no LF",
-                "sub/dir",
-                &commit_hash("123hash"),
-            ),
+            annotate_message("Multi line\n\nmessage, no LF", "sub/dir", &commit_id),
             "\
 Multi line
 
 message, no LF
-^-- sub/dir 123hash
+^-- sub/dir 0123456789abcdef0123456789abcdef01234567
 ",
         );
 
@@ -435,14 +530,15 @@ message, no LF
             annotate_message(
                 "Multi line\n\nmessage, extra LFs\n\n\n",
                 "sub/dir",
-                &commit_hash("123hash"),
+                &commit_id,
             ),
             "\
 Multi line
 
 message, extra LFs
-^-- sub/dir 123hash
+^-- sub/dir 0123456789abcdef0123456789abcdef01234567
 ",
-        )
+        );
+        Ok(())
     }
 }

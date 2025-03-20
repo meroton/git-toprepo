@@ -2,20 +2,25 @@
 
 mod cli;
 
-use git_toprepo::config::{self, GitTopRepoConfig};
-
-use crate::cli::{Cli, Commands};
-use anyhow::{Context, Result};
-use bstr::ByteSlice;
+use crate::cli::Cli;
+use crate::cli::Commands;
+use anyhow::Context;
+use anyhow::Result;
+use bstr::ByteSlice as _;
 use clap::Parser;
 use colored::Colorize;
+use git_toprepo::config;
+use git_toprepo::config::GitTopRepoConfig;
+use std::collections::HashMap;
 use std::io::Read;
 use std::panic;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::ExitCode;
+use std::vec;
 
 fn init(init_args: &cli::Init) -> Result<ExitCode> {
-    let url = gix_url::Url::from_bytes(init_args.repository.as_bytes().as_bstr())?;
+    let url = gix::url::Url::from_bytes(init_args.repository.as_bytes().as_bstr())?;
     // TODO: Should url.path be canonicalized for scheme=File like git does?
     let directory = match &init_args.directory {
         Some(dir) => dir.clone(),
@@ -33,7 +38,7 @@ fn init(init_args: &cli::Init) -> Result<ExitCode> {
 
     if init_args.fetch {
         eprintln!("Fetching from {}", toprepo.url);
-        toprepo.fetch()?;
+        toprepo.fetch_toprepo()?;
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -65,10 +70,9 @@ fn config(config_args: &cli::Config) -> Result<ExitCode> {
                 Path::new(""),
                 search_log.as_mut(),
             )?;
-            match search_log {
-                Some(log) => eprint!("{}", log),
-                None => (),
-            };
+            if let Some(log) = search_log {
+                eprint!("{}", log);
+            }
             println!("{}", location);
         }
         cli::ConfigCommands::Show(args) => {
@@ -80,10 +84,9 @@ fn config(config_args: &cli::Config) -> Result<ExitCode> {
                 Path::new(""),
                 search_log.as_mut(),
             )?;
-            match search_log {
-                Some(log) => eprint!("{}", log),
-                None => (),
-            };
+            if let Some(log) = search_log {
+                eprint!("{}", log);
+            }
             print!("{}", toml::to_string(&config)?);
         }
         cli::ConfigCommands::Normalize(args) => {
@@ -152,14 +155,89 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<ExitCode> {
 }
 */
 
-fn refilter() -> Result<ExitCode> {
-    let toprepo = git_toprepo::repo::TopRepo::open(PathBuf::new())?;
-    todo!("Implement refilter");
+fn refilter(args: &cli::Refilter) -> Result<ExitCode> {
+    fetch_and_refilter(
+        &cli::Fetch {
+            fetch_submodules: false,
+            keep_going: args.keep_going,
+            jobs: args.jobs,
+            skip_filter: false,
+            repo: None,
+            super_or_submodule_remote: "origin".to_owned(),
+            refspecs: None,
+        },
+        |commit_loader| {
+            commit_loader.fetch_missing_commits = false;
+            commit_loader.load_all_repos()
+        },
+    )
+}
+fn fetch(fetch_args: &cli::Fetch) -> Result<ExitCode> {
+    fetch_and_refilter(fetch_args, |commit_loader| {
+        commit_loader.load_after_fetch = !fetch_args.skip_filter;
+        // TODO: refspecs
+        commit_loader.fetch_repo(git_toprepo::repo::RepoName::Top, vec![None]);
+        Ok(())
+    })
 }
 
-fn fetch(_fetch_args: &cli::Fetch) -> Result<ExitCode> {
-    //let monorepo = Repo::from_str(&args.cwd)?;
-    todo!("Implement fetch");
+fn fetch_and_refilter<F>(fetch_args: &cli::Fetch, commit_loader_setup: F) -> Result<ExitCode>
+where
+    F: FnOnce(&mut git_toprepo::loader::CommitLoader) -> Result<()>,
+{
+    if fetch_args.repo.is_some() {
+        todo!("Implement repo argument");
+    }
+    if fetch_args.super_or_submodule_remote != "origin" {
+        todo!("Implement super_or_submodule_remote argument");
+    }
+    if fetch_args.refspecs.is_some() {
+        todo!("Implement refspecs argument");
+    }
+
+    let toprepo = git_toprepo::repo::TopRepo::open(PathBuf::from("."))?;
+    let config = git_toprepo::config::GitTopRepoConfig::load_config_from_repo(&toprepo.directory)?;
+    let error_mode = git_toprepo::log::ErrorMode::from_keep_going_flag(fetch_args.keep_going);
+    let submodule_names = config.subrepos.keys().cloned().collect::<Vec<String>>();
+    let (repo_states, config) =
+        git_toprepo::log::log_task_to_stderr(error_mode.clone(), |logger, progress| {
+            let mut commit_loader = git_toprepo::loader::CommitLoader::new(
+                toprepo.gix_repo.to_thread_local(),
+                config,
+                progress,
+                logger,
+                error_mode.interrupted(),
+                threadpool::ThreadPool::new(fetch_args.jobs.get() as usize),
+            );
+            commit_loader_setup(&mut commit_loader)?;
+            if fetch_args.fetch_submodules {
+                for subrepo_name in submodule_names {
+                    commit_loader.fetch_repo(
+                        git_toprepo::repo::RepoName::SubRepo(git_toprepo::repo::SubRepoName::new(
+                            subrepo_name,
+                        )),
+                        vec![None],
+                    );
+                }
+            }
+            commit_loader.join();
+            Ok(commit_loader.into_result())
+        })
+        .context("Failed to fetch")?;
+
+    if fetch_args.skip_filter {
+        return Ok(ExitCode::SUCCESS);
+    }
+    let storage = git_toprepo::repo::TopRepoCache {
+        repos: repo_states,
+        monorepo_commits: HashMap::new(),
+        expanded_commits: HashMap::new(),
+    };
+    git_toprepo::log::log_task_to_stderr(error_mode, |logger, progress| {
+        toprepo.refilter(storage, &config, logger.clone(), progress)
+    })
+    .map_err(|_| anyhow::anyhow!("Failed to filter"))?;
+    Ok(ExitCode::SUCCESS)
 }
 
 fn main() -> Result<ExitCode> {
@@ -167,23 +245,23 @@ fn main() -> Result<ExitCode> {
     let default_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic| {
         if let Some(payload) = panic.payload().downcast_ref::<&str>() {
-            println!("\n{}\n", payload.red());
+            eprintln!("\n{}\n", payload.red());
         }
         if let Some(payload) = panic.payload().downcast_ref::<String>() {
-            println!("\n{}\n", payload.red());
+            eprintln!("\n{}\n", payload.red());
         }
         default_hook(panic);
     }));
 
     let args = Cli::parse();
-    match args.working_directory {
-        Some(ref path) => std::env::set_current_dir(path)?,
-        None => (),
-    };
+    if let Some(path) = &args.working_directory {
+        std::env::set_current_dir(path)
+            .with_context(|| format!("Failed to change working directory to {}", path.display()))?;
+    }
     let res: ExitCode = match args.command {
         Commands::Init(ref init_args) => init(init_args)?,
         Commands::Config(ref config_args) => config(config_args)?,
-        Commands::Refilter => refilter()?,
+        Commands::Refilter(ref refilter_args) => refilter(refilter_args)?,
         Commands::Fetch(ref fetch_args) => fetch(fetch_args)?,
         Commands::Push => todo!(),
         Commands::Replace(ref _replace_args) => todo!(), //replace(&args, replace_args)?,

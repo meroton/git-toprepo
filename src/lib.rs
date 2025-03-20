@@ -1,6 +1,10 @@
 pub mod config;
+pub mod expander;
+pub mod fetch;
 pub mod git;
+pub mod git_fast_export_import;
 pub mod gitmodules;
+pub mod loader;
+pub mod log;
 pub mod repo;
-pub mod repo_parser;
 pub mod util;

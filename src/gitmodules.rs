@@ -1,12 +1,15 @@
-use std::collections::{HashMap, HashSet};
-
-use bstr::{BStr, BString, ByteSlice, ByteVec};
+use bstr::BStr;
+use bstr::BString;
+use bstr::ByteSlice;
+use bstr::ByteVec;
+use std::collections::HashMap;
+use std::collections::HashSet;
 
 pub trait SubmoduleUrlExt {
     fn join(&self, other: &Self) -> Self;
 }
 
-impl SubmoduleUrlExt for gix_url::Url {
+impl SubmoduleUrlExt for gix::url::Url {
     /// Joins two URLs. If the other URL is a relative path, it is joined to the
     /// base URL path.
     ///
@@ -14,12 +17,12 @@ impl SubmoduleUrlExt for gix_url::Url {
     /// ```
     /// use bstr::ByteSlice;
     /// use git_toprepo::gitmodules::SubmoduleUrlExt;
-    /// use gix_url;
+    /// use gix::url;
     ///
     /// /// Join two URLs as strings.
     /// fn join_url_str(base: &str, other: &str) -> String{
-    ///     gix_url::parse(base.as_bytes().as_bstr()).unwrap()
-    ///         .join(&gix_url::parse(other.as_bytes().as_bstr()).unwrap())
+    ///     gix::url::parse(base.as_bytes().as_bstr()).unwrap()
+    ///         .join(&gix::url::parse(other.as_bytes().as_bstr()).unwrap())
     ///         .to_string()
     /// }
     ///
@@ -81,7 +84,7 @@ impl SubmoduleUrlExt for gix_url::Url {
     /// );
     /// ```
     fn join(&self, other: &Self) -> Self {
-        if other.scheme == gix_url::Scheme::File
+        if other.scheme == gix::url::Scheme::File
             && other.user().is_none()
             && other.password().is_none()
             && other.host().is_none()
@@ -138,7 +141,7 @@ pub fn join_relative_url_paths(base: &str, other: &str) -> String {
     /// Find the index of the last path separator in the string.
     fn strip_last_component(s: &str) -> Option<(&str, &str)> {
         let s = s.trim_end_matches(is_path_sep);
-        if s.len() == 0 {
+        if s.is_empty() {
             // No component to remove.
             return None;
         }
@@ -260,7 +263,8 @@ pub fn join_relative_url_paths(base: &str, other: &str) -> String {
 ///     url = ../../somewhere/org/submod.git
 ///     branch = .
 ///
-/// ## *** Import of submod/outer/.gitmodules ***
+///
+/// ## *** Import of submod/dir/.gitmodules ***
 ///
 /// ## First line.
 /// [submodule "submod/dir/inner-name"]
@@ -272,7 +276,7 @@ pub fn join_relative_url_paths(base: &str, other: &str) -> String {
 /// ```
 pub fn append_inner_submodule_config(
     config: &mut gix::config::File<'static>,
-    base_url: &gix_url::Url,
+    base_url: &gix::url::Url,
     path: &BStr,
     mut inner_config: gix::config::File<'static>,
 ) {
@@ -288,7 +292,7 @@ pub fn append_inner_submodule_config(
             })
         })
         .collect();
-    let existing_names: HashSet<_> = existing_path_to_names.values().map(|n| n).collect();
+    let existing_names: HashSet<_> = existing_path_to_names.values().collect();
 
     let newline = &config.detect_newline_style().to_owned();
     let mut description = Vec::new();
@@ -320,7 +324,7 @@ pub fn append_inner_submodule_config(
         let mut s = inner_config.section_mut_by_id(id).expect("id in loop");
         match s.header().subsection_name() {
             Some(inner_name) if s.header().name() == b"submodule" => {
-                let full_name = BString::new(bstr::concat(&[path, b"/".into(), inner_name]));
+                let full_name = BString::new(bstr::concat([path, b"/".into(), inner_name]));
                 if existing_names.contains(&full_name) {
                     // Skip sections that already exist in the outer configuration.
                     // The user has probably added the information manually.
@@ -351,7 +355,7 @@ pub fn append_inner_submodule_config(
                     }
                 };
                 let full_path =
-                    BString::new(bstr::concat(&[path, "/".into(), inner_path.as_bstr()]));
+                    BString::new(bstr::concat([path, "/".into(), inner_path.as_bstr()]));
                 if existing_path_to_names.contains_key(&full_path) {
                     // Skip sections that already exist in the outer configuration.
                     // The user has probably added the information manually.
@@ -369,7 +373,7 @@ pub fn append_inner_submodule_config(
 
                 // Prefix path.
                 if let Some(inner_path) = s.value("path") {
-                    let full_path = bstr::concat(&[path, b"/".into(), &inner_path]);
+                    let full_path = bstr::concat([path, b"/".into(), &inner_path]);
                     s.set(
                         "path".try_into().expect("known valid key"),
                         full_path.as_bstr(),
@@ -377,7 +381,7 @@ pub fn append_inner_submodule_config(
                 }
                 // Prefix url.
                 if let Some(inner_url) = s.value("url") {
-                    let full_url = match gix_url::parse(inner_url.as_bstr()) {
+                    let full_url = match gix::url::parse(inner_url.as_bstr()) {
                         Ok(u) => base_url.join(&u).to_bstring(),
                         Err(_) => inner_url.into_owned(),
                     };
@@ -487,16 +491,16 @@ mod tests {
 "#;
 
         let (outer_config_relative, _) = create_configs_and_append(
-            &outer_gitmodules_relative,
+            outer_gitmodules_relative,
             b"ssh://server.com/example/outer.git",
             b"submod/dir",
-            &inner_gitmodules,
+            inner_gitmodules,
         );
         let (outer_config_absolute, _) = create_configs_and_append(
-            &outer_gitmodules_absolute,
+            outer_gitmodules_absolute,
             b"ssh://server.com/example/outer.git",
             b"submod/dir",
-            &inner_gitmodules,
+            inner_gitmodules,
         );
 
         assert_eq!(
@@ -567,10 +571,11 @@ mod tests {
             inner_config,
         );
 
-        assert!(outer_config
-            .to_string()
-            .find("\n# Section already exists: submod/dir/inner\n")
-            .is_some());
+        assert!(
+            outer_config
+                .to_string()
+                .contains("\n# Section already exists: submod/dir/inner\n")
+        );
     }
 
     #[test]
@@ -595,10 +600,11 @@ mod tests {
             inner_gitmodules,
         );
 
-        assert!(outer_config
-            .to_string()
-            .find("\n# Submodule path missing in inner .gitmodules file.\n")
-            .is_some());
+        assert!(
+            outer_config
+                .to_string()
+                .contains("\n# Submodule path missing in inner .gitmodules file.\n")
+        );
     }
 
     #[test]
@@ -624,10 +630,11 @@ mod tests {
             inner_gitmodules,
         );
 
-        assert!(outer_config
-            .to_string()
-            .find("\n# Submodule path already described: submod/outer\n")
-            .is_some());
+        assert!(
+            outer_config
+                .to_string()
+                .contains("\n# Submodule path already described: submod/outer\n")
+        );
     }
 
     #[test]
@@ -653,9 +660,10 @@ mod tests {
             inner_gitmodules,
         );
 
-        assert!(outer_config
-            .to_string()
-            .find("\n# Skipping unused section: foo.bar\n")
-            .is_some());
+        assert!(
+            outer_config
+                .to_string()
+                .contains("\n# Skipping unused section: foo.bar\n")
+        );
     }
 }

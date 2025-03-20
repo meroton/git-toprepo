@@ -2,8 +2,12 @@
  *
  * See also https://jmmv.dev/2013/08/cli-design-putting-flags-to-good-use.html#bad-using-flags-to-select-subcommands.
  */
-use clap::{ArgAction, Args, Parser, Subcommand};
+use clap::ArgAction;
+use clap::Args;
+use clap::Parser;
+use clap::Subcommand;
 use std::path::PathBuf;
+use std::str::FromStr as _;
 
 const ABOUT: &str = "git-submodule made easy with git-toprepo.
 
@@ -26,7 +30,7 @@ pub struct Cli {
 pub enum Commands {
     Init(Init),
     Config(Config),
-    Refilter, // Unimplemented
+    Refilter(Refilter),
     Fetch(Fetch),
     Push, // Unimplemented
 
@@ -104,15 +108,73 @@ pub struct ConfigValidate {
 }
 
 #[derive(Args, Debug)]
-pub struct Fetch {
+pub struct Refilter {
+    /// Continue as much as possible after an error.
     #[arg(long)]
-    skip_filter: bool,
+    pub keep_going: bool,
 
-    #[arg(default_value_t = String::from("origin"))]
-    pub remote: String,
+    /// Number of concurrent threads to load the repository.
+    #[arg(long, default_value = "7")]
+    pub jobs: std::num::NonZero<u32>,
+}
 
-    #[arg(id = "ref")]
-    reference: Option<String>,
+#[derive(Args, Debug)]
+pub struct Fetch {
+    /// Continue as much as possible after an error.
+    #[arg(long)]
+    pub keep_going: bool,
+
+    /// Number of concurrent threads to perform git-fetch and the filtering.
+    #[arg(long, name = "N", default_value = "7")]
+    pub jobs: std::num::NonZero<u32>,
+
+    /// Skip the filtering step after fetching the top repository.
+    #[arg(long)]
+    pub skip_filter: bool,
+
+    /// Fetch all configured submodules even if not needed during filtering.
+    #[arg(long)]
+    pub fetch_submodules: bool,
+
+    /// The repository to fetch to, either the top repository or a submodule.
+    #[arg(long, name = "repo", value_parser = clap::builder::ValueParser::new(parse_repo_name))]
+    pub repo: Option<git_toprepo::repo::RepoName>,
+
+    /// A configured git remote in the super repository or a URL to fetch from.
+    /// If a URL is specified, it will be resolved into either the super
+    /// repository or one of the submodules. Submodules are calculated relative
+    /// this remote.
+    #[arg(name = "super-remote-or-submodule-url", default_value_t = String::from("origin"), verbatim_doc_comment)]
+    pub super_or_submodule_remote: String,
+
+    /// A reference to fetch from the top repository or submodule. Refspec
+    /// wildcards are not supported.
+    #[arg(id = "ref", num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec), verbatim_doc_comment)]
+    pub refspecs: Option<Vec<(String, String)>>,
+}
+
+fn parse_repo_name(repo_name: &str) -> Result<git_toprepo::repo::RepoName, std::io::Error> {
+    git_toprepo::repo::RepoName::from_str(repo_name).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid repository name")
+    })
+}
+
+fn parse_refspec(refspec: &str) -> Result<(String, String), std::io::Error> {
+    if let Some((lhs, rhs)) = refspec.split_once(':') {
+        if rhs.contains(':') {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Invalid refspec",
+            ));
+        }
+        let mut rhs = rhs.to_owned();
+        if !rhs.starts_with("refs/") {
+            rhs = format!("refs/heads/{}", rhs);
+        }
+        Ok((lhs.to_owned(), rhs))
+    } else {
+        Ok((refspec.to_owned(), "FETCH_HEAD".to_owned()))
+    }
 }
 
 #[derive(Args, Debug)]
