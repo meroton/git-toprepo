@@ -132,13 +132,16 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<ExitCode> {
         assert!(false, "only --dry-run is supported.");
     }
 
-    let mut http_server_override = None;
-
     // TODO(nils): path?
     let toprepo = git_toprepo::repo::TopRepo::open(PathBuf::from("."))?;
 
-    let mut git_review_file = toprepo.gix_repo.path().to_owned();
+    let mut git_review_file = toprepo.directory.clone();
     git_review_file.push(".gitreview");
+
+    // TODO: Promote to a CLI argument,
+    // and parse .gitreveiw for defaults instead of this!
+    // It is in fact load bearing with the hacky git-gr overrides.
+    let mut http_server_override = None;
 
     if git_review_file.exists() {
         let mut content: String = "".to_owned();
