@@ -30,7 +30,6 @@ use git_gr_lib::gerrit::HTTPPasswordPolicy;
 use clap::Parser;
 use std::fs::File;
 use std::io::Read;
-use std::panic;
 use std::path::Path;
 use std::collections::HashMap;
 use std::path::PathBuf;

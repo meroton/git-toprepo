@@ -1,6 +1,7 @@
 use crate::expander::TopRepoExpander;
 use crate::git::BlobId;
 use crate::git::CommitId;
+use crate::util::normalize;
 use crate::git::GitPath;
 use crate::git::TreeId;
 use crate::git::git_command;
@@ -41,10 +42,12 @@ pub fn resolve_subprojects(subs: &GitModulesInfo, main_project: String) -> Resul
     for (path, url) in subs.submodules.iter() {
         // TODO: Nightly `as_str`: https://docs.rs/bstr/latest/bstr/struct.BString.html#deref-methods-%5BT%5D-1
         let relative = gerrit_project(url)?;
-        let relative = relative.strip_prefix("/");
-        // let project = normalize(&format!("{}/{}", &main_project, relative));
-        let project = relative.unwrap().to_owned();
+        let relative = match relative.strip_prefix("/") {
+            None => relative,
+            Some(r) => r.to_owned(),
+        };
 
+        let project = normalize(&format!("{}/{}", &main_project, relative));
         resolved.subprojects.insert(path.clone(), project);
     }
 
