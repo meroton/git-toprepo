@@ -30,6 +30,8 @@ use anyhow::{anyhow,Result};
 ///
 /// Multiple commits within the same repo may also be in
 /// the same topic and should also be treated as an atomic commit.
+/// Though it is important to remember the internal order,
+/// if one wants to cherry-pick them before it is merged.
 ///
 /// Repos:    A     B
 /// Commits
@@ -129,7 +131,7 @@ fn group_by_secondary<T>(cons: &Vec<SubmittedTogether<T>>) -> Vec<Vec<&Submitted
 /// But the key is still used by the algorithm to chunk into iterators.
 /// `Cons` should have a reverse chronological order within each grouping.
 /// The result will retain this order.
-pub fn reorder_submitted_together<T>(cons: &Vec<SubmittedTogether<T>>) -> Result<Vec<Vec<Vec<SubmittedTogether<T>>>>> where
+fn reorder_submitted_together<T>(cons: &Vec<SubmittedTogether<T>>) -> Result<Vec<Vec<Vec<SubmittedTogether<T>>>>> where
     T: Eq + std::hash::Hash + Clone + std::fmt::Debug {
     // TODO: see if there is a better solution.
     let mut res: Vec<Vec<Vec<SubmittedTogether<T>>>> = Vec::new();
