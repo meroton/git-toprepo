@@ -6,7 +6,8 @@ use anyhow::{anyhow,Result};
 /// Order submitted_together
 ///
 /// Gerrit returns a partially ordered list of commits.
-/// Where topics are clearly delineated and dependency order internal to repos.
+/// Where topics are clearly delineated and dependency order internal to
+/// repositories.
 /// But across repos we have no order.
 ///
 /// Repos:    A     B     C     D
@@ -156,8 +157,8 @@ fn reorder_submitted_together<T>(cons: &Vec<SubmittedTogether<T>>) -> Result<Vec
 
     let grouped = group_by_secondary(cons);
     // Successively iterate through all the secondary groupings and pop all "free" commits.
-    // Then when all groupings have a topic barrier (or if they are empty they
-    // are no longer part of this iteration).
+    // Then when all groupings have a topic barrier
+    // (or if they are empty they are no longer part of this iteration).
     // Match the first topic in topological order.
 
     // An ordered list of iterators into the different repositories.
@@ -179,7 +180,7 @@ fn reorder_submitted_together<T>(cons: &Vec<SubmittedTogether<T>>) -> Result<Vec
     let mut index = 0;
     loop {
         if iteration_limit == 0 {
-            println!("WARNING: Iteration limit hit");
+            eprintln!("WARNING: Iteration limit hit: truncating work.");
             break
         }
         iteration_limit -= 1;
