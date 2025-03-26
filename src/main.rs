@@ -234,7 +234,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<ExitCode> {
 }
 
 /// Replace references to Gerrit projects to the local file paths of submodules.
-fn replace(args: &Cli, replace: &cli::Replace) -> Result<ExitCode> {
+fn replace(_: &Cli, replace: &cli::Replace) -> Result<ExitCode> {
     /// The main repo is not technically a submodule.
     /// But it is very convenient to have transparent handling of the main
     /// project in code that iterates over projects provided by the users.

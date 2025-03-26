@@ -85,6 +85,9 @@ impl From<NewChange> for SubmittedTogether<String> {
     }
 }
 
+// TODO: Create a type alias for the VecVecVec
+// and explain the ordering of each
+// TODO: Consider using cherry-pickable chronological order within the repo.
 pub fn order_submitted_together(cons: Vec<NewChange>) -> Result<Vec<Vec<Vec<NewChange>>>> {
     let substrate: Vec<SubmittedTogether<String>> = cons.clone().vec_into();
     let restoration = cons.iter().map(|c| (c.triplet_id().to_string(), c)).collect::<HashMap<String, &NewChange>>();
