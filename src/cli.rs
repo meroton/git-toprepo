@@ -146,7 +146,7 @@ pub struct Fetch {
     /// A configured git remote in the super repository or a URL to fetch from.
     /// If a URL is specified, it will be resolved into either the super
     /// repository or one of the submodules. Submodules are calculated relative
-    /// this remote.
+    /// to this remote.
     #[arg(name = "super-remote-or-submodule-url", default_value_t = String::from("origin"), verbatim_doc_comment)]
     pub super_or_submodule_remote: String,
 
@@ -186,11 +186,6 @@ pub struct Checkout {
     pub remote: String,
     /// refs/changes/nn/xxxnn/y
     pub change: String,
-
-    #[arg(long)]
-    /// Dump the project to submodule mapping
-    ///    <project>: <module path>
-    pub dump: bool,
 
     #[arg(long)]
     pub dry_run: bool,
