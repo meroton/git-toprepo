@@ -118,13 +118,6 @@ fn config(config_args: &cli::Config) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-
-/* TODO: general interop between miette and anyhow.
-fn to_anyhow<T>(r: std::result::Result<T, Report>) -> Result<T> {
-    Ok(())
-}
-*/
-
 /// Checkout topics from Gerrit.
 fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<ExitCode> {
     if ! checkout.dry_run{
@@ -138,7 +131,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<ExitCode> {
     git_review_file.push(".gitreview");
 
     // TODO: Promote to a CLI argument,
-    // and parse .gitreveiw for defaults instead of this!
+    // and parse .gitreview for defaults instead of this!
     // It is in fact load bearing with the hacky git-gr overrides.
     let mut http_server_override = None;
 
@@ -172,19 +165,6 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<ExitCode> {
         /* persist ssh: */ false,
     );
 
-    // TODO: Is this a full conversion to anyhow errors?
-    // It seems that we lose some of the miette context.
-    // Notably, where is the inner error?:
-    //     Err(  × Override: None
-    //     ╰─▶ Could not determine git remote username
-    //     )
-    //
-    // If this fails without the required override we just see:
-    //     called `Result::unwrap()` on an `Err` value: Failed to parse Gerrit configuration from Git remotes. Tried to parse these remotes:
-    //     • file:///dev/null
-    //     • ssh://csp-gerrit-ssh.volvocars.net/csp/hp/super
-    // which to its credit shows the remotes it tried
-    // but not the inner error.
     let mut gerrit = match gerrit {
         Ok(g) => g,
         Err(error) => {
@@ -215,8 +195,10 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<ExitCode> {
 
     let triplet_id = res.changes[0].triplet_id();
     let res = gerrit.get_submitted_together(&triplet_id);
+    let res = res.map_err(|e| anyhow::Error::from_boxed(e.into()))
+        .context("Could not query Gerrit's REST API for changes submitted together")?;
 
-    let res = order_submitted_together(res.unwrap())?;
+    let res = order_submitted_together(res)?;
 
     println!("# # Cherry-pick order:");
     let fetch_stem = "git toprepo fetch";
