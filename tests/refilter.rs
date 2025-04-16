@@ -302,6 +302,59 @@ fn test_refilter_submodule_removal() {
     assert_eq!(log_graph, expected_graph);
 }
 
+#[test]
+fn test_refilter_moved_submodule() {
+    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
+    // Debug with temp_dir.into_path() to presist the path.
+    let temp_dir = temp_dir.path();
+    let from_repo_path =
+        fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from")).move_submodule();
+
+    let to_repo_path = temp_dir.join("to");
+    let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
+    let log_graph = extract_log_graph(&toprepo.directory, vec!["--name-status", "HEAD", "--"]);
+    println!("{}", log_graph);
+    let expected_graph = r"
+* E
+|
+| M .gitmodules
+| R100 suby/1.txt E.txt
+| R100 suby/2.txt subx/1.txt
+| R100 suby/3.txt subx/2.txt
+| A subx/3.txt
+| A subz/1.txt
+| A subz/2.txt
+| A subz/3.txt
+* D
+|
+| M .gitmodules
+| R100 subx/1.txt D.txt
+| D subx/2.txt
+* C
+|
+| M .gitmodules
+| A C.txt
+| A subx/1.txt
+| A subx/2.txt
+| A suby/3.txt
+* B
+|
+| M .gitmodules
+| R100 subx/1.txt B.txt
+| A suby/1.txt
+| A suby/2.txt
+*   A
+|\
+| * 1
+|
+|   A 1.txt
+* Initial empty commit
+"
+    .strip_prefix("\n")
+    .unwrap();
+    assert_eq!(log_graph, expected_graph);
+}
+
 fn run_init_and_refilter(
     from_repo_path: PathBuf,
     to_repo_path: PathBuf,

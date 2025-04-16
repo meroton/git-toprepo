@@ -75,7 +75,7 @@ fn git_add_local_submodule_to_index(repo: &PathBuf, path: &GitPath, url: &str) {
     let path_str = path.to_str().unwrap();
     git_command(repo)
         .args(["-c", "protocol.file.allow=always"])
-        .args(["submodule", "add", url, path_str])
+        .args(["submodule", "add", "--force", url, path_str])
         .check_success_with_stderr()
         .unwrap();
     git_command(repo)
@@ -465,6 +465,69 @@ impl GitTopRepoExample {
             .unwrap();
         git_commit(&top_repo, &env, "D");
         git_merge(&top_repo, &[&top_rev_c]);
+        git_commit(&top_repo, &env, "E");
+
+        top_repo
+    }
+
+    /// Sets up the repo structure and returns the top repo path.
+    pub fn move_submodule(&self) -> PathBuf {
+        let env = commit_env();
+        let top_repo = self.tmp_path.join("top").to_path_buf();
+        let subx_repo = self.tmp_path.join("subx").to_path_buf();
+
+        std::fs::create_dir_all(&top_repo).unwrap();
+        std::fs::create_dir_all(&subx_repo).unwrap();
+
+        let subx_path = GitPath::new(b"subx".into());
+        let suby_path = GitPath::new(b"suby".into());
+
+        git_command(&top_repo)
+            .args(["init", "--quiet", "--initial-branch", "main"])
+            .envs(&env)
+            .check_success_with_stderr()
+            .unwrap();
+        git_command(&subx_repo)
+            .args(["init", "--quiet", "--initial-branch", "main"])
+            .envs(&env)
+            .check_success_with_stderr()
+            .unwrap();
+
+        // Create the following commit history:
+        // subZ                   /-3
+        // subY     /-2-*--3---3-*  |
+        // subX  1-/  |  \-2   |  \-3
+        //       |    |    |   |    |
+        // top   A1---B2---C---D----E
+        let subx_rev_1 = git_commit(&subx_repo, &env, "1");
+        let subx_rev_2 = git_commit(&subx_repo, &env, "2");
+        git_commit(&subx_repo, &env, "3");
+
+        git_add_local_submodule_to_index(&top_repo, &GitPath::new("subx".into()), "../subx/");
+        git_update_submodule_in_index(&top_repo, &subx_path, &subx_rev_1).unwrap();
+        git_commit(&top_repo, &env, "A");
+        git_command(&top_repo)
+            .args(["mv", "subx", "suby"])
+            .check_success_with_stderr()
+            .unwrap();
+        git_update_submodule_in_index(&top_repo, &suby_path, &subx_rev_2).unwrap();
+        git_commit(&top_repo, &env, "B");
+        git_command(&top_repo)
+            .args(["mv", "suby", "subx"])
+            .check_success_with_stderr()
+            .unwrap();
+        git_add_local_submodule_to_index(&top_repo, &GitPath::new("suby".into()), "../subx/");
+        git_commit(&top_repo, &env, "C");
+        git_command(&top_repo)
+            .args(["rm", "-ff", "subx"])
+            .check_success_with_stderr()
+            .unwrap();
+        git_commit(&top_repo, &env, "D");
+        git_command(&top_repo)
+            .args(["mv", "suby", "subz"])
+            .check_success_with_stderr()
+            .unwrap();
+        git_add_local_submodule_to_index(&top_repo, &GitPath::new("subx".into()), "../subx/");
         git_commit(&top_repo, &env, "E");
 
         top_repo

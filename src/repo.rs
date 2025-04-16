@@ -191,7 +191,7 @@ impl TopRepo {
             }
             let r = r.detach();
             // TODO: FRME Remove this debug print.
-            println!(
+            eprintln!(
                 "DEBUG: Initial top commits: {:?} {:?}",
                 r.name, // c.name_without_namespace(&top_namespace).with_context(|| format!("ref {}", c.name)).unwrap().as_bstr(),
                 r.target.kind(),
@@ -237,7 +237,7 @@ impl TopRepo {
             println!("Found {} commits to expand", num_commits_to_export);
             // TODO: FRME Remove this debug print.
             for c in &stop_commits {
-                println!("Stop commit: {}", c.to_hex());
+                eprintln!("DEBUG: Stop commit: {}", c.to_hex());
             }
 
             let fast_importer = crate::git_fast_export_import::FastImportRepo::new(
@@ -518,7 +518,7 @@ pub struct MonoRepoCommit {
     /// history path.
     depth: usize,
     /// The original commits that were updated in this mono repo commit, recursively.
-    pub submodule_updates: BTreeMap<GitPath, Rc<ExpandedSubmodule>>,
+    pub submodule_updates: BTreeMap<GitPath, ExpandedOrRemovedSubmodule>,
     /// The expanded submodule paths in this mono repo commit, recursively.
     pub submodule_paths: Rc<HashSet<GitPath>>,
 }
@@ -527,7 +527,7 @@ impl MonoRepoCommit {
     pub fn new(
         commit_id: MonoRepoCommitId,
         parents: Vec<MonoRepoParent>,
-        submodule_updates: BTreeMap<GitPath, Rc<ExpandedSubmodule>>,
+        submodule_updates: BTreeMap<GitPath, ExpandedOrRemovedSubmodule>,
         submodule_paths: Rc<HashSet<GitPath>>,
     ) -> MonoRepoCommit {
         let depth = parents
@@ -609,6 +609,11 @@ pub enum ExpandedSubmodule {
     // TopRepoExpander::get_recursive_submodule_bumps() or extract the
     // information from TopRepoExpander::expand_inner_submodules().
     RegressedNotFullyImplemented(SubmoduleContent),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ExpandedOrRemovedSubmodule {
+    Expanded(Rc<ExpandedSubmodule>),
     Removed,
 }
 
@@ -629,18 +634,16 @@ impl ExpandedSubmodule {
             ExpandedSubmodule::CommitMissingInSubRepo(submod) => Some(submod),
             ExpandedSubmodule::UnknownSubmodule(_commit_id) => None,
             ExpandedSubmodule::RegressedNotFullyImplemented(submod) => Some(submod),
-            ExpandedSubmodule::Removed => None,
         }
     }
 
-    pub fn get_orig_commit_id(&self) -> Option<&CommitId> {
+    pub fn get_orig_commit_id(&self) -> &CommitId {
         match self {
-            ExpandedSubmodule::Expanded(submod) => Some(&submod.orig_commit_id),
-            ExpandedSubmodule::KeptAsSubmodule(commit_id) => Some(commit_id),
-            ExpandedSubmodule::CommitMissingInSubRepo(submod) => Some(&submod.orig_commit_id),
-            ExpandedSubmodule::UnknownSubmodule(commit_id) => Some(commit_id),
-            ExpandedSubmodule::RegressedNotFullyImplemented(submod) => Some(&submod.orig_commit_id),
-            ExpandedSubmodule::Removed => None,
+            ExpandedSubmodule::Expanded(submod) => &submod.orig_commit_id,
+            ExpandedSubmodule::KeptAsSubmodule(commit_id) => commit_id,
+            ExpandedSubmodule::CommitMissingInSubRepo(submod) => &submod.orig_commit_id,
+            ExpandedSubmodule::UnknownSubmodule(commit_id) => commit_id,
+            ExpandedSubmodule::RegressedNotFullyImplemented(submod) => &submod.orig_commit_id,
         }
     }
 }
