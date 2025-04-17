@@ -970,16 +970,27 @@ impl FetchProgress {
     }
 
     fn draw(&self) {
-        let mut msg = format!(
-            "{} {} in queue for fetching, {} done",
-            self.fetch_queue_size,
-            if self.fetch_queue_size == 1 {
-                "repository"
-            } else {
-                "repositories"
-            },
+        let mut msg = String::new();
+        if self.fetch_queue_size != 0 {
+            msg.push_str(&format!(
+                "{} {} in queue for fetching, ",
+                self.fetch_queue_size,
+                if self.fetch_queue_size == 1 {
+                    "repository"
+                } else {
+                    "repositories"
+                },
+            ));
+        }
+        msg.push_str(&format!(
+            "{} {} done",
             self.num_fetches_done,
-        );
+            if self.num_fetches_done == 1 {
+                "fetch"
+            } else {
+                "fetches"
+            },
+        ));
         if self.fetch_queue_size > 0 {
             msg += &format!(" ({} in queue)", self.fetch_queue_size);
         }
