@@ -225,18 +225,19 @@ where
         })
         .context("Failed to fetch")?;
 
-    if fetch_args.skip_filter {
-        return Ok(ExitCode::SUCCESS);
+    if !fetch_args.skip_filter {
+        let storage = git_toprepo::repo::TopRepoCache {
+            repos: repo_states,
+            monorepo_commits: HashMap::new(),
+            expanded_commits: HashMap::new(),
+        };
+        git_toprepo::log::log_task_to_stderr(error_mode, |logger, progress| {
+            toprepo.refilter(storage, &config, logger.clone(), progress)
+        })
+        .map_err(|_| anyhow::anyhow!("Failed to filter"))?;
     }
-    let storage = git_toprepo::repo::TopRepoCache {
-        repos: repo_states,
-        monorepo_commits: HashMap::new(),
-        expanded_commits: HashMap::new(),
-    };
-    git_toprepo::log::log_task_to_stderr(error_mode, |logger, progress| {
-        toprepo.refilter(storage, &config, logger.clone(), progress)
-    })
-    .map_err(|_| anyhow::anyhow!("Failed to filter"))?;
+    const EFFECTIVE_TOPREPO_CONFIG: &str = "toprepo/last-effective-git-toprepo.toml";
+    config.save_config_to_repo(&toprepo.gix_repo.git_dir().join(EFFECTIVE_TOPREPO_CONFIG))?;
     Ok(ExitCode::SUCCESS)
 }
 

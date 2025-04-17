@@ -236,7 +236,7 @@ impl GitTopRepoConfig {
         #[cfg(test)]
         assert_eq!(
             DEFAULT_LOCATION,
-            format!("{}HEAD:.gittoprepo.toml", RepoName::Top.to_ref_prefix())
+            format!("{}HEAD:.gittoprepo.toml", crate::repo_name::RepoName::Top.to_ref_prefix())
         );
 
         let user_location = git_config_get(repo_dir, GIT_CONFIG_KEY)?;
@@ -335,6 +335,16 @@ impl GitTopRepoConfig {
         Self::load_config_from_repo_with_log(repo_dir, None)
     }
 
+    pub fn save_config_to_repo(&self, path: &Path) -> Result<()> {
+        std::fs::create_dir_all(
+            path.parent()
+                .with_context(|| format!("Bad config path {}", path.display()))?,
+        )?;
+        let config_toml = toml::to_string(self).context("Serializing config")?;
+        std::fs::write(path, config_toml).context("Writing config file")?;
+        Ok(())
+    }
+
     /// Validates that the configuration is sane.
     pub fn validate(&mut self) -> Result<()> {
         for (repo_name, subrepo_config) in self.subrepos.iter_mut() {
@@ -386,16 +396,21 @@ pub struct SubrepoConfig {
     pub urls: Vec<gix::Url>,
     #[serde(skip_serializing_if = "is_default")]
     pub commits: CommitFilterConfig,
+    #[serde(skip_serializing_if = "is_default")]
     pub fetch: FetchConfig,
     #[serde(skip_serializing_if = "is_default")]
     pub push: PushConfig,
     #[serde(default = "return_true")]
-    #[serde(skip_serializing_if = "is_default")]
+    #[serde(skip_serializing_if = "is_true")]
     pub enabled: bool,
 }
 
 fn return_true() -> bool {
     true
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 impl SubrepoConfig {
@@ -481,7 +496,7 @@ pub struct CommitFilterConfig {
 
 #[serde_as]
 #[serde_with::skip_serializing_none]
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct FetchConfig {
     #[serde(default = "fetch_prune_default")]
