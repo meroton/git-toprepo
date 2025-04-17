@@ -22,12 +22,12 @@ use crate::repo::ThinSubmodule;
 use crate::repo::ThinSubmoduleContent;
 use crate::repo::TopRepoCache;
 use crate::repo::TopRepoCommitId;
-use crate::util::IterSingleUnique as _;
 use crate::util::RcKey;
 use crate::util::UniqueContainer;
 use anyhow::Context as _;
 use anyhow::Result;
 use bstr::B;
+use bstr::BStr;
 use bstr::BString;
 use bstr::ByteSlice as _;
 use bstr::ByteVec;
@@ -393,7 +393,7 @@ impl TopRepoExpander<'_> {
             .write_to(&mut committer)
             .unwrap();
         let message = message.unwrap_or_else(|| {
-            self.calculate_mono_commit_message(&source_gix_commit, &submodule_updates)
+            calculate_mono_commit_message(source_gix_commit.message, &submodule_updates)
         });
         let importer_mark = self.fast_importer.write_commit(&FastImportCommit {
             branch,
@@ -425,54 +425,6 @@ impl TopRepoExpander<'_> {
             submodule_paths,
         );
         Ok(mono_commit)
-    }
-
-    fn calculate_mono_commit_message(
-        &self,
-        source_gix_commit: &gix::objs::CommitRef,
-        submod_updates: &BTreeMap<GitPath, ExpandedOrRemovedSubmodule>,
-    ) -> BString {
-        let top_message = source_gix_commit.message;
-        let mut message =
-            if let Some(alt_message) = top_message.strip_prefix(b"Update git submodules\n\n") {
-                let alt_message = alt_message.as_bstr();
-                if let Some(alt_subject) = alt_message
-                    .lines()
-                    .filter_map(|line| line.strip_prefix(B("  - ")))
-                    .single_unique()
-                {
-                    let mut message = BString::new(vec![]);
-                    message.push_str(alt_subject);
-                    message.push_str("\n\n");
-                    message.push_str(alt_message);
-                    message
-                } else {
-                    top_message.to_owned()
-                }
-            } else {
-                top_message.to_owned()
-            };
-        if !submod_updates.is_empty() {
-            if !message.ends_with(b"\n") {
-                message.push(b'\n');
-            }
-            if message.find_byte(b'\n').unwrap() == message.len() - 1 {
-                // If the message is just a single subject line, add an empty line before the body.
-                message.push(b'\n');
-            }
-            for (path, submod) in submod_updates {
-                let status = match submod {
-                    ExpandedOrRemovedSubmodule::Expanded(submod) => {
-                        &submod.get_orig_commit_id().to_string()
-                    }
-                    ExpandedOrRemovedSubmodule::Removed => "removed",
-                };
-                message
-                    .write_fmt(format_args!("^-- {path} {status}\n"))
-                    .unwrap();
-            }
-        }
-        message
     }
 
     fn expand_inner_submodules(
@@ -1372,4 +1324,160 @@ impl Default for BumpCache {
             last_bumps: LruCache::new(std::num::NonZeroUsize::new(10000).unwrap()),
         }
     }
+}
+
+/// Construct a commit message from the submodule updates.
+///
+/// # Examples
+/// ```
+/// use git_toprepo::expander::calculate_mono_commit_message;
+/// use git_toprepo::git::CommitId;
+/// use git_toprepo::git::GitPath;
+/// use git_toprepo::repo::ExpandedOrRemovedSubmodule;
+/// use git_toprepo::repo::ExpandedSubmodule;
+///
+/// use bstr::B;
+/// use bstr::ByteSlice;
+/// use std::collections::BTreeMap;
+/// use std::rc::Rc;
+///
+/// let mut submod_updates = BTreeMap::new();
+/// let subx_commit_id: CommitId = gix::ObjectId::from_hex(b"1234567890abcdef1234567890abcdef12345678").unwrap();
+/// submod_updates.insert(
+///     GitPath::new(B("subx").into()),
+///     ExpandedOrRemovedSubmodule::Expanded(Rc::new(ExpandedSubmodule::KeptAsSubmodule(subx_commit_id))),
+/// );
+/// submod_updates.insert(
+///     GitPath::new(B("suby").into()),
+///     ExpandedOrRemovedSubmodule::Removed,
+/// );
+///
+/// let toprepo_message = br#"Update git submodules
+///
+/// * Update subx from branch 'main'
+///   to abc123
+///   - New algo
+///
+///   - Parent commit
+///
+/// * Update suby from branch 'main'
+///   to def456
+///   - New algo
+///
+///   - Another parent commit
+/// "#.as_bstr();
+/// let expected_message = br#"New algo
+///
+/// * Update subx from branch 'main'
+///   to abc123
+///   - New algo
+///
+///   - Parent commit
+///
+/// * Update suby from branch 'main'
+///   to def456
+///   - New algo
+///
+///   - Another parent commit
+/// ^-- subx 1234567890abcdef1234567890abcdef12345678
+/// ^-- suby removed
+/// "#.as_bstr();
+/// assert_eq!(calculate_mono_commit_message(toprepo_message.as_bstr(), &submod_updates), expected_message);
+///
+/// let toprepo_message = br#"Something
+/// "#.as_bstr();
+/// let expected_message = br#"Something
+///
+/// ^-- subx 1234567890abcdef1234567890abcdef12345678
+/// ^-- suby removed
+/// "#.as_bstr();
+/// assert_eq!(calculate_mono_commit_message(toprepo_message.as_bstr(), &submod_updates), expected_message);
+///
+/// let toprepo_message = b"Something".as_bstr();
+/// let expected_message = br#"Something
+///
+/// ^-- subx 1234567890abcdef1234567890abcdef12345678
+/// ^-- suby removed
+/// "#.as_bstr();
+/// assert_eq!(calculate_mono_commit_message(toprepo_message.as_bstr(), &submod_updates), expected_message);
+///
+/// let toprepo_message = br#"Update git modules
+///
+/// * Update subx from branch 'main'
+///   to abc123
+///   - New algo
+///
+/// * Update suby from branch 'main'
+///   to def456
+///   - Other algo
+/// "#.as_bstr();
+/// let expected_message = br#"Update git modules
+///
+/// * Update subx from branch 'main'
+///   to abc123
+///   - New algo
+///
+/// * Update suby from branch 'main'
+///   to def456
+///   - Other algo
+/// ^-- subx 1234567890abcdef1234567890abcdef12345678
+/// ^-- suby removed
+/// "#.as_bstr();
+/// assert_eq!(calculate_mono_commit_message(toprepo_message.as_bstr(), &submod_updates), expected_message);
+/// ```
+pub fn calculate_mono_commit_message(
+    toprepo_message: &BStr,
+    submod_updates: &BTreeMap<GitPath, ExpandedOrRemovedSubmodule>,
+) -> BString {
+    let mut message =
+        if let Some(alt_message) = toprepo_message.strip_prefix(b"Update git submodules\n\n") {
+            let alt_message = alt_message.as_bstr();
+            let mut alt_subject = UniqueContainer::Empty;
+            let mut line_idx_after_submod: usize = 0;
+            for line in alt_message.lines() {
+                if line.starts_with(b"* Update ") {
+                    line_idx_after_submod = 0;
+                } else if line_idx_after_submod == 2 {
+                    if let Some(subject) = line.strip_prefix(B("  - ")) {
+                        alt_subject.insert(subject);
+                    }
+                }
+                line_idx_after_submod += 1;
+            }
+            if let UniqueContainer::Single(alt_subject) = alt_subject {
+                let mut message = BString::new(vec![]);
+                message.push_str(alt_subject);
+                message.push_str("\n\n");
+                message.push_str(alt_message);
+                message
+            } else {
+                toprepo_message.to_owned()
+            }
+        } else {
+            toprepo_message.to_owned()
+        };
+
+    // Add lines referencing the original commit ids.
+    if !submod_updates.is_empty() {
+        if !message.ends_with(b"\n") {
+            message.push(b'\n');
+        }
+        if message.find_byte(b'\n').unwrap() == message.len() - 1 {
+            // If the message is just a single subject line, add an empty line
+            // before the body.
+            message.push(b'\n');
+        }
+        for (path, submod) in submod_updates {
+            let status = match submod {
+                ExpandedOrRemovedSubmodule::Expanded(submod) => {
+                    &submod.get_orig_commit_id().to_string()
+                }
+                ExpandedOrRemovedSubmodule::Removed => "removed",
+            };
+            message
+                .write_fmt(format_args!("^-- {path} {status}\n"))
+                .unwrap();
+        }
+    }
+    message
 }
