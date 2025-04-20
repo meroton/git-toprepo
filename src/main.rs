@@ -158,7 +158,6 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<ExitCode> {
 fn refilter(args: &cli::Refilter) -> Result<ExitCode> {
     fetch_and_refilter(
         &cli::Fetch {
-            fetch_submodules: false,
             keep_going: args.keep_going,
             jobs: args.jobs,
             skip_filter: false,
@@ -168,7 +167,7 @@ fn refilter(args: &cli::Refilter) -> Result<ExitCode> {
         },
         |commit_loader| {
             commit_loader.fetch_missing_commits = false;
-            commit_loader.load_all_repos()
+            commit_loader.load_repo(git_toprepo::repo_name::RepoName::Top)
         },
     )
 }
@@ -196,48 +195,79 @@ where
     }
 
     let toprepo = git_toprepo::repo::TopRepo::open(PathBuf::from("."))?;
-    let config = git_toprepo::config::GitTopRepoConfig::load_config_from_repo(&toprepo.directory)?;
     let error_mode = git_toprepo::log::ErrorMode::from_keep_going_flag(fetch_args.keep_going);
-    let submodule_names = config.subrepos.keys().cloned().collect::<Vec<String>>();
-    let (repo_states, config) =
-        git_toprepo::log::log_task_to_stderr(error_mode.clone(), |logger, progress| {
-            let mut commit_loader = git_toprepo::loader::CommitLoader::new(
-                toprepo.gix_repo.to_thread_local(),
-                config,
-                progress,
-                logger,
-                error_mode.interrupted(),
-                threadpool::ThreadPool::new(fetch_args.jobs.get() as usize),
-            );
-            commit_loader_setup(&mut commit_loader)?;
-            if fetch_args.fetch_submodules {
-                for subrepo_name in submodule_names {
-                    commit_loader.fetch_repo(
-                        git_toprepo::repo_name::RepoName::SubRepo(
-                            git_toprepo::repo_name::SubRepoName::new(subrepo_name),
-                        ),
-                        vec![None],
-                    );
-                }
-            }
-            commit_loader.join();
-            Ok(commit_loader.into_result())
-        })
-        .context("Failed to fetch")?;
+    let mut config =
+        Some(git_toprepo::config::GitTopRepoConfig::load_config_from_repo(&toprepo.directory)?);
+    let mut result = (|| {
+        let repo_states =
+            git_toprepo::log::log_task_to_stderr(error_mode.clone(), |logger, progress| {
+                let mut commit_loader = git_toprepo::loader::CommitLoader::new(
+                    toprepo.gix_repo.to_thread_local(),
+                    config.take().unwrap(),
+                    progress,
+                    logger,
+                    error_mode.interrupted(),
+                    threadpool::ThreadPool::new(fetch_args.jobs.get() as usize),
+                )?;
+                commit_loader.load_cache()?;
+                commit_loader_setup(&mut commit_loader)?;
+                commit_loader.join();
+                let result = commit_loader.store_cache();
+                let (repo_states, new_config) = commit_loader.into_result();
+                config.replace(new_config);
+                result.map(|_| repo_states)
+            })
+            .context("Failed to fetch")?;
 
-    if !fetch_args.skip_filter {
-        let storage = git_toprepo::repo::TopRepoCache {
-            repos: repo_states,
-            monorepo_commits: HashMap::new(),
-            expanded_commits: HashMap::new(),
-        };
-        git_toprepo::log::log_task_to_stderr(error_mode, |logger, progress| {
-            toprepo.refilter(storage, &config, logger.clone(), progress)
-        })
-        .map_err(|_| anyhow::anyhow!("Failed to filter"))?;
+        if !fetch_args.skip_filter {
+            let storage = git_toprepo::repo::TopRepoCache {
+                repos: repo_states,
+                monorepo_commits: HashMap::new(),
+                expanded_commits: HashMap::new(),
+            };
+            git_toprepo::log::log_task_to_stderr(error_mode, |logger, progress| {
+                toprepo.refilter(storage, config.as_ref().unwrap(), logger.clone(), progress)
+            })
+            .map_err(|_| anyhow::anyhow!("Failed to filter"))?;
+        }
+        Ok(())
+    })()
+    .map(|_| ExitCode::SUCCESS);
+    if let Some(config) = config {
+        const EFFECTIVE_TOPREPO_CONFIG: &str = "toprepo/last-effective-git-toprepo.toml";
+        if let Err(err) =
+            config.save_config_to_repo(&toprepo.gix_repo.git_dir().join(EFFECTIVE_TOPREPO_CONFIG))
+        {
+            if result.is_ok() {
+                result = Err(err);
+            }
+        }
     }
-    const EFFECTIVE_TOPREPO_CONFIG: &str = "toprepo/last-effective-git-toprepo.toml";
-    config.save_config_to_repo(&toprepo.gix_repo.git_dir().join(EFFECTIVE_TOPREPO_CONFIG))?;
+    result
+}
+
+fn dump(dump_args: &cli::Dump) -> Result<ExitCode> {
+    match dump_args {
+        cli::Dump::ImportCache => dump_import_cache(),
+    }
+}
+
+fn dump_import_cache() -> Result<ExitCode> {
+    let toprepo = gix::open("")?;
+
+    let log_receiver = git_toprepo::log::LogReceiver::new(
+        git_toprepo::log::ErrorMode::FailFast(std::sync::Arc::new(
+            std::sync::atomic::AtomicBool::new(false),
+        )),
+        |msg| eprintln!("{}", msg),
+    );
+    let serde_repo_states = git_toprepo::loader::CommitLoader::load_cache_from_dir(
+        toprepo.git_dir(),
+        &log_receiver.get_logger(),
+    )?;
+    git_toprepo::loader::CommitLoader::dump_cache_as_json(std::io::stdout(), &serde_repo_states)?;
+
+    log_receiver.join().check()?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -265,6 +295,7 @@ fn main() -> Result<ExitCode> {
         Commands::Refilter(ref refilter_args) => refilter(refilter_args)?,
         Commands::Fetch(ref fetch_args) => fetch(fetch_args)?,
         Commands::Push => todo!(),
+        Commands::Dump(ref dump_args) => dump(dump_args)?,
         Commands::Replace(ref _replace_args) => todo!(), //replace(&args, replace_args)?,
     };
     Ok(res)

@@ -17,6 +17,7 @@ use bstr::ByteSlice as _;
 use gix::refs::FullName;
 use gix::remote::Direction;
 use itertools::Itertools;
+use serde_with::serde_as;
 use std::borrow::Borrow as _;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -433,7 +434,7 @@ pub struct MonoRepoCommit {
     /// history path.
     depth: usize,
     /// The original commits that were updated in this mono repo commit, recursively.
-    pub submodule_updates: BTreeMap<GitPath, ExpandedOrRemovedSubmodule>,
+    pub submodule_updates: HashMap<GitPath, ExpandedOrRemovedSubmodule>,
     /// The expanded submodule paths in this mono repo commit, recursively.
     pub submodule_paths: Rc<HashSet<GitPath>>,
 }
@@ -442,7 +443,7 @@ impl MonoRepoCommit {
     pub fn new(
         commit_id: MonoRepoCommitId,
         parents: Vec<MonoRepoParent>,
-        submodule_updates: BTreeMap<GitPath, ExpandedOrRemovedSubmodule>,
+        submodule_updates: HashMap<GitPath, ExpandedOrRemovedSubmodule>,
         submodule_paths: Rc<HashSet<GitPath>>,
     ) -> MonoRepoCommit {
         let depth = parents
@@ -563,38 +564,33 @@ impl ExpandedSubmodule {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RepoData {
     pub url: gix::Url,
     pub thin_commits: HashMap<CommitId, Rc<ThinCommit>>,
 }
 
-impl Default for RepoData {
-    fn default() -> Self {
-        let mut empty_url: gix::Url = Default::default();
-        empty_url.scheme = gix::url::Scheme::File;
-        empty_url = empty_url.serialize_alternate_form(true);
-        assert_eq!(empty_url.to_bstring(), b"");
-
-        RepoData {
-            url: empty_url,
-            thin_commits: Default::default(),
-            // fat_commits: Default::default(),
-            // expanded_commits: Default::default(),
+impl RepoData {
+    pub fn new(url: gix::Url) -> Self {
+        Self {
+            url,
+            thin_commits: HashMap::new(),
         }
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
 pub enum ThinSubmodule {
     AddedOrModified(ThinSubmoduleContent),
     Removed,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
 pub struct ThinSubmoduleContent {
     /// `None` is the submodule could not be resolved from the .gitmodules file.
     pub repo_name: Option<SubRepoName>,
+    #[serde_as(as = "serde_with::DisplayFromStr")]
     pub commit_id: CommitId,
 }
 
@@ -608,13 +604,60 @@ pub struct ThinCommit {
     pub parents: Vec<Rc<ThinCommit>>,
     pub dot_gitmodules: Option<BlobId>,
     /// Submodule updates in this commit compared to first parent. Added
-    /// submodules are included.
+    /// submodules are included. `BTreeMap` is used for deterministic ordering.
     pub submodule_bumps: BTreeMap<GitPath, ThinSubmodule>,
     /// Paths to all the submodules in the commit, not just the updated ones.
     pub submodule_paths: Rc<HashSet<GitPath>>,
 }
 
 impl ThinCommit {
+    /// Creates a new `ThinCommit` which is effectively read only due to the
+    /// reference counting.
+    ///
+    /// It is an error to try to update the contents of the `ThinCommit` after
+    /// it has been created.
+    pub fn new_rc(
+        commit_id: CommitId,
+        tree_id: TreeId,
+        parents: Vec<Rc<ThinCommit>>,
+        dot_gitmodules: Option<BlobId>,
+        submodule_bumps: BTreeMap<GitPath, ThinSubmodule>,
+    ) -> Rc<Self> {
+        // Adding and removing more than one submodule at a time is so rare that
+        // it is not worth optimizing for it. Let's copy the HashSet every time.
+        let mut submodule_paths = match parents.first() {
+            Some(first_parent) => first_parent.submodule_paths.clone(),
+            None => Rc::new(HashSet::new()),
+        };
+        for (path, bump) in submodule_bumps.iter() {
+            match bump {
+                ThinSubmodule::AddedOrModified(_) => {
+                    submodule_paths = Rc::new({
+                        let mut paths = submodule_paths.as_ref().clone();
+                        paths.insert(path.clone());
+                        paths
+                    });
+                }
+                ThinSubmodule::Removed => {
+                    submodule_paths = Rc::new({
+                        let mut paths = submodule_paths.as_ref().clone();
+                        paths.remove(path);
+                        paths
+                    });
+                }
+            }
+        }
+        Rc::new(Self {
+            commit_id,
+            tree_id,
+            depth: parents.iter().map(|p| p.depth + 1).max().unwrap_or(0),
+            parents,
+            dot_gitmodules,
+            submodule_bumps,
+            submodule_paths,
+        })
+    }
+
     pub fn is_descendant_of(&self, ancestor: &ThinCommit) -> bool {
         // Doesn't matter which order we iterate.
         let mut visited = HashSet::new();
@@ -638,18 +681,18 @@ impl ThinCommit {
     }
 
     /// Walks the first parent commit graph to find all submodule entries.
-    ///
-    /// TODO: Cache results to avoid looping down to the root?
-    pub fn get_all_submodules(&self) -> BTreeMap<&GitPath, &ThinSubmodule> {
-        let mut ret: BTreeMap<&GitPath, &ThinSubmodule> = self.submodule_bumps.iter().collect();
+    pub fn get_submodule<'a>(&'a self, path: &GitPath) -> Option<&'a ThinSubmodule> {
         let mut node = self;
-        while !node.parents.is_empty() {
-            node = &node.parents[0];
-            for (path, submod) in &node.submodule_bumps {
-                ret.entry(path).or_insert(submod);
+        loop {
+            if let Some(submod) = node.submodule_bumps.get(path) {
+                return Some(submod);
             }
+            let Some(parent) = node.parents.first() else {
+                break;
+            };
+            node = parent;
         }
-        ret
+        None
     }
 }
 

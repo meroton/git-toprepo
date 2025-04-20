@@ -3,6 +3,9 @@ use anyhow::bail;
 use bstr::ByteSlice as _;
 use bstr::ByteVec;
 use itertools::Itertools;
+use serde::Deserialize as _;
+use serde_with::DeserializeAs;
+use serde_with::SerializeAs;
 use std::hash::Hash;
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -12,6 +15,87 @@ use std::sync::atomic::AtomicBool;
 
 pub type RawUrl = String;
 pub type Url = String;
+
+lazy_static::lazy_static! {
+    /// A URL that serializes to an empty string.
+    pub static ref EMPTY_GIX_URL: gix::Url = new_empty_gix_url();
+}
+
+/// Creates a `gix::Url` that serializes to an empty string.
+fn new_empty_gix_url() -> gix::Url {
+    let mut empty_url: gix::Url = Default::default();
+    empty_url.scheme = gix::url::Scheme::File;
+    empty_url = empty_url.serialize_alternate_form(true);
+
+    #[cfg(test)]
+    assert_eq!(empty_url.to_bstring(), b"");
+
+    empty_url
+}
+
+pub(crate) struct SerdeGixUrl;
+
+impl SerializeAs<gix::Url> for SerdeGixUrl {
+    fn serialize_as<S>(source: &gix::Url, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if *source == *EMPTY_GIX_URL {
+            return Err(serde::ser::Error::custom(format!(
+                "Invalid empty URL {source}"
+            )));
+        }
+        serializer.serialize_str(
+            source
+                .to_bstring()
+                .to_str()
+                .map_err(|err| serde::ser::Error::custom(format!("Invalid URL {source}: {err}")))?,
+        )
+    }
+}
+
+impl<'de> DeserializeAs<'de, gix::Url> for SerdeGixUrl {
+    fn deserialize_as<D>(deserializer: D) -> Result<gix::Url, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let url: Option<_> = SerdeGixUrl::deserialize_as(deserializer)?;
+        url.ok_or_else(|| serde::de::Error::custom("URL must not be empty"))
+    }
+}
+
+impl SerializeAs<Option<gix::Url>> for SerdeGixUrl {
+    fn serialize_as<S>(source: &Option<gix::Url>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match source {
+            Some(url) => {
+                if url.to_bstring().is_empty() {
+                    return Err(serde::ser::Error::custom("Empty optonal URL not allowed"));
+                }
+                SerdeGixUrl::serialize_as(url, serializer)
+            }
+            None => serializer.serialize_str(""),
+        }
+    }
+}
+
+impl<'de> DeserializeAs<'de, Option<gix::Url>> for SerdeGixUrl {
+    fn deserialize_as<D>(deserializer: D) -> Result<Option<gix::Url>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if s.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(gix::Url::from_bytes(s.as_bytes().as_bstr()).map_err(
+                |err| serde::de::Error::custom(format!("Invalid URL {s}: {err}")),
+            )?))
+        }
+    }
+}
 
 /// Interface for returning a unique element, possibly duplicated, from an
 /// iterator.

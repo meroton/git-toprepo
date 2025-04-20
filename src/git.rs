@@ -4,6 +4,7 @@ use anyhow::Context;
 use anyhow::Result;
 use bstr::BString;
 use bstr::ByteSlice as _;
+use serde_with::serde_as;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::path::Path;
@@ -13,8 +14,15 @@ pub type CommitId = gix::ObjectId;
 pub type TreeId = gix::ObjectId;
 pub type BlobId = gix::ObjectId;
 
-#[derive(Debug, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct GitPath(BString);
+#[serde_as]
+#[derive(
+    Debug, Clone, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
+pub struct GitPath(
+    // TODO: How to serialize non-UTF8 paths? Maybe '::<hex>' as paths don't
+    // contain (or starts with) ':'.
+    #[serde_as(as = "serde_with::DisplayFromStr")] BString,
+);
 
 impl GitPath {
     pub const fn new(path: BString) -> Self {

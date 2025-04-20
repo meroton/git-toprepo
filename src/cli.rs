@@ -34,6 +34,9 @@ pub enum Commands {
     Fetch(Fetch),
     Push, // Unimplemented
 
+    #[command(subcommand)]
+    Dump(Dump),
+
     /// Scaffolding code to start writing `.gitmodule` mapping code.
     /// This replaces the first field of every line on standard in
     /// with the submodule path.
@@ -107,6 +110,13 @@ pub struct ConfigValidate {
     pub file: PathBuf,
 }
 
+/// Dump internal states to stdout.
+#[derive(Subcommand, Debug)]
+pub enum Dump {
+    /// Dump the repository import cache as JSON to stdout.
+    ImportCache,
+}
+
 #[derive(Args, Debug)]
 pub struct Refilter {
     /// Continue as much as possible after an error.
@@ -131,10 +141,6 @@ pub struct Fetch {
     /// Skip the filtering step after fetching the top repository.
     #[arg(long)]
     pub skip_filter: bool,
-
-    /// Fetch all configured submodules even if not needed during filtering.
-    #[arg(long)]
-    pub fetch_submodules: bool,
 
     /// The repository to fetch to, either the top repository or a submodule.
     #[arg(long, name = "repo", value_parser = clap::builder::ValueParser::new(parse_repo_name))]

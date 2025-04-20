@@ -10,6 +10,7 @@ use crate::git_fast_export_import::FastExportRepo;
 use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::log::Logger;
 use crate::repo::RepoData;
+use crate::repo::RepoStates;
 use crate::repo::ThinCommit;
 use crate::repo::ThinSubmodule;
 use crate::repo::ThinSubmoduleContent;
@@ -18,12 +19,18 @@ use crate::repo_name::SubRepoName;
 use anyhow::Context;
 use anyhow::Result;
 use bstr::BStr;
+use itertools::Itertools as _;
+use serde_with::serde_as;
 use std::borrow::Borrow as _;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::fmt::Debug;
+use std::io::Read;
+use std::io::Write;
+use std::ops::Deref as _;
+use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -42,12 +49,16 @@ struct NeededCommit {
 
 #[derive(Default)]
 struct GitModulesInfo {
-    pub submodules: BTreeMap<GitPath, gix::Url>,
+    pub submodules: HashMap<GitPath, gix::Url>,
 }
+
+pub type SerdeRepoStates = HashMap<RepoName, Vec<SerdeThinCommit>>;
 
 pub struct CommitLoader {
     toprepo: gix::Repository,
     repos: HashMap<RepoName, RepoFetcher>,
+    /// Repositories that have been loaded from the cache.
+    repos_loaded_from_cache: SerdeRepoStates,
     config: GitTopRepoConfig,
 
     tx: std::sync::mpsc::Sender<TaskResult>,
@@ -83,7 +94,7 @@ impl CommitLoader {
         logger: Logger,
         interrupted: Arc<std::sync::atomic::AtomicBool>,
         thread_pool: threadpool::ThreadPool,
-    ) -> Self {
+    ) -> Result<Self> {
         let (tx, rx) = std::sync::mpsc::channel::<TaskResult>();
         let pb_fetch_queue = progress
             .add(indicatif::ProgressBar::no_length().with_style(
@@ -91,9 +102,10 @@ impl CommitLoader {
             ));
         // Make sure that the elapsed time is updated continuously.
         pb_fetch_queue.enable_steady_tick(std::time::Duration::from_millis(1000));
-        Self {
+        Ok(Self {
             toprepo,
             repos: HashMap::new(),
+            repos_loaded_from_cache: HashMap::new(),
             config,
             tx,
             rx,
@@ -109,26 +121,161 @@ impl CommitLoader {
             repos_to_fetch: VecDeque::new(),
             repos_to_load: VecDeque::new(),
             dot_gitmodules_cache: DotGitModulesCache::default(),
-        }
+        })
+    }
+
+    const TOPREPO_IMPORT_CACHE_PATH: &str = "toprepo/import_cache.bincode";
+    const CACHE_VERSION_PRELUDE: &str = "#import-cache-format-v1\n";
+
+    /// Constructs the path to the git repository information cache inside
+    /// `.git/toprepo/`.
+    pub fn cache_path(git_dir: &Path) -> PathBuf {
+        git_dir.join(Self::TOPREPO_IMPORT_CACHE_PATH)
+    }
+
+    /// Load parsed git repository information from `.git/toprepo/`.
+    pub fn load_cache(&mut self) -> Result<()> {
+        self.repos_loaded_from_cache =
+            Self::load_cache_from_dir(self.toprepo.git_dir(), &self.logger)?;
+        Ok(())
+    }
+
+    /// Load parsed git repository information from `.git/toprepo/`.
+    pub fn load_cache_from_dir(git_dir: &Path, logger: &Logger) -> Result<SerdeRepoStates> {
+        let cache_path = Self::cache_path(git_dir);
+        (|| -> anyhow::Result<_> {
+            let now = std::time::Instant::now();
+            let reader = match std::fs::File::open(&cache_path) {
+                Ok(file) => file,
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                    // No cache file, skip reading.
+                    return Ok(SerdeRepoStates::new());
+                }
+                Err(err) => return Err(err.into()),
+            };
+            let mut reader = std::io::BufReader::new(reader);
+            let mut version_prelude = [0; Self::CACHE_VERSION_PRELUDE.len()];
+            reader.read_exact(&mut version_prelude)?;
+            if version_prelude != Self::CACHE_VERSION_PRELUDE.as_bytes() {
+                logger.warning(format!(
+                    "Discarding import cache {} due to version mismatch, expected {:?}",
+                    cache_path.display(),
+                    Self::CACHE_VERSION_PRELUDE
+                ));
+                return Ok(SerdeRepoStates::new());
+            }
+
+            let cached_repo_states: SerdeRepoStates =
+                bincode::serde::decode_from_std_read(&mut reader, bincode::config::standard())?;
+            let mut eof_buffer = [0; 1];
+            if reader.read(&mut eof_buffer)? != 0 {
+                anyhow::bail!("Expected EOF");
+            }
+            let file = reader.into_inner();
+            drop(file);
+            eprintln!(
+                "DEBUG: Deserialized repo states from {} in {:.2?}",
+                &cache_path.display(),
+                now.elapsed()
+            );
+            Ok(cached_repo_states)
+        })()
+        .with_context(|| {
+            format!(
+                "Failed to deserialize repo states from {}",
+                &cache_path.display()
+            )
+        })
+    }
+
+    fn prepare_repo_states_for_serialization(&self) -> SerdeRepoStates {
+        let now = std::time::Instant::now();
+        let ret = self
+            .repos
+            .iter()
+            .map(|(repo_name, fetcher)| {
+                let thin_commits = fetcher
+                    .repo_data
+                    .thin_commits
+                    .values()
+                    .sorted_by_key(|thin_commit| thin_commit.depth)
+                    .map(|thin_commit| SerdeThinCommit::from(thin_commit.as_ref()))
+                    .collect_vec();
+                (repo_name.clone(), thin_commits)
+            })
+            .collect();
+        eprintln!(
+            "DEBUG: Prepared repo states for serialization in {:.2?}",
+            now.elapsed()
+        );
+        ret
+    }
+
+    /// Write parsed git repository information as JSON.
+    pub fn dump_cache_as_json<W>(writer: W, repo_states: &SerdeRepoStates) -> Result<()>
+    where
+        W: Write,
+    {
+        serde_json::to_writer_pretty(writer, &repo_states)
+            .context("Failed to serialize repo states")
+    }
+
+    /// Store parsed git repository information from `.git/toprepo/`.
+    pub fn store_cache(&self) -> Result<()> {
+        let now = std::time::Instant::now();
+        let cache_path = Self::cache_path(self.toprepo.git_dir());
+        let cache_path_tmp = cache_path.with_extension(".tmp");
+        let mut writer = std::io::BufWriter::new(std::fs::File::create(&cache_path_tmp)?);
+        writer.write_all(Self::CACHE_VERSION_PRELUDE.as_bytes())?;
+        bincode::serde::encode_into_std_write(
+            self.prepare_repo_states_for_serialization(),
+            &mut writer,
+            bincode::config::standard(),
+        )
+        .context("Failed to serialize repo states")?;
+        let file = writer
+            .into_inner()
+            // .into_inner()
+            .context("Failed to flush buffered writer")?;
+        drop(file);
+        std::fs::rename(cache_path_tmp, &cache_path)?;
+        eprintln!(
+            "DEBUG: Serialized repo states to {} in {:.2?}",
+            cache_path.display(),
+            now.elapsed()
+        );
+        Ok(())
     }
 
     /// Enqueue fetching of a repo with specific refspecs. Using `None` as
     /// refspec will fetch all heads and tags.
-    pub fn fetch_repo(&mut self, repo_name: RepoName, mut refspecs: Vec<Option<String>>) {
-        let repo_fetcher = self.repos.entry(repo_name.clone()).or_default();
+    pub fn fetch_repo(&mut self, repo_name: RepoName, refspecs: Vec<Option<String>>) {
+        if let Err(err) = self.fetch_repo_impl(repo_name, refspecs) {
+            self.logger.error(format!("{err:#}"));
+        }
+    }
+
+    fn fetch_repo_impl(
+        &mut self,
+        repo_name: RepoName,
+        mut refspecs: Vec<Option<String>>,
+    ) -> Result<()> {
+        let repo_fetcher = self.get_or_create_repo_fetcher(&repo_name)?;
         refspecs.retain(|refspec| !repo_fetcher.refspecs_done.contains(refspec));
         if refspecs.is_empty() {
-            return;
+            return Ok(());
         }
-        if repo_fetcher.refspecs_to_fetch.is_empty() {
+        let was_empty = repo_fetcher.refspecs_to_fetch.is_empty();
+        repo_fetcher.refspecs_to_fetch.extend(refspecs);
+        if was_empty {
             self.repos_to_fetch.push_back(repo_name);
         }
-        repo_fetcher.refspecs_to_fetch.extend(refspecs);
+        Ok(())
     }
 
     /// Enqueue loading commits from a repo.
-    pub fn load_repo(&mut self, repo_name: RepoName) {
-        let repo_fetcher = self.repos.entry(repo_name.clone()).or_default();
+    pub fn load_repo(&mut self, repo_name: RepoName) -> Result<()> {
+        let repo_fetcher = self.get_or_create_repo_fetcher(&repo_name)?;
         match repo_fetcher.loading {
             LoadRepoState::NotLoadedYet | LoadRepoState::Done => {
                 repo_fetcher.loading = LoadRepoState::LoadingThenDone;
@@ -141,26 +288,6 @@ impl CommitLoader {
             LoadRepoState::LoadingThenDone => {
                 repo_fetcher.loading = LoadRepoState::LoadingThenQueueAgain;
             }
-        }
-    }
-
-    /// Calls `load_repo` for all repositories represented among the refs in the
-    /// git repository.
-    pub fn load_all_repos(&mut self) -> Result<()> {
-        let refs = self
-            .toprepo
-            .references()
-            .context("Error getting references")?;
-
-        let mut repo_names = HashSet::new();
-        for r in refs.all()? {
-            let r = r.map_err(|err| anyhow::anyhow!("Failed while iterating refs: {err:#}"))?;
-            if let Ok(repo_name) = RepoName::from_ref(r.name()) {
-                repo_names.insert(repo_name);
-            }
-        }
-        for repo_name in repo_names {
-            self.load_repo(repo_name);
         }
         Ok(())
     }
@@ -175,7 +302,7 @@ impl CommitLoader {
         self.thread_pool.join();
     }
 
-    pub fn into_result(self) -> (HashMap<RepoName, RepoData>, GitTopRepoConfig) {
+    pub fn into_result(self) -> (RepoStates, GitTopRepoConfig) {
         let repo_states = self
             .repos
             .into_iter()
@@ -289,7 +416,8 @@ impl CommitLoader {
         }
         // Load the fetched data.
         if self.load_after_fetch {
-            self.load_repo(repo_name);
+            self.load_repo(repo_name)
+                .expect("configuration exists for repo");
         }
     }
 
@@ -517,7 +645,7 @@ impl CommitLoader {
         repo_data
             .thin_commits
             .entry(thin_commit.commit_id)
-            .or_insert_with(|| Rc::new(thin_commit));
+            .or_insert(thin_commit);
 
         // Any of the submodule updates that need to be fetched?
         for needed_commit in updated_submodule_commits {
@@ -526,11 +654,163 @@ impl CommitLoader {
         Ok(())
     }
 
+    fn import_cached_commit(
+        repo: &gix::Repository,
+        repo_name: &RepoName,
+        repo_storage: &RepoData,
+        cached_commit: SerdeThinCommit,
+        config: &mut GitTopRepoConfig,
+        dot_gitmodules_cache: &mut DotGitModulesCache,
+        logger: &Logger,
+    ) -> Result<Rc<ThinCommit>> {
+        let commit_id: CommitId = cached_commit.commit_id;
+        let thin_parents = cached_commit
+            .parents
+            .iter()
+            .map(|parent_id| {
+                repo_storage
+                    .thin_commits
+                    .get(parent_id)
+                    .with_context(|| {
+                        format!("Parent {} of {} not yet parsed", parent_id, commit_id)
+                    })
+                    .cloned()
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        // Check for an updated .gitmodules file.
+        let gitmodules_info = match &cached_commit.dot_gitmodules {
+            Some(dot_gitmodules_oid) => match dot_gitmodules_cache
+                .get_from_blob_id(repo, *dot_gitmodules_oid)
+                .with_context(|| format!("Failed to parse .gitmodules in commit {commit_id}"))
+            {
+                Ok(gitmodules_info) => gitmodules_info,
+                Err(err) => {
+                    logger.warning(format!("{err:#}"));
+                    &GitModulesInfo::default()
+                }
+            },
+            None => &GitModulesInfo::default(),
+        };
+        let mut submodule_bumps = BTreeMap::new();
+        for (path, cached_bump) in cached_commit.submodule_bumps {
+            let thin_bump = match cached_bump {
+                Some(submod_commit_id) => {
+                    let submod_url = gitmodules_info.submodules.get(&path);
+                    let context = format!("Repo {repo_name} commit {commit_id}");
+                    let submod_repo_name = Self::get_submod_repo_name(
+                        config,
+                        &path,
+                        submod_url,
+                        &repo_storage.url,
+                        &logger.with_context(&context),
+                    )
+                    .unwrap_or_else(|err| {
+                        logger.error(format!("{}: {err:#}", context));
+                        None
+                    });
+                    ThinSubmodule::AddedOrModified(ThinSubmoduleContent {
+                        repo_name: submod_repo_name,
+                        commit_id: submod_commit_id,
+                    })
+                }
+                None => ThinSubmodule::Removed,
+            };
+            submodule_bumps.insert(path, thin_bump);
+        }
+
+        let thin_commit = ThinCommit::new_rc(
+            commit_id,
+            cached_commit.tree_id,
+            thin_parents,
+            cached_commit.dot_gitmodules,
+            submodule_bumps,
+        );
+        Ok(thin_commit)
+    }
+
+    fn get_or_create_repo_fetcher(
+        &'_ mut self,
+        repo_name: &RepoName,
+    ) -> Result<&'_ mut RepoFetcher> {
+        if !self.repos.contains_key(repo_name) {
+            self.create_repo_fetcher(repo_name)?;
+        }
+        Ok(self.repos.get_mut(repo_name).expect("just added repos"))
+    }
+
+    /// Creates a `RepoFetcher` for the given repository name. The repository is
+    /// populated from the cache if possible. If `repo_name` doesn't exist in
+    /// the configuration, the creation will fail.
+    fn create_repo_fetcher(&mut self, repo_name: &RepoName) -> Result<()> {
+        let url = match &repo_name {
+            RepoName::Top => crate::util::EMPTY_GIX_URL.clone(),
+            RepoName::SubRepo(submod_repo_name) => {
+                // Check if the submodule is configured.
+                self.config
+                    .subrepos
+                    .get(submod_repo_name.deref())
+                    .with_context(|| format!("Repo {repo_name} not found in config"))?
+                    .resolve_fetch_url()
+                    .clone()
+            }
+        };
+        let mut repo_fetcher = RepoFetcher::new(url);
+        // Load from cache, should be quick.
+        let cached_commits = self
+            .repos_loaded_from_cache
+            .remove(repo_name)
+            .unwrap_or_default();
+        let mut needed_commits = Vec::new();
+        for cached_commit in cached_commits {
+            match Self::import_cached_commit(
+                &self.toprepo,
+                repo_name,
+                &repo_fetcher.repo_data,
+                cached_commit,
+                &mut self.config,
+                &mut self.dot_gitmodules_cache,
+                &self.logger,
+            ) {
+                Ok(thin_commit) => {
+                    // Load all submodule commits as well as that would be
+                    // done if not using the cache.
+                    for bump in thin_commit.submodule_bumps.values() {
+                        if let ThinSubmodule::AddedOrModified(bump) = bump {
+                            if let Some(submod_repo_name) = &bump.repo_name {
+                                needed_commits.push(NeededCommit {
+                                    repo_name: submod_repo_name.clone(),
+                                    commit_id: bump.commit_id,
+                                });
+                            }
+                        }
+                    }
+                    repo_fetcher
+                        .repo_data
+                        .thin_commits
+                        .insert(thin_commit.commit_id, thin_commit);
+                }
+                Err(err) => {
+                    // Failed to load the commit.
+                    self.logger.error(format!("{err:#}"));
+                    continue;
+                }
+            };
+        }
+        self.repos.insert(repo_name.clone(), repo_fetcher);
+        for needed_commit in needed_commits {
+            self.assure_commit_available(needed_commit);
+        }
+        Ok(())
+    }
+
     fn assure_commit_available(&mut self, needed_commit: NeededCommit) {
-        let repo_name = RepoName::SubRepo(needed_commit.repo_name);
+        let repo_name: RepoName = RepoName::SubRepo(needed_commit.repo_name);
         let commit_id = needed_commit.commit_id;
         // Already loaded?
-        let repo_fetcher = self.repos.entry(repo_name.clone()).or_default();
+        let repo_fetcher = self
+            .get_or_create_repo_fetcher(&repo_name)
+            .expect("repo_name has been found in the configuration");
         if repo_fetcher.repo_data.thin_commits.contains_key(&commit_id)
             || repo_fetcher.missing_commits.contains(&commit_id)
         {
@@ -539,7 +819,8 @@ impl CommitLoader {
         match repo_fetcher.loading {
             LoadRepoState::NotLoadedYet => {
                 repo_fetcher.needed_commits.insert(commit_id);
-                self.load_repo(repo_name);
+                self.load_repo(repo_name)
+                    .expect("configuration exists for repo");
             }
             LoadRepoState::LoadingThenQueueAgain => (),
             LoadRepoState::LoadingThenDone => (),
@@ -602,7 +883,7 @@ impl CommitLoader {
         config: &mut GitTopRepoConfig,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         logger: &Logger,
-    ) -> Result<(ThinCommit, Vec<NeededCommit>)> {
+    ) -> Result<(Rc<ThinCommit>, Vec<NeededCommit>)> {
         let commit_id: CommitId = exported_commit.original_id;
         let thin_parents = exported_commit
             .parents
@@ -617,31 +898,18 @@ impl CommitLoader {
                     .cloned()
             })
             .collect::<Result<Vec<_>>>()?;
-        let dot_gitmodules = match thin_parents.first() {
-            Some(first_thin_parent) => first_thin_parent.dot_gitmodules,
-            None => None,
-        };
         let mut submodule_bumps = BTreeMap::new();
 
-        let mut thin_commit = ThinCommit {
-            commit_id,
-            tree_id,
-            depth: thin_parents.iter().map(|p| p.depth + 1).max().unwrap_or(0),
-            dot_gitmodules,
-            submodule_bumps: BTreeMap::new(),
-            submodule_paths: thin_parents.first().map_or_else(
-                || Rc::new(HashSet::new()),
-                |first_parent| first_parent.submodule_paths.clone(),
-            ),
-            parents: thin_parents,
-        };
         // Check for an updated .gitmodules file.
-        let old_dot_gitmodules = thin_commit.dot_gitmodules;
+        let mut dot_gitmodules = thin_parents
+            .first()
+            .and_then(|first_parent| first_parent.dot_gitmodules);
+        let old_dot_gitmodules = dot_gitmodules;
         {
             let get_dot_gitmodules_logger =
                 logger.with_context(&format!(".gitmodules in commit {commit_id}"));
             match Self::get_dot_gitmodules_update(&exported_commit, &get_dot_gitmodules_logger) {
-                Ok(Some(new_dot_gitmodules)) => thin_commit.dot_gitmodules = new_dot_gitmodules,
+                Ok(Some(new_dot_gitmodules)) => dot_gitmodules = new_dot_gitmodules,
                 Ok(None) => (), // No update of .gitmodules.
                 Err(err) => {
                     get_dot_gitmodules_logger.error(format!("{err:#}"));
@@ -649,24 +917,25 @@ impl CommitLoader {
                 }
             };
         }
-        let gitmodules_info = match thin_commit.dot_gitmodules {
-            Some(dot_gitmodules) => match dot_gitmodules_cache
-                .get_from_blob_id(repo, dot_gitmodules)
+        let (gitmodules_info, dot_gitmodules) = match dot_gitmodules {
+            Some(dot_gitmodules_oid) => match dot_gitmodules_cache
+                .get_from_blob_id(repo, dot_gitmodules_oid)
                 .context("Failed to parse .gitmodules")
             {
-                Ok(gitmodules_info) => gitmodules_info,
+                Ok(gitmodules_info) => (gitmodules_info, Some(dot_gitmodules_oid)),
                 Err(err) => {
                     logger.warning(format!("{err:#}"));
-                    // Reset thin_commit.dot_gitmodules to avoid logging the same error again.
-                    thin_commit.dot_gitmodules = None;
-                    &GitModulesInfo::default()
+                    // Reset dot_gitmodules to avoid logging the same error again.
+                    (&GitModulesInfo::default(), None)
                 }
             },
-            None => &GitModulesInfo::default(),
+            None => (&GitModulesInfo::default(), None),
         };
         // Look for submodule updates.
-        // Adding and removing more than one submodule at a time is so rare that
-        // it is not worth optimizing for it. Let's copy the HashSet every time.
+        let parent_submodule_paths = match thin_parents.first() {
+            Some(first_parent) => &first_parent.submodule_paths,
+            None => &HashSet::new(),
+        };
         let mut new_submodule_commits = Vec::new();
         for fc in exported_commit.file_changes {
             match fc {
@@ -693,11 +962,6 @@ impl CommitLoader {
                                 commit_id: submod_commit_id,
                             });
                         }
-                        thin_commit.submodule_paths = Rc::new({
-                            let mut paths = thin_commit.submodule_paths.as_ref().clone();
-                            paths.insert(path.clone());
-                            paths
-                        });
                         submodule_bumps.insert(
                             path,
                             ThinSubmodule::AddedOrModified(ThinSubmoduleContent {
@@ -705,14 +969,9 @@ impl CommitLoader {
                                 commit_id: submod_commit_id,
                             }),
                         );
-                    } else if thin_commit.submodule_paths.contains(&path) {
+                    } else if parent_submodule_paths.contains(&path) {
                         // It might be a submodule that changed to another
                         // type, e.g. tree or file. Remove it.
-                        thin_commit.submodule_paths = Rc::new({
-                            let mut paths = thin_commit.submodule_paths.as_ref().clone();
-                            paths.remove(&path);
-                            paths
-                        });
                         submodule_bumps.insert(path, ThinSubmodule::Removed);
                     }
                 }
@@ -720,12 +979,7 @@ impl CommitLoader {
                     // TODO: Implement borrow between BStr and GitPath to delay
                     // construction of a GitPath.
                     let path = GitPath::new(fc.path);
-                    if thin_commit.submodule_paths.contains(&path) {
-                        thin_commit.submodule_paths = Rc::new({
-                            let mut paths = thin_commit.submodule_paths.as_ref().clone();
-                            paths.remove(&path);
-                            paths
-                        });
+                    if parent_submodule_paths.contains(&path) {
                         submodule_bumps.insert(path, ThinSubmodule::Removed);
                     }
                 }
@@ -736,45 +990,54 @@ impl CommitLoader {
         //
         // Do this after removing deleted submodules as those entries are likely
         // also gone from .gitmodules.
-        if thin_commit.dot_gitmodules != old_dot_gitmodules {
+        if dot_gitmodules != old_dot_gitmodules {
             // Loop through all submodules to see if any have changed.
-            for (path, thin_submod) in thin_commit.get_all_submodules() {
-                if let std::collections::btree_map::Entry::Vacant(entry) =
+            for path in parent_submodule_paths {
+                let std::collections::btree_map::Entry::Vacant(entry) =
                     submodule_bumps.entry(path.clone())
+                else {
+                    // The submodule was updated in this commit and already got
+                    // the correct .gitmodules information.
+                    continue;
+                };
+                match thin_parents
+                    .first()
+                    .expect("parent which added submodule exists")
+                    .get_submodule(path)
+                    .expect("listed submodule path is a submodule")
                 {
-                    match thin_submod {
-                        ThinSubmodule::AddedOrModified(thin_submod) => {
-                            let submod_url = gitmodules_info.submodules.get(path);
-                            let new_repo_name = Self::get_submod_repo_name(
-                                config,
-                                path,
-                                submod_url,
-                                &repo_storage.url,
-                                logger,
-                            )
-                            .unwrap_or_else(|err| {
-                                logger.error(format!("{err:#}"));
-                                None
-                            });
-                            if new_repo_name != thin_submod.repo_name {
-                                // Insert an entry that this submodule has been updated.
-                                entry.insert(ThinSubmodule::AddedOrModified(
-                                    ThinSubmoduleContent {
-                                        repo_name: new_repo_name,
-                                        commit_id: thin_submod.commit_id,
-                                    },
-                                ));
-                            }
+                    ThinSubmodule::AddedOrModified(thin_submod) => {
+                        let submod_url = gitmodules_info.submodules.get(path);
+                        let new_repo_name = Self::get_submod_repo_name(
+                            config,
+                            path,
+                            submod_url,
+                            &repo_storage.url,
+                            logger,
+                        )
+                        .unwrap_or_else(|err| {
+                            logger.error(format!("{err:#}"));
+                            None
+                        });
+                        if new_repo_name != thin_submod.repo_name {
+                            // Insert an entry that this submodule has been updated.
+                            entry.insert(ThinSubmodule::AddedOrModified(ThinSubmoduleContent {
+                                repo_name: new_repo_name,
+                                commit_id: thin_submod.commit_id,
+                            }));
                         }
-                        ThinSubmodule::Removed => {}
                     }
+                    ThinSubmodule::Removed => {}
                 }
             }
         }
-        // Could not fill in thin_commit.submodule_bumps before during the call
-        // to thin_commit.get_all_submodules().
-        assert!(thin_commit.submodule_bumps.is_empty());
-        thin_commit.submodule_bumps = submodule_bumps;
+        let thin_commit = ThinCommit::new_rc(
+            commit_id,
+            tree_id,
+            thin_parents,
+            dot_gitmodules,
+            submodule_bumps,
+        );
         Ok((thin_commit, new_submodule_commits))
     }
 
@@ -828,7 +1091,7 @@ impl CommitLoader {
             None => {
                 // If the submodule is removed in this commit, it will
                 // already be gone from thin_commit.submodules.
-                logger.warning(format!("Missing submodule {path} in .gitmodules"));
+                logger.warning(format!("Missing {path} in .gitmodules"));
                 None
             }
         };
@@ -866,6 +1129,45 @@ enum LoadRepoState {
     Done,
 }
 
+/// Serializeable version of `ThinCommit`.
+#[serde_as]
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct SerdeThinCommit {
+    #[serde_as(as = "serde_with::DisplayFromStr")]
+    pub commit_id: CommitId,
+    #[serde_as(as = "serde_with::DisplayFromStr")]
+    pub tree_id: TreeId,
+    #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
+    pub parents: Vec<CommitId>,
+    #[serde_as(as = "Option<serde_with::DisplayFromStr>")]
+    pub dot_gitmodules: Option<BlobId>,
+    /// `None` if the submodule was removed.
+    pub submodule_bumps: HashMap<GitPath, Option<CommitId>>,
+}
+
+impl From<&ThinCommit> for SerdeThinCommit {
+    fn from(thin_commit: &ThinCommit) -> Self {
+        let submodule_bumps = thin_commit
+            .submodule_bumps
+            .iter()
+            .map(|(path, bump)| {
+                let commit_id_or_none = match bump {
+                    ThinSubmodule::AddedOrModified(submod) => Some(submod.commit_id),
+                    ThinSubmodule::Removed => None,
+                };
+                (path.clone(), commit_id_or_none)
+            })
+            .collect();
+        Self {
+            commit_id: thin_commit.commit_id,
+            tree_id: thin_commit.tree_id,
+            parents: thin_commit.parents.iter().map(|p| p.commit_id).collect(),
+            dot_gitmodules: thin_commit.dot_gitmodules,
+            submodule_bumps,
+        }
+    }
+}
+
 struct RepoFetcher {
     repo_data: RepoData,
     /// Commits that need to be loaded or even fetched.
@@ -881,10 +1183,10 @@ struct RepoFetcher {
     refspecs_done: HashSet<Option<String>>,
 }
 
-impl Default for RepoFetcher {
-    fn default() -> Self {
-        RepoFetcher {
-            repo_data: RepoData::default(),
+impl RepoFetcher {
+    pub fn new(url: gix::Url) -> Self {
+        Self {
+            repo_data: RepoData::new(url),
             needed_commits: HashSet::new(),
             loading: LoadRepoState::NotLoadedYet,
             missing_commits: HashSet::new(),
@@ -892,9 +1194,7 @@ impl Default for RepoFetcher {
             refspecs_done: HashSet::new(),
         }
     }
-}
 
-impl RepoFetcher {
     fn fetching_default_refspec_done(&self) -> bool {
         self.refspecs_done.contains(&None)
     }

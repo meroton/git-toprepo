@@ -36,7 +36,6 @@ use gix::refs::FullNameRef;
 use itertools::Itertools as _;
 use lru::LruCache;
 use std::borrow::Borrow;
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::Hash;
@@ -205,13 +204,8 @@ impl TopRepoExpander<'_> {
             })
             .collect_vec();
         const TOP_PATH: GitPath = GitPath::new(BString::new(vec![]));
-        let parents_for_submodules = self.expand_inner_submodules(
-            branch,
-            &mono_parents_of_top,
-            &TOP_PATH,
-            &RepoName::Top,
-            &top_commit,
-        )?;
+        let parents_for_submodules =
+            self.expand_inner_submodules(branch, &mono_parents_of_top, &TOP_PATH, &top_commit)?;
         if mono_parents_of_top.is_empty() && !parents_for_submodules.is_empty() {
             // There should be a first parent that is not a submodule.
             // Add an initial empty commit.
@@ -220,7 +214,7 @@ impl TopRepoExpander<'_> {
                 &top_commit,
                 vec![],
                 vec![],
-                BTreeMap::new(),
+                HashMap::new(),
                 Rc::new(HashSet::new()),
                 Some(BString::from(b"Initial empty commit")),
             )?));
@@ -252,7 +246,7 @@ impl TopRepoExpander<'_> {
         &self,
         path: &GitPath,
         commit: &ThinCommit,
-        submod_updates: &mut BTreeMap<GitPath, ExpandedOrRemovedSubmodule>,
+        submod_updates: &mut HashMap<GitPath, ExpandedOrRemovedSubmodule>,
         tree_updates: &mut Vec<(GitPath, TreeId)>,
     ) {
         for (rel_sub_path, bump) in commit.submodule_bumps.iter() {
@@ -307,7 +301,7 @@ impl TopRepoExpander<'_> {
         initial_file_changes: Vec<ChangedFile>,
         message: Option<BString>,
     ) -> Result<MonoRepoCommit> {
-        let mut submodule_updates = BTreeMap::new();
+        let mut submodule_updates = HashMap::new();
         let mut tree_updates = Vec::new();
         self.get_recursive_submodule_bumps(
             path,
@@ -345,8 +339,11 @@ impl TopRepoExpander<'_> {
             }
         }
 
+        // tree_updates need to be ordered to get the inner submodules replaced
+        // inside the outer submodules.
+        tree_updates.sort_by(|(lhs_path, _), (rhs_path, _)| lhs_path.cmp(rhs_path));
         let tree_file_changes = tree_updates
-            .iter()
+            .into_iter()
             .map(|(tree_path, tree_id)| {
                 const TREE_MODE: &[u8] = b"040000";
                 let mut tree_id_hex = gix::hash::Kind::hex_buf();
@@ -378,7 +375,7 @@ impl TopRepoExpander<'_> {
         source_commit: &ThinCommit,
         parents: Vec<MonoRepoParent>,
         file_changes: Vec<ChangedFile>,
-        submodule_updates: BTreeMap<GitPath, ExpandedOrRemovedSubmodule>,
+        submodule_updates: HashMap<GitPath, ExpandedOrRemovedSubmodule>,
         submodule_paths: Rc<HashSet<GitPath>>,
         message: Option<BString>,
     ) -> Result<MonoRepoCommit> {
@@ -432,10 +429,8 @@ impl TopRepoExpander<'_> {
         branch: &FullNameRef,
         mono_parents: &Vec<Rc<MonoRepoCommit>>,
         abs_super_path: &GitPath,
-        super_repo_name: &RepoName,
         super_commit: &ThinCommit,
     ) -> Result<Vec<MonoRepoParent>> {
-        let empty_repo_data = RepoData::default();
         let mut extra_parents_due_to_submods = Vec::new();
         let mut submodule_bumps = super_commit.submodule_bumps.clone();
         if let Some(first_mono_parent) = mono_parents.first() {
@@ -488,11 +483,6 @@ impl TopRepoExpander<'_> {
                             orig_commit_id: submod.commit_id,
                         };
                         // The submodule is known.
-                        let submod_storage = self
-                            .storage
-                            .repos
-                            .get(&RepoName::SubRepo(submod_repo_name.clone()))
-                            .unwrap_or(&empty_repo_data);
                         if !self
                             .config
                             .subrepos
@@ -503,64 +493,70 @@ impl TopRepoExpander<'_> {
                             self.logger.warning(format!(
                                 "Skipping submodule {submod_repo_name} as it is disabled in the configuration"));
                             ExpandedSubmodule::KeptAsSubmodule(submod_commit_id)
-                        } else if let Some(submod_commit) =
-                            submod_storage.thin_commits.get(&submod_commit_id)
+                        } else if let Some(submod_storage) = self
+                            .storage
+                            .repos
+                            .get(&RepoName::SubRepo(submod_repo_name.clone()))
                         {
-                            // Drop the borrow of self.
-                            let submod_commit = submod_commit.clone();
+                            if let Some(submod_commit) =
+                                submod_storage.thin_commits.get(&submod_commit_id)
+                            {
+                                // Drop the borrow of self.
+                                let submod_commit = submod_commit.clone();
 
-                            let abs_sub_path = abs_super_path.join(rel_sub_path);
-                            // Check for a regressing or unrelated submodule bump.
-                            let non_descendants = self.bumps.non_descendants_for_all_parents(
-                                mono_parents,
-                                &abs_sub_path,
-                                submod_repo_name,
-                                &submod_commit,
-                                submod_storage,
-                            );
-                            if non_descendants.is_empty() {
-                                extra_parents_due_to_submods.extend(
-                                    self.expand_parents_of_submodule(
-                                        branch,
-                                        mono_parents,
-                                        abs_super_path,
-                                        rel_sub_path,
-                                        submod_repo_name,
-                                        &submod_commit,
-                                    )?,
+                                let abs_sub_path = abs_super_path.join(rel_sub_path);
+                                // Check for a regressing or unrelated submodule bump.
+                                let non_descendants = self.bumps.non_descendants_for_all_parents(
+                                    mono_parents,
+                                    &abs_sub_path,
+                                    submod_repo_name,
+                                    &submod_commit,
+                                    submod_storage,
                                 );
-                                ExpandedSubmodule::Expanded(submod_content)
+                                if non_descendants.is_empty() {
+                                    extra_parents_due_to_submods.extend(
+                                        self.expand_parents_of_submodule(
+                                            branch,
+                                            mono_parents,
+                                            abs_super_path,
+                                            rel_sub_path,
+                                            submod_repo_name,
+                                            &submod_commit,
+                                        )?,
+                                    );
+                                    ExpandedSubmodule::Expanded(submod_content)
+                                } else {
+                                    // Not descendant.
+                                    let regressing_parent_vec = regressing_commit
+                                        .take()
+                                        .map(|c: Rc<MonoRepoCommit>| vec![c.clone()]);
+                                    let mono_commit =
+                                        Rc::new(self.expand_parent_for_regressing_submodule_bump(
+                                            branch,
+                                            regressing_parent_vec.as_ref().unwrap_or(mono_parents),
+                                            &abs_sub_path,
+                                            &submod_commit,
+                                            non_descendants,
+                                        )?);
+                                    regressing_commit.replace(mono_commit.clone());
+                                    ExpandedSubmodule::RegressedNotFullyImplemented(submod_content)
+                                }
                             } else {
-                                // Not descendant.
-                                let regressing_parent_vec = regressing_commit
-                                    .take()
-                                    .map(|c: Rc<MonoRepoCommit>| vec![c.clone()]);
-                                let mono_commit =
-                                    Rc::new(self.expand_parent_for_regressing_submodule_bump(
-                                        branch,
-                                        regressing_parent_vec.as_ref().unwrap_or(mono_parents),
-                                        &abs_sub_path,
-                                        &submod_commit,
-                                        non_descendants,
-                                    )?);
-                                regressing_commit.replace(mono_commit.clone());
-                                ExpandedSubmodule::RegressedNotFullyImplemented(submod_content)
+                                // TODO: Save the log of missing commits for exporting to an autogenerated git-toprepo config.
+                                // TODO: Should this print be added or will that just be duplicated information from the loading phase?
+                                // self.logger.warning(format!(
+                                //     "Commit {submod_commit_id} is missing in {}",
+                                //     submod_repo_name
+                                // ));
+                                ExpandedSubmodule::CommitMissingInSubRepo(submod_content)
                             }
                         } else {
-                            // TODO: Save the log of missing commits for exporting to an autogenerated git-toprepo config.
-                            // TODO: Should this print be added or will that just be duplicated information from the loading phase?
-                            // self.logger.warning(format!(
-                            //     "Commit {submod_commit_id} is missing in {}",
-                            //     submod_repo_name
-                            // ));
+                            // No commits loaded for the submodule.
                             ExpandedSubmodule::CommitMissingInSubRepo(submod_content)
                         }
                     } else {
-                        // TODO: Save the log of missing commits for exporting to an autogenerated git-toprepo config.
-                        self.logger.warning(format!(
-                            "Not known which repository contains commit {} for submodule {} in {} commit {}",
-                            submod.commit_id, rel_sub_path, super_repo_name, super_commit.commit_id,
-                        ));
+                        // A warning has already been logged when loading the
+                        // super commit.
                         ExpandedSubmodule::UnknownSubmodule(submod.commit_id)
                     };
                     ExpandedOrRemovedSubmodule::Expanded(Rc::new(expanded_submod))
@@ -807,8 +803,6 @@ impl TopRepoExpander<'_> {
         wanted_sub_commit: &Rc<ThinCommit>,
         sub_to_mono_commit: &mut HashMap<RcKey<ThinCommit>, Option<Rc<MonoRepoCommit>>>,
     ) -> Result<Option<Rc<MonoRepoCommit>>> {
-        let empty_repo_data = RepoData::default();
-
         // Depth first search.
         let mut todo_next = Vec::new();
         let mut todo = possible_mono_parents;
@@ -828,11 +822,6 @@ impl TopRepoExpander<'_> {
             };
             if let Some(submod) = submod.get_known_submod() {
                 // The submodule is known.
-                let submod_storage = self
-                    .storage
-                    .repos
-                    .get(&RepoName::SubRepo(submod.repo_name.clone()))
-                    .unwrap_or(&empty_repo_data);
                 if !self
                     .config
                     .subrepos
@@ -846,25 +835,37 @@ impl TopRepoExpander<'_> {
                     ));
                     continue;
                 }
-                if let Some(submod_commit) = submod_storage.thin_commits.get(&submod.orig_commit_id)
+                if let Some(submod_storage) = self
+                    .storage
+                    .repos
+                    .get(&RepoName::SubRepo(submod.repo_name.clone()))
                 {
-                    // Make sure that the submodule commit is known before checking
-                    // if it is the correct one. If the submodule commit is not
-                    // known inside the given submodule name, it should not be
-                    // accepted.
-                    if submod.orig_commit_id == wanted_sub_commit.commit_id {
-                        // The submodule commit is already in the mono commit.
-                        return Ok(Some(mono_commit));
-                    }
-                    if submod_commit.depth < wanted_sub_commit.depth {
-                        // Pause with this branch and dig into the submodule history.
-                        todo_next.push(mono_commit.clone());
-                        continue;
+                    if let Some(submod_commit) =
+                        submod_storage.thin_commits.get(&submod.orig_commit_id)
+                    {
+                        // Make sure that the submodule commit is known before
+                        // checking if it is the correct one. If the submodule
+                        // commit is not known inside the given submodule name,
+                        // it should not be accepted.
+                        if submod.orig_commit_id == wanted_sub_commit.commit_id {
+                            // The submodule commit is already in the mono
+                            // commit.
+                            return Ok(Some(mono_commit));
+                        }
+                        if submod_commit.depth < wanted_sub_commit.depth {
+                            // Pause with this branch and dig into the submodule
+                            // history.
+                            todo_next.push(mono_commit.clone());
+                            continue;
+                        } else {
+                            // Check if the parents are at level.
+                        }
                     } else {
-                        // Check if the parents are at level.
+                        // The submodule commit is not known. Try the parents
+                        // for better luck.
                     }
                 } else {
-                    // The submodule commit is not known. Try the parents for better luck.
+                    // No commits loaded for the submodule.
                 }
             } else {
                 // Unknown which submodule was referred to. Try the parents for better luck.
@@ -920,7 +921,6 @@ impl TopRepoExpander<'_> {
             branch,
             &expanded_parents,
             abs_sub_path,
-            &RepoName::SubRepo(wanted_sub_repo_name.clone()),
             wanted_sub_commit,
         )?;
         all_parents.extend(parents_for_submodules);
@@ -1255,7 +1255,7 @@ impl BumpCache {
             mono_commit: Rc::new(MonoRepoCommit::new(
                 MonoRepoCommitId::FastImportMark(0),
                 vec![MonoRepoParent::Mono(mono_commit.clone())],
-                BTreeMap::new(),
+                HashMap::new(),
                 Rc::new(HashSet::new()),
             )),
             commit_key: key.mono_commit,
@@ -1338,10 +1338,10 @@ impl Default for BumpCache {
 ///
 /// use bstr::B;
 /// use bstr::ByteSlice;
-/// use std::collections::BTreeMap;
+/// use std::collections::HashMap;
 /// use std::rc::Rc;
 ///
-/// let mut submod_updates = BTreeMap::new();
+/// let mut submod_updates = HashMap::new();
 /// let subx_commit_id: CommitId = gix::ObjectId::from_hex(b"1234567890abcdef1234567890abcdef12345678").unwrap();
 /// submod_updates.insert(
 ///     GitPath::new(B("subx").into()),
@@ -1427,7 +1427,7 @@ impl Default for BumpCache {
 /// ```
 pub fn calculate_mono_commit_message(
     toprepo_message: &BStr,
-    submod_updates: &BTreeMap<GitPath, ExpandedOrRemovedSubmodule>,
+    submod_updates: &HashMap<GitPath, ExpandedOrRemovedSubmodule>,
 ) -> BString {
     let mut message =
         if let Some(alt_message) = toprepo_message.strip_prefix(b"Update git submodules\n\n") {
@@ -1467,7 +1467,7 @@ pub fn calculate_mono_commit_message(
             // before the body.
             message.push(b'\n');
         }
-        for (path, submod) in submod_updates {
+        for (path, submod) in submod_updates.iter().sorted_by_key(|(path, _)| *path) {
             let status = match submod {
                 ExpandedOrRemovedSubmodule::Expanded(submod) => {
                     &submod.get_orig_commit_id().to_string()

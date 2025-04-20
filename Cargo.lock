@@ -131,10 +131,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "bincode"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36eaf5d7b090263e8150820482d5d93cd964a81e4019913c972f4edcc6edb740"
+dependencies = [
+ "bincode_derive",
+ "serde",
+ "unty",
+]
+
+[[package]]
+name = "bincode_derive"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf95709a440f45e986983918d0e8a1f30a9b1df04918fc828670606804ac3c09"
+dependencies = [
+ "virtue",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b048fb63fd8b5923fc5aa7b340d8e156aec7ec02f0c78fa8a6ddc2613f6f71de"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "block-buffer"
@@ -554,18 +577,19 @@ name = "git_toprepo"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bincode",
  "bstr",
  "chrono",
  "clap",
  "colored",
  "gix",
- "gix-features 0.41.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "indicatif",
  "itertools",
  "lazy_static",
  "lru",
  "regex",
  "serde",
+ "serde_json",
  "serde_with",
  "tempfile",
  "threadpool",
@@ -589,7 +613,7 @@ dependencies = [
  "gix-diff",
  "gix-dir",
  "gix-discover",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
  "gix-filter",
  "gix-fs",
  "gix-glob",
@@ -616,7 +640,8 @@ dependencies = [
  "gix-status",
  "gix-submodule",
  "gix-tempfile",
- "gix-trace 0.1.12 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-trace",
+ "gix-transport",
  "gix-traverse",
  "gix-url",
  "gix-utils",
@@ -627,6 +652,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "regex",
+ "serde",
  "signal-hook",
  "smallvec",
  "thiserror",
@@ -641,6 +667,7 @@ dependencies = [
  "gix-date",
  "gix-utils",
  "itoa",
+ "serde",
  "thiserror",
  "winnow 0.7.6",
 ]
@@ -667,8 +694,9 @@ dependencies = [
  "gix-glob",
  "gix-path",
  "gix-quote",
- "gix-trace 0.1.12 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-trace",
  "kstring",
+ "serde",
  "smallvec",
  "thiserror",
  "unicode-bom",
@@ -698,7 +726,7 @@ dependencies = [
  "bstr",
  "gix-path",
  "gix-quote",
- "gix-trace 0.1.12 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-trace",
  "shell-words",
 ]
 
@@ -711,6 +739,7 @@ dependencies = [
  "gix-chunk",
  "gix-hash",
  "memmap2",
+ "serde",
  "thiserror",
 ]
 
@@ -721,7 +750,7 @@ source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e3
 dependencies = [
  "bstr",
  "gix-config-value",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
  "gix-glob",
  "gix-path",
  "gix-ref",
@@ -757,8 +786,9 @@ dependencies = [
  "gix-path",
  "gix-prompt",
  "gix-sec",
- "gix-trace 0.1.12 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-trace",
  "gix-url",
+ "serde",
  "thiserror",
 ]
 
@@ -770,6 +800,7 @@ dependencies = [
  "bstr",
  "itoa",
  "jiff",
+ "serde",
  "thiserror",
 ]
 
@@ -789,7 +820,7 @@ dependencies = [
  "gix-path",
  "gix-pathspec",
  "gix-tempfile",
- "gix-trace 0.1.12 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-trace",
  "gix-traverse",
  "gix-worktree",
  "imara-diff",
@@ -809,7 +840,7 @@ dependencies = [
  "gix-object",
  "gix-path",
  "gix-pathspec",
- "gix-trace 0.1.12 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-trace",
  "gix-utils",
  "gix-worktree",
  "thiserror",
@@ -833,16 +864,6 @@ dependencies = [
 [[package]]
 name = "gix-features"
 version = "0.41.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "016d6050219458d14520fe22bdfdeb9cb71631dec9bc2724767c983f60109634"
-dependencies = [
- "gix-trace 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)",
- "libc",
-]
-
-[[package]]
-name = "gix-features"
-version = "0.41.1"
 source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e#71275d16b6a3a22b5e6e33f441d50fc6d44ff20e"
 dependencies = [
  "bytes",
@@ -851,7 +872,7 @@ dependencies = [
  "crossbeam-channel",
  "flate2",
  "gix-path",
- "gix-trace 0.1.12 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-trace",
  "gix-utils",
  "libc",
  "once_cell",
@@ -875,7 +896,7 @@ dependencies = [
  "gix-packetline-blocking",
  "gix-path",
  "gix-quote",
- "gix-trace 0.1.12 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-trace",
  "gix-utils",
  "smallvec",
  "thiserror",
@@ -888,7 +909,7 @@ source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e3
 dependencies = [
  "bstr",
  "fastrand",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
  "gix-path",
  "gix-utils",
  "thiserror",
@@ -901,8 +922,9 @@ source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e3
 dependencies = [
  "bitflags",
  "bstr",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
  "gix-path",
+ "serde",
 ]
 
 [[package]]
@@ -911,7 +933,8 @@ version = "0.17.0"
 source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e#71275d16b6a3a22b5e6e33f441d50fc6d44ff20e"
 dependencies = [
  "faster-hex",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
+ "serde",
  "sha1-checked",
  "thiserror",
 ]
@@ -934,7 +957,8 @@ dependencies = [
  "bstr",
  "gix-glob",
  "gix-path",
- "gix-trace 0.1.12 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-trace",
+ "serde",
  "unicode-bom",
 ]
 
@@ -948,7 +972,7 @@ dependencies = [
  "filetime",
  "fnv",
  "gix-bitmap",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
  "gix-fs",
  "gix-hash",
  "gix-lock",
@@ -961,6 +985,7 @@ dependencies = [
  "libc",
  "memmap2",
  "rustix",
+ "serde",
  "smallvec",
  "thiserror",
 ]
@@ -983,6 +1008,7 @@ dependencies = [
  "bstr",
  "gix-actor",
  "gix-date",
+ "serde",
  "thiserror",
 ]
 
@@ -1009,13 +1035,14 @@ dependencies = [
  "bstr",
  "gix-actor",
  "gix-date",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
  "gix-hash",
  "gix-hashtable",
  "gix-path",
  "gix-utils",
  "gix-validate",
  "itoa",
+ "serde",
  "smallvec",
  "thiserror",
  "winnow 0.7.6",
@@ -1028,7 +1055,7 @@ source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e3
 dependencies = [
  "arc-swap",
  "gix-date",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
  "gix-fs",
  "gix-hash",
  "gix-hashtable",
@@ -1037,6 +1064,7 @@ dependencies = [
  "gix-path",
  "gix-quote",
  "parking_lot",
+ "serde",
  "tempfile",
  "thiserror",
 ]
@@ -1048,12 +1076,13 @@ source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e3
 dependencies = [
  "clru",
  "gix-chunk",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
  "gix-hash",
  "gix-hashtable",
  "gix-object",
  "gix-path",
  "memmap2",
+ "serde",
  "smallvec",
  "thiserror",
  "uluru",
@@ -1066,7 +1095,7 @@ source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e3
 dependencies = [
  "bstr",
  "faster-hex",
- "gix-trace 0.1.12 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-trace",
  "thiserror",
 ]
 
@@ -1077,7 +1106,7 @@ source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e3
 dependencies = [
  "bstr",
  "faster-hex",
- "gix-trace 0.1.12 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-trace",
  "thiserror",
 ]
 
@@ -1087,7 +1116,7 @@ version = "0.10.15"
 source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e#71275d16b6a3a22b5e6e33f441d50fc6d44ff20e"
 dependencies = [
  "bstr",
- "gix-trace 0.1.12 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-trace",
  "home",
  "once_cell",
  "thiserror",
@@ -1126,13 +1155,14 @@ source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e3
 dependencies = [
  "bstr",
  "gix-date",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
  "gix-hash",
  "gix-ref",
  "gix-shallow",
  "gix-transport",
  "gix-utils",
  "maybe-async",
+ "serde",
  "thiserror",
  "winnow 0.7.6",
 ]
@@ -1153,7 +1183,7 @@ version = "0.51.0"
 source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e#71275d16b6a3a22b5e6e33f441d50fc6d44ff20e"
 dependencies = [
  "gix-actor",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
  "gix-fs",
  "gix-hash",
  "gix-lock",
@@ -1163,6 +1193,7 @@ dependencies = [
  "gix-utils",
  "gix-validate",
  "memmap2",
+ "serde",
  "thiserror",
  "winnow 0.7.6",
 ]
@@ -1193,7 +1224,8 @@ dependencies = [
  "gix-hashtable",
  "gix-object",
  "gix-revwalk",
- "gix-trace 0.1.12 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-trace",
+ "serde",
  "thiserror",
 ]
 
@@ -1219,6 +1251,7 @@ dependencies = [
  "bitflags",
  "gix-path",
  "libc",
+ "serde",
  "windows-sys 0.59.0",
 ]
 
@@ -1230,6 +1263,7 @@ dependencies = [
  "bstr",
  "gix-hash",
  "gix-lock",
+ "serde",
  "thiserror",
 ]
 
@@ -1242,7 +1276,7 @@ dependencies = [
  "filetime",
  "gix-diff",
  "gix-dir",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
  "gix-filter",
  "gix-fs",
  "gix-hash",
@@ -1287,12 +1321,6 @@ dependencies = [
 [[package]]
 name = "gix-trace"
 version = "0.1.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c396a2036920c69695f760a65e7f2677267ccf483f25046977d87e4cb2665f7"
-
-[[package]]
-name = "gix-trace"
-version = "0.1.12"
 source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e#71275d16b6a3a22b5e6e33f441d50fc6d44ff20e"
 
 [[package]]
@@ -1302,11 +1330,12 @@ source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e3
 dependencies = [
  "bstr",
  "gix-command",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
  "gix-packetline",
  "gix-quote",
  "gix-sec",
  "gix-url",
+ "serde",
  "thiserror",
 ]
 
@@ -1332,9 +1361,10 @@ version = "0.30.0"
 source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e#71275d16b6a3a22b5e6e33f441d50fc6d44ff20e"
 dependencies = [
  "bstr",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
  "gix-path",
  "percent-encoding",
+ "serde",
  "thiserror",
  "url",
 ]
@@ -1365,7 +1395,7 @@ source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e3
 dependencies = [
  "bstr",
  "gix-attributes",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
  "gix-fs",
  "gix-glob",
  "gix-hash",
@@ -1374,6 +1404,7 @@ dependencies = [
  "gix-object",
  "gix-path",
  "gix-validate",
+ "serde",
 ]
 
 [[package]]
@@ -1382,7 +1413,7 @@ version = "0.18.0"
 source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e#71275d16b6a3a22b5e6e33f441d50fc6d44ff20e"
 dependencies = [
  "bstr",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
  "gix-filter",
  "gix-fs",
  "gix-glob",
@@ -1401,7 +1432,7 @@ version = "0.20.0"
 source = "git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e#71275d16b6a3a22b5e6e33f441d50fc6d44ff20e"
 dependencies = [
  "gix-attributes",
- "gix-features 0.41.1 (git+https://github.com/GitoxideLabs/gitoxide?rev=71275d16b6a3a22b5e6e33f441d50fc6d44ff20e)",
+ "gix-features",
  "gix-filter",
  "gix-fs",
  "gix-hash",
@@ -1792,6 +1823,7 @@ version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "558bf9508a558512042d3095138b1f7b8fe90c5467d94f9f1da28b3731c5dbd1"
 dependencies = [
+ "serde",
  "static_assertions",
 ]
 
@@ -2107,9 +2139,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.133"
+version = "1.0.140"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7fceb2473b9166b2294ef05efcb65a3db80803f0b03ef86a5fc88a2b85ee377"
+checksum = "20068b6e96dc6c9bd23e01df8827e6c7e1f2fddd43c21810382803c136b99373"
 dependencies = [
  "itoa",
  "memchr",
@@ -2213,6 +2245,9 @@ name = "smallvec"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8917285742e9f3e1683f0a9c4e6b57960b7314d0b08d30d1ecd426713ee2eee9"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "stable_deref_trait"
@@ -2429,6 +2464,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fc81956842c57dac11422a97c3b8195a1ff727f06e85c84ed2e8aa277c9a0fd"
 
 [[package]]
+name = "unty"
+version = "0.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
+
+[[package]]
 name = "url"
 version = "2.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2462,6 +2503,12 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "virtue"
+version = "0.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 
 [[package]]
 name = "walkdir"

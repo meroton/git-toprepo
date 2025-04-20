@@ -1,4 +1,3 @@
-use crate::git::CommitId;
 use crate::git::git_command;
 use crate::git::git_config_get;
 use crate::util::CommandExtension as _;
@@ -12,8 +11,6 @@ use bstr::ByteSlice as _;
 use itertools::Itertools;
 use serde::Deserialize;
 use serde::Serialize;
-use serde_with::DeserializeAs;
-use serde_with::SerializeAs;
 use serde_with::serde_as;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -24,60 +21,6 @@ use std::fmt::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
-
-struct SerdeGixUrl;
-
-impl SerializeAs<gix::Url> for SerdeGixUrl {
-    fn serialize_as<S>(source: &gix::Url, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(
-            source
-                .to_bstring()
-                .to_str()
-                .map_err(|err| serde::ser::Error::custom(format!("Invalid URL {source}: {err}")))?,
-        )
-    }
-}
-
-impl<'de> DeserializeAs<'de, gix::Url> for SerdeGixUrl {
-    fn deserialize_as<D>(deserializer: D) -> Result<gix::Url, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let url: Option<_> = SerdeGixUrl::deserialize_as(deserializer)?;
-        url.ok_or_else(|| serde::de::Error::custom("URL must not be empty"))
-    }
-}
-
-impl SerializeAs<Option<gix::Url>> for SerdeGixUrl {
-    fn serialize_as<S>(source: &Option<gix::Url>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match source {
-            Some(url) => SerdeGixUrl::serialize_as(url, serializer),
-            None => serializer.serialize_str(""),
-        }
-    }
-}
-
-impl<'de> DeserializeAs<'de, Option<gix::Url>> for SerdeGixUrl {
-    fn deserialize_as<D>(deserializer: D) -> Result<Option<gix::Url>, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        if s.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(gix::Url::from_bytes(s.as_bytes().as_bstr()).map_err(
-                |err| serde::de::Error::custom(format!("Invalid URL {s}: {err}")),
-            )?))
-        }
-    }
-}
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
@@ -384,21 +327,26 @@ impl GitTopRepoConfig {
     }
 }
 
-/// SubrepoConfig holds the configuration for a subrepo in the super repo. In
-/// case `fetch.url` is empty, the first entry in `urls` is used. In case
-/// `push.url` is empty, the value of `fetch.url` is used. A sane configuration
+/// `ToprepoConfig`` holds the configuration for the toprepo itself. The content is
+/// taken from the default git remote configuration.
 #[serde_as]
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ToprepoConfig {
+    #[serde_as(as = "crate::util::SerdeGixUrl")]
+    pub url: gix::Url,
+    #[serde_as(as = "crate::util::SerdeGixUrl")]
+    pub push_url: gix::Url,
+}
+
+/// `SubrepoConfig`` holds the configuration for a subrepo in the super repo. If
+/// `fetch.url` is empty, the first entry in `urls` is used. If `push.url` is
+/// empty, the value of `fetch.url` is used.
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct SubrepoConfig {
-    // TODO: Remove
-    // #[serde(default = "repo_since_default")]
-    // #[serde(skip_serializing_if = "is_repo_since_default")]
-    // pub since: chrono::DateTime<chrono::Utc>,
-    #[serde_as(as = "Vec<SerdeGixUrl>")]
+    #[serde_as(as = "Vec<crate::util::SerdeGixUrl>")]
     pub urls: Vec<gix::Url>,
-    #[serde(skip_serializing_if = "is_default")]
-    pub commits: CommitFilterConfig,
     #[serde(skip_serializing_if = "is_default")]
     pub fetch: FetchConfig,
     #[serde(skip_serializing_if = "is_default")]
@@ -466,35 +414,11 @@ impl Default for SubrepoConfig {
     fn default() -> Self {
         SubrepoConfig {
             urls: Vec::new(),
-            commits: Default::default(),
             fetch: Default::default(),
             push: Default::default(),
             enabled: true,
         }
     }
-}
-
-// TODO: Remove
-// use chrono::TimeZone as _;
-// fn repo_since_default() -> chrono::DateTime<chrono::Utc> {
-//     chrono::Utc.timestamp_micros(0).unwrap()
-// }
-//
-// fn is_repo_since_default(dt: &chrono::DateTime<chrono::Utc>) -> bool {
-//     dt.timestamp_micros() == 0
-// }
-
-#[serde_as]
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
-#[serde(default)]
-#[derive(Default)]
-pub struct CommitFilterConfig {
-    #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub missing: Vec<CommitId>,
-    #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub missing_while_filtering: Vec<CommitId>,
 }
 
 #[serde_as]
@@ -507,7 +431,7 @@ pub struct FetchConfig {
     pub prune: bool,
     #[serde(skip_serializing_if = "is_default")]
     pub depth: i32,
-    #[serde_as(as = "SerdeGixUrl")]
+    #[serde_as(as = "crate::util::SerdeGixUrl")]
     pub url: Option<gix::Url>,
 }
 
@@ -531,12 +455,12 @@ fn eq_fetch_prune_default(value: &bool) -> bool {
 
 #[serde_as]
 #[serde_with::skip_serializing_none]
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PushConfig {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
-    #[serde_as(as = "SerdeGixUrl")]
+    #[serde_as(as = "crate::util::SerdeGixUrl")]
     pub url: Option<gix::Url>,
 }
 
