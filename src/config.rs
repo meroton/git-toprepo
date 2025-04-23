@@ -236,10 +236,7 @@ impl GitTopRepoConfig {
         #[cfg(test)]
         assert_eq!(
             DEFAULT_LOCATION,
-            format!(
-                "{}HEAD:.gittoprepo.toml",
-                crate::repo::RepoName::Top.to_ref_prefix()
-            )
+            format!("{}HEAD:.gittoprepo.toml", RepoName::Top.to_ref_prefix())
         );
 
         let user_location = git_config_get(repo_dir, GIT_CONFIG_KEY)?;

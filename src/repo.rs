@@ -7,13 +7,14 @@ use crate::git::git_command;
 use crate::git::git_global_command;
 use crate::git_fast_export_import::ImportCommitRef;
 use crate::log::Logger;
+use crate::repo_name::RepoName;
+use crate::repo_name::SubRepoName;
 use crate::util::CommandExtension as _;
 use anyhow::Context;
 use anyhow::Result;
 use bstr::BStr;
 use bstr::ByteSlice as _;
 use gix::refs::FullName;
-use gix::refs::FullNameRef;
 use gix::remote::Direction;
 use itertools::Itertools;
 use std::borrow::Borrow as _;
@@ -25,7 +26,6 @@ use std::hash::Hash;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::str::FromStr;
 
 #[derive(Debug)]
 pub struct TopRepo {
@@ -342,91 +342,6 @@ impl TopRepo {
                 .context("Failed to update all the refs/remotes/origin/* references")?;
         }
         Ok(())
-    }
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum RepoName {
-    Top,
-    SubRepo(SubRepoName),
-}
-
-impl RepoName {
-    /// Converts `refs/namespaces/<name>/*` to `RepoName`.
-    pub fn from_ref(fullname: &FullNameRef) -> Result<RepoName> {
-        let fullname = fullname.as_bstr();
-        let rest = fullname
-            .strip_prefix(b"refs/namespaces/")
-            .with_context(|| format!("Not a toprepo ref {}", fullname))?;
-        let idx = rest
-            .find_char('/')
-            .with_context(|| format!("Too short toprepo ref {}", fullname))?;
-        let name = rest[..idx]
-            .to_str()
-            .with_context(|| format!("Invalid encoding in ref {}", fullname))?;
-        match name {
-            "top" => Ok(RepoName::Top),
-            _ => Ok(RepoName::SubRepo(SubRepoName::new(name.to_owned()))),
-        }
-    }
-
-    pub fn to_ref_prefix(&self) -> String {
-        // TODO: Start using gix::refs::Namespace.
-        format!("refs/namespaces/{self}/")
-    }
-
-    fn name(&self) -> &str {
-        match self {
-            RepoName::Top => "top",
-            RepoName::SubRepo(name) => name.deref(),
-        }
-    }
-}
-
-impl std::fmt::Display for RepoName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.name().fmt(f)
-    }
-}
-
-impl From<SubRepoName> for RepoName {
-    fn from(name: SubRepoName) -> Self {
-        RepoName::SubRepo(name)
-    }
-}
-
-impl FromStr for RepoName {
-    type Err = ();
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        if s == "top" {
-            Ok(RepoName::Top)
-        } else {
-            Ok(RepoName::SubRepo(SubRepoName::new(s.to_owned())))
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub struct SubRepoName(String);
-
-impl SubRepoName {
-    pub fn new(name: String) -> Self {
-        SubRepoName(name.to_owned())
-    }
-}
-
-impl Deref for SubRepoName {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::fmt::Display for SubRepoName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self)
     }
 }
 

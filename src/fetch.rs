@@ -2,7 +2,7 @@ use crate::config::GitTopRepoConfig;
 use crate::config::SubrepoConfig;
 use crate::git::git_command;
 use crate::gitmodules::SubmoduleUrlExt as _;
-use crate::repo::RepoName;
+use crate::repo_name::RepoName;
 use crate::util::SafeExitStatus;
 use anyhow::Context;
 use anyhow::Result;

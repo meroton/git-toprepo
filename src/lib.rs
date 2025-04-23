@@ -7,4 +7,5 @@ pub mod gitmodules;
 pub mod loader;
 pub mod log;
 pub mod repo;
+pub mod repo_name;
 pub mod util;

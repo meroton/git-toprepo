@@ -138,7 +138,7 @@ pub struct Fetch {
 
     /// The repository to fetch to, either the top repository or a submodule.
     #[arg(long, name = "repo", value_parser = clap::builder::ValueParser::new(parse_repo_name))]
-    pub repo: Option<git_toprepo::repo::RepoName>,
+    pub repo: Option<git_toprepo::repo_name::RepoName>,
 
     /// A configured git remote in the super repository or a URL to fetch from.
     /// If a URL is specified, it will be resolved into either the super
@@ -153,8 +153,8 @@ pub struct Fetch {
     pub refspecs: Option<Vec<(String, String)>>,
 }
 
-fn parse_repo_name(repo_name: &str) -> Result<git_toprepo::repo::RepoName, std::io::Error> {
-    git_toprepo::repo::RepoName::from_str(repo_name).map_err(|_| {
+fn parse_repo_name(repo_name: &str) -> Result<git_toprepo::repo_name::RepoName, std::io::Error> {
+    git_toprepo::repo_name::RepoName::from_str(repo_name).map_err(|_| {
         std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid repository name")
     })
 }

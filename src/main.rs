@@ -176,7 +176,7 @@ fn fetch(fetch_args: &cli::Fetch) -> Result<ExitCode> {
     fetch_and_refilter(fetch_args, |commit_loader| {
         commit_loader.load_after_fetch = !fetch_args.skip_filter;
         // TODO: refspecs
-        commit_loader.fetch_repo(git_toprepo::repo::RepoName::Top, vec![None]);
+        commit_loader.fetch_repo(git_toprepo::repo_name::RepoName::Top, vec![None]);
         Ok(())
     })
 }
@@ -213,9 +213,9 @@ where
             if fetch_args.fetch_submodules {
                 for subrepo_name in submodule_names {
                     commit_loader.fetch_repo(
-                        git_toprepo::repo::RepoName::SubRepo(git_toprepo::repo::SubRepoName::new(
-                            subrepo_name,
-                        )),
+                        git_toprepo::repo_name::RepoName::SubRepo(
+                            git_toprepo::repo_name::SubRepoName::new(subrepo_name),
+                        ),
                         vec![None],
                     );
                 }

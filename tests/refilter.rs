@@ -386,7 +386,7 @@ fn run_init_and_refilter(
         error_mode.interrupted(),
         threadpool::ThreadPool::new(2),
     );
-    commit_loader.fetch_repo(git_toprepo::repo::RepoName::Top, vec![None]);
+    commit_loader.fetch_repo(git_toprepo::repo_name::RepoName::Top, vec![None]);
     commit_loader.join();
     let (repo_states, config) = commit_loader.into_result();
     let storage = git_toprepo::repo::TopRepoCache {
