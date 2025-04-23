@@ -1820,6 +1820,11 @@ class TopRepoExpander(RepoExpanderBase):
         ret = [
             self.subrepo_id_to_converted_id[parent_id]
             for parent_id in subrepo_commit_to_insert.parents
+            # TODO: parent_id should always be available in
+            # self.subrepo_id_to_converted_id, but users have observed that is
+            # not the case. Just avoid crashes for now until the Rust version is
+            # available.
+            if parent_id in self.subrepo_id_to_converted_id
         ]
         ints = [-1] * len(ret)
         for i, val in enumerate(ret):
