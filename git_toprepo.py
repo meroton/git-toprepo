@@ -35,9 +35,12 @@ try:
     # TODO: Need git-filter-repo from source to allow Git 2.43.
     import git_filter_repo_for_toprepo as git_filter_repo  # type: ignore
 except ImportError:
-    print("ERROR: git-filter-repo is missing")
-    print("Please run:  python3 -m pip install git-filter-repo")
-    sys.exit(2)
+    try:
+        import git_filter_repo
+    except ImportError:
+        print("ERROR: git-filter-repo is missing")
+        print("Please run:  python3 -m pip install git-filter-repo")
+        sys.exit(2)
 
 # git-filter-repo runs `git reset --hard` after filtering. Disable that.
 original_git_filter_repo_cleanup = git_filter_repo.RepoFilter.cleanup
