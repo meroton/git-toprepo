@@ -380,15 +380,12 @@ impl TopRepoExpander<'_> {
         message: Option<BString>,
     ) -> Result<MonoRepoCommit> {
         // TODO: Use references instead of cloning.
-        let source_gix_commit = self.gix_repo.find_commit(source_commit.commit_id).unwrap();
-        let source_gix_commit = source_gix_commit.decode().unwrap();
+        let source_gix_commit = self.gix_repo.find_commit(source_commit.commit_id)?;
+        let source_gix_commit = source_gix_commit.decode()?;
         let mut author = Vec::new();
-        source_gix_commit.author.write_to(&mut author).unwrap();
+        source_gix_commit.author.write_to(&mut author)?;
         let mut committer = Vec::new();
-        source_gix_commit
-            .committer
-            .write_to(&mut committer)
-            .unwrap();
+        source_gix_commit.committer.write_to(&mut committer)?;
         let message = message.unwrap_or_else(|| {
             calculate_mono_commit_message(source_gix_commit.message, &submodule_updates)
         });
@@ -698,31 +695,28 @@ impl TopRepoExpander<'_> {
 
         let mut commit_message = BString::new(vec![]);
         let commit_id_str = submod_commit.commit_id.to_string();
-        let source_gix_commit = self.gix_repo.find_commit(submod_commit.commit_id).unwrap();
+        let source_gix_commit = self.gix_repo.find_commit(submod_commit.commit_id)?;
         write!(
             commit_message,
             "Resetting submodule {} to {}\n\n",
             abs_sub_path,
             &commit_id_str[..12]
-        )
-        .unwrap();
+        )?;
         non_descendants.sort();
         non_descendants.dedup();
         writeln!(
             commit_message,
             "The gitlinks of the parents to this commit references the commit{}:",
             if non_descendants.len() == 1 { "" } else { "s" },
-        )
-        .unwrap();
+        )?;
         for non_descendant in non_descendants {
-            writeln!(commit_message, "- {}", non_descendant).unwrap();
+            writeln!(commit_message, "- {}", non_descendant)?;
         }
         write!(
             commit_message,
             "Regress the gitlink to the earlier commit\n{}:\n\n",
             commit_id_str
-        )
-        .unwrap();
+        )?;
         commit_message.push_str(source_gix_commit.message_raw().unwrap_or_default());
         drop(source_gix_commit);
         let regressing_mono_parents = mono_parents
