@@ -372,6 +372,7 @@ impl CommitLoader {
             TaskResult::LoadRepoDone(repo_name) => {
                 self.finish_load_repo_job(repo_name);
                 self.ongoing_jobs_in_threads -= 1;
+                self.fetch_progress.inc_num_loads_done();
             }
         }
         true
@@ -1241,6 +1242,7 @@ struct FetchProgress {
     pb: indicatif::ProgressBar,
     fetch_queue_size: usize,
     num_fetches_done: usize,
+    num_loads_done: usize,
     event_queue_size: usize,
 }
 
@@ -1250,6 +1252,7 @@ impl FetchProgress {
             pb,
             fetch_queue_size: 0,
             num_fetches_done: 0,
+            num_loads_done: 0,
             event_queue_size: 0,
         };
         ret.draw();
@@ -1269,11 +1272,16 @@ impl FetchProgress {
         self.draw();
     }
 
+    pub fn inc_num_loads_done(&mut self) {
+        self.num_loads_done += 1;
+        self.draw();
+    }
+
     fn draw(&self) {
         let mut msg = String::new();
         if self.fetch_queue_size != 0 {
             msg.push_str(&format!(
-                "{} {} in queue for fetching, ",
+                "{} {} in queue for fetching",
                 self.fetch_queue_size,
                 if self.fetch_queue_size == 1 {
                     "repository"
@@ -1283,7 +1291,7 @@ impl FetchProgress {
             ));
         }
         msg.push_str(&format!(
-            "{} {} done",
+            ", {} {} done",
             self.num_fetches_done,
             if self.num_fetches_done == 1 {
                 "fetch"
@@ -1294,6 +1302,15 @@ impl FetchProgress {
         if self.fetch_queue_size > 0 {
             msg += &format!(" ({} in queue)", self.fetch_queue_size);
         }
+        msg.push_str(&format!(
+            ", {} {} done",
+            self.num_loads_done,
+            if self.num_loads_done == 1 {
+                "load"
+            } else {
+                "loads"
+            },
+        ));
         self.pb.set_message(msg);
     }
 }
