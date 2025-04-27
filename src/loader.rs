@@ -1134,13 +1134,13 @@ enum LoadRepoState {
 #[serde_as]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct SerdeThinCommit {
-    #[serde_as(as = "serde_with::DisplayFromStr")]
+    #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
     pub commit_id: CommitId,
-    #[serde_as(as = "serde_with::DisplayFromStr")]
+    #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
     pub tree_id: TreeId,
-    #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
+    #[serde_as(as = "serde_with::IfIsHumanReadable<Vec<serde_with::DisplayFromStr>>")]
     pub parents: Vec<CommitId>,
-    #[serde_as(as = "Option<serde_with::DisplayFromStr>")]
+    #[serde_as(as = "serde_with::IfIsHumanReadable<Option<serde_with::DisplayFromStr>>")]
     pub dot_gitmodules: Option<BlobId>,
     /// `None` if the submodule was removed.
     pub submodule_bumps: HashMap<GitPath, Option<CommitId>>,

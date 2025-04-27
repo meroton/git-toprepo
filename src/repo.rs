@@ -590,7 +590,7 @@ pub enum ThinSubmodule {
 pub struct ThinSubmoduleContent {
     /// `None` is the submodule could not be resolved from the .gitmodules file.
     pub repo_name: Option<SubRepoName>,
-    #[serde_as(as = "serde_with::DisplayFromStr")]
+    #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
     pub commit_id: CommitId,
 }
 

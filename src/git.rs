@@ -19,9 +19,10 @@ pub type BlobId = gix::ObjectId;
     Debug, Clone, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
 )]
 pub struct GitPath(
-    // TODO: How to serialize non-UTF8 paths? Maybe '::<hex>' as paths don't
-    // contain (or starts with) ':'.
-    #[serde_as(as = "serde_with::DisplayFromStr")] BString,
+    /// The serialized human readable form is a string, so non-UTF8 will panic.
+    // TODO: Maybe '::<hex>' as paths don't contain (or starts with) ':'.
+    #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
+    BString,
 );
 
 impl GitPath {
