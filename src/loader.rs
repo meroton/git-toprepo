@@ -762,6 +762,9 @@ impl CommitLoader {
             .repos_loaded_from_cache
             .remove(repo_name)
             .unwrap_or_default();
+        if !cached_commits.is_empty() {
+            self.fetch_progress.inc_num_cached_loads_done();
+        }
         let mut needed_commits = Vec::new();
         for cached_commit in cached_commits {
             match Self::import_cached_commit(
@@ -1243,6 +1246,7 @@ struct FetchProgress {
     fetch_queue_size: usize,
     num_fetches_done: usize,
     num_loads_done: usize,
+    num_cached_loads_done: usize,
     event_queue_size: usize,
 }
 
@@ -1253,6 +1257,7 @@ impl FetchProgress {
             fetch_queue_size: 0,
             num_fetches_done: 0,
             num_loads_done: 0,
+            num_cached_loads_done: 0,
             event_queue_size: 0,
         };
         ret.draw();
@@ -1277,11 +1282,16 @@ impl FetchProgress {
         self.draw();
     }
 
+    pub fn inc_num_cached_loads_done(&mut self) {
+        self.num_cached_loads_done += 1;
+        self.draw();
+    }
+
     fn draw(&self) {
         let mut msg = String::new();
         if self.fetch_queue_size != 0 {
             msg.push_str(&format!(
-                "{} {} in queue for fetching",
+                "{} {} in queue for fetching, ",
                 self.fetch_queue_size,
                 if self.fetch_queue_size == 1 {
                     "repository"
@@ -1291,7 +1301,7 @@ impl FetchProgress {
             ));
         }
         msg.push_str(&format!(
-            ", {} {} done",
+            "{} {} done",
             self.num_fetches_done,
             if self.num_fetches_done == 1 {
                 "fetch"
@@ -1311,6 +1321,7 @@ impl FetchProgress {
                 "loads"
             },
         ));
+        msg.push_str(&format!(" ({} cached)", self.num_cached_loads_done));
         self.pb.set_message(msg);
     }
 }
