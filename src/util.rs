@@ -4,8 +4,10 @@ use bstr::ByteSlice as _;
 use bstr::ByteVec;
 use itertools::Itertools;
 use serde::Deserialize as _;
+use serde::Serialize as _;
 use serde_with::DeserializeAs;
 use serde_with::SerializeAs;
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -41,16 +43,15 @@ impl SerializeAs<gix::Url> for SerdeGixUrl {
         S: serde::Serializer,
     {
         if *source == *EMPTY_GIX_URL {
-            return Err(serde::ser::Error::custom(format!(
-                "Invalid empty URL {source}"
-            )));
-        }
-        serializer.serialize_str(
-            source
-                .to_bstring()
+            let s: &str = "";
+            s.serialize(serializer)
+        } else {
+            let bs = source.to_bstring();
+            let s: &str = bs
                 .to_str()
-                .map_err(|err| serde::ser::Error::custom(format!("Invalid URL {source}: {err}")))?,
-        )
+                .map_err(|err| serde::ser::Error::custom(format!("Invalid URL {source}: {err}")))?;
+            s.serialize(serializer)
+        }
     }
 }
 
@@ -59,8 +60,14 @@ impl<'de> DeserializeAs<'de, gix::Url> for SerdeGixUrl {
     where
         D: serde::Deserializer<'de>,
     {
-        let url: Option<_> = SerdeGixUrl::deserialize_as(deserializer)?;
-        url.ok_or_else(|| serde::de::Error::custom("URL must not be empty"))
+        let s = String::deserialize(deserializer)?;
+        if s.is_empty() {
+            Ok(EMPTY_GIX_URL.clone())
+        } else {
+            let url = gix::Url::from_bytes(s.as_bytes().as_bstr())
+                .map_err(|err| serde::de::Error::custom(format!("Invalid URL {s}: {err}")))?;
+            Ok(url)
+        }
     }
 }
 
@@ -86,14 +93,50 @@ impl<'de> DeserializeAs<'de, Option<gix::Url>> for SerdeGixUrl {
     where
         D: serde::Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
-        if s.is_empty() {
-            Ok(None)
+        let url: gix::Url = SerdeGixUrl::deserialize_as(deserializer)?;
+        if url != *EMPTY_GIX_URL {
+            Ok(Some(url))
         } else {
-            Ok(Some(gix::Url::from_bytes(s.as_bytes().as_bstr()).map_err(
-                |err| serde::de::Error::custom(format!("Invalid URL {s}: {err}")),
-            )?))
+            Ok(None)
         }
+    }
+}
+
+/// A wrapper around `HashMap<K, V>` that serializes the keys in sorted order.
+/// This is useful when comparing JSON serialized data.
+pub(crate) struct OrderedHashMap<K, V> {
+    phantom: std::marker::PhantomData<(K, V)>,
+}
+
+impl<K, KAs, V, VAs> SerializeAs<HashMap<K, V>> for OrderedHashMap<KAs, VAs>
+where
+    K: Hash + Ord,
+    KAs: serde_with::SerializeAs<K>,
+    VAs: serde_with::SerializeAs<V>,
+{
+    fn serialize_as<S>(source: &HashMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let vec = source
+            .iter()
+            .sorted_by(|(k_lhs, _), (k_rhs, _)| k_lhs.cmp(k_rhs))
+            .collect_vec();
+        <serde_with::Map<&KAs, &VAs> as SerializeAs<Vec<(&K, &V)>>>::serialize_as(&vec, serializer)
+    }
+}
+
+impl<'de, K, KAs, V, VAs> DeserializeAs<'de, HashMap<K, V>> for OrderedHashMap<KAs, VAs>
+where
+    K: Hash + Eq,
+    KAs: serde_with::DeserializeAs<'de, K>,
+    VAs: serde_with::DeserializeAs<'de, V>,
+{
+    fn deserialize_as<D>(deserializer: D) -> Result<HashMap<K, V>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        <HashMap<KAs, VAs> as DeserializeAs<'de, HashMap<K, V>>>::deserialize_as(deserializer)
     }
 }
 

@@ -174,6 +174,13 @@ pub struct LogReceiver {
 }
 
 impl LogReceiver {
+    /// Create a new `LogReceiver` that prints to `stderr`.
+    pub fn new_stderr(error_mode: ErrorMode) -> Self {
+        Self::new(error_mode, |msg| {
+            eprintln!("{}", msg);
+        })
+    }
+
     pub fn new<F>(error_mode: ErrorMode, draw_callback: F) -> Self
     where
         F: Fn(&str) + Send + 'static,

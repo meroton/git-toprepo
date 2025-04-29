@@ -70,7 +70,7 @@ impl FromStr for RepoName {
 }
 
 #[derive(
-    Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, ::serde::Serialize, ::serde::Deserialize,
+    Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct SubRepoName(String);
 

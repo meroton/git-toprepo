@@ -20,24 +20,23 @@ use anyhow::Context;
 use anyhow::Result;
 use bstr::BStr;
 use itertools::Itertools as _;
-use serde_with::serde_as;
 use std::borrow::Borrow as _;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::fmt::Debug;
-use std::io::Read;
-use std::io::Write;
 use std::ops::Deref as _;
-use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::OnceLock;
+use std::sync::atomic::AtomicBool;
 
 enum TaskResult {
-    RepoFetchDone((RepoName, HashSet<Option<String>>)),
-    ImportCommit((Arc<RepoName>, FastExportCommit, TreeId)),
+    RepoFetchDone(RepoName, HashSet<Option<String>>),
+    LoadCachedCommits(RepoName, Vec<CommitId>, Arc<OnceLock<Result<()>>>),
+    ImportCommit(Arc<RepoName>, FastExportCommit, TreeId),
     LoadRepoDone(RepoName),
 }
 
@@ -52,14 +51,12 @@ struct GitModulesInfo {
     pub submodules: HashMap<GitPath, gix::Url>,
 }
 
-pub type SerdeRepoStates = HashMap<RepoName, Vec<SerdeThinCommit>>;
-
-pub struct CommitLoader {
+pub struct CommitLoader<'a> {
     toprepo: gix::Repository,
     repos: HashMap<RepoName, RepoFetcher>,
     /// Repositories that have been loaded from the cache.
-    repos_loaded_from_cache: SerdeRepoStates,
-    config: GitTopRepoConfig,
+    cached_repo_states: &'a mut RepoStates,
+    config: &'a mut GitTopRepoConfig,
 
     tx: std::sync::mpsc::Sender<TaskResult>,
     rx: std::sync::mpsc::Receiver<TaskResult>,
@@ -86,10 +83,11 @@ pub struct CommitLoader {
     dot_gitmodules_cache: DotGitModulesCache,
 }
 
-impl CommitLoader {
+impl<'a> CommitLoader<'a> {
     pub fn new(
         toprepo: gix::Repository,
-        config: GitTopRepoConfig,
+        cached_repo_states: &'a mut RepoStates,
+        config: &'a mut GitTopRepoConfig,
         progress: indicatif::MultiProgress,
         logger: Logger,
         interrupted: Arc<std::sync::atomic::AtomicBool>,
@@ -105,7 +103,7 @@ impl CommitLoader {
         Ok(Self {
             toprepo,
             repos: HashMap::new(),
-            repos_loaded_from_cache: HashMap::new(),
+            cached_repo_states,
             config,
             tx,
             rx,
@@ -124,129 +122,6 @@ impl CommitLoader {
         })
     }
 
-    const TOPREPO_IMPORT_CACHE_PATH: &str = "toprepo/import_cache.bincode";
-    const CACHE_VERSION_PRELUDE: &str = "#import-cache-format-v1\n";
-
-    /// Constructs the path to the git repository information cache inside
-    /// `.git/toprepo/`.
-    pub fn cache_path(git_dir: &Path) -> PathBuf {
-        git_dir.join(Self::TOPREPO_IMPORT_CACHE_PATH)
-    }
-
-    /// Load parsed git repository information from `.git/toprepo/`.
-    pub fn load_cache(&mut self) -> Result<()> {
-        self.repos_loaded_from_cache =
-            Self::load_cache_from_dir(self.toprepo.git_dir(), &self.logger)?;
-        Ok(())
-    }
-
-    /// Load parsed git repository information from `.git/toprepo/`.
-    pub fn load_cache_from_dir(git_dir: &Path, logger: &Logger) -> Result<SerdeRepoStates> {
-        let cache_path = Self::cache_path(git_dir);
-        (|| -> anyhow::Result<_> {
-            let now = std::time::Instant::now();
-            let reader = match std::fs::File::open(&cache_path) {
-                Ok(file) => file,
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                    // No cache file, skip reading.
-                    return Ok(SerdeRepoStates::new());
-                }
-                Err(err) => return Err(err.into()),
-            };
-            let mut reader = std::io::BufReader::new(reader);
-            let mut version_prelude = [0; Self::CACHE_VERSION_PRELUDE.len()];
-            reader.read_exact(&mut version_prelude)?;
-            if version_prelude != Self::CACHE_VERSION_PRELUDE.as_bytes() {
-                logger.warning(format!(
-                    "Discarding import cache {} due to version mismatch, expected {:?}",
-                    cache_path.display(),
-                    Self::CACHE_VERSION_PRELUDE
-                ));
-                return Ok(SerdeRepoStates::new());
-            }
-
-            let cached_repo_states: SerdeRepoStates =
-                bincode::serde::decode_from_std_read(&mut reader, bincode::config::standard())?;
-            let mut eof_buffer = [0; 1];
-            if reader.read(&mut eof_buffer)? != 0 {
-                anyhow::bail!("Expected EOF");
-            }
-            let file = reader.into_inner();
-            drop(file);
-            eprintln!(
-                "DEBUG: Deserialized repo states from {} in {:.2?}",
-                &cache_path.display(),
-                now.elapsed()
-            );
-            Ok(cached_repo_states)
-        })()
-        .with_context(|| {
-            format!(
-                "Failed to deserialize repo states from {}",
-                &cache_path.display()
-            )
-        })
-    }
-
-    fn prepare_repo_states_for_serialization(&self) -> SerdeRepoStates {
-        let now = std::time::Instant::now();
-        let ret = self
-            .repos
-            .iter()
-            .map(|(repo_name, fetcher)| {
-                let thin_commits = fetcher
-                    .repo_data
-                    .thin_commits
-                    .values()
-                    .sorted_by_key(|thin_commit| thin_commit.depth)
-                    .map(|thin_commit| SerdeThinCommit::from(thin_commit.as_ref()))
-                    .collect_vec();
-                (repo_name.clone(), thin_commits)
-            })
-            .collect();
-        eprintln!(
-            "DEBUG: Prepared repo states for serialization in {:.2?}",
-            now.elapsed()
-        );
-        ret
-    }
-
-    /// Write parsed git repository information as JSON.
-    pub fn dump_cache_as_json<W>(writer: W, repo_states: &SerdeRepoStates) -> Result<()>
-    where
-        W: Write,
-    {
-        serde_json::to_writer_pretty(writer, &repo_states)
-            .context("Failed to serialize repo states")
-    }
-
-    /// Store parsed git repository information from `.git/toprepo/`.
-    pub fn store_cache(&self) -> Result<()> {
-        let now = std::time::Instant::now();
-        let cache_path = Self::cache_path(self.toprepo.git_dir());
-        let cache_path_tmp = cache_path.with_extension(".tmp");
-        let mut writer = std::io::BufWriter::new(std::fs::File::create(&cache_path_tmp)?);
-        writer.write_all(Self::CACHE_VERSION_PRELUDE.as_bytes())?;
-        bincode::serde::encode_into_std_write(
-            self.prepare_repo_states_for_serialization(),
-            &mut writer,
-            bincode::config::standard(),
-        )
-        .context("Failed to serialize repo states")?;
-        let file = writer
-            .into_inner()
-            // .into_inner()
-            .context("Failed to flush buffered writer")?;
-        drop(file);
-        std::fs::rename(cache_path_tmp, &cache_path)?;
-        eprintln!(
-            "DEBUG: Serialized repo states to {} in {:.2?}",
-            cache_path.display(),
-            now.elapsed()
-        );
-        Ok(())
-    }
-
     /// Enqueue fetching of a repo with specific refspecs. Using `None` as
     /// refspec will fetch all heads and tags.
     pub fn fetch_repo(&mut self, repo_name: RepoName, refspecs: Vec<Option<String>>) {
@@ -261,6 +136,12 @@ impl CommitLoader {
         mut refspecs: Vec<Option<String>>,
     ) -> Result<()> {
         let repo_fetcher = self.get_or_create_repo_fetcher(&repo_name)?;
+        if !repo_fetcher.enabled {
+            self.logger.warning(format!(
+                "Repo {repo_name} is disabled in the configuration, will not fetch"
+            ));
+            return Ok(());
+        }
         refspecs.retain(|refspec| !repo_fetcher.refspecs_done.contains(refspec));
         if refspecs.is_empty() {
             return Ok(());
@@ -276,6 +157,12 @@ impl CommitLoader {
     /// Enqueue loading commits from a repo.
     pub fn load_repo(&mut self, repo_name: RepoName) -> Result<()> {
         let repo_fetcher = self.get_or_create_repo_fetcher(&repo_name)?;
+        if !repo_fetcher.enabled {
+            self.logger.warning(format!(
+                "Repo {repo_name} is disabled in the configuration, will not load commits"
+            ));
+            return Ok(());
+        }
         match repo_fetcher.loading {
             LoadRepoState::NotLoadedYet | LoadRepoState::Done => {
                 repo_fetcher.loading = LoadRepoState::LoadingThenDone;
@@ -293,22 +180,19 @@ impl CommitLoader {
     }
 
     /// Waits for all ongoing tasks to finish.
-    pub fn join(&mut self) {
+    pub fn join(mut self) {
         while !self.interrupted.load(std::sync::atomic::Ordering::Relaxed) {
             if !self.process_one_event() {
                 break;
             }
         }
         self.thread_pool.join();
-    }
-
-    pub fn into_result(self) -> (RepoStates, GitTopRepoConfig) {
-        let repo_states = self
-            .repos
-            .into_iter()
-            .map(|(repo_name, repo_fetcher)| (repo_name, repo_fetcher.repo_data))
-            .collect::<HashMap<_, _>>();
-        (repo_states, self.config)
+        self.cached_repo_states.clear();
+        self.cached_repo_states.extend(
+            self.repos
+                .into_iter()
+                .map(|(repo_name, repo_fetcher)| (repo_name, repo_fetcher.repo_data)),
+        );
     }
 
     /// Receives one event and processes it. Returns true if there are more
@@ -359,12 +243,18 @@ impl CommitLoader {
 
         // Process one messages.
         match msg {
-            TaskResult::RepoFetchDone((repo_name, refspecs)) => {
+            TaskResult::RepoFetchDone(repo_name, refspecs) => {
                 self.finish_fetch_repo_job(repo_name, refspecs);
                 self.ongoing_jobs_in_threads -= 1;
                 self.fetch_progress.inc_num_fetches_done();
             }
-            TaskResult::ImportCommit((repo_name, commit, tree_id)) => {
+            TaskResult::LoadCachedCommits(repo_name, cached_tips_to_load, result_channel) => {
+                let result = self.load_cached_commits(&repo_name, cached_tips_to_load);
+                result_channel
+                    .set(result)
+                    .expect("result from loading cached commits has not been set yet");
+            }
+            TaskResult::ImportCommit(repo_name, commit, tree_id) => {
                 if let Err(err) = self.import_commit(&repo_name, commit, tree_id) {
                     self.logger.error(format!("{err:#}"));
                 }
@@ -384,7 +274,7 @@ impl CommitLoader {
 
         let mut fetcher = crate::fetch::RemoteFetcher::new(&self.toprepo);
         fetcher
-            .set_remote_from_repo_name(&self.toprepo, &repo_name, &self.config)
+            .set_remote_from_repo_name(&self.toprepo, &repo_name, self.config)
             .expect("repo_name is valid");
         if !refspecs.contains(&None) {
             fetcher.refspecs.clear();
@@ -399,7 +289,7 @@ impl CommitLoader {
             if let Err(err) = fetcher.fetch(&pb) {
                 logger.error(format!("{err:#}"));
             }
-            tx.send(TaskResult::RepoFetchDone((repo_name, refspecs)))
+            tx.send(TaskResult::RepoFetchDone(repo_name, refspecs))
                 .expect("receiver never close");
         });
         Ok(())
@@ -443,31 +333,26 @@ impl CommitLoader {
             .keys()
             .cloned()
             .collect();
+        let cached_commits: HashSet<_> = self
+            .cached_repo_states
+            .get(&repo_name)
+            .map(|repo_data| repo_data.thin_commits.keys().cloned().collect())
+            .unwrap_or_default();
 
         let toprepo = self.toprepo.clone();
         let tx = self.tx.clone();
         let interrupted = self.interrupted.clone();
         self.thread_pool.execute(move || {
-            match Self::get_refs_to_load_arg(&toprepo, &repo_name, &existing_commits, &pb) {
-                Ok((refs_arg, unknown_commit_count)) => {
-                    if !refs_arg.is_empty() {
-                        if let Err(err) = Self::load_repo_commits(
-                            &toprepo,
-                            &repo_name,
-                            refs_arg,
-                            unknown_commit_count,
-                            &pb,
-                            &logger,
-                            &interrupted,
-                            &tx,
-                        ) {
-                            logger.error(format!("Loading repo failed: {err:#}"));
-                        }
-                    }
-                }
-                Err(err) => {
-                    logger.error(format!("Finding refs to load failed: {err:#}"));
-                }
+            let single_repo_loader = SingleRepoLoader {
+                toprepo: &toprepo,
+                repo_name: &repo_name,
+                pb: &pb,
+                logger: &logger,
+                interrupted: &interrupted,
+            };
+            if let Err(err) = single_repo_loader.load_repo(&existing_commits, &cached_commits, &tx)
+            {
+                logger.error(format!("{err:#}"));
             }
             tx.send(TaskResult::LoadRepoDone(repo_name))
                 .expect("receiver never close");
@@ -508,7 +393,7 @@ impl CommitLoader {
         missing_commits: HashSet<CommitId>,
         repo_fetcher: &mut RepoFetcher,
     ) {
-        // FRME
+        // Already logged when loading the repositories.
         // for commit_id in &missing_commits {
         //     self.logger
         //         .warning(format!("Missing commit in {repo_name}: {commit_id}"));
@@ -516,113 +401,112 @@ impl CommitLoader {
         repo_fetcher.missing_commits.extend(missing_commits);
     }
 
-    /// Creates ref listing arguments to give to git, on the form of
-    /// `<start_rev> ^<stop_rev>`. An empty list means that there is nothing to
-    /// load.
-    fn get_refs_to_load_arg(
-        toprepo: &gix::Repository,
+    fn load_cached_commits(
+        &mut self,
         repo_name: &RepoName,
-        existing_commits: &HashSet<CommitId>,
-        pb: &indicatif::ProgressBar,
-    ) -> Result<(Vec<String>, usize)> {
-        pb.set_message("Listing refs");
-
-        let ref_prefix = repo_name.to_ref_prefix();
-        let mut unknown_tips: Vec<CommitId> = Vec::new();
-        for r in toprepo
-            .references()?
-            .prefixed(BStr::new(ref_prefix.as_bytes()))?
-        {
-            let mut r = r.map_err(|err| anyhow::anyhow!("Failed while iterating refs: {err:#}"))?;
-            let commit_id = r
-                .peel_to_commit()
-                .with_context(|| format!("Failed to peel to commit: {r:?}"))?
-                .id;
-            if !existing_commits.contains(&commit_id) {
-                unknown_tips.push(commit_id);
-            }
-        }
-        if unknown_tips.is_empty() {
-            return Ok((vec![], 0));
-        }
-
-        pb.set_style(indicatif::ProgressStyle::with_template("{elapsed:>4} {msg} {pos}").unwrap());
-        pb.set_message("Walking the git history");
-
-        let start_refs = unknown_tips
-            .iter()
-            .map(|id| id.to_hex().to_string())
-            .collect::<Vec<_>>();
-        let (stop_commit_ids, unknown_commit_count) = crate::git::get_first_known_commits(
-            toprepo,
-            unknown_tips.into_iter(),
-            |commit_id| existing_commits.contains(&commit_id),
-            pb,
-        )?;
-        let stop_refs = stop_commit_ids.iter().map(|id| format!("^{}", id.to_hex()));
-
-        let refs_arg = start_refs.into_iter().chain(stop_refs).collect();
-        Ok((refs_arg, unknown_commit_count))
-    }
-
-    fn load_repo_commits(
-        toprepo: &gix::Repository,
-        repo_name: &RepoName,
-        refs_arg: Vec<String>,
-        unknown_commit_count: usize,
-        pb: &indicatif::ProgressBar,
-        logger: &Logger,
-        interrupted: &std::sync::atomic::AtomicBool,
-        tx: &std::sync::mpsc::Sender<TaskResult>,
+        cached_tips_to_load: Vec<CommitId>,
     ) -> Result<()> {
-        pb.set_message(format!("Exporting commits in {repo_name}"));
-        if unknown_commit_count > 0 {
-            pb.set_style(
-                indicatif::ProgressStyle::with_template("{elapsed:>4} {msg} {pos}/{len}").unwrap(),
-            );
-            pb.set_length(unknown_commit_count as u64);
-        } else {
-            pb.set_style(
-                indicatif::ProgressStyle::with_template("{elapsed:>4} {msg} {pos}").unwrap(),
+        // Load from cache, should be quick.
+        let Some(cached_repo) = self.cached_repo_states.remove(repo_name) else {
+            return Ok(());
+        };
+        let repo_fetcher = self
+            .repos
+            .get_mut(repo_name)
+            .expect("repo_fetcher already exists");
+        if repo_fetcher.repo_data.url != cached_repo.url {
+            anyhow::bail!(
+                "Cached URL was {} instead of {}",
+                cached_repo.url,
+                repo_fetcher.repo_data.url,
             );
         }
+        let reverse_dedup_cache = cached_repo
+            .dedup_cache
+            .into_iter()
+            .map(|(commit_id, thin_commit_id)| (thin_commit_id, commit_id))
+            .collect::<HashMap<_, _>>();
 
-        // TODO: The super repository will get an empty URL, which is exactly
-        // what is wanted. Does the rest of the code handle that?
-        let arc_repo_name = Arc::new(repo_name.clone());
-        let toprepo_git_dir = toprepo.git_dir();
-        for export_entry in
-            FastExportRepo::load_from_path(toprepo_git_dir, Some(refs_arg), logger.clone())?
-        {
-            if interrupted.load(std::sync::atomic::Ordering::Relaxed) {
-                break;
-            }
-            match export_entry? {
-                FastExportEntry::Commit(exported_commit) => {
-                    let tree_id = toprepo
-                        .find_commit(exported_commit.original_id)
-                        .with_context(|| {
-                            format!("Exported commit {} not found", exported_commit.original_id)
-                        })?
-                        .tree_id()
-                        .with_context(|| {
-                            format!("Missing tree id in commit {}", exported_commit.original_id)
-                        })?
-                        .detach();
-                    tx.send(TaskResult::ImportCommit((
-                        arc_repo_name.clone(),
-                        exported_commit,
-                        tree_id,
-                    )))
-                    .expect("receiver never close");
-                    pb.inc(1);
+        let mut needed_commits = Vec::new();
+        let mut todo = cached_tips_to_load
+            .into_iter()
+            .map(|commit_id| {
+                cached_repo
+                    .thin_commits
+                    .get(&commit_id)
+                    .expect("commit_id is in cache")
+                    .clone()
+            })
+            .collect_vec();
+        // Make sure to load the commits with smallest depth first because there
+        // is no existence check when pushing processing commits, only when
+        // pushing into the todo stack.
+        todo.sort_by_key(|c| std::cmp::Reverse(c.depth));
+        let result = (|| {
+            let logger = self.logger.with_context(&format!("Repo {repo_name}"));
+            while let Some(thin_commit) = todo.last().cloned() {
+                // Process parents first.
+                let mut missing_parents = false;
+                for parent in &thin_commit.parents {
+                    if repo_fetcher
+                        .repo_data
+                        .thin_commits
+                        .contains_key(&parent.commit_id)
+                    {
+                        continue;
+                    }
+                    missing_parents = true;
+                    todo.push(parent.clone());
                 }
-                FastExportEntry::Reset(_exported_reset) => {
-                    // Not used.
+                if missing_parents {
+                    continue;
                 }
+                // All parents have been process previously.
+                let thin_commit = todo.pop().expect("at least one element exists");
+                Self::verify_cached_commit(
+                    &self.toprepo,
+                    repo_name,
+                    &repo_fetcher.repo_data,
+                    thin_commit.as_ref(),
+                    self.config,
+                    &mut self.dot_gitmodules_cache,
+                    &logger,
+                )?;
+                // Load all submodule commits as well as that would be done if not
+                // using the cache.
+                for bump in thin_commit.submodule_bumps.values() {
+                    if let ThinSubmodule::AddedOrModified(bump) = bump {
+                        if let Some(submod_repo_name) = &bump.repo_name {
+                            needed_commits.push(NeededCommit {
+                                repo_name: submod_repo_name.clone(),
+                                commit_id: bump.commit_id,
+                            });
+                        }
+                    }
+                }
+                // TODO: The without_committer_id for thin_commit might not be
+                // loaded if the duplicate is not loaded. Should
+                // without_committer_id be part of thin_commit instead?
+                if let Some(without_committer_id) = reverse_dedup_cache.get(&thin_commit.commit_id)
+                {
+                    repo_fetcher
+                        .repo_data
+                        .dedup_cache
+                        .insert(without_committer_id.clone(), thin_commit.commit_id);
+                }
+                repo_fetcher
+                    .repo_data
+                    .thin_commits
+                    .insert(thin_commit.commit_id, thin_commit);
             }
+            Ok(())
+        })();
+        // Load all submodule commits that are needed so far.
+        for needed_commit in needed_commits {
+            self.assure_commit_available(needed_commit);
         }
-        Ok(())
+        self.fetch_progress.inc_num_cached_loads_done();
+        result
     }
 
     fn import_commit(
@@ -631,17 +515,24 @@ impl CommitLoader {
         exported_commit: FastExportCommit,
         tree_id: TreeId,
     ) -> Result<()> {
-        let context = format!("Repo {}, commit {}", repo_name, exported_commit.original_id);
+        let context = format!("Repo {} commit {}", repo_name, exported_commit.original_id);
+        let hash_without_committer = exported_commit.hash_without_committer()?;
         let repo_data = &mut self.repos.get_mut(repo_name).unwrap().repo_data;
         let (thin_commit, updated_submodule_commits) = Self::export_thin_commit(
             &self.toprepo,
             repo_data,
             exported_commit,
             tree_id,
-            &mut self.config,
+            self.config,
             &mut self.dot_gitmodules_cache,
             &self.logger.with_context(&context),
         )?;
+        // Always overwrite the cache entry with the newest commit with
+        // the same key. It makes most sense to reuse the newest commit
+        // available.
+        repo_data
+            .dedup_cache
+            .insert(hash_without_committer, thin_commit.commit_id);
         // Insert it into the storage.
         repo_data
             .thin_commits
@@ -655,36 +546,25 @@ impl CommitLoader {
         Ok(())
     }
 
-    fn import_cached_commit(
+    fn verify_cached_commit(
         repo: &gix::Repository,
         repo_name: &RepoName,
         repo_storage: &RepoData,
-        cached_commit: SerdeThinCommit,
+        commit: &ThinCommit,
         config: &mut GitTopRepoConfig,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         logger: &Logger,
-    ) -> Result<Rc<ThinCommit>> {
-        let commit_id: CommitId = cached_commit.commit_id;
-        let thin_parents = cached_commit
-            .parents
-            .iter()
-            .map(|parent_id| {
-                repo_storage
-                    .thin_commits
-                    .get(parent_id)
-                    .with_context(|| {
-                        format!("Parent {} of {} not yet parsed", parent_id, commit_id)
-                    })
-                    .cloned()
-            })
-            .collect::<Result<Vec<_>>>()?;
-
+    ) -> Result<()> {
         // Check for an updated .gitmodules file.
-        let gitmodules_info = match &cached_commit.dot_gitmodules {
+        let gitmodules_info = match &commit.dot_gitmodules {
             Some(dot_gitmodules_oid) => match dot_gitmodules_cache
                 .get_from_blob_id(repo, *dot_gitmodules_oid)
-                .with_context(|| format!("Failed to parse .gitmodules in commit {commit_id}"))
-            {
+                .with_context(|| {
+                    format!(
+                        "Failed to parse .gitmodules in repo {repo_name} commit {}",
+                        commit.commit_id
+                    )
+                }) {
                 Ok(gitmodules_info) => gitmodules_info,
                 Err(err) => {
                     logger.warning(format!("{err:#}"));
@@ -693,41 +573,35 @@ impl CommitLoader {
             },
             None => &GitModulesInfo::default(),
         };
-        let mut submodule_bumps = BTreeMap::new();
-        for (path, cached_bump) in cached_commit.submodule_bumps {
-            let thin_bump = match cached_bump {
-                Some(submod_commit_id) => {
-                    let submod_url = gitmodules_info.submodules.get(&path);
-                    let context = format!("Repo {repo_name} commit {commit_id}");
+        for (path, bump) in &commit.submodule_bumps {
+            match bump {
+                ThinSubmodule::AddedOrModified(cached_thin_submod) => {
+                    let submod_url = gitmodules_info.submodules.get(path);
+                    let context = format!("Repo {repo_name} commit {}", commit.commit_id);
                     let submod_repo_name = Self::get_submod_repo_name(
                         config,
-                        &path,
+                        path,
                         submod_url,
                         &repo_storage.url,
                         &logger.with_context(&context),
                     )
                     .unwrap_or_else(|err| {
-                        logger.error(format!("{}: {err:#}", context));
+                        logger.error(format!("{err:#}"));
                         None
                     });
-                    ThinSubmodule::AddedOrModified(ThinSubmoduleContent {
-                        repo_name: submod_repo_name,
-                        commit_id: submod_commit_id,
-                    })
+                    if submod_repo_name != cached_thin_submod.repo_name {
+                        anyhow::bail!(
+                            "Repo {repo_name} submodule {path} in commit {} was cached as repo {:?} but if now {:?}",
+                            commit.commit_id,
+                            cached_thin_submod.repo_name,
+                            submod_repo_name
+                        );
+                    }
                 }
-                None => ThinSubmodule::Removed,
-            };
-            submodule_bumps.insert(path, thin_bump);
+                ThinSubmodule::Removed => (),
+            }
         }
-
-        let thin_commit = ThinCommit::new_rc(
-            commit_id,
-            cached_commit.tree_id,
-            thin_parents,
-            cached_commit.dot_gitmodules,
-            submodule_bumps,
-        );
-        Ok(thin_commit)
+        Ok(())
     }
 
     fn get_or_create_repo_fetcher(
@@ -737,74 +611,30 @@ impl CommitLoader {
         if !self.repos.contains_key(repo_name) {
             self.create_repo_fetcher(repo_name)?;
         }
-        Ok(self.repos.get_mut(repo_name).expect("just added repos"))
+        Ok(self
+            .repos
+            .get_mut(repo_name)
+            .expect("just added repo fetcher"))
     }
 
-    /// Creates a `RepoFetcher` for the given repository name. The repository is
-    /// populated from the cache if possible. If `repo_name` doesn't exist in
-    /// the configuration, the creation will fail.
+    /// Creates a `RepoFetcher` for the given repository name. If `repo_name`
+    /// doesn't exist in the configuration, the creation will fail.
     fn create_repo_fetcher(&mut self, repo_name: &RepoName) -> Result<()> {
-        let url = match &repo_name {
-            RepoName::Top => crate::util::EMPTY_GIX_URL.clone(),
+        let (enabled, url) = match &repo_name {
+            RepoName::Top => (true, crate::util::EMPTY_GIX_URL.clone()),
             RepoName::SubRepo(submod_repo_name) => {
                 // Check if the submodule is configured.
-                self.config
+                let submod_contig = self
+                    .config
                     .subrepos
                     .get(submod_repo_name.deref())
-                    .with_context(|| format!("Repo {repo_name} not found in config"))?
-                    .resolve_fetch_url()
-                    .clone()
+                    .with_context(|| format!("Repo {repo_name} not found in config"))?;
+                let fetch_url = submod_contig.resolve_fetch_url();
+                (submod_contig.enabled, fetch_url.clone())
             }
         };
-        let mut repo_fetcher = RepoFetcher::new(url);
-        // Load from cache, should be quick.
-        let cached_commits = self
-            .repos_loaded_from_cache
-            .remove(repo_name)
-            .unwrap_or_default();
-        if !cached_commits.is_empty() {
-            self.fetch_progress.inc_num_cached_loads_done();
-        }
-        let mut needed_commits = Vec::new();
-        for cached_commit in cached_commits {
-            match Self::import_cached_commit(
-                &self.toprepo,
-                repo_name,
-                &repo_fetcher.repo_data,
-                cached_commit,
-                &mut self.config,
-                &mut self.dot_gitmodules_cache,
-                &self.logger,
-            ) {
-                Ok(thin_commit) => {
-                    // Load all submodule commits as well as that would be
-                    // done if not using the cache.
-                    for bump in thin_commit.submodule_bumps.values() {
-                        if let ThinSubmodule::AddedOrModified(bump) = bump {
-                            if let Some(submod_repo_name) = &bump.repo_name {
-                                needed_commits.push(NeededCommit {
-                                    repo_name: submod_repo_name.clone(),
-                                    commit_id: bump.commit_id,
-                                });
-                            }
-                        }
-                    }
-                    repo_fetcher
-                        .repo_data
-                        .thin_commits
-                        .insert(thin_commit.commit_id, thin_commit);
-                }
-                Err(err) => {
-                    // Failed to load the commit.
-                    self.logger.error(format!("{err:#}"));
-                    continue;
-                }
-            };
-        }
+        let repo_fetcher = RepoFetcher::new(enabled, url);
         self.repos.insert(repo_name.clone(), repo_fetcher);
-        for needed_commit in needed_commits {
-            self.assure_commit_available(needed_commit);
-        }
         Ok(())
     }
 
@@ -818,6 +648,9 @@ impl CommitLoader {
         if repo_fetcher.repo_data.thin_commits.contains_key(&commit_id)
             || repo_fetcher.missing_commits.contains(&commit_id)
         {
+            return;
+        }
+        if !repo_fetcher.enabled {
             return;
         }
         match repo_fetcher.loading {
@@ -1117,6 +950,171 @@ impl CommitLoader {
     }
 }
 
+struct SingleRepoLoader<'a> {
+    toprepo: &'a gix::Repository,
+    repo_name: &'a RepoName,
+    pb: &'a indicatif::ProgressBar,
+    logger: &'a Logger,
+    interrupted: &'a AtomicBool,
+}
+
+impl SingleRepoLoader<'_> {
+    pub fn load_repo(
+        &self,
+        existing_commits: &HashSet<CommitId>,
+        cached_commits: &HashSet<CommitId>,
+        tx: &std::sync::mpsc::Sender<TaskResult>,
+    ) -> Result<()> {
+        let (mut refs_arg, mut cached_tips_to_load, mut unknown_commit_count) = self
+            .get_refs_to_load_arg(existing_commits, cached_commits)
+            .context("Failed to find refs to load")?;
+        if !cached_tips_to_load.is_empty() {
+            let load_cached_commits_result = Arc::new(OnceLock::new());
+            tx.send(TaskResult::LoadCachedCommits(
+                self.repo_name.clone(),
+                cached_tips_to_load,
+                load_cached_commits_result.clone(),
+            ))
+            .expect("receiver never close");
+            if let Err(err) = load_cached_commits_result.wait() {
+                // Loading the cache failed, try again without the cache. Some
+                // of the commits might have been loaded, but this kind of
+                // failure should be rare so it is not worth updating
+                // existing_commits.
+                self.logger
+                    .warning(format!("Discarding cache for {}: {err:#}", self.repo_name));
+                (refs_arg, cached_tips_to_load, unknown_commit_count) = self
+                    .get_refs_to_load_arg(existing_commits, &HashSet::new())
+                    .context("Failed to find refs to load")?;
+                assert!(cached_tips_to_load.is_empty());
+            }
+        }
+        if !refs_arg.is_empty() {
+            self.load_from_refs(refs_arg, unknown_commit_count, tx)
+                .context("Failed to load commits")?;
+        }
+        Ok(())
+    }
+
+    /// Creates ref listing arguments to give to git, on the form of
+    /// `<start_rev> ^<stop_rev>`. An empty list means that there is nothing to
+    /// load.
+    fn get_refs_to_load_arg(
+        &self,
+        existing_commits: &HashSet<CommitId>,
+        cached_commits: &HashSet<CommitId>,
+    ) -> Result<(Vec<String>, Vec<CommitId>, usize)> {
+        self.pb.set_message("Listing refs");
+
+        let ref_prefix = self.repo_name.to_ref_prefix();
+        let mut unknown_tips: Vec<CommitId> = Vec::new();
+        let mut visited_cached_commits = Vec::new();
+        for r in self
+            .toprepo
+            .references()?
+            .prefixed(BStr::new(ref_prefix.as_bytes()))?
+        {
+            let mut r = r.map_err(|err| anyhow::anyhow!("Failed while iterating refs: {err:#}"))?;
+            let commit_id = r
+                .peel_to_commit()
+                .with_context(|| format!("Failed to peel to commit: {r:?}"))?
+                .id;
+            if existing_commits.contains(&commit_id) {
+                continue;
+            }
+            if cached_commits.contains(&commit_id) {
+                visited_cached_commits.push(commit_id);
+                continue;
+            }
+            unknown_tips.push(commit_id);
+        }
+        if unknown_tips.is_empty() {
+            return Ok((vec![], visited_cached_commits, 0));
+        }
+
+        self.pb.set_style(
+            indicatif::ProgressStyle::with_template("{elapsed:>4} {msg} {pos}").unwrap(),
+        );
+        self.pb.set_message("Walking the git history");
+
+        let start_refs = unknown_tips
+            .iter()
+            .map(|id| id.to_hex().to_string())
+            .collect::<Vec<_>>();
+        let (stop_commit_ids, unknown_commit_count) = crate::git::get_first_known_commits(
+            self.toprepo,
+            unknown_tips.into_iter(),
+            |commit_id| {
+                if existing_commits.contains(&commit_id) {
+                    return true;
+                }
+                if cached_commits.contains(&commit_id) {
+                    visited_cached_commits.push(commit_id);
+                    return true;
+                }
+                false
+            },
+            self.pb,
+        )?;
+        let stop_refs = stop_commit_ids.iter().map(|id| format!("^{}", id.to_hex()));
+
+        let refs_arg = start_refs.into_iter().chain(stop_refs).collect();
+        Ok((refs_arg, visited_cached_commits, unknown_commit_count))
+    }
+
+    fn load_from_refs(
+        &self,
+        refs_arg: Vec<String>,
+        unknown_commit_count: usize,
+        tx: &std::sync::mpsc::Sender<TaskResult>,
+    ) -> Result<()> {
+        self.pb
+            .set_message(format!("Exporting commits in {}", self.repo_name));
+        self.pb.set_style(
+            indicatif::ProgressStyle::with_template("{elapsed:>4} {msg} {pos}/{len}").unwrap(),
+        );
+        self.pb.set_length(unknown_commit_count as u64);
+
+        // TODO: The super repository will get an empty URL, which is exactly
+        // what is wanted. Does the rest of the code handle that?
+        let arc_repo_name = Arc::new(self.repo_name.clone());
+        let toprepo_git_dir = self.toprepo.git_dir();
+        for export_entry in
+            FastExportRepo::load_from_path(toprepo_git_dir, Some(refs_arg), self.logger.clone())?
+        {
+            if self.interrupted.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+            match export_entry? {
+                FastExportEntry::Commit(exported_commit) => {
+                    let tree_id = self
+                        .toprepo
+                        .find_commit(exported_commit.original_id)
+                        .with_context(|| {
+                            format!("Exported commit {} not found", exported_commit.original_id)
+                        })?
+                        .tree_id()
+                        .with_context(|| {
+                            format!("Missing tree id in commit {}", exported_commit.original_id)
+                        })?
+                        .detach();
+                    tx.send(TaskResult::ImportCommit(
+                        arc_repo_name.clone(),
+                        exported_commit,
+                        tree_id,
+                    ))
+                    .expect("receiver never close");
+                    self.pb.inc(1);
+                }
+                FastExportEntry::Reset(_exported_reset) => {
+                    // Not used.
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 /// The current loading state when running `git fast-export`.`
 #[derive(Clone)]
 enum LoadRepoState {
@@ -1133,46 +1131,9 @@ enum LoadRepoState {
     Done,
 }
 
-/// Serializeable version of `ThinCommit`.
-#[serde_as]
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct SerdeThinCommit {
-    #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
-    pub commit_id: CommitId,
-    #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
-    pub tree_id: TreeId,
-    #[serde_as(as = "serde_with::IfIsHumanReadable<Vec<serde_with::DisplayFromStr>>")]
-    pub parents: Vec<CommitId>,
-    #[serde_as(as = "serde_with::IfIsHumanReadable<Option<serde_with::DisplayFromStr>>")]
-    pub dot_gitmodules: Option<BlobId>,
-    /// `None` if the submodule was removed.
-    pub submodule_bumps: HashMap<GitPath, Option<CommitId>>,
-}
-
-impl From<&ThinCommit> for SerdeThinCommit {
-    fn from(thin_commit: &ThinCommit) -> Self {
-        let submodule_bumps = thin_commit
-            .submodule_bumps
-            .iter()
-            .map(|(path, bump)| {
-                let commit_id_or_none = match bump {
-                    ThinSubmodule::AddedOrModified(submod) => Some(submod.commit_id),
-                    ThinSubmodule::Removed => None,
-                };
-                (path.clone(), commit_id_or_none)
-            })
-            .collect();
-        Self {
-            commit_id: thin_commit.commit_id,
-            tree_id: thin_commit.tree_id,
-            parents: thin_commit.parents.iter().map(|p| p.commit_id).collect(),
-            dot_gitmodules: thin_commit.dot_gitmodules,
-            submodule_bumps,
-        }
-    }
-}
-
 struct RepoFetcher {
+    /// Indicates if the repository should be loaded at all.
+    enabled: bool,
     repo_data: RepoData,
     /// Commits that need to be loaded or even fetched.
     needed_commits: HashSet<CommitId>,
@@ -1188,8 +1149,9 @@ struct RepoFetcher {
 }
 
 impl RepoFetcher {
-    pub fn new(url: gix::Url) -> Self {
+    pub fn new(enabled: bool, url: gix::Url) -> Self {
         Self {
+            enabled,
             repo_data: RepoData::new(url),
             needed_commits: HashSet::new(),
             loading: LoadRepoState::NotLoadedYet,
@@ -1207,7 +1169,7 @@ impl RepoFetcher {
 /// `DotGitModulesCache` is a caching storage of parsed `.gitmodules` content
 /// that is read directly from blobs in a git repository. file by given a blob `id`.
 #[derive(Default)]
-pub struct DotGitModulesCache {
+struct DotGitModulesCache {
     cache: HashMap<gix::ObjectId, GitModulesInfo>,
 }
 
@@ -1215,7 +1177,7 @@ impl DotGitModulesCache {
     /// Parse the `.gitmodules` file given by the `BlobId` and return the map
     /// from path to url.
     // TODO: Handle parsing error, duplicated paths, missing path, missing url, bad url syntax etc.
-    fn get_from_blob_id(
+    pub fn get_from_blob_id(
         &mut self,
         gix_repo: &gix::Repository,
         id: BlobId,

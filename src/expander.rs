@@ -50,6 +50,7 @@ pub struct TopRepoExpander<'a> {
     pub progress: indicatif::MultiProgress,
     pub logger: Logger,
     pub fast_importer: crate::git_fast_export_import::FastImportRepo,
+    pub imported_commits: HashMap<RcKey<MonoRepoCommit>, (usize, Rc<MonoRepoCommit>)>,
     pub bumps: BumpCache,
 }
 
@@ -78,7 +79,7 @@ impl TopRepoExpander<'_> {
                 .with_message("Looking for new commits to expand"),
         );
 
-        let toprepo_commits = &self.storage.expanded_commits;
+        let toprepo_commits = &self.storage.top_to_mono_map;
         let walk = self.gix_repo.rev_walk(toprepo_tips);
         let mut commits_to_expand: Vec<_> = Vec::new();
         walk.selected(|commit_id| {
@@ -102,7 +103,7 @@ impl TopRepoExpander<'_> {
     }
 
     pub fn expand_toprepo_commits(
-        &mut self,
+        mut self,
         start_refs: Vec<gix::refs::FullName>,
         stop_commit_ids: Vec<CommitId>,
         c: usize,
@@ -139,45 +140,74 @@ impl TopRepoExpander<'_> {
             ),
             self.logger.clone(),
         )?;
-        for entry in fast_exporter {
-            let entry = entry?; // TODO: error handling
-            match entry {
-                crate::git_fast_export_import::FastExportEntry::Commit(commit) => {
-                    let input_branch = commit.branch.as_ref().ok_or_else(|| {
-                        anyhow::anyhow!("Top repo commit {} has no branch", commit.original_id)
-                    })?;
-                    let output_branch = Self::input_ref_to_output_ref(input_branch.borrow())?;
-                    let commit_id = TopRepoCommitId::new(commit.original_id);
-                    let now = std::time::Instant::now();
-                    self.expand_toprepo_commit(output_branch.borrow(), commit)?;
-                    let ms = now.elapsed().as_millis();
-                    if ms > 100 {
-                        // TODO: Remove this debug print.
-                        pb.suspend(|| eprintln!("DEBUG: Commit {} took {} ms", commit_id, ms));
+        let result = (|| {
+            for entry in fast_exporter {
+                let entry = entry?; // TODO: error handling
+                match entry {
+                    crate::git_fast_export_import::FastExportEntry::Commit(commit) => {
+                        let input_branch = commit.branch.as_ref().ok_or_else(|| {
+                            anyhow::anyhow!("Top repo commit {} has no branch", commit.original_id)
+                        })?;
+                        let output_branch = Self::input_ref_to_output_ref(input_branch.borrow())?;
+                        let commit_id = TopRepoCommitId::new(commit.original_id);
+                        let now = std::time::Instant::now();
+                        self.expand_toprepo_commit(output_branch.borrow(), commit)?;
+                        let ms = now.elapsed().as_millis();
+                        if ms > 100 {
+                            // TODO: Remove this debug print.
+                            pb.suspend(|| eprintln!("DEBUG: Commit {} took {} ms", commit_id, ms));
+                        }
+                        pb.inc(1);
                     }
-                    pb.inc(1);
-                }
-                crate::git_fast_export_import::FastExportEntry::Reset(reset) => {
-                    let output_branch = Self::input_ref_to_output_ref(reset.branch.borrow())?;
-                    let mono_commit_id = &self
-                        .storage
-                        .expanded_commits
-                        .get(&TopRepoCommitId::new(reset.from))
-                        .with_context(|| {
-                            format!(
-                                "Failed to reset {} to not yet expanded toprepo revision {}",
-                                reset.branch, reset.from
-                            )
-                        })?
-                        .commit_id;
-                    self.fast_importer.write_reset(
-                        output_branch.borrow(),
-                        &mono_commit_id.clone().into_fast_import_id(),
-                    )?;
+                    crate::git_fast_export_import::FastExportEntry::Reset(reset) => {
+                        let output_branch = Self::input_ref_to_output_ref(reset.branch.borrow())?;
+                        let mono_commit = self
+                            .storage
+                            .top_to_mono_map
+                            .get(&TopRepoCommitId::new(reset.from))
+                            .with_context(|| {
+                                format!(
+                                    "Failed to reset {} to not yet expanded toprepo revision {}",
+                                    reset.branch, reset.from
+                                )
+                            })?;
+                        self.fast_importer.write_reset(
+                            output_branch.borrow(),
+                            &self.get_import_commit_ref(mono_commit),
+                        )?;
+                    }
                 }
             }
+            Ok(())
+        })();
+        // Record the new mono commit ids.
+        let commit_ids = self.fast_importer.wait()?;
+        for (mark, mono_commit) in self.imported_commits.values() {
+            let mono_commit_id = MonoRepoCommitId::new(commit_ids[*mark - 1]);
+            self.storage
+                .monorepo_commits
+                .insert(mono_commit_id.clone(), mono_commit.clone());
+            self.storage
+                .monorepo_commit_ids
+                .insert(RcKey::new(mono_commit), mono_commit_id);
         }
-        Ok(())
+
+        result
+    }
+
+    /// Gets a `:mark` marker reference or the full commit id for a commit.
+    fn get_import_commit_ref(&self, mono_commit: &Rc<MonoRepoCommit>) -> ImportCommitRef {
+        let key = RcKey::new(mono_commit);
+        if let Some((mark, _)) = self.imported_commits.get(&key) {
+            ImportCommitRef::Mark(*mark)
+        } else {
+            let commit_id = self
+                .storage
+                .monorepo_commit_ids
+                .get(&key)
+                .expect("existing mono commits have commit id");
+            ImportCommitRef::CommitId(*commit_id.deref())
+        }
     }
 
     fn expand_toprepo_commit(
@@ -197,7 +227,7 @@ impl TopRepoExpander<'_> {
             .iter()
             .map(|parent| {
                 self.storage
-                    .expanded_commits
+                    .top_to_mono_map
                     .get(&TopRepoCommitId::new(parent.commit_id))
                     .unwrap()
                     .clone()
@@ -209,36 +239,31 @@ impl TopRepoExpander<'_> {
         if mono_parents_of_top.is_empty() && !parents_for_submodules.is_empty() {
             // There should be a first parent that is not a submodule.
             // Add an initial empty commit.
-            mono_parents_of_top.push(Rc::new(self.emit_mono_commit_with_tree_updates(
+            mono_parents_of_top.push(self.emit_mono_commit_with_tree_updates(
                 branch,
                 &top_commit,
                 vec![],
                 vec![],
                 HashMap::new(),
-                Rc::new(HashSet::new()),
                 Some(BString::from(b"Initial empty commit")),
-            )?));
+            )?);
         }
         let mono_parents = mono_parents_of_top
             .into_iter()
             .map(MonoRepoParent::Mono)
             .chain(parents_for_submodules)
             .collect_vec();
-        let mono_commit = Rc::new(self.emit_mono_commit(
+        let mono_commit = self.emit_mono_commit(
             branch,
             &TOP_PATH,
             &top_commit,
             mono_parents,
             commit.file_changes,
             None,
-        )?);
+        )?;
         self.storage
-            .expanded_commits
+            .top_to_mono_map
             .insert(commit_id, mono_commit.clone());
-        // TODO: Insert the commit hash.
-        self.storage
-            .monorepo_commits
-            .insert(mono_commit.commit_id.clone(), mono_commit);
         Ok(())
     }
 
@@ -284,7 +309,7 @@ impl TopRepoExpander<'_> {
                     } else {
                         ExpandedSubmodule::UnknownSubmodule(bump.commit_id)
                     };
-                    ExpandedOrRemovedSubmodule::Expanded(Rc::new(expanded_submod))
+                    ExpandedOrRemovedSubmodule::Expanded(expanded_submod)
                 }
                 ThinSubmodule::Removed => ExpandedOrRemovedSubmodule::Removed,
             };
@@ -300,44 +325,15 @@ impl TopRepoExpander<'_> {
         parents: Vec<MonoRepoParent>,
         initial_file_changes: Vec<ChangedFile>,
         message: Option<BString>,
-    ) -> Result<MonoRepoCommit> {
-        let mut submodule_updates = HashMap::new();
+    ) -> Result<Rc<MonoRepoCommit>> {
+        let mut submodule_bumps = HashMap::new();
         let mut tree_updates = Vec::new();
         self.get_recursive_submodule_bumps(
             path,
             source_commit,
-            &mut submodule_updates,
+            &mut submodule_bumps,
             &mut tree_updates,
         );
-        // Adding and removing submodules is rare, so no need to optimize on
-        // reducing number of allocations.
-        let mut submodule_paths = if let Some(MonoRepoParent::Mono(first_parent)) = parents.first()
-        {
-            first_parent.submodule_paths.clone()
-        } else {
-            Rc::new(HashSet::new())
-        };
-        for (path, submod) in &submodule_updates {
-            match submod {
-                ExpandedOrRemovedSubmodule::Removed => {
-                    submodule_paths = Rc::new({
-                        let mut paths = submodule_paths.deref().clone();
-                        paths.remove(path);
-                        paths
-                    });
-                }
-                ExpandedOrRemovedSubmodule::Expanded(_) => {
-                    if !submodule_paths.contains(path) {
-                        // Add it, need to clone the Rc<HashSet<_>>.
-                        submodule_paths = Rc::new({
-                            let mut paths = submodule_paths.deref().clone();
-                            paths.insert(path.clone());
-                            paths
-                        });
-                    }
-                }
-            }
-        }
 
         // tree_updates need to be ordered to get the inner submodules replaced
         // inside the outer submodules.
@@ -362,8 +358,7 @@ impl TopRepoExpander<'_> {
             source_commit,
             parents,
             file_changes,
-            submodule_updates,
-            submodule_paths,
+            submodule_bumps,
             message,
         )?;
         Ok(mono_commit)
@@ -375,10 +370,9 @@ impl TopRepoExpander<'_> {
         source_commit: &ThinCommit,
         parents: Vec<MonoRepoParent>,
         file_changes: Vec<ChangedFile>,
-        submodule_updates: HashMap<GitPath, ExpandedOrRemovedSubmodule>,
-        submodule_paths: Rc<HashSet<GitPath>>,
+        submodule_bumps: HashMap<GitPath, ExpandedOrRemovedSubmodule>,
         message: Option<BString>,
-    ) -> Result<MonoRepoCommit> {
+    ) -> Result<Rc<MonoRepoCommit>> {
         // TODO: Use references instead of cloning.
         let source_gix_commit = self.gix_repo.find_commit(source_commit.commit_id)?;
         let source_gix_commit = source_gix_commit.decode()?;
@@ -387,7 +381,7 @@ impl TopRepoExpander<'_> {
         let mut committer = Vec::new();
         source_gix_commit.committer.write_to(&mut committer)?;
         let message = message.unwrap_or_else(|| {
-            calculate_mono_commit_message(source_gix_commit.message, &submodule_updates)
+            calculate_mono_commit_message(source_gix_commit.message, &submodule_bumps)
         });
         let importer_mark = self.fast_importer.write_commit(&FastImportCommit {
             branch,
@@ -399,12 +393,7 @@ impl TopRepoExpander<'_> {
             parents: parents
                 .iter()
                 .map(|p| match p {
-                    MonoRepoParent::Mono(mono_parent) => match mono_parent.commit_id {
-                        MonoRepoCommitId::FastImportMark(mark) => ImportCommitRef::Mark(mark),
-                        MonoRepoCommitId::CommitId(commit_id) => {
-                            ImportCommitRef::CommitId(commit_id)
-                        }
-                    },
+                    MonoRepoParent::Mono(mono_parent) => self.get_import_commit_ref(mono_parent),
                     MonoRepoParent::OriginalSubmod(submod_parent) => {
                         ImportCommitRef::CommitId(submod_parent.commit_id)
                     }
@@ -412,11 +401,10 @@ impl TopRepoExpander<'_> {
                 .collect(),
             original_id: None,
         })?;
-        let mono_commit = MonoRepoCommit::new(
-            MonoRepoCommitId::FastImportMark(importer_mark),
-            parents,
-            submodule_updates,
-            submodule_paths,
+        let mono_commit = MonoRepoCommit::new_rc(parents, submodule_bumps);
+        self.imported_commits.insert(
+            RcKey::new(&mono_commit),
+            (importer_mark, mono_commit.clone()),
         );
         Ok(mono_commit)
     }
@@ -527,15 +515,15 @@ impl TopRepoExpander<'_> {
                                     let regressing_parent_vec = regressing_commit
                                         .take()
                                         .map(|c: Rc<MonoRepoCommit>| vec![c.clone()]);
-                                    let mono_commit =
-                                        Rc::new(self.expand_parent_for_regressing_submodule_bump(
+                                    let mono_commit = self
+                                        .expand_parent_for_regressing_submodule_bump(
                                             branch,
                                             regressing_parent_vec.as_ref().unwrap_or(mono_parents),
                                             &abs_sub_path,
                                             &submod_commit,
                                             non_descendants,
-                                        )?);
-                                    regressing_commit.replace(mono_commit.clone());
+                                        )?;
+                                    regressing_commit.replace(mono_commit);
                                     ExpandedSubmodule::RegressedNotFullyImplemented(submod_content)
                                 }
                             } else {
@@ -556,11 +544,11 @@ impl TopRepoExpander<'_> {
                         // super commit.
                         ExpandedSubmodule::UnknownSubmodule(submod.commit_id)
                     };
-                    ExpandedOrRemovedSubmodule::Expanded(Rc::new(expanded_submod))
+                    ExpandedOrRemovedSubmodule::Expanded(expanded_submod)
                 }
                 ThinSubmodule::Removed => ExpandedOrRemovedSubmodule::Removed,
             };
-            // expanded_bumps.insert(rel_sub_path.clone(), Rc::new(expanded_bump));
+            // expanded_bumps.insert(rel_sub_path.clone(), expanded_bump);
         }
         if let Some(regressing_commit) = regressing_commit.take() {
             // The commit is not a submodule bump, but a commit that is not a descendant of the mono parents.
@@ -669,7 +657,7 @@ impl TopRepoExpander<'_> {
         abs_sub_path: &GitPath,
         submod_commit: &ThinCommit,
         mut non_descendants: Vec<CommitId>,
-    ) -> Result<MonoRepoCommit> {
+    ) -> Result<Rc<MonoRepoCommit>> {
         // Going backwards in history, add he original submod_commit as parent instead.
         // TODO: Make it configurable per commit what to do.
         // 1. Use no history = noop
@@ -937,7 +925,7 @@ impl TopRepoExpander<'_> {
             file_changes,
             None,
         )?;
-        Ok(Some(Rc::new(mono_commit)))
+        Ok(Some(mono_commit))
     }
 }
 
@@ -1066,7 +1054,7 @@ impl BumpCache {
                 .expect("submodule path exists");
             if let Some(submod_content) = submod.get_known_submod() {
                 if submod_content.repo_name == *submod_repo_name {
-                    if mono_commit.submodule_updates.get(path)
+                    if mono_commit.submodule_bumps.get(path)
                         == Some(&ExpandedOrRemovedSubmodule::Removed)
                     {
                         // It is the same submodule and it has been moved or removed.
@@ -1133,9 +1121,9 @@ impl BumpCache {
                 break submod.clone();
             }
             // Was the submodule updated in this commit?
-            match current_commit.submodule_updates.get(abs_sub_path) {
+            match current_commit.submodule_bumps.get(abs_sub_path) {
                 Some(ExpandedOrRemovedSubmodule::Expanded(submod)) => {
-                    break submod.clone();
+                    break Rc::new(submod.clone());
                 }
                 Some(ExpandedOrRemovedSubmodule::Removed) => {
                     // The submodule was removed in this commit.
@@ -1246,12 +1234,10 @@ impl BumpCache {
         // Start with a fake entry that will make mono_commit be computed and
         // cached.
         let mut stack = vec![StackEntry {
-            mono_commit: Rc::new(MonoRepoCommit::new(
-                MonoRepoCommitId::FastImportMark(0),
+            mono_commit: MonoRepoCommit::new_rc(
                 vec![MonoRepoParent::Mono(mono_commit.clone())],
                 HashMap::new(),
-                Rc::new(HashSet::new()),
-            )),
+            ),
             commit_key: key.mono_commit,
             next_parent_idx: 0,
             ret: Vec::new(),
@@ -1268,7 +1254,7 @@ impl BumpCache {
                     if let Some(parent_ret) = self.last_bumps.get(&key) {
                         // Cache hit.
                         entry.ret.extend(parent_ret.iter().cloned());
-                    } else if parent.submodule_updates.contains_key(abs_sub_path) {
+                    } else if parent.submodule_bumps.contains_key(abs_sub_path) {
                         // The submodule was added, moved or copied to
                         // abs_sub_path.
                         entry.ret.push(parent.clone());
@@ -1339,7 +1325,7 @@ impl Default for BumpCache {
 /// let subx_commit_id: CommitId = gix::ObjectId::from_hex(b"1234567890abcdef1234567890abcdef12345678").unwrap();
 /// submod_updates.insert(
 ///     GitPath::new(B("subx").into()),
-///     ExpandedOrRemovedSubmodule::Expanded(Rc::new(ExpandedSubmodule::KeptAsSubmodule(subx_commit_id))),
+///     ExpandedOrRemovedSubmodule::Expanded(ExpandedSubmodule::KeptAsSubmodule(subx_commit_id)),
 /// );
 /// submod_updates.insert(
 ///     GitPath::new(B("suby").into()),

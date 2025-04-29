@@ -5,7 +5,6 @@ use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::git_command;
 use git_toprepo::util::CommandExtension as _;
 use itertools::Itertools as _;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -370,7 +369,8 @@ fn run_init_and_refilter(
     )
     .unwrap();
     toprepo.fetch_toprepo_quiet().unwrap();
-    let config = GitTopRepoConfig::default();
+    let mut config = GitTopRepoConfig::default();
+    let mut toprepo_cache = git_toprepo::repo::TopRepoCache::default();
     let progress =
         indicatif::MultiProgress::with_draw_target(indicatif::ProgressDrawTarget::hidden());
     let error_mode = git_toprepo::log::ErrorMode::FailFast(Arc::new(AtomicBool::new(false)));
@@ -378,9 +378,11 @@ fn run_init_and_refilter(
     let log = git_toprepo::log::LogReceiver::new(error_mode.clone(), move |msg| {
         progress_clone.suspend(|| eprintln!("{}", msg));
     });
+    let gix_toprepo = toprepo.gix_repo.to_thread_local();
     let mut commit_loader = git_toprepo::loader::CommitLoader::new(
-        toprepo.gix_repo.to_thread_local(),
-        config,
+        gix_toprepo,
+        &mut toprepo_cache.repos,
+        &mut config,
         progress.clone(),
         log.get_logger(),
         error_mode.interrupted(),
@@ -389,18 +391,12 @@ fn run_init_and_refilter(
     .unwrap();
     commit_loader.fetch_repo(git_toprepo::repo_name::RepoName::Top, vec![None]);
     commit_loader.join();
-    let (repo_states, config) = commit_loader.into_result();
-    let storage = git_toprepo::repo::TopRepoCache {
-        repos: repo_states,
-        monorepo_commits: HashMap::new(),
-        expanded_commits: HashMap::new(),
-    };
     let log_result = log.peek_result();
     log_result.print_to_stderr();
     assert!(log_result.is_success());
 
     toprepo
-        .refilter(storage, &config, log.get_logger(), progress)
+        .refilter(&mut toprepo_cache, &config, log.get_logger(), progress)
         .unwrap();
     let log_result = log.join();
     log_result.print_to_stderr();

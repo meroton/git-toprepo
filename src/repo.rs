@@ -5,11 +5,12 @@ use crate::git::GitPath;
 use crate::git::TreeId;
 use crate::git::git_command;
 use crate::git::git_global_command;
-use crate::git_fast_export_import::ImportCommitRef;
+use crate::git_fast_export_import::WithoutCommitterId;
 use crate::log::Logger;
 use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::util::CommandExtension as _;
+use crate::util::RcKey;
 use anyhow::Context;
 use anyhow::Result;
 use bstr::BStr;
@@ -140,7 +141,7 @@ impl TopRepo {
 
     pub fn refilter(
         &self,
-        mut storage: TopRepoCache,
+        storage: &mut TopRepoCache,
         config: &crate::config::GitTopRepoConfig,
         logger: Logger,
         progress: indicatif::MultiProgress,
@@ -210,7 +211,7 @@ impl TopRepo {
         }
         let mut unknown_toprepo_tips = toprepo_object_tip_ids
             .into_iter()
-            .filter(|commit_id| !storage.expanded_commits.contains_key(commit_id))
+            .filter(|commit_id| !storage.top_to_mono_map.contains_key(commit_id))
             .peekable();
         if unknown_toprepo_tips.peek().is_some() {
             let progress = progress.clone();
@@ -228,7 +229,7 @@ impl TopRepo {
                 unknown_toprepo_tips.map(|commit_id| commit_id.into_inner()),
                 |commit_id| {
                     storage
-                        .expanded_commits
+                        .top_to_mono_map
                         .contains_key(&TopRepoCommitId(commit_id))
                 },
                 &pb,
@@ -245,13 +246,14 @@ impl TopRepo {
                 self.gix_repo.git_dir(),
                 logger.clone(),
             )?;
-            let mut expander = TopRepoExpander {
+            let expander = TopRepoExpander {
                 gix_repo: &repo,
-                storage: &mut storage,
+                storage,
                 config,
                 progress,
                 logger: logger.clone(),
                 fast_importer,
+                imported_commits: HashMap::new(),
                 bumps: crate::expander::BumpCache::default(),
             };
 
@@ -261,7 +263,6 @@ impl TopRepo {
                 stop_commits,
                 num_commits_to_export,
             )?;
-            let _commit = expander.fast_importer.wait()?;
 
             Self::update_refs(
                 &repo,
@@ -346,8 +347,13 @@ impl TopRepo {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TopRepoCommitId(CommitId);
+#[serde_as]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+pub struct TopRepoCommitId(
+    #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")] CommitId,
+);
 
 impl TopRepoCommitId {
     pub fn new(commit_id: CommitId) -> Self {
@@ -380,17 +386,18 @@ pub type RepoStates = HashMap<RepoName, RepoData>;
 #[derive(Default)]
 pub struct TopRepoCache {
     pub repos: RepoStates,
-    // The same commit can have been expanded under multiple branches in the top repo.
-    // pub expanded_commits: HashMap<CommitId, Vec<TopRepoCommitId>>,
     pub monorepo_commits: HashMap<MonoRepoCommitId, Rc<MonoRepoCommit>>,
-    // TODO: #[serde(skip)]
-    pub expanded_commits: HashMap<TopRepoCommitId, Rc<MonoRepoCommit>>,
+    pub monorepo_commit_ids: HashMap<RcKey<MonoRepoCommit>, MonoRepoCommitId>,
+    /// Mapping from top repo commit to mono repo commit.
+    pub top_to_mono_map: HashMap<TopRepoCommitId, Rc<MonoRepoCommit>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct OriginalSubmodParent {
     // TODO: Unused?
     pub path: GitPath,
+    #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
     pub commit_id: CommitId,
 }
 
@@ -400,52 +407,53 @@ pub enum MonoRepoParent {
     Mono(Rc<MonoRepoCommit>),
 }
 
-/// While importing, the commit id might not yet be known. As soon as it is
-/// known, the `FastImportMark` is not needed.
-#[derive(Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub enum MonoRepoCommitId {
-    CommitId(CommitId),
-    /// Marker given to git-fast-import.
-    FastImportMark(usize),
-}
+/// While importing, the commit id might not yet be known and set to a dummy id.
+#[serde_as]
+#[derive(Clone, Eq, Hash, PartialEq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+pub struct MonoRepoCommitId(
+    #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")] CommitId,
+);
 
 impl MonoRepoCommitId {
-    pub fn into_fast_import_id(self) -> ImportCommitRef {
-        match self {
-            MonoRepoCommitId::CommitId(commit_id) => ImportCommitRef::CommitId(commit_id),
-            MonoRepoCommitId::FastImportMark(mark) => ImportCommitRef::Mark(mark),
-        }
+    pub fn new(commit_id: CommitId) -> Self {
+        MonoRepoCommitId(commit_id)
+    }
+
+    pub fn dummy() -> Self {
+        Self(gix::ObjectId::null(gix::hash::Kind::Sha1))
     }
 }
 
 impl Display for MonoRepoCommitId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MonoRepoCommitId::CommitId(commit_id) => commit_id.fmt(f),
-            MonoRepoCommitId::FastImportMark(mark) => write!(f, ":{}", mark),
-        }
+        self.0.fmt(f)
+    }
+}
+
+impl Deref for MonoRepoCommitId {
+    type Target = CommitId;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
 pub struct MonoRepoCommit {
-    pub commit_id: MonoRepoCommitId,
     pub parents: Vec<MonoRepoParent>,
     /// The depth in the mono repo, i.e. the number of commits in the longest
     /// history path.
-    depth: usize,
+    pub depth: usize,
     /// The original commits that were updated in this mono repo commit, recursively.
-    pub submodule_updates: HashMap<GitPath, ExpandedOrRemovedSubmodule>,
+    pub submodule_bumps: HashMap<GitPath, ExpandedOrRemovedSubmodule>,
     /// The expanded submodule paths in this mono repo commit, recursively.
     pub submodule_paths: Rc<HashSet<GitPath>>,
 }
 
 impl MonoRepoCommit {
-    pub fn new(
-        commit_id: MonoRepoCommitId,
+    pub fn new_rc(
         parents: Vec<MonoRepoParent>,
-        submodule_updates: HashMap<GitPath, ExpandedOrRemovedSubmodule>,
-        submodule_paths: Rc<HashSet<GitPath>>,
-    ) -> MonoRepoCommit {
+        submodule_bumps: HashMap<GitPath, ExpandedOrRemovedSubmodule>,
+    ) -> Rc<MonoRepoCommit> {
         let depth = parents
             .iter()
             .filter_map(|p| match p {
@@ -454,31 +462,57 @@ impl MonoRepoCommit {
             })
             .max()
             .unwrap_or(0);
-        MonoRepoCommit {
-            commit_id,
+        // Adding and removing more than one submodule at a time is so rare that
+        // it is not worth optimizing for it. Let's copy the HashSet every time.
+        let mut submodule_paths = match parents.first() {
+            Some(MonoRepoParent::Mono(first_parent)) => first_parent.submodule_paths.clone(),
+            Some(MonoRepoParent::OriginalSubmod(_)) | None => Rc::new(HashSet::new()),
+        };
+        for (path, bump) in submodule_bumps.iter() {
+            match bump {
+                ExpandedOrRemovedSubmodule::Expanded(_) => {
+                    submodule_paths = Rc::new({
+                        let mut paths = submodule_paths.as_ref().clone();
+                        paths.insert(path.clone());
+                        paths
+                    });
+                }
+                ExpandedOrRemovedSubmodule::Removed => {
+                    submodule_paths = Rc::new({
+                        let mut paths = submodule_paths.as_ref().clone();
+                        paths.remove(path);
+                        paths
+                    });
+                }
+            }
+        }
+        Rc::new(MonoRepoCommit {
             parents,
             depth,
-            submodule_updates,
+            submodule_bumps,
             submodule_paths,
-        }
-    }
-
-    pub fn depth(&self) -> usize {
-        self.depth
+        })
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ExpandedSubmodule {
     /// Known submodule and known commit.
     Expanded(SubmoduleContent),
     /// The submodule was not expanded. The used has to run `git submodule
     /// update --init` to get its content.
-    KeptAsSubmodule(CommitId),
+    KeptAsSubmodule(
+        #[serde_as(serialize_as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
+        CommitId,
+    ),
     /// The commit does not exist (any more) in the referred sub repository.
     CommitMissingInSubRepo(SubmoduleContent),
     /// It is unknown which sub repo it should be loaded from.
-    UnknownSubmodule(CommitId),
+    UnknownSubmodule(
+        #[serde_as(serialize_as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
+        CommitId,
+    ),
     // TODO: MovedAndBumped(MovedSubmodule),
     /// If a submodule has regressed to an earlier or unrelated commit, it
     /// should be expanded with a different set of parents submodules. The
@@ -527,16 +561,18 @@ pub enum ExpandedSubmodule {
     RegressedNotFullyImplemented(SubmoduleContent),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ExpandedOrRemovedSubmodule {
-    Expanded(Rc<ExpandedSubmodule>),
+    Expanded(ExpandedSubmodule),
     Removed,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SubmoduleContent {
     /// `None` if the submodule is unknown.
     pub repo_name: SubRepoName,
+    #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
     pub orig_commit_id: CommitId,
 }
 
@@ -568,6 +604,10 @@ impl ExpandedSubmodule {
 pub struct RepoData {
     pub url: gix::Url,
     pub thin_commits: HashMap<CommitId, Rc<ThinCommit>>,
+    /// A map for git-fast-import commit deduplicating, where the exported
+    /// commit have different committer but otherwise are exactly the same.
+    /// The values represent the latest imported or exported commit id.
+    pub dedup_cache: HashMap<WithoutCommitterId, CommitId>,
 }
 
 impl RepoData {
@@ -575,18 +615,19 @@ impl RepoData {
         Self {
             url,
             thin_commits: HashMap::new(),
+            dedup_cache: HashMap::new(),
         }
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ThinSubmodule {
     AddedOrModified(ThinSubmoduleContent),
     Removed,
 }
 
 #[serde_as]
-#[derive(Clone, Debug, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ThinSubmoduleContent {
     /// `None` is the submodule could not be resolved from the .gitmodules file.
     pub repo_name: Option<SubRepoName>,
