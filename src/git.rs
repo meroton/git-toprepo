@@ -210,11 +210,11 @@ impl PushSplitter<'_> {
 pub fn get_first_known_commits<F, I>(
     repo: &gix::Repository,
     start_commit_ids: I,
-    exists_filter: F,
+    mut exists_filter: F,
     pb: &indicatif::ProgressBar,
 ) -> Result<(Vec<CommitId>, usize)>
 where
-    F: Fn(CommitId) -> bool,
+    F: FnMut(CommitId) -> bool,
     I: Iterator<Item = CommitId>,
 {
     let mut start_commit_ids = start_commit_ids.peekable();

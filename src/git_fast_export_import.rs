@@ -9,6 +9,9 @@ use bstr::ByteSlice as _;
 use gix::refs::FullName;
 use gix::refs::FullNameRef;
 use itertools::Itertools;
+use serde::Deserialize as _;
+use serde::Serialize as _;
+use serde_with::serde_as;
 use std::collections::HashMap;
 use std::io::BufRead;
 use std::io::BufReader;
@@ -72,6 +75,18 @@ impl FastExportCommit {
 
         chrono::DateTime::from_timestamp(timestamp, 0).unwrap()
     }
+
+    /// Creates a commit id but without the committer information.
+    pub fn hash_without_committer(&self) -> Result<WithoutCommitterId> {
+        let mut hasher = gix::hash::hasher(gix::hash::Kind::Sha1);
+        hasher.update_bstring(&self.author_info);
+        // Self::hash_bstring(&entry.committer_info);
+        hasher.update_option_bstring(&self.encoding);
+        hasher.update_bstring(&self.message);
+        hasher.update_serde(&self.file_changes)?;
+        hasher.update_serde(&self.parents)?;
+        Ok(WithoutCommitterId(hasher.try_finalize()?))
+    }
 }
 
 #[derive(Debug)]
@@ -104,20 +119,20 @@ impl std::fmt::Display for ImportCommitRef {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, serde::Serialize)]
 pub enum ChangedFile {
     Deleted(FileDelete),
     Modified(FileModify),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, serde::Serialize)]
 pub struct FileModify {
     pub path: BString,
     pub mode: BString,
     pub hash: BString,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, serde::Serialize)]
 pub struct FileDelete {
     pub path: BString,
 }
@@ -672,6 +687,102 @@ impl FastImportRepo {
                 None => oid.to_hex().to_string().into(),
             },
         }
+    }
+}
+
+#[serde_as]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+pub struct WithoutCommitterId(
+    #[serde_as(serialize_as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
+    gix::ObjectId,
+);
+
+impl serde_with::SerializeAs<WithoutCommitterId> for WithoutCommitterId {
+    fn serialize_as<S>(source: &WithoutCommitterId, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        source.serialize(serializer)
+    }
+}
+
+impl<'de> serde_with::DeserializeAs<'de, WithoutCommitterId> for WithoutCommitterId {
+    fn deserialize_as<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Self::deserialize(deserializer)
+    }
+}
+
+impl std::fmt::Display for WithoutCommitterId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::str::FromStr for WithoutCommitterId {
+    type Err = <gix::ObjectId as std::str::FromStr>::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let oid = gix::ObjectId::from_str(s)?;
+        Ok(Self(oid))
+    }
+}
+
+/// `FastExportImportDedupCache` deduplicates entries that would be exported that
+/// have different committer but otherwise are exactly the same.
+#[serde_as]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct FastExportImportDedupCache {
+    /// Maps from a hash of a commit, apart from the committer, to the latest
+    /// imported or exported commit id.
+    #[serde_as(
+        serialize_as = "serde_with::IfIsHumanReadable<HashMap<serde_with::DisplayFromStr, serde_with::DisplayFromStr>>"
+    )]
+    commits: HashMap<WithoutCommitterId, gix::ObjectId>,
+}
+
+trait HasherExt {
+    fn update_bstring(&mut self, value: &BString);
+    fn update_usize(&mut self, value: usize);
+    fn update_option_bstring(&mut self, value: &Option<BString>);
+    fn update_serde<T>(&mut self, value: &T) -> Result<()>
+    where
+        T: serde::Serialize;
+}
+
+impl HasherExt for gix::hash::Hasher {
+    fn update_bstring(&mut self, value: &BString) {
+        self.update_usize(value.len());
+        self.update(value);
+    }
+
+    fn update_usize(&mut self, value: usize) {
+        // Native endianess is enough as the cache is not meant to be cross-platform.
+        self.update(&value.to_ne_bytes());
+    }
+
+    fn update_option_bstring(&mut self, value: &Option<BString>) {
+        match value {
+            Some(inner) => {
+                self.update(&[1]);
+                self.update_bstring(inner);
+            }
+            None => self.update(&[0]),
+        }
+    }
+
+    fn update_serde<T>(&mut self, value: &T) -> Result<()>
+    where
+        T: serde::Serialize,
+    {
+        let encoded_value = bincode::serde::encode_to_vec(value, bincode::config::standard())?;
+        self.update_usize(encoded_value.len());
+        self.update(&encoded_value);
+        Ok(())
     }
 }
 
