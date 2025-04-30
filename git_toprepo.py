@@ -2176,11 +2176,29 @@ class PushSplitter:
         topic_required = len(file_changes_per_subdir) > 1
         topic = try_get_topic_from_message(mono_commit.message)
         if topic_required and topic is None:
+            # Truncate long messages
+            message = mono_commit.message.decode("utf-8")
+            lines = message.splitlines()
+            end, truncated = min(len(lines), 25), len(lines) > 25
+            lines = lines[:end]
+            if truncated:
+                lines.append("...\n")
+            message = "\n".join(lines)
+
             raise PushSplitError(
-                "A commit spread over multiple repositories (submodules) "
-                + "need a topic footer ('Topic: <topic>') "
-                + "which wasn't found in the following message:\n"
-                + textwrap.indent(mono_commit.message.decode("utf-8"), "  ")
+                "A commit spread over multiple repositories (submodules)"
+                + " need a topic footer ('Topic: <topic>')"
+                + " which is missing from the commit message:"
+                + "\n"
+                + textwrap.indent(message, "  ")
+                + "\nspanning these repositories:"
+                + "\n"
+                + textwrap.indent(
+                    " ".join(
+                        [k.decode("utf-8") for k in file_changes_per_subdir.keys()]
+                    ) + " and the toprepo itself" if b"" in file_changes_per_subdir else "",
+                    "  ",
+                )
             )
         # Inject a bunch of new commits.
         for subdir, file_changes in file_changes_per_subdir.items():
