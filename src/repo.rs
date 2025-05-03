@@ -257,7 +257,6 @@ impl TopRepo {
                 bumps: crate::expander::BumpCache::default(),
             };
 
-            // let commits_to_expand = expander.get_toprepo_commits_to_expand(toprepo_tips)?;
             expander.expand_toprepo_commits(
                 toprepo_object_tip_names,
                 stop_commits,
@@ -721,7 +720,7 @@ impl ThinCommit {
         false
     }
 
-    /// Walks the first parent commit graph to find all submodule entries.
+    /// Walks the first parent commit graph to the submodule entry.
     pub fn get_submodule<'a>(&'a self, path: &GitPath) -> Option<&'a ThinSubmodule> {
         let mut node = self;
         loop {

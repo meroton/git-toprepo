@@ -48,7 +48,7 @@ struct NeededCommit {
 
 #[derive(Default)]
 struct GitModulesInfo {
-    pub submodules: HashMap<GitPath, gix::Url>,
+    pub submodules: HashMap<GitPath, Result<gix::Url>>,
 }
 
 pub struct CommitLoader<'a> {
@@ -101,7 +101,7 @@ impl<'a> CommitLoader<'a> {
         // Make sure that the elapsed time is updated continuously.
         pb_fetch_queue.enable_steady_tick(std::time::Duration::from_millis(1000));
         Ok(Self {
-            toprepo,
+            toprepo: toprepo.clone(),
             repos: HashMap::new(),
             cached_repo_states,
             config,
@@ -118,7 +118,10 @@ impl<'a> CommitLoader<'a> {
             fetch_missing_commits: true,
             repos_to_fetch: VecDeque::new(),
             repos_to_load: VecDeque::new(),
-            dot_gitmodules_cache: DotGitModulesCache::default(),
+            dot_gitmodules_cache: DotGitModulesCache {
+                repo: toprepo,
+                cache: HashMap::new(),
+            },
         })
     }
 
@@ -443,7 +446,6 @@ impl<'a> CommitLoader<'a> {
         // pushing into the todo stack.
         todo.sort_by_key(|c| std::cmp::Reverse(c.depth));
         let result = (|| {
-            let logger = self.logger.with_context(&format!("Repo {repo_name}"));
             while let Some(thin_commit) = todo.last().cloned() {
                 // Process parents first.
                 let mut missing_parents = false;
@@ -463,15 +465,15 @@ impl<'a> CommitLoader<'a> {
                 }
                 // All parents have been process previously.
                 let thin_commit = todo.pop().expect("at least one element exists");
+                let context = format!("Repo {repo_name} commit {}", thin_commit.commit_id);
                 Self::verify_cached_commit(
-                    &self.toprepo,
-                    repo_name,
                     &repo_fetcher.repo_data,
                     thin_commit.as_ref(),
                     self.config,
                     &mut self.dot_gitmodules_cache,
-                    &logger,
-                )?;
+                    &self.logger.with_context(&context),
+                )
+                .context(context)?;
                 // Load all submodule commits as well as that would be done if not
                 // using the cache.
                 for bump in thin_commit.submodule_bumps.values() {
@@ -519,14 +521,14 @@ impl<'a> CommitLoader<'a> {
         let hash_without_committer = exported_commit.hash_without_committer()?;
         let repo_data = &mut self.repos.get_mut(repo_name).unwrap().repo_data;
         let (thin_commit, updated_submodule_commits) = Self::export_thin_commit(
-            &self.toprepo,
             repo_data,
             exported_commit,
             tree_id,
             self.config,
             &mut self.dot_gitmodules_cache,
             &self.logger.with_context(&context),
-        )?;
+        )
+        .context(context)?;
         // Always overwrite the cache entry with the newest commit with
         // the same key. It makes most sense to reuse the newest commit
         // available.
@@ -547,52 +549,48 @@ impl<'a> CommitLoader<'a> {
     }
 
     fn verify_cached_commit(
-        repo: &gix::Repository,
-        repo_name: &RepoName,
         repo_storage: &RepoData,
         commit: &ThinCommit,
         config: &mut GitTopRepoConfig,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         logger: &Logger,
     ) -> Result<()> {
-        // Check for an updated .gitmodules file.
-        let gitmodules_info = match &commit.dot_gitmodules {
-            Some(dot_gitmodules_oid) => match dot_gitmodules_cache
-                .get_from_blob_id(repo, *dot_gitmodules_oid)
-                .with_context(|| {
-                    format!(
-                        "Failed to parse .gitmodules in repo {repo_name} commit {}",
-                        commit.commit_id
+        let submodule_paths_to_check = if commit
+            .parents
+            .first()
+            .is_none_or(|first_parent| commit.dot_gitmodules != first_parent.dot_gitmodules)
+        {
+            &commit
+                .submodule_paths
+                .iter()
+                .map(|path| {
+                    (
+                        path.clone(),
+                        commit
+                            .get_submodule(path)
+                            .expect("submodule exists")
+                            .clone(),
                     )
-                }) {
-                Ok(gitmodules_info) => gitmodules_info,
-                Err(err) => {
-                    logger.warning(format!("{err:#}"));
-                    &GitModulesInfo::default()
-                }
-            },
-            None => &GitModulesInfo::default(),
+                })
+                .collect::<BTreeMap<_, _>>()
+        } else {
+            &commit.submodule_bumps
         };
-        for (path, bump) in &commit.submodule_bumps {
+        for (path, bump) in submodule_paths_to_check {
             match bump {
                 ThinSubmodule::AddedOrModified(cached_thin_submod) => {
-                    let submod_url = gitmodules_info.submodules.get(path);
-                    let context = format!("Repo {repo_name} commit {}", commit.commit_id);
                     let submod_repo_name = Self::get_submod_repo_name(
-                        config,
+                        commit.dot_gitmodules,
+                        commit.parents.first(),
                         path,
-                        submod_url,
                         &repo_storage.url,
-                        &logger.with_context(&context),
-                    )
-                    .unwrap_or_else(|err| {
-                        logger.error(format!("{err:#}"));
-                        None
-                    });
+                        config,
+                        dot_gitmodules_cache,
+                        logger,
+                    );
                     if submod_repo_name != cached_thin_submod.repo_name {
                         anyhow::bail!(
-                            "Repo {repo_name} submodule {path} in commit {} was cached as repo {:?} but if now {:?}",
-                            commit.commit_id,
+                            "Submodule {path} was cached as repo {:?} but is now {:?}",
                             cached_thin_submod.repo_name,
                             submod_repo_name
                         );
@@ -713,7 +711,6 @@ impl<'a> CommitLoader<'a> {
 
     /// Converts a `FastExportCommit` to a `ThinCommit`.
     fn export_thin_commit(
-        repo: &gix::Repository,
         repo_storage: &RepoData,
         exported_commit: FastExportCommit,
         tree_id: TreeId,
@@ -738,36 +735,12 @@ impl<'a> CommitLoader<'a> {
         let mut submodule_bumps = BTreeMap::new();
 
         // Check for an updated .gitmodules file.
-        let mut dot_gitmodules = thin_parents
+        let old_dot_gitmodules = thin_parents
             .first()
             .and_then(|first_parent| first_parent.dot_gitmodules);
-        let old_dot_gitmodules = dot_gitmodules;
-        {
-            let get_dot_gitmodules_logger =
-                logger.with_context(&format!(".gitmodules in commit {commit_id}"));
-            match Self::get_dot_gitmodules_update(&exported_commit, &get_dot_gitmodules_logger) {
-                Ok(Some(new_dot_gitmodules)) => dot_gitmodules = new_dot_gitmodules,
-                Ok(None) => (), // No update of .gitmodules.
-                Err(err) => {
-                    get_dot_gitmodules_logger.error(format!("{err:#}"));
-                    // Keep the old dot_gitmodules content as that will probably expand the repository the best way.
-                }
-            };
-        }
-        let (gitmodules_info, dot_gitmodules) = match dot_gitmodules {
-            Some(dot_gitmodules_oid) => match dot_gitmodules_cache
-                .get_from_blob_id(repo, dot_gitmodules_oid)
-                .context("Failed to parse .gitmodules")
-            {
-                Ok(gitmodules_info) => (gitmodules_info, Some(dot_gitmodules_oid)),
-                Err(err) => {
-                    logger.warning(format!("{err:#}"));
-                    // Reset dot_gitmodules to avoid logging the same error again.
-                    (&GitModulesInfo::default(), None)
-                }
-            },
-            None => (&GitModulesInfo::default(), None),
-        };
+        let dot_gitmodules = Self::get_dot_gitmodules_update(&exported_commit, logger)?
+            .unwrap_or(old_dot_gitmodules); // None means no update of .gitmodules.
+
         // Look for submodule updates.
         let parent_submodule_paths = match thin_parents.first() {
             Some(first_parent) => &first_parent.submodule_paths,
@@ -781,28 +754,25 @@ impl<'a> CommitLoader<'a> {
                     if fc.mode == b"160000" {
                         // 160000 means submodule
                         let submod_commit_id: CommitId = gix::ObjectId::from_hex(&fc.hash)?;
-                        let submod_url = gitmodules_info.submodules.get(&path);
-                        let subrepo_name = Self::get_submod_repo_name(
-                            config,
+                        let submod_repo_name = Self::get_submod_repo_name(
+                            dot_gitmodules,
+                            thin_parents.first(),
                             &path,
-                            submod_url,
                             &repo_storage.url,
+                            config,
+                            dot_gitmodules_cache,
                             logger,
-                        )
-                        .unwrap_or_else(|err| {
-                            logger.error(format!("{err:#}"));
-                            None
-                        });
-                        if let Some(subrepo_name) = &subrepo_name {
+                        );
+                        if let Some(submod_repo_name) = &submod_repo_name {
                             new_submodule_commits.push(NeededCommit {
-                                repo_name: subrepo_name.clone(),
+                                repo_name: submod_repo_name.clone(),
                                 commit_id: submod_commit_id,
                             });
                         }
                         submodule_bumps.insert(
                             path,
                             ThinSubmodule::AddedOrModified(ThinSubmoduleContent {
-                                repo_name: subrepo_name,
+                                repo_name: submod_repo_name,
                                 commit_id: submod_commit_id,
                             }),
                         );
@@ -828,8 +798,9 @@ impl<'a> CommitLoader<'a> {
         // Do this after removing deleted submodules as those entries are likely
         // also gone from .gitmodules.
         if dot_gitmodules != old_dot_gitmodules {
-            // Loop through all submodules to see if any have changed.
-            for path in parent_submodule_paths {
+            // Loop through all submodules to see if any have changed, sorted to
+            // get deterministic sorting.
+            for path in parent_submodule_paths.iter().sorted() {
                 let std::collections::btree_map::Entry::Vacant(entry) =
                     submodule_bumps.entry(path.clone())
                 else {
@@ -844,18 +815,15 @@ impl<'a> CommitLoader<'a> {
                     .expect("listed submodule path is a submodule")
                 {
                     ThinSubmodule::AddedOrModified(thin_submod) => {
-                        let submod_url = gitmodules_info.submodules.get(path);
                         let new_repo_name = Self::get_submod_repo_name(
-                            config,
+                            dot_gitmodules,
+                            thin_parents.first(),
                             path,
-                            submod_url,
                             &repo_storage.url,
+                            config,
+                            dot_gitmodules_cache,
                             logger,
-                        )
-                        .unwrap_or_else(|err| {
-                            logger.error(format!("{err:#}"));
-                            None
-                        });
+                        );
                         if new_repo_name != thin_submod.repo_name {
                             // Insert an entry that this submodule has been updated.
                             entry.insert(ThinSubmodule::AddedOrModified(ThinSubmoduleContent {
@@ -911,28 +879,69 @@ impl<'a> CommitLoader<'a> {
         Ok(None)
     }
 
-    /// Updates the `thin_commit.submodules.repo_name` based on a potentially new `gitmodules_info`.
+    /// Finds the `SubRepoName` for a submodule and logs warnings for potential problems.
     fn get_submod_repo_name(
-        config: &mut GitTopRepoConfig,
+        dot_gitmodules: Option<gix::ObjectId>,
+        first_parent: Option<&Rc<ThinCommit>>,
         path: &GitPath,
-        submod_url: Option<&gix::Url>,
         base_url: &gix::Url,
+        config: &mut GitTopRepoConfig,
+        dot_gitmodules_cache: &mut DotGitModulesCache,
         logger: &Logger,
-    ) -> Result<Option<SubRepoName>> {
-        let name = match submod_url {
-            Some(submod_url) => {
-                let full_url = base_url.join(submod_url);
-                let (name, _subrepo_config) = config.get_or_insert_from_url(&full_url)?;
-                Some(SubRepoName::new(name))
+    ) -> Option<SubRepoName> {
+        let enable_logging = || {
+            // Only log if .gitmodules has changed or the submodule was just added.
+            let submodule_just_added = first_parent
+                .is_none_or(|first_parent| !first_parent.submodule_paths.contains(path));
+            // A missing parent means that .gitmodules has changed.
+            let dot_gitmodules_updated = first_parent
+                .is_none_or(|first_parent| dot_gitmodules != first_parent.dot_gitmodules);
+            dot_gitmodules_updated || submodule_just_added
+        };
+
+        // Parse .gitmodules.
+        let Some(dot_gitmodules) = dot_gitmodules else {
+            if enable_logging() {
+                logger.warning(format!(
+                    "Cannot resolve submodule {path}, .gitmodules is missing"
+                ));
             }
-            None => {
-                // If the submodule is removed in this commit, it will
-                // already be gone from thin_commit.submodules.
-                logger.warning(format!("Missing {path} in .gitmodules"));
-                None
+            return None;
+        };
+        let gitmodules_info = match dot_gitmodules_cache.get_from_blob_id(dot_gitmodules) {
+            Ok(gitmodules_info) => gitmodules_info,
+            Err(err) => {
+                if enable_logging() {
+                    logger.warning(format!("{err:#}"));
+                }
+                return None;
             }
         };
-        Ok(name)
+
+        let submod_url = match gitmodules_info.submodules.get(path) {
+            Some(Ok(url)) => url,
+            Some(Err(err)) => {
+                if enable_logging() {
+                    logger.warning(format!("{err:#}"));
+                }
+                return None;
+            }
+            None => {
+                if enable_logging() {
+                    logger.warning(format!("Missing {path} in .gitmodules"));
+                }
+                return None;
+            }
+        };
+        let (name, _subrepo_config) = config
+            .get_or_insert_from_url(&base_url.join(submod_url))
+            .map_err(|err| {
+                if enable_logging() {
+                    logger.error(format!("{err:#}"));
+                }
+            })
+            .ok()?;
+        Some(SubRepoName::new(name))
     }
 
     fn add_progress_bar(&self) -> indicatif::ProgressBar {
@@ -1168,38 +1177,41 @@ impl RepoFetcher {
 
 /// `DotGitModulesCache` is a caching storage of parsed `.gitmodules` content
 /// that is read directly from blobs in a git repository. file by given a blob `id`.
-#[derive(Default)]
 struct DotGitModulesCache {
-    cache: HashMap<gix::ObjectId, GitModulesInfo>,
+    repo: gix::Repository,
+    cache: HashMap<gix::ObjectId, Result<GitModulesInfo>>,
 }
 
 impl DotGitModulesCache {
     /// Parse the `.gitmodules` file given by the `BlobId` and return the map
     /// from path to url.
-    // TODO: Handle parsing error, duplicated paths, missing path, missing url, bad url syntax etc.
-    pub fn get_from_blob_id(
-        &mut self,
-        gix_repo: &gix::Repository,
-        id: BlobId,
-    ) -> Result<&GitModulesInfo> {
-        match self.cache.entry(id) {
-            std::collections::hash_map::Entry::Occupied(entry) => Ok(entry.into_mut()),
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                let bytes = gix_repo.find_blob(id)?.take_data();
-                let config = gix::submodule::File::from_bytes(
-                    &bytes,
-                    PathBuf::from(id.to_hex().to_string()),
-                    &Default::default(),
-                )?;
-                let mut info = GitModulesInfo::default();
-                for name in config.names() {
-                    let path = config.path(name)?;
-                    let url = config.url(name)?;
-                    info.submodules.insert(GitPath::new(path.into_owned()), url);
-                }
-                Ok(entry.insert(info))
-            }
+    pub fn get_from_blob_id(&mut self, id: BlobId) -> &Result<GitModulesInfo> {
+        self.cache
+            .entry(id)
+            .or_insert_with(|| Self::get_from_blob_id_impl(&self.repo, id))
+    }
+
+    fn get_from_blob_id_impl(repo: &gix::Repository, id: BlobId) -> Result<GitModulesInfo> {
+        let bytes = repo
+            .find_blob(id)
+            .with_context(|| format!("Failed to read .gitmodules file, blob {id}"))?
+            .take_data();
+        let config = gix::submodule::File::from_bytes(
+            &bytes,
+            PathBuf::from(id.to_hex().to_string()),
+            &Default::default(),
+        )
+        .context("Failed to parse .gitmodules")?;
+        let mut info = GitModulesInfo::default();
+        for name in config.names() {
+            // Skip misconfigured paths, they might not even be used.
+            let Ok(path) = config.path(name) else {
+                continue;
+            };
+            let url = config.url(name).map_err(anyhow::Error::new);
+            info.submodules.insert(GitPath::new(path.into_owned()), url);
         }
+        Ok(info)
     }
 }
 

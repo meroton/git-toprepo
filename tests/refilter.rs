@@ -5,6 +5,7 @@ use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::git_command;
 use git_toprepo::util::CommandExtension as _;
 use itertools::Itertools as _;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -375,7 +376,7 @@ fn run_init_and_refilter(
         indicatif::MultiProgress::with_draw_target(indicatif::ProgressDrawTarget::hidden());
     let error_mode = git_toprepo::log::ErrorMode::FailFast(Arc::new(AtomicBool::new(false)));
     let progress_clone = progress.clone();
-    let log = git_toprepo::log::LogReceiver::new(error_mode.clone(), move |msg| {
+    let log = git_toprepo::log::LogReceiver::new(HashSet::new(), error_mode.clone(), move |msg| {
         progress_clone.suspend(|| eprintln!("{}", msg));
     });
     let gix_toprepo = toprepo.gix_repo.to_thread_local();
