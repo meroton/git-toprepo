@@ -27,6 +27,17 @@ use std::str::FromStr;
 pub struct GitTopRepoConfig {
     #[serde(rename = "repo")]
     pub subrepos: BTreeMap<String, SubrepoConfig>,
+    pub log: LogConfig,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct LogConfig {
+    /// Warning messages that should be ignored and not displayed for the user.
+    #[serde(default)]
+    pub ignored_warnings: Vec<String>,
+    /// Warning messages that were displayed to the user.
+    #[serde(skip_deserializing)]
+    pub reported_warnings: Vec<String>,
 }
 
 pub enum ConfigLocation {
@@ -286,7 +297,7 @@ impl GitTopRepoConfig {
             path.parent()
                 .with_context(|| format!("Bad config path {}", path.display()))?,
         )?;
-        let config_toml = toml::to_string(self).context("Serializing config")?;
+        let config_toml = toml::to_string_pretty(self).context("Serializing config")?;
         std::fs::write(path, config_toml).context("Writing config file")?;
         Ok(())
     }

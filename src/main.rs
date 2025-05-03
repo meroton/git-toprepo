@@ -11,6 +11,7 @@ use clap::Parser;
 use colored::Colorize;
 use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
+use std::collections::HashSet;
 use std::io::Read;
 use std::panic;
 use std::path::Path;
@@ -197,8 +198,10 @@ where
     let error_mode = git_toprepo::log::ErrorMode::from_keep_going_flag(fetch_args.keep_going);
     let mut config =
         git_toprepo::config::GitTopRepoConfig::load_config_from_repo(&toprepo.directory)?;
+    let mut log_config = config.log.clone();
 
-    let log_receiver = git_toprepo::log::LogReceiver::new_stderr(error_mode.clone());
+    let log_receiver =
+        git_toprepo::log::LogReceiver::new_stderr(HashSet::new(), error_mode.clone());
     let mut top_repo_cache = git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
         toprepo.gix_repo.git_dir(),
         &log_receiver.get_logger(),
@@ -206,32 +209,35 @@ where
     .unpack()?;
     log_receiver.join().check()?;
 
-    let mut result = (|| {
-        git_toprepo::log::log_task_to_stderr(error_mode.clone(), |logger, progress| {
+    let mut result = git_toprepo::log::log_task_to_stderr(
+        error_mode.clone(),
+        &mut log_config,
+        |logger, progress| {
             let gix_toprepo = toprepo.gix_repo.to_thread_local();
-            let mut commit_loader = git_toprepo::loader::CommitLoader::new(
-                gix_toprepo.clone(),
-                &mut top_repo_cache.repos,
-                &mut config,
-                progress,
-                logger,
-                error_mode.interrupted(),
-                threadpool::ThreadPool::new(fetch_args.jobs.get() as usize),
-            )?;
-            commit_loader_setup(&mut commit_loader)?;
-            commit_loader.join();
-            Ok(())
-        })
-        .context("Failed to fetch")?;
+            (|| -> Result<()> {
+                let mut commit_loader = git_toprepo::loader::CommitLoader::new(
+                    gix_toprepo.clone(),
+                    &mut top_repo_cache.repos,
+                    &mut config,
+                    progress.clone(),
+                    logger.clone(),
+                    error_mode.interrupted(),
+                    threadpool::ThreadPool::new(fetch_args.jobs.get() as usize),
+                )?;
+                commit_loader_setup(&mut commit_loader)?;
+                commit_loader.join();
+                Ok(())
+            })()
+            .context("Failed to fetch")?;
 
-        if !fetch_args.skip_filter {
-            git_toprepo::log::log_task_to_stderr(error_mode, |logger, progress| {
-                toprepo.refilter(&mut top_repo_cache, &config, logger.clone(), progress)
-            })
-            .map_err(|_| anyhow::anyhow!("Failed to filter"))?;
-        }
-        Ok(())
-    })()
+            if !fetch_args.skip_filter {
+                toprepo
+                    .refilter(&mut top_repo_cache, &config, logger, progress)
+                    .map_err(|_| anyhow::anyhow!("Failed to filter"))?;
+            }
+            Ok(())
+        },
+    )
     .map(|_| ExitCode::SUCCESS);
 
     // Store some result files.
@@ -243,6 +249,7 @@ where
         }
     }
     const EFFECTIVE_TOPREPO_CONFIG: &str = "toprepo/last-effective-git-toprepo.toml";
+    config.log = log_config;
     if let Err(err) =
         config.save_config_to_repo(&toprepo.gix_repo.git_dir().join(EFFECTIVE_TOPREPO_CONFIG))
     {
@@ -263,6 +270,7 @@ fn dump_import_cache() -> Result<ExitCode> {
     let toprepo = gix::open("")?;
 
     let log_receiver = git_toprepo::log::LogReceiver::new(
+        HashSet::new(),
         git_toprepo::log::ErrorMode::FailFast(std::sync::Arc::new(
             std::sync::atomic::AtomicBool::new(false),
         )),
