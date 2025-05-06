@@ -6,10 +6,6 @@ name = "git_toprepo"
 version = "0.1.0"
 edition = "2024"
 
-[patch.crates-io]
-# Include a correct ref filter when listing references.
-gix = { git = "https://github.com/GitoxideLabs/gitoxide", rev = "71275d16b6a3a22b5e6e33f441d50fc6d44ff20e" }
-
 [dependencies]
 anyhow = "1.0.86"
 bincode = { version = "2.0.1", features = ["serde"] }
@@ -17,7 +13,7 @@ bstr = { version = "1.11.0", features = ["serde"] }
 chrono = { version = "0.4.39", features = ["serde"] }
 clap = { version = "4.5.8", features = ["derive", "string"] }
 colored = "2.1.0"
-gix = { version = "0.71.0", features = ["serde"]}
+gix = { version = "0.72.1", features = ["serde"] }
 hex = "0.4.3"
 indicatif = "0.17.9"
 itertools = "0.13.0"
