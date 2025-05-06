@@ -465,15 +465,13 @@ impl<'a> CommitLoader<'a> {
                 }
                 // All parents have been process previously.
                 let thin_commit = todo.pop().expect("at least one element exists");
-                let context = format!("Repo {repo_name} commit {}", thin_commit.commit_id);
                 Self::verify_cached_commit(
                     &repo_fetcher.repo_data,
                     thin_commit.as_ref(),
                     self.config,
                     &mut self.dot_gitmodules_cache,
-                    &self.logger.with_context(&context),
                 )
-                .context(context)?;
+                .with_context(|| format!("Repo {repo_name} commit {}", thin_commit.commit_id))?;
                 // Load all submodule commits as well as that would be done if not
                 // using the cache.
                 for bump in thin_commit.submodule_bumps.values() {
@@ -553,7 +551,6 @@ impl<'a> CommitLoader<'a> {
         commit: &ThinCommit,
         config: &mut GitTopRepoConfig,
         dot_gitmodules_cache: &mut DotGitModulesCache,
-        logger: &Logger,
     ) -> Result<()> {
         let submodule_paths_to_check = if commit
             .parents
@@ -586,7 +583,7 @@ impl<'a> CommitLoader<'a> {
                         &repo_storage.url,
                         config,
                         dot_gitmodules_cache,
-                        logger,
+                        None,
                     );
                     if submod_repo_name != cached_thin_submod.repo_name {
                         anyhow::bail!(
@@ -761,7 +758,7 @@ impl<'a> CommitLoader<'a> {
                             &repo_storage.url,
                             config,
                             dot_gitmodules_cache,
-                            logger,
+                            Some(logger),
                         );
                         if let Some(submod_repo_name) = &submod_repo_name {
                             new_submodule_commits.push(NeededCommit {
@@ -822,7 +819,7 @@ impl<'a> CommitLoader<'a> {
                             &repo_storage.url,
                             config,
                             dot_gitmodules_cache,
-                            logger,
+                            Some(logger),
                         );
                         if new_repo_name != thin_submod.repo_name {
                             // Insert an entry that this submodule has been updated.
@@ -887,21 +884,23 @@ impl<'a> CommitLoader<'a> {
         base_url: &gix::Url,
         config: &mut GitTopRepoConfig,
         dot_gitmodules_cache: &mut DotGitModulesCache,
-        logger: &Logger,
+        logger: Option<&Logger>,
     ) -> Option<SubRepoName> {
-        let enable_logging = || {
-            // Only log if .gitmodules has changed or the submodule was just added.
-            let submodule_just_added = first_parent
-                .is_none_or(|first_parent| !first_parent.submodule_paths.contains(path));
-            // A missing parent means that .gitmodules has changed.
-            let dot_gitmodules_updated = first_parent
-                .is_none_or(|first_parent| dot_gitmodules != first_parent.dot_gitmodules);
-            dot_gitmodules_updated || submodule_just_added
+        let get_logger = || {
+            logger.filter(|_| {
+                // Only log if .gitmodules has changed or the submodule was just added.
+                let submodule_just_added = first_parent
+                    .is_none_or(|first_parent| !first_parent.submodule_paths.contains(path));
+                // A missing parent means that .gitmodules has changed.
+                let dot_gitmodules_updated = first_parent
+                    .is_none_or(|first_parent| dot_gitmodules != first_parent.dot_gitmodules);
+                dot_gitmodules_updated || submodule_just_added
+            })
         };
 
         // Parse .gitmodules.
         let Some(dot_gitmodules) = dot_gitmodules else {
-            if enable_logging() {
+            if let Some(logger) = get_logger() {
                 logger.warning(format!(
                     "Cannot resolve submodule {path}, .gitmodules is missing"
                 ));
@@ -911,7 +910,7 @@ impl<'a> CommitLoader<'a> {
         let gitmodules_info = match dot_gitmodules_cache.get_from_blob_id(dot_gitmodules) {
             Ok(gitmodules_info) => gitmodules_info,
             Err(err) => {
-                if enable_logging() {
+                if let Some(logger) = get_logger() {
                     logger.warning(format!("{err:#}"));
                 }
                 return None;
@@ -921,13 +920,13 @@ impl<'a> CommitLoader<'a> {
         let submod_url = match gitmodules_info.submodules.get(path) {
             Some(Ok(url)) => url,
             Some(Err(err)) => {
-                if enable_logging() {
+                if let Some(logger) = get_logger() {
                     logger.warning(format!("{err:#}"));
                 }
                 return None;
             }
             None => {
-                if enable_logging() {
+                if let Some(logger) = get_logger() {
                     logger.warning(format!("Missing {path} in .gitmodules"));
                 }
                 return None;
@@ -936,7 +935,7 @@ impl<'a> CommitLoader<'a> {
         let (name, _subrepo_config) = config
             .get_or_insert_from_url(&base_url.join(submod_url))
             .map_err(|err| {
-                if enable_logging() {
+                if let Some(logger) = get_logger() {
                     logger.error(format!("{err:#}"));
                 }
             })
