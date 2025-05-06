@@ -34,6 +34,8 @@ use std::rc::Rc;
 #[serde_as]
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct SerdeTopRepoCache {
+    /// The checksum of the git-toprepo configuration used when writing.
+    config_checksum: String,
     #[serde_as(
         serialize_as = "serde_with::IfIsHumanReadable<OrderedHashMap<serde_with::DisplayFromStr, _>>"
     )]
@@ -54,12 +56,20 @@ impl SerdeTopRepoCache {
     }
 
     /// Load parsed git repository information from `.git/toprepo/`.
-    pub fn load_from_repo(toprepo: &gix::Repository, logger: &Logger) -> Result<Self> {
-        Self::load_from_git_dir(toprepo.git_dir(), logger)
+    pub fn load_from_repo(
+        toprepo: &gix::Repository,
+        config_checksum: Option<&str>,
+        logger: &Logger,
+    ) -> Result<Self> {
+        Self::load_from_git_dir(toprepo.git_dir(), config_checksum, logger)
     }
 
     /// Load parsed git repository information from `.git/toprepo/`.
-    pub fn load_from_git_dir(git_dir: &Path, logger: &Logger) -> Result<Self> {
+    pub fn load_from_git_dir(
+        git_dir: &Path,
+        config_checksum: Option<&str>,
+        logger: &Logger,
+    ) -> Result<Self> {
         let cache_path = Self::get_cache_path(git_dir);
         (|| -> anyhow::Result<_> {
             let now = std::time::Instant::now();
@@ -97,6 +107,15 @@ impl SerdeTopRepoCache {
                 &cache_path.display(),
                 now.elapsed()
             );
+            // If the checksum has changed, the imported and exported commits might be totally different.
+            if let Some(config_checksum) = config_checksum {
+                if loaded_cache.config_checksum != config_checksum {
+                    logger.warning(
+                        "The git-toprepo configuration has, discarding the toprepo cache".into(),
+                    );
+                    return Ok(Self::default());
+                }
+            }
             Ok(loaded_cache)
         })()
         .with_context(|| {
@@ -180,7 +199,7 @@ impl SerdeTopRepoCache {
         })
     }
 
-    pub fn pack(cache: &TopRepoCache) -> Self {
+    pub fn pack(cache: &TopRepoCache, config_checksum: String) -> Self {
         let now = std::time::Instant::now();
         let repos = Self::pack_repo_states(&cache.repos);
         let monorepo_commits = cache
@@ -208,6 +227,7 @@ impl SerdeTopRepoCache {
             now.elapsed()
         );
         Self {
+            config_checksum,
             repos,
             monorepo_commits,
             top_to_mono_map,

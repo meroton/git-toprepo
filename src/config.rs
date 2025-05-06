@@ -12,6 +12,7 @@ use itertools::Itertools;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_with::serde_as;
+use sha2::Digest as _;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fmt;
@@ -25,6 +26,8 @@ use std::str::FromStr;
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct GitTopRepoConfig {
+    #[serde(skip)]
+    pub checksum: String,
     #[serde(rename = "repo")]
     pub subrepos: BTreeMap<String, SubrepoConfig>,
     pub log: LogConfig,
@@ -273,9 +276,12 @@ impl GitTopRepoConfig {
 
     /// Parse a TOML configuration string.
     pub fn parse_config_toml_string(config_toml: &str) -> Result<Self> {
-        let mut res: Self = toml::from_str(config_toml).context("Could not parse TOML string")?;
-        res.validate()?;
-        Ok(res)
+        let mut config: Self =
+            toml::from_str(config_toml).context("Could not parse TOML string")?;
+        let checksum = sha2::Sha256::digest(config_toml.as_bytes());
+        config.checksum = hex::encode(checksum);
+        config.validate()?;
+        Ok(config)
     }
 
     pub fn load_config_from_repo_with_log(

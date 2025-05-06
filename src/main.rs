@@ -204,6 +204,7 @@ where
         git_toprepo::log::LogReceiver::new_stderr(HashSet::new(), error_mode.clone());
     let mut top_repo_cache = git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
         toprepo.gix_repo.git_dir(),
+        Some(&config.checksum),
         &log_receiver.get_logger(),
     )?
     .unpack()?;
@@ -241,8 +242,11 @@ where
     .map(|_| ExitCode::SUCCESS);
 
     // Store some result files.
-    if let Err(err) = git_toprepo::repo_cache_serde::SerdeTopRepoCache::pack(&top_repo_cache)
-        .store_to_git_dir(toprepo.gix_repo.git_dir())
+    if let Err(err) = git_toprepo::repo_cache_serde::SerdeTopRepoCache::pack(
+        &top_repo_cache,
+        config.checksum.clone(),
+    )
+    .store_to_git_dir(toprepo.gix_repo.git_dir())
     {
         if result.is_ok() {
             result = Err(err);
@@ -278,6 +282,7 @@ fn dump_import_cache() -> Result<ExitCode> {
     );
     let serde_repo_states = git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
         toprepo.git_dir(),
+        None,
         &log_receiver.get_logger(),
     )?;
     serde_repo_states.dump_as_json(std::io::stdout())?;
