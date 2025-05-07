@@ -52,6 +52,7 @@ pub struct TopRepoExpander<'a> {
     pub fast_importer: crate::git_fast_export_import::FastImportRepo,
     pub imported_commits: HashMap<RcKey<MonoRepoCommit>, (usize, Rc<MonoRepoCommit>)>,
     pub bumps: BumpCache,
+    pub inject_at_oldest_super_commit: bool,
 }
 
 impl TopRepoExpander<'_> {
@@ -103,7 +104,7 @@ impl TopRepoExpander<'_> {
     }
 
     pub fn expand_toprepo_commits(
-        mut self,
+        &mut self,
         start_refs: Vec<gix::refs::FullName>,
         stop_commit_ids: Vec<CommitId>,
         c: usize,
@@ -140,7 +141,8 @@ impl TopRepoExpander<'_> {
             ),
             self.logger.clone(),
         )?;
-        let result = (|| {
+
+        (|| {
             for entry in fast_exporter {
                 let entry = entry?; // TODO: error handling
                 match entry {
@@ -179,7 +181,10 @@ impl TopRepoExpander<'_> {
                 }
             }
             Ok(())
-        })();
+        })()
+    }
+
+    pub fn wait(self) -> Result<()> {
         // Record the new mono commit ids.
         let commit_ids = self.fast_importer.wait()?;
         for (mark, mono_commit) in self.imported_commits.values() {
@@ -191,8 +196,7 @@ impl TopRepoExpander<'_> {
                 .monorepo_commit_ids
                 .insert(RcKey::new(mono_commit), mono_commit_id);
         }
-
-        result
+        Ok(())
     }
 
     /// Gets a `:mark` marker reference or the full commit id for a commit.
@@ -734,7 +738,7 @@ impl TopRepoExpander<'_> {
         Ok(extra_mono_commit)
     }
 
-    fn inject_submodule_commit(
+    pub fn inject_submodule_commit(
         &mut self,
         branch: &FullNameRef,
         possible_mono_parents: Vec<Rc<MonoRepoCommit>>,
@@ -786,7 +790,9 @@ impl TopRepoExpander<'_> {
         wanted_sub_commit: &Rc<ThinCommit>,
         sub_to_mono_commit: &mut HashMap<RcKey<ThinCommit>, Option<Rc<MonoRepoCommit>>>,
     ) -> Result<Option<Rc<MonoRepoCommit>>> {
-        // Depth first search.
+        // Depth first search, therefore use a stack and reverse the initial
+        // possible_mono_parents to start taking the first suggested mono
+        // parent.
         let mut todo_next = Vec::new();
         let mut todo = possible_mono_parents;
         todo.reverse();
@@ -823,16 +829,30 @@ impl TopRepoExpander<'_> {
                     .repos
                     .get(&RepoName::SubRepo(submod.repo_name.clone()))
                 {
+                    // Make sure that the submodule commit is known before
+                    // checking if it is the correct one. If the submodule
+                    // commit is not known inside the given submodule name,
+                    // it should not be accepted.
                     if let Some(submod_commit) =
                         submod_storage.thin_commits.get(&submod.orig_commit_id)
                     {
-                        // Make sure that the submodule commit is known before
-                        // checking if it is the correct one. If the submodule
-                        // commit is not known inside the given submodule name,
-                        // it should not be accepted.
                         if submod.orig_commit_id == wanted_sub_commit.commit_id {
                             // The submodule commit is already in the mono
                             // commit.
+                            if self.inject_at_oldest_super_commit {
+                                // Instead of using the latest super commit, use
+                                // the oldest commit to simplify rebasing and to
+                                // get a deterministic result even if more mono
+                                // commits are added which do not update the
+                                // submodule.
+                                return Ok(Some(
+                                    self.bumps
+                                        .get_bumps(&mono_commit, abs_sub_path)
+                                        .first()
+                                        .expect("The submodule commit should be in the mono commit")
+                                        .clone(),
+                                ));
+                            }
                             return Ok(Some(mono_commit));
                         }
                         if submod_commit.depth < wanted_sub_commit.depth {
@@ -974,6 +994,7 @@ impl RefNameConverter {
         if let Some(branch) =
             top_namespace_ref.strip_prefix(self.top_refs_heads_namespace_prefix.as_slice())
         {
+            // Map refs/namespaces/top/refs/heads/* to refs/remotes/origin/*.
             FullName::try_from(BString::new(bstr::concat([
                 b"refs/remotes/origin/",
                 branch,
@@ -982,16 +1003,21 @@ impl RefNameConverter {
         } else if let Some(tag_name) =
             top_namespace_ref.strip_prefix(self.top_refs_tags_namespace_prefix.as_slice())
         {
+            // Map refs/namespaces/top/refs/tags/* to refs/tags/*.
             FullName::try_from(BString::new(bstr::concat([b"refs/tags/", tag_name])))
                 .map_err(|err| anyhow::anyhow!("{err:#}"))
         } else if let Some(other_ref_name) =
             top_namespace_ref.strip_prefix(self.top_namespace_prefix.as_slice())
         {
-            FullName::try_from(BString::new(bstr::concat([
-                b"refs/remotes/origin/",
-                other_ref_name,
-            ])))
-            .map_err(|err| anyhow::anyhow!("{err:#}"))
+            let converted_name = if other_ref_name == b"FETCH_HEAD" {
+                // FETCH_HEAD is special.
+                other_ref_name.to_owned()
+            } else {
+                // Map other refs/namespaces/top/category/* to refs/remotes/origin/category/*.
+                bstr::concat([b"refs/remotes/origin/", other_ref_name])
+            };
+            FullName::try_from(BString::new(converted_name))
+                .map_err(|err| anyhow::anyhow!("{err:#}"))
         } else {
             anyhow::bail!("Bad top ref name {top_namespace_ref}")
         }
@@ -1209,7 +1235,7 @@ impl BumpCache {
             .collect_vec()
     }
 
-    fn get_bumps<'a>(
+    pub fn get_bumps<'a>(
         &'a mut self,
         mono_commit: &Rc<MonoRepoCommit>,
         abs_sub_path: &GitPath,
@@ -1248,7 +1274,7 @@ impl BumpCache {
             let entry = stack.last_mut().unwrap();
             match entry.mono_commit.parents.get(entry.next_parent_idx) {
                 Some(MonoRepoParent::Mono(parent)) => {
-                    // Process one more parent of entry.mono_commit and ass the
+                    // Process one more parent of entry.mono_commit and add the
                     // result to entry.ret.
                     entry.next_parent_idx += 1;
                     key.mono_commit = RcKey::new(parent);
@@ -1256,8 +1282,8 @@ impl BumpCache {
                         // Cache hit.
                         entry.ret.extend(parent_ret.iter().cloned());
                     } else if parent.submodule_bumps.contains_key(abs_sub_path) {
-                        // The submodule was added, moved or copied to
-                        // abs_sub_path.
+                        // The submodule was added, updated (compared to first
+                        // parent), moved or copied to abs_sub_path.
                         entry.ret.push(parent.clone());
                     } else if parent.submodule_paths.contains(abs_sub_path) {
                         // The submodule exists here, so push the parent to the

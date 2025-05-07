@@ -3,6 +3,7 @@ mod fixtures;
 use bstr::ByteSlice as _;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::git_command;
+use git_toprepo::loader::FetchParams;
 use git_toprepo::util::CommandExtension as _;
 use itertools::Itertools as _;
 use std::collections::HashSet;
@@ -391,7 +392,7 @@ fn run_init_and_refilter(
         threadpool::ThreadPool::new(2),
     )
     .unwrap();
-    commit_loader.fetch_repo(git_toprepo::repo_name::RepoName::Top, vec![None]);
+    commit_loader.fetch_repo(git_toprepo::repo_name::RepoName::Top, FetchParams::Default);
     commit_loader.join();
     let log_result = log.peek_result();
     log_result.print_to_stderr();

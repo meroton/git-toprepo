@@ -1,6 +1,7 @@
 use crate::config::GitTopRepoConfig;
 use crate::git::BlobId;
 use crate::git::CommitId;
+use crate::git::GitModulesInfo;
 use crate::git::GitPath;
 use crate::git::TreeId;
 use crate::git_fast_export_import::FastExportCommit;
@@ -33,7 +34,7 @@ use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 
 enum TaskResult {
-    RepoFetchDone(RepoName, HashSet<Option<String>>),
+    RepoFetchDone(RepoName, FetchParams),
     LoadCachedCommits(RepoName, Vec<CommitId>, Arc<OnceLock<Result<()>>>),
     ImportCommit(Arc<RepoName>, FastExportCommit, TreeId),
     LoadRepoDone(RepoName),
@@ -43,11 +44,6 @@ enum TaskResult {
 struct NeededCommit {
     pub repo_name: SubRepoName,
     pub commit_id: CommitId,
-}
-
-#[derive(Default)]
-struct GitModulesInfo {
-    pub submodules: HashMap<GitPath, Result<gix::Url>>,
 }
 
 pub struct CommitLoader<'a> {
@@ -126,17 +122,13 @@ impl<'a> CommitLoader<'a> {
 
     /// Enqueue fetching of a repo with specific refspecs. Using `None` as
     /// refspec will fetch all heads and tags.
-    pub fn fetch_repo(&mut self, repo_name: RepoName, refspecs: Vec<Option<String>>) {
-        if let Err(err) = self.fetch_repo_impl(repo_name, refspecs) {
+    pub fn fetch_repo(&mut self, repo_name: RepoName, fetch_params: FetchParams) {
+        if let Err(err) = self.fetch_repo_impl(repo_name, fetch_params) {
             self.logger.error(format!("{err:#}"));
         }
     }
 
-    fn fetch_repo_impl(
-        &mut self,
-        repo_name: RepoName,
-        mut refspecs: Vec<Option<String>>,
-    ) -> Result<()> {
+    fn fetch_repo_impl(&mut self, repo_name: RepoName, fetch_params: FetchParams) -> Result<()> {
         let repo_fetcher = self.get_or_create_repo_fetcher(&repo_name)?;
         if !repo_fetcher.enabled {
             self.logger.warning(format!(
@@ -144,12 +136,11 @@ impl<'a> CommitLoader<'a> {
             ));
             return Ok(());
         }
-        refspecs.retain(|refspec| !repo_fetcher.refspecs_done.contains(refspec));
-        if refspecs.is_empty() {
+        if repo_fetcher.fetches_done.contains(&fetch_params) {
             return Ok(());
         }
-        let was_empty = repo_fetcher.refspecs_to_fetch.is_empty();
-        repo_fetcher.refspecs_to_fetch.extend(refspecs);
+        let was_empty = repo_fetcher.fetches_todo.is_empty();
+        repo_fetcher.fetches_todo.push(fetch_params);
         if was_empty {
             self.repos_to_fetch.push_back(repo_name);
         }
@@ -245,8 +236,8 @@ impl<'a> CommitLoader<'a> {
 
         // Process one messages.
         match msg {
-            TaskResult::RepoFetchDone(repo_name, refspecs) => {
-                self.finish_fetch_repo_job(repo_name, refspecs);
+            TaskResult::RepoFetchDone(repo_name, fetch_params) => {
+                self.finish_fetch_repo_job(repo_name, fetch_params);
                 self.ongoing_jobs_in_threads -= 1;
                 self.fetch_progress.inc_num_fetches_done();
             }
@@ -272,16 +263,25 @@ impl<'a> CommitLoader<'a> {
 
     fn start_fetch_repo_job(&mut self, repo_name: RepoName) -> Result<()> {
         let repo_fetcher = self.repos.get_mut(&repo_name).unwrap();
-        let refspecs = repo_fetcher.refspecs_to_fetch.clone();
+        let fetch_params = repo_fetcher
+            .fetches_todo
+            .pop()
+            .expect("fetches_todo is not empty");
 
         let mut fetcher = crate::fetch::RemoteFetcher::new(&self.toprepo);
-        fetcher
-            .set_remote_from_repo_name(&self.toprepo, &repo_name, self.config)
-            .expect("repo_name is valid");
-        if !refspecs.contains(&None) {
-            fetcher.refspecs.clear();
-        }
-        fetcher.refspecs.extend(refspecs.iter().flatten().cloned());
+        match &fetch_params {
+            FetchParams::Default => {
+                fetcher.set_remote_from_repo_name(&self.toprepo, &repo_name, self.config)?;
+            }
+            FetchParams::Custom {
+                remote,
+                refspec: (from_ref, to_ref),
+            } => {
+                fetcher.remote = Some(remote.clone());
+                fetcher.refspecs =
+                    vec![format!("{from_ref}:{}{to_ref}", repo_name.to_ref_prefix())];
+            }
+        };
 
         let pb = self.add_progress_bar();
         pb.enable_steady_tick(std::time::Duration::from_millis(1000));
@@ -291,19 +291,16 @@ impl<'a> CommitLoader<'a> {
             if let Err(err) = fetcher.fetch(&pb) {
                 logger.error(format!("{err:#}"));
             }
-            tx.send(TaskResult::RepoFetchDone(repo_name, refspecs))
+            tx.send(TaskResult::RepoFetchDone(repo_name, fetch_params))
                 .expect("receiver never close");
         });
         Ok(())
     }
 
-    fn finish_fetch_repo_job(&mut self, repo_name: RepoName, refspecs: HashSet<Option<String>>) {
+    fn finish_fetch_repo_job(&mut self, repo_name: RepoName, fetch_params: FetchParams) {
         let repo_fetcher = self.repos.get_mut(&repo_name).unwrap();
-        for refspec in &refspecs {
-            repo_fetcher.refspecs_to_fetch.remove(refspec);
-        }
-        repo_fetcher.refspecs_done.extend(refspecs);
-        if !repo_fetcher.refspecs_to_fetch.is_empty() {
+        repo_fetcher.fetches_done.insert(fetch_params);
+        if !repo_fetcher.fetches_todo.is_empty() {
             // Enqueue again.
             self.repos_to_fetch.push_back(repo_name.clone());
         }
@@ -382,7 +379,7 @@ impl<'a> CommitLoader<'a> {
                         let missing_commits = std::mem::take(&mut repo_fetcher.needed_commits);
                         Self::add_missing_commits(&repo_name, missing_commits, repo_fetcher);
                     } else {
-                        self.fetch_repo(repo_name, vec![None]);
+                        self.fetch_repo(repo_name, FetchParams::Default);
                     }
                 }
             }
@@ -502,7 +499,7 @@ impl<'a> CommitLoader<'a> {
         })();
         // Load all submodule commits that are needed so far.
         for needed_commit in needed_commits {
-            self.assure_commit_available(needed_commit);
+            self.ensure_commit_available(needed_commit);
         }
         self.fetch_progress.inc_num_cached_loads_done();
         result
@@ -540,7 +537,7 @@ impl<'a> CommitLoader<'a> {
 
         // Any of the submodule updates that need to be fetched?
         for needed_commit in updated_submodule_commits {
-            self.assure_commit_available(needed_commit);
+            self.ensure_commit_available(needed_commit);
         }
         Ok(())
     }
@@ -632,7 +629,7 @@ impl<'a> CommitLoader<'a> {
         Ok(())
     }
 
-    fn assure_commit_available(&mut self, needed_commit: NeededCommit) {
+    fn ensure_commit_available(&mut self, needed_commit: NeededCommit) {
         let repo_name: RepoName = RepoName::SubRepo(needed_commit.repo_name);
         let commit_id = needed_commit.commit_id;
         // Already loaded?
@@ -653,8 +650,9 @@ impl<'a> CommitLoader<'a> {
                 self.load_repo(repo_name)
                     .expect("configuration exists for repo");
             }
-            LoadRepoState::LoadingThenQueueAgain => (),
-            LoadRepoState::LoadingThenDone => (),
+            LoadRepoState::LoadingThenQueueAgain | LoadRepoState::LoadingThenDone => {
+                repo_fetcher.needed_commits.insert(commit_id);
+            }
             LoadRepoState::Done => {
                 if repo_fetcher.fetching_default_refspec_done() {
                     let mut missing_commits = HashSet::new();
@@ -663,7 +661,7 @@ impl<'a> CommitLoader<'a> {
                 } else {
                     repo_fetcher.needed_commits.insert(commit_id);
                     if self.fetch_missing_commits {
-                        self.fetch_repo(repo_name, vec![None]);
+                        self.fetch_repo(repo_name, FetchParams::Default);
                     }
                 }
             }
@@ -1100,6 +1098,19 @@ enum LoadRepoState {
     Done,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum FetchParams {
+    /// Fetch the configured URL with default refspec.
+    Default,
+    /// Fetch the specified URL or remote with specified refspec. The refspec is
+    /// a tuple of `(from, to)` where the `to` ref is specified without
+    /// namespace prefix.
+    Custom {
+        remote: String,
+        refspec: (String, String),
+    },
+}
+
 struct RepoFetcher {
     /// Indicates if the repository should be loaded at all.
     enabled: bool,
@@ -1111,10 +1122,9 @@ struct RepoFetcher {
     /// Confirmed missing commits.
     missing_commits: HashSet<CommitId>,
 
-    /// The refspecs that should be fetched or None for the default refspec.
-    /// If non-empty, the repo is in queue or currently being fetched.
-    refspecs_to_fetch: HashSet<Option<String>>,
-    refspecs_done: HashSet<Option<String>>,
+    /// What be fetched.
+    fetches_todo: Vec<FetchParams>,
+    fetches_done: HashSet<FetchParams>,
 }
 
 impl RepoFetcher {
@@ -1125,13 +1135,13 @@ impl RepoFetcher {
             needed_commits: HashSet::new(),
             loading: LoadRepoState::NotLoadedYet,
             missing_commits: HashSet::new(),
-            refspecs_to_fetch: HashSet::new(),
-            refspecs_done: HashSet::new(),
+            fetches_todo: Vec::new(),
+            fetches_done: HashSet::new(),
         }
     }
 
     fn fetching_default_refspec_done(&self) -> bool {
-        self.refspecs_done.contains(&None)
+        self.fetches_done.contains(&FetchParams::Default)
     }
 }
 
@@ -1156,22 +1166,7 @@ impl DotGitModulesCache {
             .find_blob(id)
             .with_context(|| format!("Failed to read .gitmodules file, blob {id}"))?
             .take_data();
-        let config = gix::submodule::File::from_bytes(
-            &bytes,
-            PathBuf::from(id.to_hex().to_string()),
-            &Default::default(),
-        )
-        .context("Failed to parse .gitmodules")?;
-        let mut info = GitModulesInfo::default();
-        for name in config.names() {
-            // Skip misconfigured paths, they might not even be used.
-            let Ok(path) = config.path(name) else {
-                continue;
-            };
-            let url = config.url(name).map_err(anyhow::Error::new);
-            info.submodules.insert(GitPath::new(path.into_owned()), url);
-        }
-        Ok(info)
+        GitModulesInfo::parse_dot_gitmodules_bytes(&bytes, PathBuf::from(id.to_hex().to_string()))
     }
 }
 

@@ -776,6 +776,7 @@ mod tests {
     use crate::util::CommandExtension as _;
     use bstr::ByteSlice;
     use std::borrow::Borrow as _;
+    use std::path::Path;
     use std::path::PathBuf;
 
     /// Copied from `tests/fixtures/toprepo.rs`.

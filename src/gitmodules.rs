@@ -7,6 +7,8 @@ use std::collections::HashSet;
 
 pub trait SubmoduleUrlExt {
     fn join(&self, other: &Self) -> Self;
+    fn approx_equal(&self, other: &Self) -> bool;
+    fn trim_url_path(self) -> Self;
 }
 
 impl SubmoduleUrlExt for gix::url::Url {
@@ -102,6 +104,24 @@ impl SubmoduleUrlExt for gix::url::Url {
             }
         }
         other.clone()
+    }
+
+    /// Returns true if the two URLs are approximately equal.
+    ///
+    /// This compares two URLs but ignores differences in username, password and
+    /// scheme. Suffixes as `/` and `.git` are also ignored.
+    fn approx_equal(&self, other: &Self) -> bool {
+        self.host() == other.host() && self.path == other.path
+    }
+
+    /// Trims the URL path from optional `.git` and `/` suffixes.
+    fn trim_url_path(mut self) -> Self {
+        if let Some(p) = self.path.strip_suffix(b".git") {
+            self.path = p.into();
+        } else if let Some(p) = self.path.strip_suffix(b"/") {
+            self.path = p.into();
+        }
+        self
     }
 }
 

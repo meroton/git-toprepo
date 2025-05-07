@@ -14,6 +14,14 @@ pub enum RepoName {
 }
 
 impl RepoName {
+    pub fn new(s: &str) -> Self {
+        if s == "top" {
+            RepoName::Top
+        } else {
+            RepoName::SubRepo(SubRepoName::new(s.to_owned()))
+        }
+    }
+
     /// Converts `refs/namespaces/<name>/*` to `RepoName`.
     pub fn from_ref(fullname: &FullNameRef) -> Result<RepoName> {
         let fullname = fullname.as_bstr();
@@ -61,11 +69,7 @@ impl FromStr for RepoName {
     type Err = ();
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        if s == "top" {
-            Ok(RepoName::Top)
-        } else {
-            Ok(RepoName::SubRepo(SubRepoName::new(s.to_owned())))
-        }
+        Ok(Self::new(s))
     }
 }
 

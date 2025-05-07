@@ -62,13 +62,7 @@ impl RemoteFetcher {
     ) -> Result<()> {
         let fetch_config = subrepo_config.get_fetch_config_with_url();
         let subrepo_url = fetch_config.url.expect("with fetch url");
-        let super_url = gix_repo
-            .find_default_remote(Direction::Fetch)
-            .context("Missing default git-remote")?
-            .context("Error getting default git-remote")?
-            .url(Direction::Fetch)
-            .context("Missing default git-remote fetch url")?
-            .to_owned();
+        let super_url = crate::git::get_default_remote_url(gix_repo)?;
         self.remote = Some(
             super_url
                 .join(&subrepo_url)
@@ -153,6 +147,7 @@ impl RemoteFetcher {
         .args(self.args)
         .arg(&remote)
         .args(self.refspecs);
+        pb.suspend(|| eprintln!("Running: {cmd:?}"));
 
         let mut proc = cmd
             // TODO: Collect stdout (use a thread to avoid backpressure deadlock).
@@ -170,6 +165,7 @@ impl RemoteFetcher {
             let maybe_newline = if last_paragraph.is_empty() { "" } else { "\n" };
             bail!("git fetch {remote} failed: {err:#}{maybe_newline}{last_paragraph}");
         }
+        pb.set_message("git-fetch done");
         Ok(())
     }
 }

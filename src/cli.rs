@@ -53,7 +53,7 @@ pub enum Commands {
 
 #[derive(Args, Debug)]
 pub struct Init {
-    /// Skip the initial fetch of the super repository. This means the the
+    /// Skip the initial fetch of the top repository. This means the the
     /// default configuration will not be fetched either.
     #[clap(long = "no-fetch", action = ArgAction::SetFalse)]
     pub fetch: bool,
@@ -126,6 +126,10 @@ pub struct Refilter {
     /// Number of concurrent threads to load the repository.
     #[arg(long, default_value = "7")]
     pub jobs: std::num::NonZero<u32>,
+
+    /// Skip fetching missing submodule commits.
+    #[arg(long)]
+    pub no_fetch: bool,
 }
 
 #[derive(Args, Debug)]
@@ -146,12 +150,12 @@ pub struct Fetch {
     #[arg(long, name = "repo", value_parser = clap::builder::ValueParser::new(parse_repo_name))]
     pub repo: Option<git_toprepo::repo_name::RepoName>,
 
-    /// A configured git remote in the super repository or a URL to fetch from.
-    /// If a URL is specified, it will be resolved into either the super
+    /// A configured git remote in the mono repository or a URL to fetch from.
+    /// If a URL is specified, it will be resolved into either the top
     /// repository or one of the submodules. Submodules are calculated relative
     /// this remote.
-    #[arg(name = "super-remote-or-submodule-url", default_value_t = String::from("origin"), verbatim_doc_comment)]
-    pub super_or_submodule_remote: String,
+    #[arg(name = "top-remote-or-submodule-url", default_value_t = String::from("origin"), verbatim_doc_comment)]
+    pub top_or_submodule_remote: String,
 
     /// A reference to fetch from the top repository or submodule. Refspec
     /// wildcards are not supported.
