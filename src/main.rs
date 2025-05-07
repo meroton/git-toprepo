@@ -11,13 +11,17 @@ use clap::Parser;
 use colored::Colorize;
 use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
+use git_toprepo::git::GitModulesInfo;
+use git_toprepo::gitmodules::SubmoduleUrlExt as _;
+use git_toprepo::loader::FetchParams;
+use git_toprepo::repo_name::RepoName;
+use itertools::Itertools;
 use std::collections::HashSet;
 use std::io::Read;
 use std::panic;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::vec;
 
 fn init(init_args: &cli::Init) -> Result<ExitCode> {
     let url = gix::url::Url::from_bytes(init_args.repository.as_bytes().as_bstr())?;
@@ -162,7 +166,7 @@ fn refilter(args: &cli::Refilter) -> Result<ExitCode> {
             jobs: args.jobs,
             skip_filter: false,
             repo: None,
-            super_or_submodule_remote: "origin".to_owned(),
+            super_or_submodule_remote: "".to_owned(),
             refspecs: None,
         },
         |commit_loader| {
@@ -171,11 +175,10 @@ fn refilter(args: &cli::Refilter) -> Result<ExitCode> {
         },
     )
 }
+
 fn fetch(fetch_args: &cli::Fetch) -> Result<ExitCode> {
     fetch_and_refilter(fetch_args, |commit_loader| {
         commit_loader.load_after_fetch = !fetch_args.skip_filter;
-        // TODO: refspecs
-        commit_loader.fetch_repo(git_toprepo::repo_name::RepoName::Top, vec![None]);
         Ok(())
     })
 }
@@ -184,20 +187,93 @@ fn fetch_and_refilter<F>(fetch_args: &cli::Fetch, commit_loader_setup: F) -> Res
 where
     F: FnOnce(&mut git_toprepo::loader::CommitLoader) -> Result<()>,
 {
-    if fetch_args.repo.is_some() {
-        todo!("Implement repo argument");
-    }
-    if fetch_args.super_or_submodule_remote != "origin" {
-        todo!("Implement super_or_submodule_remote argument");
-    }
-    if fetch_args.refspecs.is_some() {
-        todo!("Implement refspecs argument");
-    }
-
     let toprepo = git_toprepo::repo::TopRepo::open(PathBuf::from("."))?;
-    let error_mode = git_toprepo::log::ErrorMode::from_keep_going_flag(fetch_args.keep_going);
+    let repo = toprepo.gix_repo.to_thread_local();
     let mut config =
         git_toprepo::config::GitTopRepoConfig::load_config_from_repo(&toprepo.directory)?;
+
+    let base_url = git_toprepo::git::get_default_remote_url(&repo)?;
+
+    let (fetch_repo_name, fetch_params) =
+        if fetch_args.super_or_submodule_remote.is_empty() && fetch_args.repo.is_none() {
+            if fetch_args.refspecs.is_some() {
+                anyhow::bail!("Refspecs are not supported unless a remote is specified");
+            }
+            (RepoName::Top, None)
+        } else if fetch_args.super_or_submodule_remote == "origin" {
+            if let Some(repo_name) = &fetch_args.repo {
+                if repo_name != &RepoName::Top {
+                    anyhow::bail!(
+                        "Expected the 'top' repository, not {repo_name}, for the remote 'origin'"
+                    );
+                }
+            }
+            if let Some(refspecs) = &fetch_args.refspecs {
+                if refspecs.len() != 1 {
+                    todo!("Handle multiple refspecs");
+                }
+                (
+                    RepoName::Top,
+                    Some(FetchParams::Custom {
+                        remote: fetch_args.super_or_submodule_remote.clone(),
+                        refspec: refspecs[0].clone(),
+                    }),
+                )
+            } else {
+                (RepoName::Top, Some(FetchParams::Default))
+            }
+        } else {
+            let fetch_arg_url = base_url.join(&gix::url::Url::from_bytes(
+                fetch_args.super_or_submodule_remote.as_bytes().as_bstr(),
+            )?);
+            let fetch_url_str = fetch_arg_url.to_string();
+            let trimmed_fetch_url = fetch_arg_url.trim_url_path();
+            let gitmod_infos = GitModulesInfo::parse_dot_gitmodules_in_repo(&repo)?;
+            let mut matching_submod_names = HashSet::new();
+            for (_submod_path, submod_url) in gitmod_infos.submodules {
+                let Ok(submod_url) = submod_url else {
+                    continue;
+                };
+                let full_url = base_url.join(&submod_url).trim_url_path();
+                if full_url.approx_equal(&trimmed_fetch_url) {
+                    let (name, submod_config) = config.get_or_insert_from_url(&submod_url)?;
+                    if !submod_config.enabled {
+                        anyhow::bail!("Submodule {name} is disabled in the configuration");
+                    }
+                    matching_submod_names.insert(RepoName::new(&name));
+                }
+            }
+            let matching_submod_names = matching_submod_names.into_iter().sorted().collect_vec();
+            let repo_name = match matching_submod_names.as_slice() {
+                [] => anyhow::bail!(
+                    "No submodule matches {}",
+                    fetch_args.super_or_submodule_remote
+                ),
+                [submod_name] => submod_name.clone(),
+                [_, ..] => anyhow::bail!(
+                    "Multiple submodules match: {}",
+                    matching_submod_names
+                        .iter()
+                        .map(|name| name.to_string())
+                        .join(", ")
+                ),
+            };
+            let Some(refspecs) = &fetch_args.refspecs else {
+                anyhow::bail!("Refspecs are required for submodules");
+            };
+            if refspecs.len() != 1 {
+                todo!("Handle multiple refspecs");
+            }
+            (
+                repo_name,
+                Some(FetchParams::Custom {
+                    remote: fetch_url_str,
+                    refspec: refspecs[0].clone(),
+                }),
+            )
+        };
+
+    let error_mode = git_toprepo::log::ErrorMode::from_keep_going_flag(fetch_args.keep_going);
     let mut log_config = config.log.clone();
 
     let log_receiver =
@@ -226,15 +302,22 @@ where
                     threadpool::ThreadPool::new(fetch_args.jobs.get() as usize),
                 )?;
                 commit_loader_setup(&mut commit_loader)?;
+                if let Some(fetch_params) = &fetch_params {
+                    commit_loader.fetch_repo(fetch_repo_name, fetch_params.clone());
+                }
                 commit_loader.join();
                 Ok(())
             })()
             .context("Failed to fetch")?;
 
             if !fetch_args.skip_filter {
-                toprepo
-                    .refilter(&mut top_repo_cache, &config, logger, progress)
-                    .map_err(|_| anyhow::anyhow!("Failed to filter"))?;
+                if let Some(fetch_params) = fetch_params {
+                    todo!("Filter in {:?}", fetch_params);
+                } else {
+                    toprepo
+                        .refilter(&mut top_repo_cache, &config, logger, progress)
+                        .map_err(|_| anyhow::anyhow!("Failed to filter"))?;
+                }
             }
             Ok(())
         },
@@ -291,19 +374,7 @@ fn dump_import_cache() -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn main() -> Result<ExitCode> {
-    // Make panic messages red.
-    let default_hook = panic::take_hook();
-    panic::set_hook(Box::new(move |panic| {
-        if let Some(payload) = panic.payload().downcast_ref::<&str>() {
-            eprintln!("\n{}\n", payload.red());
-        }
-        if let Some(payload) = panic.payload().downcast_ref::<String>() {
-            eprintln!("\n{}\n", payload.red());
-        }
-        default_hook(panic);
-    }));
-
+fn main_impl() -> Result<ExitCode> {
     let args = Cli::parse();
     if let Some(path) = &args.working_directory {
         std::env::set_current_dir(path)
@@ -319,4 +390,26 @@ fn main() -> Result<ExitCode> {
         Commands::Replace(ref _replace_args) => todo!(), //replace(&args, replace_args)?,
     };
     Ok(res)
+}
+
+fn main() -> ExitCode {
+    // Make panic messages red.
+    let default_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |panic| {
+        if let Some(payload) = panic.payload().downcast_ref::<&str>() {
+            eprintln!("\n{}\n", payload.red());
+        }
+        if let Some(payload) = panic.payload().downcast_ref::<String>() {
+            eprintln!("\n{}\n", payload.red());
+        }
+        default_hook(panic);
+    }));
+
+    match main_impl() {
+        Ok(exit_code) => exit_code,
+        Err(err) => {
+            eprintln!("{}: {:#}", "ERROR".red().bold(), err);
+            ExitCode::FAILURE
+        }
+    }
 }

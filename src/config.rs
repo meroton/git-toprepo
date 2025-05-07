@@ -6,7 +6,6 @@ use crate::util::trim_newline_suffix;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
-use bstr::BStr;
 use bstr::ByteSlice as _;
 use itertools::Itertools;
 use serde::Deserialize;
@@ -63,17 +62,6 @@ impl Display for ConfigLocation {
 }
 
 impl GitTopRepoConfig {
-    /// Trims the URL path from optional `.git` and `/` suffixes.
-    fn trim_url_path(url: &gix::Url) -> &BStr {
-        let mut p = url.path.as_bstr();
-        if p.ends_with(b".git") {
-            p = p[..p.len() - 4].as_bstr();
-        } else if p.ends_with(b"/") {
-            p = p[..p.len() - 1].as_bstr();
-        }
-        p
-    }
-
     /// Gets a `SubrepoConfig` based on a URL using exact matching. If an URL is
     /// missing, the user should add it to the `SubrepoConfig::urls` list.
     pub fn get_name_from_url(&self, url: &gix::Url) -> Result<Option<String>> {

@@ -5,9 +5,11 @@ use anyhow::Result;
 use bstr::BString;
 use bstr::ByteSlice as _;
 use serde_with::serde_as;
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
 pub type CommitId = gix::ObjectId;
@@ -100,6 +102,77 @@ impl Deref for GitPath {
 impl Display for GitPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+/// Returns the default ("origin") remote URL for a repository.
+pub fn get_default_remote_url(repo: &gix::Repository) -> Result<gix::Url> {
+    Ok(repo
+        .find_default_remote(gix::remote::Direction::Fetch)
+        .context("Missing default git-remote")?
+        .context("Error getting default git-remote")?
+        .url(gix::remote::Direction::Fetch)
+        .context("Missing default git-remote fetch url")?
+        .to_owned())
+}
+
+#[derive(Default)]
+pub struct GitModulesInfo {
+    pub submodules: HashMap<GitPath, Result<gix::Url>>,
+}
+
+impl GitModulesInfo {
+    /// Parses a `.gitmodules` file in a git repository.
+    pub fn parse_dot_gitmodules_in_repo(repo: &gix::Repository) -> Result<Self> {
+        let Some(workdir) = repo.workdir() else {
+            anyhow::bail!("Repository {} has no workdir", repo.common_dir().display());
+        };
+        let path = workdir.join(".gitmodules");
+        let bytes = std::fs::read(&path)
+            .or_else(|err| {
+                if err.kind() == std::io::ErrorKind::NotFound {
+                    // The file does not exist, return empty info.
+                    Ok(Vec::new())
+                } else {
+                    Err(err)
+                }
+            })
+            .with_context(|| {
+                format!(
+                    "Failed to read .gitmodules file in repository {}",
+                    repo.common_dir().display()
+                )
+            })?;
+        let config = gix::submodule::File::from_bytes(&bytes, path, &Default::default())
+            .context("Failed to parse .gitmodules")?;
+        let mut info = GitModulesInfo::default();
+        for name in config.names() {
+            // Skip misconfigured paths, they might not even be used.
+            let Ok(path) = config.path(name) else {
+                continue;
+            };
+            let url = config.url(name).map_err(anyhow::Error::new);
+            info.submodules.insert(GitPath::new(path.into_owned()), url);
+        }
+        Ok(info)
+    }
+
+    /// Parses the `.gitmodules` content.
+    ///
+    /// The `path` argument is used for error reporting only.
+    pub fn parse_dot_gitmodules_bytes(bytes: &[u8], path: PathBuf) -> Result<Self> {
+        let config = gix::submodule::File::from_bytes(bytes, Some(path), &Default::default())
+            .context("Failed to parse .gitmodules")?;
+        let mut info = GitModulesInfo::default();
+        for name in config.names() {
+            // Skip misconfigured paths, they might not even be used.
+            let Ok(path) = config.path(name) else {
+                continue;
+            };
+            let url = config.url(name).map_err(anyhow::Error::new);
+            info.submodules.insert(GitPath::new(path.into_owned()), url);
+        }
+        Ok(info)
     }
 }
 

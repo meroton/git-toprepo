@@ -16,7 +16,6 @@ use anyhow::Result;
 use bstr::BStr;
 use bstr::ByteSlice as _;
 use gix::refs::FullName;
-use gix::remote::Direction;
 use itertools::Itertools;
 use serde_with::serde_as;
 use std::borrow::Borrow as _;
@@ -105,14 +104,7 @@ impl TopRepo {
 
     pub fn open(directory: PathBuf) -> Result<TopRepo> {
         let gix_repo = gix::open(&directory)?;
-        let url = gix_repo
-            .find_default_remote(Direction::Fetch)
-            .context("Missing default git-remote")?
-            .context("Error getting default git-remote")?
-            .url(Direction::Fetch)
-            .context("Missing default git-remote fetch url")?
-            .to_owned();
-
+        let url = crate::git::get_default_remote_url(&gix_repo)?;
         Ok(TopRepo {
             directory,
             gix_repo: gix_repo.into_sync(),
