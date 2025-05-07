@@ -16,7 +16,8 @@ use anyhow::Result;
 use bstr::BStr;
 use bstr::ByteSlice as _;
 use gix::refs::FullName;
-use gix::remote::Direction;
+use gix::refs::FullNameRef;
+use gix::refs::file::ReferenceExt;
 use itertools::Itertools;
 use serde_with::serde_as;
 use std::borrow::Borrow as _;
@@ -105,14 +106,7 @@ impl TopRepo {
 
     pub fn open(directory: PathBuf) -> Result<TopRepo> {
         let gix_repo = gix::open(&directory)?;
-        let url = gix_repo
-            .find_default_remote(Direction::Fetch)
-            .context("Missing default git-remote")?
-            .context("Error getting default git-remote")?
-            .url(Direction::Fetch)
-            .context("Missing default git-remote fetch url")?
-            .to_owned();
-
+        let url = crate::git::get_default_remote_url(&gix_repo)?;
         Ok(TopRepo {
             directory,
             gix_repo: gix_repo.into_sync(),
@@ -246,7 +240,7 @@ impl TopRepo {
                 self.gix_repo.git_dir(),
                 logger.clone(),
             )?;
-            let expander = TopRepoExpander {
+            let mut expander = TopRepoExpander {
                 gix_repo: &repo,
                 storage,
                 config,
@@ -255,6 +249,7 @@ impl TopRepo {
                 fast_importer,
                 imported_commits: HashMap::new(),
                 bumps: crate::expander::BumpCache::default(),
+                inject_at_oldest_super_commit: false,
             };
 
             expander.expand_toprepo_commits(
@@ -262,6 +257,7 @@ impl TopRepo {
                 stop_commits,
                 num_commits_to_export,
             )?;
+            expander.wait()?;
 
             Self::update_refs(
                 &repo,
@@ -342,6 +338,239 @@ impl TopRepo {
             repo.edit_references(ref_edits)
                 .context("Failed to update all the refs/remotes/origin/* references")?;
         }
+        Ok(())
+    }
+
+    pub fn expand_toprepo_refs(
+        &self,
+        refs: &Vec<FullName>,
+        storage: &mut TopRepoCache,
+        config: &crate::config::GitTopRepoConfig,
+        logger: Logger,
+        progress: indicatif::MultiProgress,
+    ) -> Result<()> {
+        let repo = self.gix_repo.to_thread_local();
+
+        let mut new_origin_ref_names = HashSet::new();
+        let mut toprepo_symbolic_tips = Vec::new();
+        let mut toprepo_object_tip_names = Vec::new();
+        let mut toprepo_object_tip_ids = Vec::new();
+        for full_ref in refs {
+            let r = repo.find_reference(full_ref)?;
+            let r_target = r.clone().follow_to_object().with_context(|| {
+                format!("Failed to resolve symbolic ref {}", r.name().as_bstr())
+            })?;
+            match r_target.object()?.kind {
+                gix::object::Kind::Commit => {}
+                gix::object::Kind::Tag => {}
+                gix::object::Kind::Tree => {
+                    logger.warning(format!(
+                        "Skipping ref {} that points to a tree",
+                        r.name().as_bstr()
+                    ));
+                    continue;
+                }
+                gix::object::Kind::Blob => {
+                    logger.warning(format!(
+                        "Skipping ref {} that points to a blob",
+                        r.name().as_bstr()
+                    ));
+                    continue;
+                }
+            }
+            let r = r.detach();
+            // TODO: FRME Remove this debug print.
+            eprintln!(
+                "DEBUG: Initial top commits: {:?} {:?}",
+                r.name, // c.name_without_namespace(&top_namespace).with_context(|| format!("ref {}", c.name)).unwrap().as_bstr(),
+                r.target.kind(),
+            );
+            new_origin_ref_names.insert(TopRepoExpander::input_ref_to_output_ref(r.name.borrow())?);
+            match r.target {
+                gix::refs::Target::Symbolic(target_name) => {
+                    toprepo_symbolic_tips.push((r.name, target_name));
+                }
+                gix::refs::Target::Object(object_id) => {
+                    toprepo_object_tip_names.push(r.name);
+                    toprepo_object_tip_ids.push(TopRepoCommitId(object_id));
+                }
+            }
+        }
+        let mut unknown_toprepo_tips = toprepo_object_tip_ids
+            .into_iter()
+            .filter(|commit_id| !storage.top_to_mono_map.contains_key(commit_id))
+            .peekable();
+        if unknown_toprepo_tips.peek().is_some() {
+            let progress = progress.clone();
+            let pb = progress.add(
+                indicatif::ProgressBar::no_length()
+                    .with_style(
+                        indicatif::ProgressStyle::default_spinner()
+                            .template("{elapsed:>4} {msg} {pos}")
+                            .unwrap(),
+                    )
+                    .with_message("Looking for new commits to expand"),
+            );
+            let (stop_commits, num_commits_to_export) = crate::git::get_first_known_commits(
+                &repo,
+                unknown_toprepo_tips.map(|commit_id| commit_id.into_inner()),
+                |commit_id| {
+                    storage
+                        .top_to_mono_map
+                        .contains_key(&TopRepoCommitId(commit_id))
+                },
+                &pb,
+            )?;
+            drop(pb);
+
+            println!("Found {num_commits_to_export} commits to expand");
+            // TODO: FRME Remove this debug print.
+            for c in &stop_commits {
+                eprintln!("DEBUG: Stop commit: {}", c.to_hex());
+            }
+
+            let fast_importer = crate::git_fast_export_import::FastImportRepo::new(
+                self.gix_repo.git_dir(),
+                logger.clone(),
+            )?;
+            let mut expander = TopRepoExpander {
+                gix_repo: &repo,
+                storage,
+                config,
+                progress,
+                logger: logger.clone(),
+                fast_importer,
+                imported_commits: HashMap::new(),
+                bumps: crate::expander::BumpCache::default(),
+                inject_at_oldest_super_commit: false,
+            };
+
+            expander.expand_toprepo_commits(
+                toprepo_object_tip_names,
+                stop_commits,
+                num_commits_to_export,
+            )?;
+            expander.wait()?;
+
+            Self::update_refs(
+                &repo,
+                &logger,
+                toprepo_symbolic_tips,
+                HashMap::new(),
+                new_origin_ref_names,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn expand_submodule_ref_onto_head(
+        &self,
+        ref_to_inject: &FullNameRef,
+        sub_repo_name: &SubRepoName,
+        abs_sub_path: &GitPath,
+        dest_ref: &FullNameRef,
+        storage: &mut TopRepoCache,
+        config: &crate::config::GitTopRepoConfig,
+        logger: Logger,
+        progress: indicatif::MultiProgress,
+    ) -> Result<()> {
+        let repo = self.gix_repo.to_thread_local();
+
+        let mut ref_to_inject = repo.refs.find(ref_to_inject)?;
+        let id_to_inject = ref_to_inject.peel_to_id_in_place(&repo.refs, &repo.objects)?;
+        let thin_commit_to_inject = storage
+            .repos
+            .get(&RepoName::SubRepo(sub_repo_name.clone()))
+            .and_then(|repo_data| repo_data.thin_commits.get(&id_to_inject))
+            .with_context(|| {
+                format!(
+                    "Failed to find {}, commit {}",
+                    ref_to_inject.name,
+                    id_to_inject.to_hex()
+                )
+            })?
+            .clone(); // Clone to avoid borrowing the `storage` object.
+
+        let pb = progress.add(
+            indicatif::ProgressBar::no_length()
+                .with_style(
+                    indicatif::ProgressStyle::default_spinner()
+                        .template("{elapsed:>4} {msg} {pos}")
+                        .unwrap(),
+                )
+                .with_message("Looking for mono commit to expand onto"),
+        );
+        // Hopefully, HEAD points to a commit.
+        let head_id: gix::ObjectId = repo.head_id()?.detach();
+        let mut possible_mono_parents = Vec::new();
+        let (_possible_mono_parent_ids, _num_skipped_unknowns) =
+            crate::git::get_first_known_commits(
+                &repo,
+                [head_id].into_iter(),
+                |commit_id| {
+                    let Some(mono_parent) =
+                        storage.monorepo_commits.get(&MonoRepoCommitId(commit_id))
+                    else {
+                        return false;
+                    };
+                    possible_mono_parents.push(mono_parent.clone());
+                    true
+                },
+                &pb,
+            )?;
+        drop(pb);
+
+        let fast_importer = crate::git_fast_export_import::FastImportRepo::new(
+            self.gix_repo.git_dir(),
+            logger.clone(),
+        )?;
+        let mut expander = TopRepoExpander {
+            gix_repo: &repo,
+            storage,
+            config,
+            progress,
+            logger: logger.clone(),
+            fast_importer,
+            imported_commits: HashMap::new(),
+            bumps: crate::expander::BumpCache::default(),
+            inject_at_oldest_super_commit: true,
+        };
+        let Some(mono_commit) = expander.inject_submodule_commit(
+            dest_ref,
+            possible_mono_parents,
+            abs_sub_path,
+            sub_repo_name,
+            &thin_commit_to_inject,
+        )?
+        else {
+            anyhow::bail!(
+                "Failed to inject commit {}, to become {}, at {abs_sub_path}",
+                ref_to_inject.name,
+                dest_ref.as_bstr()
+            );
+        };
+        expander.wait()?;
+
+        repo.edit_reference(gix::refs::transaction::RefEdit {
+            change: gix::refs::transaction::Change::Update {
+                log: gix::refs::transaction::LogChange {
+                    mode: gix::refs::transaction::RefLog::AndReference,
+                    force_create_reflog: false,
+                    message: b"git-toprepo filter".into(),
+                },
+                expected: gix::refs::transaction::PreviousValue::Any,
+                new: gix::refs::Target::Object(
+                    *storage
+                        .monorepo_commit_ids
+                        .get(&RcKey::new(&mono_commit))
+                        .unwrap()
+                        .deref(),
+                ),
+            },
+            name: dest_ref.into(),
+            deref: false,
+        })?;
         Ok(())
     }
 }
