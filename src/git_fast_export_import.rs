@@ -105,21 +105,15 @@ impl std::fmt::Display for ImportCommitRef {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize)]
-pub enum ChangedFile {
-    Deleted(FileDelete),
-    Modified(FileModify),
+pub struct ChangedFile {
+    pub path: BString,
+    pub change: FileChange,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize)]
-pub struct FileModify {
-    pub path: BString,
-    pub mode: BString,
-    pub hash: BString,
-}
-
-#[derive(Debug, PartialEq, serde::Serialize)]
-pub struct FileDelete {
-    pub path: BString,
+pub enum FileChange {
+    Deleted,
+    Modified { mode: BString, hash: BString },
 }
 
 #[derive(Debug)]
@@ -358,16 +352,19 @@ impl FastExportRepo {
                             self.current_line
                         )
                     })?;
-                ChangedFile::Modified(FileModify {
+                ChangedFile {
                     path: path.into(),
-                    mode: mode.into(),
-                    hash: hash.into(),
-                })
+                    change: FileChange::Modified {
+                        mode: mode.into(),
+                        hash: hash.into(),
+                    },
+                }
             } else if let Some(change_data) = self.current_line.strip_prefix(b"D ") {
                 // filedelete: 'D' SP <path> LF
-                ChangedFile::Deleted(FileDelete {
+                ChangedFile {
                     path: change_data.into(),
-                })
+                    change: FileChange::Deleted,
+                }
             } else if let Some(_change_data) = self.current_line.strip_prefix(b"C ") {
                 // filecopy: 'C' SP <path> SP <path> LF
                 // Should not happen when git-fast-export is called without -C.
@@ -626,16 +623,16 @@ impl FastImportRepo {
         }
 
         for changed_file in &commit.file_changes {
-            match changed_file {
-                ChangedFile::Modified(changed_file) => {
+            match &changed_file.change {
+                FileChange::Modified { mode, hash } => {
                     out.write_all(b"M ")?;
-                    out.write_all(&changed_file.mode)?;
+                    out.write_all(mode)?;
                     out.write_all(b" ")?;
-                    out.write_all(&changed_file.hash)?;
+                    out.write_all(hash)?;
                     out.write_all(b" ")?;
                     out.write_all(&changed_file.path)?;
                 }
-                ChangedFile::Deleted(changed_file) => {
+                FileChange::Deleted => {
                     out.write_all(b"D ")?;
                     out.write_all(&changed_file.path)?;
                 }
@@ -925,11 +922,13 @@ mod tests {
             // CommitInfo and DiffStatus implements PartialEq trait for this test,
             // might exclude PartialEq and this test if it's not needed elsewhere.
             commit_d.file_changes.first().unwrap(),
-            &ChangedFile::Modified(FileModify {
+            &ChangedFile {
                 path: BString::from(b"sub"),
-                mode: BString::from(b"160000"),
-                hash: BString::from(b"eeb85c77b614a7ec060f6df5825c9a5c10414307"),
-            })
+                change: FileChange::Modified {
+                    mode: BString::from(b"160000"),
+                    hash: BString::from(b"eeb85c77b614a7ec060f6df5825c9a5c10414307"),
+                }
+            }
         );
         assert_eq!(
             commit_d.parents,
