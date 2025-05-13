@@ -1130,7 +1130,7 @@ impl BumpCache {
         None
     }
 
-    fn get_submodule(
+    pub fn get_submodule(
         &mut self,
         mono_commit: &Rc<MonoRepoCommit>,
         abs_sub_path: &GitPath,
@@ -1195,6 +1195,18 @@ impl BumpCache {
         Some(ret)
     }
 
+    pub fn get_top_bump(&self, mut mono_commit: &Rc<MonoRepoCommit>) -> Option<TopRepoCommitId> {
+        // TODO: Is caching needed?
+        loop {
+            if let Some(top_bump) = &mono_commit.top_bump {
+                return Some(top_bump.clone());
+            }
+            let Some(MonoRepoParent::Mono(first_parent)) = mono_commit.parents.first() else {
+                return None;
+            };
+            mono_commit = first_parent;
+        }
+    }
     fn non_descendants_for_all_parents(
         &mut self,
         mono_parents: &Vec<Rc<MonoRepoCommit>>,

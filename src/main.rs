@@ -168,7 +168,7 @@ fn refilter(args: &cli::Refilter) -> Result<ExitCode> {
             jobs: args.jobs,
             skip_filter: false,
             repo: None,
-            super_or_submodule_remote: "".to_owned(),
+            top_or_submodule_remote: "".to_owned(),
             refspecs: None,
         },
         |commit_loader| {
@@ -197,12 +197,12 @@ where
     let base_url = git_toprepo::git::get_default_remote_url(&repo)?;
 
     let (fetch_repo_name, abs_sub_path, fetch_params) =
-        if fetch_args.super_or_submodule_remote.is_empty() && fetch_args.repo.is_none() {
+        if fetch_args.top_or_submodule_remote.is_empty() && fetch_args.repo.is_none() {
             if fetch_args.refspecs.is_some() {
                 anyhow::bail!("Refspecs are not supported unless a remote is specified");
             }
             (RepoName::Top, GitPath::new(b"".into()), None)
-        } else if fetch_args.super_or_submodule_remote == "origin" {
+        } else if fetch_args.top_or_submodule_remote == "origin" {
             if let Some(repo_name) = &fetch_args.repo {
                 if repo_name != &RepoName::Top {
                     anyhow::bail!(
@@ -218,7 +218,7 @@ where
                     RepoName::Top,
                     GitPath::new(b"".into()),
                     Some(FetchParams::Custom {
-                        remote: fetch_args.super_or_submodule_remote.clone(),
+                        remote: fetch_args.top_or_submodule_remote.clone(),
                         refspec: refspecs[0].clone(),
                     }),
                 )
@@ -231,7 +231,7 @@ where
             }
         } else {
             let fetch_arg_url = base_url.join(&gix::url::Url::from_bytes(
-                fetch_args.super_or_submodule_remote.as_bytes().as_bstr(),
+                fetch_args.top_or_submodule_remote.as_bytes().as_bstr(),
             )?);
             let fetch_url_str = fetch_arg_url.to_string();
             let trimmed_fetch_url = fetch_arg_url.trim_url_path();
@@ -256,7 +256,7 @@ where
             let repo_name = match matching_submod_names.as_slice() {
                 [] => anyhow::bail!(
                     "No submodule matches {}",
-                    fetch_args.super_or_submodule_remote
+                    fetch_args.top_or_submodule_remote
                 ),
                 [submod_name] => submod_name.clone(),
                 [_, ..] => anyhow::bail!(
@@ -407,6 +407,69 @@ where
     result
 }
 
+fn push(push_args: &cli::Push) -> Result<ExitCode> {
+    let toprepo = git_toprepo::repo::TopRepo::open(PathBuf::from("."))?;
+    let repo = toprepo.gix_repo.to_thread_local();
+    let mut config =
+        git_toprepo::config::GitTopRepoConfig::load_config_from_repo(&toprepo.directory)?;
+    let base_url = match repo.try_find_remote(push_args.top_remote.as_bytes()) {
+        Some(Ok(remote)) => remote
+            .url(gix::remote::Direction::Push)
+            .with_context(|| format!("Missing push URL for {}", push_args.top_remote))?
+            .clone(),
+        None => gix::Url::from_bytes(bstr::BStr::new(push_args.top_remote.as_bytes()))
+            .with_context(|| format!("Invalid remote URL {}", push_args.top_remote))?,
+        Some(Err(err)) => {
+            anyhow::bail!("Failed to resolve remote {}: {}", push_args.top_remote, err);
+        }
+    };
+    let error_mode = git_toprepo::log::ErrorMode::from_keep_going_flag(!push_args.fail_fast);
+    let mut log_config = config.log.clone();
+
+    let log_receiver =
+        git_toprepo::log::LogReceiver::new_stderr(HashSet::new(), error_mode.clone());
+    let mut top_repo_cache = git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
+        toprepo.gix_repo.git_dir(),
+        Some(&config.checksum),
+        &log_receiver.get_logger(),
+    )?
+    .unpack()?;
+    log_receiver.join().check()?;
+
+    let [(local_ref, remote_ref)] = push_args.refspecs.as_slice() else {
+        unimplemented!("Handle multiple refspecs");
+    };
+
+    let mut result = git_toprepo::log::log_task_to_stderr(
+        error_mode.clone(),
+        &mut log_config,
+        |logger, progress| {
+            toprepo.push(
+                &base_url,
+                &FullName::try_from(local_ref.clone())?,
+                &FullName::try_from(remote_ref.clone())?,
+                &mut top_repo_cache,
+                &mut config,
+                push_args.dry_run,
+                logger,
+                progress,
+            )
+        },
+    );
+
+    if let Err(err) = git_toprepo::repo_cache_serde::SerdeTopRepoCache::pack(
+        &top_repo_cache,
+        config.checksum.clone(),
+    )
+    .store_to_git_dir(toprepo.gix_repo.git_dir())
+    {
+        if result.is_ok() {
+            result = Err(err);
+        }
+    }
+    result.map(|_| ExitCode::SUCCESS)
+}
+
 fn dump(dump_args: &cli::Dump) -> Result<ExitCode> {
     match dump_args {
         cli::Dump::ImportCache => dump_import_cache(),
@@ -445,7 +508,7 @@ fn main_impl() -> Result<ExitCode> {
         Commands::Config(ref config_args) => config(config_args)?,
         Commands::Refilter(ref refilter_args) => refilter(refilter_args)?,
         Commands::Fetch(ref fetch_args) => fetch(fetch_args)?,
-        Commands::Push => todo!(),
+        Commands::Push(ref push_args) => push(push_args)?,
         Commands::Dump(ref dump_args) => dump(dump_args)?,
         Commands::Replace(ref _replace_args) => todo!(), //replace(&args, replace_args)?,
     };

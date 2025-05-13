@@ -3,6 +3,7 @@ use crate::git::CommitId;
 use crate::git::GitPath;
 use crate::git::TreeId;
 use crate::git_fast_export_import::WithoutCommitterId;
+use crate::git_fast_export_import_dedup::GitFastExportImportDedupCache;
 use crate::log::Logger;
 use crate::repo::ExpandedOrRemovedSubmodule;
 use crate::repo::MonoRepoCommit;
@@ -43,6 +44,7 @@ pub struct SerdeTopRepoCache {
     monorepo_commits: Vec<SerdeMonoRepoCommit>,
     #[serde_as(serialize_as = "serde_with::IfIsHumanReadable<OrderedHashMap<_, _>>")]
     top_to_mono_map: HashMap<TopRepoCommitId, MonoRepoCommitId>,
+    dedup: GitFastExportImportDedupCache,
 }
 
 impl SerdeTopRepoCache {
@@ -196,6 +198,7 @@ impl SerdeTopRepoCache {
             monorepo_commits,
             monorepo_commit_ids,
             top_to_mono_map,
+            dedup: self.dedup,
         })
     }
 
@@ -231,6 +234,7 @@ impl SerdeTopRepoCache {
             repos,
             monorepo_commits,
             top_to_mono_map,
+            dedup: cache.dedup.clone(),
         }
     }
 

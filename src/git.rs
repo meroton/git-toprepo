@@ -174,6 +174,31 @@ impl GitModulesInfo {
         }
         Ok(info)
     }
+
+    /// Returns the submodule path of the submodule that contains the given path
+    /// or None if the path is not in any submodule.
+    ///
+    /// Note that the .gitmodules file might contain entries of inner submodules
+    /// but there is no reason for it to contain entries for paths that are not
+    /// submodules. Therefore, the shortest matching path is selected.
+    pub fn get_containing_submodule(
+        &'_ self,
+        path: &GitPath,
+    ) -> Option<(&'_ GitPath, &'_ Result<gix::Url>)> {
+        let mut best_prefix_len = usize::MAX;
+        let mut ret = None;
+        for (submodule_path, url) in &self.submodules {
+            let prefix_len = submodule_path.len();
+            if prefix_len < best_prefix_len
+                && path.starts_with(submodule_path)
+                && path.get(prefix_len) == Some(&b'/')
+            {
+                ret = Some((submodule_path, url));
+                best_prefix_len = prefix_len;
+            }
+        }
+        ret
+    }
 }
 
 /// Run git without repository context.
