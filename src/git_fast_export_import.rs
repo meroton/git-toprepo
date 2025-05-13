@@ -89,7 +89,7 @@ impl FastExportCommit {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ImportCommitRef {
     Mark(usize),
     CommitId(gix::ObjectId),

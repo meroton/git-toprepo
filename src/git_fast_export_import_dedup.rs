@@ -5,6 +5,7 @@ use crate::git_fast_export_import::FastExportRepo;
 use crate::git_fast_export_import::FastImportCommit;
 use crate::git_fast_export_import::FastImportRepo;
 use crate::git_fast_export_import::ImportCommitRef;
+use crate::util::OrderedHashMap;
 use anyhow::Result;
 use bstr::BString;
 use gix::ObjectId;
@@ -12,8 +13,13 @@ use itertools::Itertools;
 use serde_with::serde_as;
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-struct DedupCacheKey(ObjectId);
+#[serde_as]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+struct DedupCacheKey(
+    #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")] ObjectId,
+);
 
 impl std::fmt::Display for DedupCacheKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -38,7 +44,7 @@ pub struct GitFastExportImportDedupCache {
     /// Maps from a hash of a commit, apart from the committer, to the latest
     /// imported or exported commit id.
     #[serde_as(
-        serialize_as = "serde_with::IfIsHumanReadable<HashMap<serde_with::DisplayFromStr, serde_with::DisplayFromStr>>"
+        serialize_as = "serde_with::IfIsHumanReadable<OrderedHashMap<_, serde_with::DisplayFromStr>>"
     )]
     commits: HashMap<DedupCacheKey, CommitId>,
 }
@@ -124,6 +130,13 @@ impl<'a> FastImportRepoDedup<'a> {
         }
     }
 
+    pub fn get_object_id(&mut self, import_ref: &ImportCommitRef) -> Result<CommitId> {
+        match import_ref {
+            ImportCommitRef::Mark(mark) => self.inner.get_object_id(*mark),
+            ImportCommitRef::CommitId(commit_id) => Ok(*commit_id),
+        }
+    }
+
     fn hash_import_entry(&self, entry: &FastImportCommit<'_>) -> Result<DedupCacheKey> {
         let mut hasher = gix::hash::hasher(gix::hash::Kind::Sha1);
         hasher.update_bstring(&entry.author_info);
@@ -145,6 +158,10 @@ impl<'a> FastImportRepoDedup<'a> {
             .collect_vec();
         hasher.update_serde(&parents)?;
         Ok(DedupCacheKey(hasher.try_finalize()?))
+    }
+
+    pub fn wait(self) -> Result<Vec<gix::ObjectId>> {
+        self.inner.wait()
     }
 }
 

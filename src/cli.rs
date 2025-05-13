@@ -32,7 +32,9 @@ pub enum Commands {
     Config(Config),
     Refilter(Refilter),
     Fetch(Fetch),
-    Push, // Unimplemented
+    /// Push commits that are not part of any `refs/remotes/origin/*` to a
+    /// remote.
+    Push(Push),
 
     #[command(subcommand)]
     Dump(Dump),
@@ -161,6 +163,27 @@ pub struct Fetch {
     /// wildcards are not supported.
     #[arg(id = "ref", num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec), verbatim_doc_comment)]
     pub refspecs: Option<Vec<(String, String)>>,
+}
+
+#[derive(Args, Debug)]
+pub struct Push {
+    /// Print the push commands to stdout but do not execute them.
+    #[arg(long, short = 'n')]
+    pub dry_run: bool,
+
+    /// Stop pushing on the first error.
+    #[arg(long)]
+    pub fail_fast: bool,
+
+    /// A configured git remote in the mono repository or a URL of the top
+    /// repository to push to. Submodules are calculated relative this remote.
+    #[arg(name = "top-remote", default_value_t = String::from("origin"), verbatim_doc_comment)]
+    pub top_remote: String,
+
+    /// A reference to push from the top repository. Refspec wildcards are not
+    /// supported.
+    #[arg(id = "refspec", num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec), verbatim_doc_comment)]
+    pub refspecs: Vec<(String, String)>,
 }
 
 fn parse_repo_name(repo_name: &str) -> Result<git_toprepo::repo_name::RepoName, std::io::Error> {
