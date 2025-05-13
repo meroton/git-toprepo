@@ -3,10 +3,10 @@ use crate::git::BlobId;
 use crate::git::CommitId;
 use crate::git::GitPath;
 use crate::git::TreeId;
-use crate::git_fast_export_import::ChangedFile;
 use crate::git_fast_export_import::FastExportCommit;
 use crate::git_fast_export_import::FastExportEntry;
 use crate::git_fast_export_import::FastExportRepo;
+use crate::git_fast_export_import::FileChange;
 use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::log::Logger;
 use crate::repo::RepoData;
@@ -709,12 +709,14 @@ impl<'a> CommitLoader<'a> {
         };
         let mut new_submodule_commits = Vec::new();
         for fc in exported_commit.file_changes {
-            match fc {
-                ChangedFile::Modified(fc) => {
-                    let path = GitPath::new(fc.path);
-                    if fc.mode == b"160000" {
+            // TODO: Implement borrow between BStr and GitPath to delay
+            // construction of a GitPath.
+            let path = GitPath::new(fc.path);
+            match fc.change {
+                FileChange::Modified { mode, hash } => {
+                    if mode == b"160000" {
                         // 160000 means submodule
-                        let submod_commit_id: CommitId = gix::ObjectId::from_hex(&fc.hash)?;
+                        let submod_commit_id: CommitId = gix::ObjectId::from_hex(&hash)?;
                         let submod_repo_name = Self::get_submod_repo_name(
                             dot_gitmodules,
                             thin_parents.first(),
@@ -743,10 +745,7 @@ impl<'a> CommitLoader<'a> {
                         submodule_bumps.insert(path, ThinSubmodule::Removed);
                     }
                 }
-                ChangedFile::Deleted(fc) => {
-                    // TODO: Implement borrow between BStr and GitPath to delay
-                    // construction of a GitPath.
-                    let path = GitPath::new(fc.path);
+                FileChange::Deleted => {
                     if parent_submodule_paths.contains(&path) {
                         submodule_bumps.insert(path, ThinSubmodule::Removed);
                     }
@@ -815,22 +814,20 @@ impl<'a> CommitLoader<'a> {
         // Assume just a single entry for .gitmodules.
         const GITMODULES_FILE_REMOVED: Option<Option<gix::ObjectId>> = Some(None);
         for fc in &exported_commit.file_changes {
-            match fc {
-                ChangedFile::Modified(fc) => {
-                    if fc.path == b".gitmodules" {
-                        let dot_gitmodules = gix::ObjectId::from_hex(&fc.hash)
-                            .context("Bad blob id for .gitmodules")?;
-                        if fc.mode != b"100644" && fc.mode != b"100755" {
+            if fc.path == b".gitmodules" {
+                match &fc.change {
+                    FileChange::Modified { mode, hash } => {
+                        let dot_gitmodules =
+                            gix::ObjectId::from_hex(hash).context("Bad blob id for .gitmodules")?;
+                        if mode != b"100644" && mode != b"100755" {
                             // Expecting regular file or executable file,
                             // not a symlink, directory, submodule, etc.
-                            logger.warning(format!("Bad mode {} for .gitmodules", fc.mode));
+                            logger.warning(format!("Bad mode {mode} for .gitmodules"));
                             return Ok(GITMODULES_FILE_REMOVED);
                         }
                         return Ok(Some(Some(dot_gitmodules)));
                     }
-                }
-                ChangedFile::Deleted(fc) => {
-                    if fc.path == b".gitmodules" {
+                    FileChange::Deleted => {
                         return Ok(GITMODULES_FILE_REMOVED);
                     }
                 }

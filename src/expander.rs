@@ -344,11 +344,13 @@ impl TopRepoExpander<'_> {
                 const TREE_MODE: &[u8] = b"040000";
                 let mut tree_id_hex = gix::hash::Kind::hex_buf();
                 let _len = tree_id.hex_to_buf(&mut tree_id_hex);
-                ChangedFile::Modified(crate::git_fast_export_import::FileModify {
+                ChangedFile {
                     path: tree_path.deref().clone(),
-                    mode: TREE_MODE.into(),
-                    hash: tree_id_hex.into(),
-                })
+                    change: crate::git_fast_export_import::FileChange::Modified {
+                        mode: TREE_MODE.into(),
+                        hash: tree_id_hex.into(),
+                    },
+                }
             })
             .collect::<Vec<_>>();
         let mut file_changes = initial_file_changes;
@@ -673,13 +675,13 @@ impl TopRepoExpander<'_> {
         const TREE_MODE: &[u8] = b"040000";
         let mut tree_id_hex = gix::hash::Kind::hex_buf();
         let _len = submod_commit.tree_id.hex_to_buf(&mut tree_id_hex);
-        let file_changes = vec![ChangedFile::Modified(
-            crate::git_fast_export_import::FileModify {
-                path: abs_sub_path.deref().clone(),
+        let file_changes = vec![ChangedFile {
+            path: abs_sub_path.deref().clone(),
+            change: crate::git_fast_export_import::FileChange::Modified {
                 mode: TREE_MODE.into(),
                 hash: tree_id_hex.into(),
             },
-        )];
+        }];
 
         let mut commit_message = BString::new(vec![]);
         let commit_id_str = submod_commit.commit_id.to_string();
@@ -909,13 +911,13 @@ impl TopRepoExpander<'_> {
         const TREE_MODE: &[u8] = b"040000";
         let mut tree_id_hex = gix::hash::Kind::hex_buf();
         let _len = wanted_sub_commit.tree_id.hex_to_buf(&mut tree_id_hex);
-        let file_changes = vec![ChangedFile::Modified(
-            crate::git_fast_export_import::FileModify {
-                path: abs_sub_path.deref().clone(),
+        let file_changes = vec![ChangedFile {
+            path: abs_sub_path.deref().clone(),
+            change: crate::git_fast_export_import::FileChange::Modified {
                 mode: TREE_MODE.into(),
                 hash: tree_id_hex.into(),
             },
-        )];
+        }];
         let mono_commit = self.emit_mono_commit(
             branch,
             abs_sub_path,
