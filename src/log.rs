@@ -35,6 +35,7 @@ where
     }
 
     let log_result = log_receiver.join();
+    log_config.reported_errors = log_result.reported_errors.clone();
     log_config.reported_warnings = log_result.reported_warnings.clone();
     log_result.print_to_stderr();
     if !log_result.is_success() {
@@ -121,17 +122,24 @@ impl ErrorMode {
 
 #[derive(Clone, Debug)]
 pub struct LogResult {
-    pub error_count: usize,
+    pub reported_errors: Vec<String>,
     pub reported_warnings: Vec<String>,
 }
 
 impl LogResult {
+    /// Number of errors reported.
+    pub fn error_count(&self) -> usize {
+        self.reported_errors.len()
+    }
+
+    /// Number of warnings reported.
     pub fn warning_count(&self) -> usize {
         self.reported_warnings.len()
     }
 
+    /// Print the number of errors and warnings to `stderr`.
     pub fn print_to_stderr(&self) {
-        let error_str = if self.error_count == 1 {
+        let error_str = if self.error_count() == 1 {
             "error"
         } else {
             "errors"
@@ -141,7 +149,7 @@ impl LogResult {
         } else {
             "warnings"
         };
-        match (self.error_count, self.warning_count()) {
+        match (self.error_count(), self.warning_count()) {
             (0, 0) => (),
             (0, wcnt) => eprintln!("{}", format!("Found {wcnt} {warning_str}").yellow()),
             (ecnt, 0) => eprintln!("{}", format!("Failed due to {ecnt} {error_str}").red()),
@@ -153,15 +161,17 @@ impl LogResult {
         }
     }
 
+    /// Checks that no errors have been reported.
     pub fn is_success(&self) -> bool {
-        self.error_count == 0
+        self.reported_errors.is_empty()
     }
 
+    /// Returns an error if at least one error has been reported.
     pub fn check(&self) -> Result<()> {
         if !self.is_success() {
             anyhow::bail!(
                 "{} errors and {} warnings",
-                self.error_count,
+                self.error_count(),
                 self.warning_count()
             );
         }
@@ -211,7 +221,7 @@ impl LogReceiver {
             .spawn(move || {
                 let mut seen_errors = HashSet::new();
                 let mut result = LogResult {
-                    error_count: 0,
+                    reported_errors: Vec::new(),
                     reported_warnings: Vec::new(),
                 };
                 rx.iter().for_each(|log_task| match log_task {
@@ -223,10 +233,10 @@ impl LogReceiver {
                         let context_and_msg = &format!("{context}: {message}")[2..];
                         let level_str = match level {
                             LogLevel::Error => {
-                                if !seen_errors.insert(message) {
+                                if !seen_errors.insert(context_and_msg.to_string()) {
                                     return;
                                 }
-                                result.error_count += 1;
+                                result.reported_errors.push(context_and_msg.to_string());
                                 match error_mode {
                                     ErrorMode::KeepGoing => (),
                                     ErrorMode::FailFast(ref interrupted) => interrupted
@@ -314,11 +324,11 @@ impl LogAccumulator {
     pub fn join_allow_warnings(self) -> Result<()> {
         let log_result = self.log_receiver.join();
         let all_messages = std::mem::take(self.all_messages.lock().unwrap().deref_mut());
-        if log_result.error_count != 0 || log_result.warning_count() != 0 {
+        if log_result.error_count() != 0 || log_result.warning_count() != 0 {
             let messages = all_messages.join("\n");
             anyhow::bail!(
                 "{} errors and {} warnings:\n{}",
-                log_result.error_count,
+                log_result.error_count(),
                 log_result.warning_count(),
                 messages
             );
@@ -329,11 +339,11 @@ impl LogAccumulator {
     pub fn join_no_warnings(self) -> Result<()> {
         let log_result = self.log_receiver.join();
         let all_messages = std::mem::take(self.all_messages.lock().unwrap().deref_mut());
-        if log_result.error_count != 0 || log_result.warning_count() != 0 {
+        if log_result.error_count() != 0 || log_result.warning_count() != 0 {
             let messages = all_messages.join("\n");
             anyhow::bail!(
                 "{} errors and {} warnings:\n{}",
-                log_result.error_count,
+                log_result.error_count(),
                 log_result.warning_count(),
                 messages
             );
