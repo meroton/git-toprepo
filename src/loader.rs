@@ -135,11 +135,13 @@ impl<'a> CommitLoader<'a> {
             ));
             return Ok(());
         }
-        if repo_fetcher.fetches_done.contains(&fetch_params) {
+        if repo_fetcher.fetches_done.contains(&fetch_params)
+            || repo_fetcher.fetches_todo.contains(&fetch_params)
+        {
             return Ok(());
         }
         let was_empty = repo_fetcher.fetches_todo.is_empty();
-        repo_fetcher.fetches_todo.push(fetch_params);
+        repo_fetcher.fetches_todo.push_back(fetch_params);
         if was_empty {
             self.repos_to_fetch.push_back(repo_name);
         }
@@ -264,8 +266,9 @@ impl<'a> CommitLoader<'a> {
         let repo_fetcher = self.repos.get_mut(&repo_name).unwrap();
         let fetch_params = repo_fetcher
             .fetches_todo
-            .pop()
-            .expect("fetches_todo is not empty");
+            .front()
+            .expect("fetches_todo is not empty")
+            .clone();
 
         let mut fetcher = crate::fetch::RemoteFetcher::new(&self.toprepo);
         match &fetch_params {
@@ -298,7 +301,11 @@ impl<'a> CommitLoader<'a> {
 
     fn finish_fetch_repo_job(&mut self, repo_name: RepoName, fetch_params: FetchParams) {
         let repo_fetcher = self.repos.get_mut(&repo_name).unwrap();
+        if repo_fetcher.fetches_todo.pop_front().as_ref() != Some(&fetch_params) {
+            panic!("the first entry in fetches_todo is not the one that was fetches");
+        }
         repo_fetcher.fetches_done.insert(fetch_params);
+
         if !repo_fetcher.fetches_todo.is_empty() {
             // Enqueue again.
             self.repos_to_fetch.push_back(repo_name.clone());
@@ -1122,7 +1129,7 @@ struct RepoFetcher {
     missing_commits: HashSet<CommitId>,
 
     /// What be fetched.
-    fetches_todo: Vec<FetchParams>,
+    fetches_todo: VecDeque<FetchParams>,
     fetches_done: HashSet<FetchParams>,
 }
 
@@ -1134,7 +1141,7 @@ impl RepoFetcher {
             needed_commits: HashSet::new(),
             loading: LoadRepoState::NotLoadedYet,
             missing_commits: HashSet::new(),
-            fetches_todo: Vec::new(),
+            fetches_todo: VecDeque::new(),
             fetches_done: HashSet::new(),
         }
     }
