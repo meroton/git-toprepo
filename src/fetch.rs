@@ -9,7 +9,6 @@ use anyhow::Result;
 use anyhow::bail;
 use bstr::ByteSlice as _;
 use gix::remote::Direction;
-use std::ops::Deref;
 use std::path::PathBuf;
 use std::str::FromStr as _;
 
@@ -46,7 +45,7 @@ impl RemoteFetcher {
             RepoName::SubRepo(sub_repo_name) => {
                 let subrepo_config = config
                     .subrepos
-                    .get(sub_repo_name.deref())
+                    .get(sub_repo_name)
                     .with_context(|| format!("Repo {repo_name} not found in config"))?;
                 self.set_remote_from_subrepo_config(gix_repo, repo_name, subrepo_config)?;
             }

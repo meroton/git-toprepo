@@ -243,7 +243,7 @@ where
                     if !submod_config.enabled {
                         anyhow::bail!("Submodule {name} is disabled in the configuration");
                     }
-                    matching_submod_names.insert(RepoName::new(&name));
+                    matching_submod_names.insert(RepoName::SubRepo(name));
                     matching_submod_path = submod_path;
                 }
             }

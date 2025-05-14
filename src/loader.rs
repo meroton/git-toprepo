@@ -26,7 +26,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::fmt::Debug;
-use std::ops::Deref as _;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -618,7 +617,7 @@ impl<'a> CommitLoader<'a> {
                 let submod_contig = self
                     .config
                     .subrepos
-                    .get(submod_repo_name.deref())
+                    .get(submod_repo_name)
                     .with_context(|| format!("Repo {repo_name} not found in config"))?;
                 let fetch_url = submod_contig.resolve_fetch_url();
                 (submod_contig.enabled, fetch_url.clone())
@@ -899,7 +898,7 @@ impl<'a> CommitLoader<'a> {
                 }
             })
             .ok()?;
-        Some(SubRepoName::new(name))
+        Some(name)
     }
 
     fn add_progress_bar(&self) -> indicatif::ProgressBar {
