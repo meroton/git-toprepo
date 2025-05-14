@@ -248,6 +248,7 @@ impl TopRepoExpander<'_> {
                 &top_commit,
                 vec![],
                 vec![],
+                None,
                 HashMap::new(),
                 Some(BString::from(b"Initial empty commit")),
             )?);
@@ -260,6 +261,7 @@ impl TopRepoExpander<'_> {
         let mono_commit = self.emit_mono_commit(
             branch,
             &TOP_PATH,
+            &RepoName::Top,
             &top_commit,
             mono_parents,
             commit.file_changes,
@@ -321,10 +323,12 @@ impl TopRepoExpander<'_> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn emit_mono_commit(
         &mut self,
         branch: &FullNameRef,
         path: &GitPath,
+        repo_name: &RepoName,
         source_commit: &ThinCommit,
         parents: Vec<MonoRepoParent>,
         initial_file_changes: Vec<ChangedFile>,
@@ -332,6 +336,22 @@ impl TopRepoExpander<'_> {
     ) -> Result<Rc<MonoRepoCommit>> {
         let mut submodule_bumps = HashMap::new();
         let mut tree_updates = Vec::new();
+        let top_bump = match repo_name {
+            RepoName::Top => Some(TopRepoCommitId::new(source_commit.commit_id)),
+            RepoName::SubRepo(sub_repo_name) => {
+                submodule_bumps.insert(
+                    path.clone(),
+                    ExpandedOrRemovedSubmodule::Expanded(ExpandedSubmodule::Expanded(
+                        SubmoduleContent {
+                            repo_name: sub_repo_name.clone(),
+                            orig_commit_id: source_commit.commit_id,
+                        },
+                    )),
+                );
+                tree_updates.push((path.clone(), source_commit.tree_id));
+                None
+            }
+        };
         self.get_recursive_submodule_bumps(
             path,
             source_commit,
@@ -364,18 +384,21 @@ impl TopRepoExpander<'_> {
             source_commit,
             parents,
             file_changes,
+            top_bump,
             submodule_bumps,
             message,
         )?;
         Ok(mono_commit)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn emit_mono_commit_with_tree_updates(
         &mut self,
         branch: &FullNameRef,
         source_commit: &ThinCommit,
         parents: Vec<MonoRepoParent>,
         file_changes: Vec<ChangedFile>,
+        top_bump: Option<TopRepoCommitId>,
         submodule_bumps: HashMap<GitPath, ExpandedOrRemovedSubmodule>,
         message: Option<BString>,
     ) -> Result<Rc<MonoRepoCommit>> {
@@ -407,7 +430,7 @@ impl TopRepoExpander<'_> {
                 .collect(),
             original_id: None,
         })?;
-        let mono_commit = MonoRepoCommit::new_rc(parents, submodule_bumps);
+        let mono_commit = MonoRepoCommit::new_rc(parents, top_bump, submodule_bumps);
         self.imported_commits.insert(
             RcKey::new(&mono_commit),
             (importer_mark, mono_commit.clone()),
@@ -525,6 +548,7 @@ impl TopRepoExpander<'_> {
                                         .expand_parent_for_regressing_submodule_bump(
                                             branch,
                                             regressing_parent_vec.as_ref().unwrap_or(mono_parents),
+                                            &RepoName::SubRepo(submod_repo_name.clone()),
                                             &abs_sub_path,
                                             &submod_commit,
                                             non_descendants,
@@ -660,6 +684,7 @@ impl TopRepoExpander<'_> {
         &mut self,
         branch: &FullNameRef,
         mono_parents: &[Rc<MonoRepoCommit>],
+        repo_name: &RepoName,
         abs_sub_path: &GitPath,
         submod_commit: &ThinCommit,
         mut non_descendants: Vec<CommitId>,
@@ -729,6 +754,7 @@ impl TopRepoExpander<'_> {
         let extra_mono_commit = self.emit_mono_commit(
             branch,
             abs_sub_path,
+            repo_name,
             submod_commit,
             regressing_mono_parents,
             file_changes,
@@ -941,6 +967,7 @@ impl TopRepoExpander<'_> {
         let mono_commit = self.emit_mono_commit(
             branch,
             abs_sub_path,
+            &RepoName::SubRepo(wanted_sub_repo_name.clone()),
             wanted_sub_commit,
             all_parents,
             file_changes,
@@ -1263,6 +1290,7 @@ impl BumpCache {
         let mut stack = vec![StackEntry {
             mono_commit: MonoRepoCommit::new_rc(
                 vec![MonoRepoParent::Mono(mono_commit.clone())],
+                None,
                 HashMap::new(),
             ),
             commit_key: key.mono_commit,

@@ -624,6 +624,8 @@ pub struct MonoRepoCommit {
     /// The depth in the mono repo, i.e. the number of commits in the longest
     /// history path.
     pub depth: usize,
+    /// Potential update of the top repo content in this mono repo commit.
+    pub top_bump: Option<TopRepoCommitId>,
     /// The original commits that were updated in this mono repo commit, recursively.
     pub submodule_bumps: HashMap<GitPath, ExpandedOrRemovedSubmodule>,
     /// The expanded submodule paths in this mono repo commit, recursively.
@@ -633,6 +635,7 @@ pub struct MonoRepoCommit {
 impl MonoRepoCommit {
     pub fn new_rc(
         parents: Vec<MonoRepoParent>,
+        top_bump: Option<TopRepoCommitId>,
         submodule_bumps: HashMap<GitPath, ExpandedOrRemovedSubmodule>,
     ) -> Rc<MonoRepoCommit> {
         let depth = parents
@@ -670,6 +673,7 @@ impl MonoRepoCommit {
         Rc::new(MonoRepoCommit {
             parents,
             depth,
+            top_bump,
             submodule_bumps,
             submodule_paths,
         })

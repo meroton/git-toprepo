@@ -376,6 +376,7 @@ enum SerdeMonoRepoParent {
 struct SerdeMonoRepoCommit {
     pub commit_id: MonoRepoCommitId,
     pub parents: Vec<SerdeMonoRepoParent>,
+    pub top_bump: Option<TopRepoCommitId>,
     pub submodule_bumps: HashMap<GitPath, ExpandedOrRemovedSubmodule>,
 }
 
@@ -401,7 +402,7 @@ impl SerdeMonoRepoCommit {
                 )),
             })
             .collect::<Result<_>>()?;
-        let commit = MonoRepoCommit::new_rc(parents, self.submodule_bumps);
+        let commit = MonoRepoCommit::new_rc(parents, self.top_bump, self.submodule_bumps);
         Ok(commit)
     }
 
@@ -430,6 +431,7 @@ impl SerdeMonoRepoCommit {
                 .expect("mono commits have commit ids")
                 .clone(),
             parents,
+            top_bump: commit.top_bump.clone(),
             submodule_bumps: commit.submodule_bumps.clone(),
         }
     }
