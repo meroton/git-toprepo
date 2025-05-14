@@ -285,32 +285,34 @@ impl TopRepoExpander<'_> {
             let submod_update = match bump {
                 ThinSubmodule::AddedOrModified(bump) => {
                     let expanded_submod = if let Some(submod_repo_name) = &bump.repo_name {
-                        let submod_storage = self
-                            .storage
-                            .repos
-                            .get(&RepoName::SubRepo(submod_repo_name.clone()))
-                            .unwrap();
-                        if let Some(submod_commit) =
-                            submod_storage.thin_commits.get(&bump.commit_id)
-                        {
-                            tree_updates.push((abs_sub_path.clone(), submod_commit.tree_id));
-                            self.get_recursive_submodule_bumps(
-                                &abs_sub_path,
-                                submod_commit,
-                                submod_updates,
-                                tree_updates,
-                            );
-                            // TODO: This might be a regression, but the caller
-                            // is not interested in that information anyway.
-                            ExpandedSubmodule::Expanded(SubmoduleContent {
-                                repo_name: submod_repo_name.clone(),
-                                orig_commit_id: bump.commit_id,
-                            })
+                        let repo_name = RepoName::SubRepo(submod_repo_name.clone());
+                        if self.config.is_enabled(&repo_name) {
+                            let submod_storage = self.storage.repos.get(&repo_name).unwrap();
+                            if let Some(submod_commit) =
+                                submod_storage.thin_commits.get(&bump.commit_id)
+                            {
+                                tree_updates.push((abs_sub_path.clone(), submod_commit.tree_id));
+                                self.get_recursive_submodule_bumps(
+                                    &abs_sub_path,
+                                    submod_commit,
+                                    submod_updates,
+                                    tree_updates,
+                                );
+                                // TODO: This might be a regression, but the caller
+                                // is not interested in that information anyway.
+                                ExpandedSubmodule::Expanded(SubmoduleContent {
+                                    repo_name: submod_repo_name.clone(),
+                                    orig_commit_id: bump.commit_id,
+                                })
+                            } else {
+                                ExpandedSubmodule::CommitMissingInSubRepo(SubmoduleContent {
+                                    repo_name: submod_repo_name.clone(),
+                                    orig_commit_id: bump.commit_id,
+                                })
+                            }
                         } else {
-                            ExpandedSubmodule::CommitMissingInSubRepo(SubmoduleContent {
-                                repo_name: submod_repo_name.clone(),
-                                orig_commit_id: bump.commit_id,
-                            })
+                            // Repository disabled by config, keep the submodule.
+                            ExpandedSubmodule::KeptAsSubmodule(bump.commit_id)
                         }
                     } else {
                         ExpandedSubmodule::UnknownSubmodule(bump.commit_id)
@@ -504,8 +506,7 @@ impl TopRepoExpander<'_> {
                             .is_none_or(|repo_config| repo_config.enabled)
                         {
                             // Repository disabled by config, skipping to keep the submodule.
-                            self.logger.warning(format!(
-                                "Skipping submodule {submod_repo_name} as it is disabled in the configuration"));
+                            // No need to log a warning because it is part of the user configuration.
                             ExpandedSubmodule::KeptAsSubmodule(submod_commit_id)
                         } else if let Some(submod_storage) = self
                             .storage
@@ -844,10 +845,7 @@ impl TopRepoExpander<'_> {
                     .is_none_or(|repo_config| repo_config.enabled)
                 {
                     // Repository disabled by config, skipping to keep the submodule.
-                    self.logger.warning(format!(
-                        "Skipping submodule {} as it is disabled in the configuration",
-                        submod.repo_name
-                    ));
+                    // No need to log a warning because it is part of the user configuration.
                     continue;
                 }
                 if let Some(submod_storage) = self
