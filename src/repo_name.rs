@@ -14,11 +14,14 @@ pub enum RepoName {
 }
 
 impl RepoName {
-    pub fn new(s: &str) -> Self {
-        if s == "top" {
+    pub fn new<T>(s: T) -> Self
+    where
+        T: Into<String> + AsRef<str>,
+    {
+        if s.as_ref() == "top" {
             RepoName::Top
         } else {
-            RepoName::SubRepo(SubRepoName::new(s.to_owned()))
+            RepoName::SubRepo(SubRepoName::new(s.into()))
         }
     }
 
@@ -80,7 +83,7 @@ pub struct SubRepoName(String);
 
 impl SubRepoName {
     pub fn new(name: String) -> Self {
-        SubRepoName(name.to_owned())
+        SubRepoName(name)
     }
 }
 

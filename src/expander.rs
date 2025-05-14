@@ -477,7 +477,7 @@ impl TopRepoExpander<'_> {
                         if !self
                             .config
                             .subrepos
-                            .get(submod_repo_name.deref())
+                            .get(submod_repo_name)
                             .is_none_or(|repo_config| repo_config.enabled)
                         {
                             // Repository disabled by config, skipping to keep the submodule.
@@ -814,7 +814,7 @@ impl TopRepoExpander<'_> {
                 if !self
                     .config
                     .subrepos
-                    .get(submod.repo_name.deref())
+                    .get(&submod.repo_name)
                     .is_none_or(|repo_config| repo_config.enabled)
                 {
                     // Repository disabled by config, skipping to keep the submodule.

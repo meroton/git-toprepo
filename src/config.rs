@@ -1,5 +1,7 @@
 use crate::git::git_command;
 use crate::git::git_config_get;
+use crate::repo_name::RepoName;
+use crate::repo_name::SubRepoName;
 use crate::util::CommandExtension as _;
 use crate::util::is_default;
 use crate::util::trim_newline_suffix;
@@ -28,7 +30,7 @@ pub struct GitTopRepoConfig {
     #[serde(skip)]
     pub checksum: String,
     #[serde(rename = "repo")]
-    pub subrepos: BTreeMap<String, SubrepoConfig>,
+    pub subrepos: BTreeMap<SubRepoName, SubrepoConfig>,
     pub log: LogConfig,
 }
 
@@ -64,7 +66,7 @@ impl Display for ConfigLocation {
 impl GitTopRepoConfig {
     /// Gets a `SubrepoConfig` based on a URL using exact matching. If an URL is
     /// missing, the user should add it to the `SubrepoConfig::urls` list.
-    pub fn get_name_from_url(&self, url: &gix::Url) -> Result<Option<String>> {
+    pub fn get_name_from_url(&self, url: &gix::Url) -> Result<Option<SubRepoName>> {
         let matches: Vec<_> = self
             .subrepos
             .iter()
@@ -80,7 +82,7 @@ impl GitTopRepoConfig {
         }
     }
 
-    pub fn default_name_from_url(&self, repo_url: &gix::Url) -> String {
+    pub fn default_name_from_url(&self, repo_url: &gix::Url) -> Option<SubRepoName> {
         // TODO: UTF-8 validation.
         let mut name: &str = &repo_url.path.to_str_lossy();
         if name.ends_with(".git") {
@@ -99,11 +101,18 @@ impl GitTopRepoConfig {
                 break;
             }
         }
-        name.replace("/", "_")
+        let name = name.replace("/", "_");
+        match RepoName::new(name) {
+            RepoName::Top => None,
+            RepoName::SubRepo(name) => Some(name),
+        }
     }
 
     /// Get a subrepo configuration without creating a new entry if missing.
-    pub fn get_from_url(&self, repo_url: &gix::Url) -> Result<Option<(String, &SubrepoConfig)>> {
+    pub fn get_from_url(
+        &self,
+        repo_url: &gix::Url,
+    ) -> Result<Option<(SubRepoName, &SubrepoConfig)>> {
         match self.get_name_from_url(repo_url)? {
             Some(repo_name) => {
                 let subrepo_config = self.subrepos.get(&repo_name).expect("valid subrepo name");
@@ -117,14 +126,19 @@ impl GitTopRepoConfig {
     pub fn get_or_insert_from_url(
         &mut self,
         repo_url: &gix::Url,
-    ) -> Result<(String, &SubrepoConfig)> {
+    ) -> Result<(SubRepoName, &SubrepoConfig)> {
         let (repo_name, subrepo_config) = match self.get_name_from_url(repo_url)? {
             Some(name) => {
                 let subrepo_config = self.subrepos.get_mut(&name).expect("valid subrepo name");
                 (name, subrepo_config)
             }
             None => {
-                let repo_name = self.default_name_from_url(repo_url);
+                let repo_name = self.default_name_from_url(repo_url).with_context(|| {
+                    format!(
+                        "URL {repo_url} cannot be automatically converted to a valid repo name. \
+                        Please create a manual config entry with the URL."
+                    )
+                })?;
                 // Instead of just self.subrepos.get(&repo_name), also check for
                 // case insensitive repo name uniqueness. It's confusing for the
                 // user to get multiple repos with the same name and not
@@ -137,7 +151,7 @@ impl GitTopRepoConfig {
                         let existing_url = subrepo_config.resolve_fetch_url();
                         bail!(
                             "URL {repo_url} would duplicate repo name {existing_name:?} with URL {existing_url}. \
-                            Please create a manual config entry with both URLS."
+                            Please create a manual config entry with both URLs."
                         );
                     }
                 }
@@ -309,7 +323,7 @@ impl GitTopRepoConfig {
     }
 
     fn ensure_unique_urls(&self) -> Result<()> {
-        let mut found = HashMap::<String, String>::new();
+        let mut found = HashMap::<String, SubRepoName>::new();
         for (repo_name, v) in self.subrepos.iter() {
             for url in v.urls.iter() {
                 match found.entry(url.to_string()) {
@@ -329,6 +343,16 @@ impl GitTopRepoConfig {
             }
         }
         Ok(())
+    }
+
+    pub fn is_enabled(&self, repo_name: &RepoName) -> bool {
+        match repo_name {
+            RepoName::Top => true,
+            RepoName::SubRepo(sub_repo_name) => self
+                .subrepos
+                .get(sub_repo_name)
+                .is_none_or(|repo_config| repo_config.enabled),
+        }
     }
 }
 
@@ -541,11 +565,12 @@ url = "ssh://bar/baz.git"
 
         let config = GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap();
 
-        assert!(config.subrepos.contains_key("foo"));
+        let foo_name = SubRepoName::new("foo".to_owned());
+        assert!(config.subrepos.contains_key(&foo_name));
         assert_eq!(
             config
                 .subrepos
-                .get("foo")
+                .get(&foo_name)
                 .unwrap()
                 .resolve_fetch_url()
                 .to_bstring(),
@@ -554,7 +579,7 @@ url = "ssh://bar/baz.git"
         assert_eq!(
             config
                 .subrepos
-                .get("foo")
+                .get(&foo_name)
                 .unwrap()
                 .resolve_push_url()
                 .to_bstring(),
@@ -660,11 +685,12 @@ url = "ssh://bar/baz.git"
 
         let config = GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap();
 
-        assert!(config.subrepos.contains_key("foo"));
+        let foo_name = SubRepoName::new("foo".to_owned());
+        assert!(config.subrepos.contains_key(&foo_name));
         assert_eq!(
             config
                 .subrepos
-                .get("foo")
+                .get(&foo_name)
                 .unwrap()
                 .resolve_fetch_url()
                 .to_bstring(),
@@ -673,7 +699,7 @@ url = "ssh://bar/baz.git"
         assert_eq!(
             config
                 .subrepos
-                .get("foo")
+                .get(&foo_name)
                 .unwrap()
                 .resolve_push_url()
                 .to_bstring(),
@@ -687,7 +713,11 @@ url = "ssh://bar/baz.git"
 
         assert_eq!(config.subrepos.len(), 0);
         config.get_or_insert_from_url(&gix::Url::from_bytes(b"ssh://bar/baz.git".as_bstr())?)?;
-        assert!(config.subrepos.contains_key("baz"));
+        assert!(
+            config
+                .subrepos
+                .contains_key(&SubRepoName::new("baz".to_owned()))
+        );
         Ok(())
     }
 
@@ -700,7 +730,11 @@ url = "ssh://bar/baz.git"
         [repos]"#,
         )?;
 
-        assert!(config.subrepos.contains_key("foo"));
+        assert!(
+            config
+                .subrepos
+                .contains_key(&SubRepoName::new("foo".to_owned()))
+        );
         assert!(
             config
                 .get_or_insert_from_url(&gix::Url::from_bytes(
