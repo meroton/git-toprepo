@@ -21,8 +21,18 @@ pub struct Cli {
     #[arg(name = "path", short = 'C')]
     pub working_directory: Option<PathBuf>,
 
+    /// Optional "git" word to simplify pasting copied commands, for example:
+    /// `git-toprepo git fetch ...`.
+    #[arg(name = "git")]
+    pub git: Option<GitEnum>,
+
     #[command(subcommand)]
     pub command: Commands,
+}
+
+#[derive(clap::ValueEnum, Clone, Debug)]
+pub enum GitEnum {
+    Git,
 }
 
 #[derive(Subcommand, Debug)]
