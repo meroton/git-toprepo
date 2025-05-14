@@ -2,8 +2,10 @@ mod fixtures;
 
 use bstr::ByteSlice as _;
 use git_toprepo::config::GitTopRepoConfig;
+use git_toprepo::config::SubrepoConfig;
 use git_toprepo::git::git_command;
 use git_toprepo::loader::FetchParams;
+use git_toprepo::repo_name::SubRepoName;
 use git_toprepo::util::CommandExtension as _;
 use itertools::Itertools as _;
 use std::collections::HashSet;
@@ -373,6 +375,31 @@ fn run_init_and_refilter(
     .unwrap();
     toprepo.fetch_toprepo_quiet().unwrap();
     let mut config = GitTopRepoConfig::default();
+    config.subrepos.insert(
+        SubRepoName::new("sub".into()),
+        SubrepoConfig {
+            urls: vec![gix::Url::from_bytes("../sub/".into()).unwrap()],
+            enabled: true,
+            ..Default::default()
+        },
+    );
+    config.subrepos.insert(
+        SubRepoName::new("subx".into()),
+        SubrepoConfig {
+            urls: vec![gix::Url::from_bytes("../subx/".into()).unwrap()],
+            enabled: true,
+            ..Default::default()
+        },
+    );
+    let suby_path = from_repo_path.parent().unwrap().join("suby");
+    config.subrepos.insert(
+        SubRepoName::new("suby".into()),
+        SubrepoConfig {
+            urls: vec![gix::Url::from_bytes(suby_path.to_str().unwrap().into()).unwrap()],
+            enabled: true,
+            ..Default::default()
+        },
+    );
     let mut toprepo_cache = git_toprepo::repo::TopRepoCache::default();
     let progress =
         indicatif::MultiProgress::with_draw_target(indicatif::ProgressDrawTarget::hidden());

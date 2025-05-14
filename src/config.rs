@@ -16,6 +16,7 @@ use serde_with::serde_as;
 use sha2::Digest as _;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -31,6 +32,10 @@ pub struct GitTopRepoConfig {
     pub checksum: String,
     #[serde(rename = "repo")]
     pub subrepos: BTreeMap<SubRepoName, SubrepoConfig>,
+    /// List of subrepos that are missing in the configuration and have
+    /// automatically been added to `suprepos`.
+    #[serde(skip)]
+    pub missing_subrepos: HashSet<SubRepoName>,
     pub log: LogConfig,
 }
 
@@ -77,7 +82,14 @@ impl GitTopRepoConfig {
             .collect();
         match matches.len() {
             0 => Ok(None),
-            1 => Ok(Some(matches[0].0.clone())),
+            1 => {
+                let repo_name = matches[0].0;
+                if self.missing_subrepos.contains(repo_name) {
+                    Ok(None)
+                } else {
+                    Ok(Some(repo_name.clone()))
+                }
+            }
             _ => {
                 let names = matches.into_iter().map(|(name, _)| name).join(", ");
                 bail!("Multiple remote candidates for {url}: {names}");
@@ -130,44 +142,36 @@ impl GitTopRepoConfig {
         &mut self,
         repo_url: &gix::Url,
     ) -> Result<(SubRepoName, &SubrepoConfig)> {
-        let (repo_name, subrepo_config) = match self.get_name_from_url(repo_url)? {
-            Some(name) => {
-                let subrepo_config = self.subrepos.get_mut(&name).expect("valid subrepo name");
-                (name, subrepo_config)
-            }
-            None => {
-                let repo_name = self.default_name_from_url(repo_url).with_context(|| {
-                    format!(
-                        "URL {repo_url} cannot be automatically converted to a valid repo name. \
-                        Please create a manual config entry with the URL."
-                    )
-                })?;
-                // Instead of just self.subrepos.get(&repo_name), also check for
-                // case insensitive repo name uniqueness. It's confusing for the
-                // user to get multiple repos with the same name and not
-                // realising that it's just the casing that is different.
-                // Manually adding multiple entries with different casing is
-                // allowed but not recommended.
-                for (existing_name, subrepo_config) in &self.subrepos {
-                    if repo_name.to_lowercase() == existing_name.to_lowercase() {
-                        // TODO: Improve error message with how to write such a config.
-                        let existing_url = subrepo_config.resolve_fetch_url();
-                        bail!(
-                            "URL {repo_url} would duplicate repo name {existing_name:?} with URL {existing_url}. \
-                            Please create a manual config entry with both URLs."
-                        );
-                    }
+        let Some(repo_name) = self.get_name_from_url(repo_url)? else {
+            let mut repo_name = self.default_name_from_url(repo_url).with_context(|| {
+                format!(
+                    "URL {repo_url} cannot be automatically converted to a valid repo name. \
+                    Please create a manual config entry with the URL."
+                )
+            })?;
+            // Instead of just self.subrepos.get(&repo_name), also check for
+            // case insensitive repo name uniqueness. It's confusing for the
+            // user to get multiple repos with the same name and not
+            // realising that it's just the casing that is different.
+            // Manually adding multiple entries with different casing is
+            // allowed but not recommended.
+            for existing_name in self.subrepos.keys() {
+                if repo_name.to_lowercase() == existing_name.to_lowercase() {
+                    repo_name = existing_name.clone();
                 }
-                let subrepo_config =
-                    self.subrepos
-                        .entry(repo_name.clone())
-                        .or_insert(SubrepoConfig {
-                            urls: vec![repo_url.clone()],
-                            ..Default::default()
-                        });
-                (repo_name, subrepo_config)
             }
+            self.subrepos
+                .entry(repo_name.clone())
+                .or_default()
+                .urls
+                .push(repo_url.clone());
+            self.missing_subrepos.insert(repo_name.clone());
+            bail!("URL {repo_url} is missing in the git-toprepo configuration");
         };
+        let subrepo_config = self
+            .subrepos
+            .get_mut(&repo_name)
+            .expect("valid subrepo name");
         Ok((repo_name, subrepo_config))
     }
 
@@ -374,7 +378,7 @@ pub struct ToprepoConfig {
 /// `fetch.url` is empty, the first entry in `urls` is used. If `push.url` is
 /// empty, the value of `fetch.url` is used.
 #[serde_as]
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct SubrepoConfig {
     #[serde_as(as = "Vec<crate::util::SerdeGixUrl>")]
@@ -383,6 +387,8 @@ pub struct SubrepoConfig {
     pub fetch: FetchConfig,
     #[serde(skip_serializing_if = "is_default")]
     pub push: PushConfig,
+    /// If `false`, the subrepo is not enabled. This is useful to avoid fetching
+    /// old repository. Default is `true`.
     #[serde(default = "return_true")]
     #[serde(skip_serializing_if = "is_true")]
     pub enabled: bool,
@@ -402,7 +408,13 @@ impl SubrepoConfig {
     /// if `urls` does not contain exacly one entry.
     pub fn validate(&self) -> Result<()> {
         // Set fetch/push urls.
-        if self.fetch.url.is_none() && self.urls.len() != 1 {
+        if self.fetch.url.is_some() {
+            // Ok, explicit fetch URL.
+        } else if self.urls.len() == 1 {
+            // Ok, only one URL.
+        } else if !self.enabled && self.urls.len() > 1 {
+            // Doesn't matter if self.fetch.url is not specified when disabled.
+        } else {
             bail!("Either .fetch.url needs to be set or .urls must have exactly one element")
         }
         Ok(())
@@ -439,17 +451,6 @@ impl SubrepoConfig {
             push.url = Some(self.resolve_push_url().to_owned());
         }
         push
-    }
-}
-
-impl Default for SubrepoConfig {
-    fn default() -> Self {
-        SubrepoConfig {
-            urls: Vec::new(),
-            fetch: Default::default(),
-            push: Default::default(),
-            enabled: true,
-        }
     }
 }
 
@@ -715,11 +716,21 @@ url = "ssh://bar/baz.git"
         let mut config = GitTopRepoConfig::parse_config_toml_string("")?;
 
         assert_eq!(config.subrepos.len(), 0);
-        config.get_or_insert_from_url(&gix::Url::from_bytes(b"ssh://bar/baz.git".as_bstr())?)?;
+        assert!(
+            config
+                .get_or_insert_from_url(&gix::Url::from_bytes(b"ssh://bar/baz.git".as_bstr())?)
+                .is_err()
+        );
         assert!(
             config
                 .subrepos
                 .contains_key(&SubRepoName::new("baz".to_owned()))
+        );
+        // Second time, it should still report an error.
+        assert!(
+            config
+                .get_or_insert_from_url(&gix::Url::from_bytes(b"ssh://bar/baz.git".as_bstr())?)
+                .is_err()
         );
         Ok(())
     }
