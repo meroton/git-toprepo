@@ -260,8 +260,8 @@ impl TopRepoExpander<'_> {
             .collect_vec();
         let mono_commit = self.emit_mono_commit(
             branch,
-            Some(commit_id.clone()),
             &TOP_PATH,
+            &RepoName::Top,
             &top_commit,
             mono_parents,
             commit.file_changes,
@@ -329,8 +329,8 @@ impl TopRepoExpander<'_> {
     fn emit_mono_commit(
         &mut self,
         branch: &FullNameRef,
-        top_bump: Option<TopRepoCommitId>,
         path: &GitPath,
+        repo_name: &RepoName,
         source_commit: &ThinCommit,
         parents: Vec<MonoRepoParent>,
         initial_file_changes: Vec<ChangedFile>,
@@ -338,6 +338,22 @@ impl TopRepoExpander<'_> {
     ) -> Result<Rc<MonoRepoCommit>> {
         let mut submodule_bumps = HashMap::new();
         let mut tree_updates = Vec::new();
+        let top_bump = match repo_name {
+            RepoName::Top => Some(TopRepoCommitId::new(source_commit.commit_id)),
+            RepoName::SubRepo(sub_repo_name) => {
+                submodule_bumps.insert(
+                    path.clone(),
+                    ExpandedOrRemovedSubmodule::Expanded(ExpandedSubmodule::Expanded(
+                        SubmoduleContent {
+                            repo_name: sub_repo_name.clone(),
+                            orig_commit_id: source_commit.commit_id,
+                        },
+                    )),
+                );
+                tree_updates.push((path.clone(), source_commit.tree_id));
+                None
+            }
+        };
         self.get_recursive_submodule_bumps(
             path,
             source_commit,
@@ -533,6 +549,7 @@ impl TopRepoExpander<'_> {
                                         .expand_parent_for_regressing_submodule_bump(
                                             branch,
                                             regressing_parent_vec.as_ref().unwrap_or(mono_parents),
+                                            &RepoName::SubRepo(submod_repo_name.clone()),
                                             &abs_sub_path,
                                             &submod_commit,
                                             non_descendants,
@@ -668,6 +685,7 @@ impl TopRepoExpander<'_> {
         &mut self,
         branch: &FullNameRef,
         mono_parents: &[Rc<MonoRepoCommit>],
+        repo_name: &RepoName,
         abs_sub_path: &GitPath,
         submod_commit: &ThinCommit,
         mut non_descendants: Vec<CommitId>,
@@ -736,8 +754,8 @@ impl TopRepoExpander<'_> {
             .collect();
         let extra_mono_commit = self.emit_mono_commit(
             branch,
-            None,
             abs_sub_path,
+            repo_name,
             submod_commit,
             regressing_mono_parents,
             file_changes,
@@ -946,8 +964,8 @@ impl TopRepoExpander<'_> {
         }];
         let mono_commit = self.emit_mono_commit(
             branch,
-            None,
             abs_sub_path,
+            &RepoName::SubRepo(wanted_sub_repo_name.clone()),
             wanted_sub_commit,
             all_parents,
             file_changes,
@@ -1016,12 +1034,15 @@ impl RefNameConverter {
         } else if let Some(other_ref_name) =
             top_namespace_ref.strip_prefix(self.top_namespace_prefix.as_slice())
         {
-            // Map other refs/namespaces/top/category/* to refs/remotes/origin/category/*.
-            FullName::try_from(BString::new(bstr::concat([
-                b"refs/remotes/origin/",
-                other_ref_name,
-            ])))
-            .map_err(|err| anyhow::anyhow!("{err:#}"))
+            let converted_name = if other_ref_name == b"FETCH_HEAD" {
+                // FETCH_HEAD is special.
+                other_ref_name.to_owned()
+            } else {
+                // Map other refs/namespaces/top/category/* to refs/remotes/origin/category/*.
+                bstr::concat([b"refs/remotes/origin/", other_ref_name])
+            };
+            FullName::try_from(BString::new(converted_name))
+                .map_err(|err| anyhow::anyhow!("{err:#}"))
         } else {
             anyhow::bail!("Bad top ref name {top_namespace_ref}")
         }

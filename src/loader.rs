@@ -505,7 +505,7 @@ impl<'a> CommitLoader<'a> {
         })();
         // Load all submodule commits that are needed so far.
         for needed_commit in needed_commits {
-            self.assure_commit_available(needed_commit);
+            self.ensure_commit_available(needed_commit);
         }
         self.fetch_progress.inc_num_cached_loads_done();
         result
@@ -543,7 +543,7 @@ impl<'a> CommitLoader<'a> {
 
         // Any of the submodule updates that need to be fetched?
         for needed_commit in updated_submodule_commits {
-            self.assure_commit_available(needed_commit);
+            self.ensure_commit_available(needed_commit);
         }
         Ok(())
     }
@@ -635,7 +635,7 @@ impl<'a> CommitLoader<'a> {
         Ok(())
     }
 
-    fn assure_commit_available(&mut self, needed_commit: NeededCommit) {
+    fn ensure_commit_available(&mut self, needed_commit: NeededCommit) {
         let repo_name: RepoName = RepoName::SubRepo(needed_commit.repo_name);
         let commit_id = needed_commit.commit_id;
         // Already loaded?
@@ -656,8 +656,9 @@ impl<'a> CommitLoader<'a> {
                 self.load_repo(repo_name)
                     .expect("configuration exists for repo");
             }
-            LoadRepoState::LoadingThenQueueAgain => (),
-            LoadRepoState::LoadingThenDone => (),
+            LoadRepoState::LoadingThenQueueAgain | LoadRepoState::LoadingThenDone => {
+                repo_fetcher.needed_commits.insert(commit_id);
+            }
             LoadRepoState::Done => {
                 if repo_fetcher.fetching_default_refspec_done() {
                     let mut missing_commits = HashSet::new();

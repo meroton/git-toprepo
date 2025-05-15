@@ -159,6 +159,10 @@ impl<'a> FastImportRepoDedup<'a> {
         hasher.update_serde(&parents)?;
         Ok(DedupCacheKey(hasher.try_finalize()?))
     }
+
+    pub fn wait(self) -> Result<Vec<gix::ObjectId>> {
+        self.inner.wait()
+    }
 }
 
 trait HasherExt {

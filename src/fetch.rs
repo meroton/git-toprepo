@@ -164,6 +164,7 @@ impl RemoteFetcher {
             let maybe_newline = if last_paragraph.is_empty() { "" } else { "\n" };
             bail!("git fetch {remote} failed: {err:#}{maybe_newline}{last_paragraph}");
         }
+        pb.set_message("git-fetch done");
         Ok(())
     }
 }

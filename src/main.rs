@@ -172,7 +172,7 @@ fn refilter(args: &cli::Refilter) -> Result<ExitCode> {
             refspecs: None,
         },
         |commit_loader| {
-            commit_loader.fetch_missing_commits = false;
+            commit_loader.fetch_missing_commits = !args.no_fetch;
             commit_loader.load_repo(git_toprepo::repo_name::RepoName::Top)
         },
     )
@@ -196,13 +196,19 @@ where
 
     let base_url = git_toprepo::git::get_default_remote_url(&repo)?;
 
-    let (fetch_repo_name, abs_sub_path, fetch_params) =
-        if fetch_args.top_or_submodule_remote.is_empty() && fetch_args.repo.is_none() {
-            if fetch_args.refspecs.is_some() {
-                anyhow::bail!("Refspecs are not supported unless a remote is specified");
-            }
-            (RepoName::Top, GitPath::new(b"".into()), None)
-        } else if fetch_args.top_or_submodule_remote == "origin" {
+    let (fetch_repo_name, abs_sub_path, fetch_params) = if fetch_args
+        .top_or_submodule_remote
+        .is_empty()
+        && fetch_args.repo.is_none()
+    {
+        if fetch_args.refspecs.is_some() {
+            anyhow::bail!("Refspecs are not supported unless a remote is specified");
+        }
+        (RepoName::Top, GitPath::new(b"".into()), None)
+    } else {
+        let (repo_name, submod_path, fetch_url_str) = if fetch_args.top_or_submodule_remote
+            == "origin"
+        {
             if let Some(repo_name) = &fetch_args.repo {
                 if repo_name != &RepoName::Top {
                     anyhow::bail!(
@@ -210,34 +216,23 @@ where
                     );
                 }
             }
-            if let Some(refspecs) = &fetch_args.refspecs {
-                if refspecs.len() != 1 {
-                    todo!("Handle multiple refspecs");
-                }
-                (
-                    RepoName::Top,
-                    GitPath::new(b"".into()),
-                    Some(FetchParams::Custom {
-                        remote: fetch_args.top_or_submodule_remote.clone(),
-                        refspec: refspecs[0].clone(),
-                    }),
-                )
-            } else {
-                (
-                    RepoName::Top,
-                    GitPath::new(b"".into()),
-                    Some(FetchParams::Default),
-                )
-            }
+            (
+                RepoName::Top,
+                GitPath::new(b"".into()),
+                fetch_args.top_or_submodule_remote.clone(),
+            )
         } else {
             let fetch_arg_url = base_url.join(&gix::url::Url::from_bytes(
                 fetch_args.top_or_submodule_remote.as_bytes().as_bstr(),
             )?);
             let fetch_url_str = fetch_arg_url.to_string();
             let trimmed_fetch_url = fetch_arg_url.trim_url_path();
-            let gitmod_infos = GitModulesInfo::parse_dot_gitmodules_in_repo(&repo)?;
             let mut matching_submod_names = HashSet::new();
             let mut matching_submod_path = GitPath::new("".into());
+            if trimmed_fetch_url.approx_equal(&base_url.clone().trim_url_path()) {
+                matching_submod_names.insert(RepoName::Top);
+            }
+            let gitmod_infos = GitModulesInfo::parse_dot_gitmodules_in_repo(&repo)?;
             for (submod_path, submod_url) in gitmod_infos.submodules {
                 let Ok(submod_url) = submod_url else {
                     continue;
@@ -267,21 +262,33 @@ where
                         .join(", ")
                 ),
             };
-            let Some(refspecs) = &fetch_args.refspecs else {
-                anyhow::bail!("Refspecs are required for submodules");
-            };
+            (repo_name, matching_submod_path, fetch_url_str)
+        };
+        if let Some(refspecs) = &fetch_args.refspecs {
             if refspecs.len() != 1 {
                 todo!("Handle multiple refspecs");
             }
             (
                 repo_name,
-                matching_submod_path,
+                submod_path,
                 Some(FetchParams::Custom {
                     remote: fetch_url_str,
                     refspec: refspecs[0].clone(),
                 }),
             )
-        };
+        } else {
+            match repo_name {
+                RepoName::Top => (
+                    RepoName::Top,
+                    GitPath::new(b"".into()),
+                    Some(FetchParams::Default),
+                ),
+                RepoName::SubRepo(_) => {
+                    anyhow::bail!("Refspecs are required for submodules");
+                }
+            }
+        }
+    };
 
     let error_mode = git_toprepo::log::ErrorMode::from_keep_going_flag(fetch_args.keep_going);
     let mut log_config = config.log.clone();
@@ -325,6 +332,13 @@ where
                     .interrupted()
                     .load(std::sync::atomic::Ordering::Relaxed)
             {
+                // TODO: This is so ugly.
+                if fetch_args.top_or_submodule_remote.is_empty() && fetch_args.repo.is_none() {
+                    // Doing refilter, not fetch.
+                    top_repo_cache.monorepo_commit_ids.clear();
+                    top_repo_cache.monorepo_commits.clear();
+                    top_repo_cache.top_to_mono_map.clear();
+                }
                 match (&fetch_repo_name, &fetch_params) {
                     (
                         RepoName::Top,
@@ -414,7 +428,8 @@ fn push(push_args: &cli::Push) -> Result<ExitCode> {
         git_toprepo::config::GitTopRepoConfig::load_config_from_repo(&toprepo.directory)?;
     let base_url = match repo.try_find_remote(push_args.top_remote.as_bytes()) {
         Some(Ok(remote)) => remote
-            .url(gix::remote::Direction::Push)
+            // TODO: Support push URL config.
+            .url(gix::remote::Direction::Fetch)
             .with_context(|| format!("Missing push URL for {}", push_args.top_remote))?
             .clone(),
         None => gix::Url::from_bytes(bstr::BStr::new(push_args.top_remote.as_bytes()))

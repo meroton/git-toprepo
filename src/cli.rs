@@ -138,6 +138,10 @@ pub struct Refilter {
     /// Number of concurrent threads to load the repository.
     #[arg(long, default_value = "7")]
     pub jobs: std::num::NonZero<u32>,
+
+    /// Skip fetching missing submodule commits.
+    #[arg(long)]
+    pub no_fetch: bool,
 }
 
 #[derive(Args, Debug)]
