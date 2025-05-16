@@ -111,12 +111,12 @@ fn git_add_local_submodule_to_index(repo: &Path, path: &GitPath, url: &str) {
 /// use git_toprepo::util::GitTopRepoExample;
 ///
 /// let tmp_dir = tempdir().unwrap();
-/// let tmp_path = tmp_dir.path().to_path_buf();
+/// let tmp_path = tmp_dir.path();
 ///
 /// // Use this instead for a persistent directory:
 /// // let tmp_path = tmp_dir.into_path();
 ///
-/// let repo = GitTopRepoExample::new(&tmp_path);
+/// let repo = GitTopRepoExample::new(tmp_path);
 /// let top_repo_path = repo.init_server_top();
 /// assert!(!top_repo_path.exists());
 /// ```
@@ -133,8 +133,8 @@ impl GitTopRepoExample {
     /// Sets up the repo structure and returns the top repo path.
     pub fn init_server_top(&self) -> PathBuf {
         let env = commit_env();
-        let top_repo = self.tmp_path.join("top").to_path_buf();
-        let sub_repo = self.tmp_path.join("sub").to_path_buf();
+        let top_repo = self.tmp_path.join("top");
+        let sub_repo = self.tmp_path.join("sub");
 
         std::fs::create_dir_all(&top_repo).unwrap();
         std::fs::create_dir_all(&sub_repo).unwrap();
@@ -230,8 +230,8 @@ impl GitTopRepoExample {
     /// Sets up the repo structure and returns the top repo path.
     pub fn merge_with_one_submodule_a(&self) -> PathBuf {
         let env = commit_env();
-        let top_repo = self.tmp_path.join("top").to_path_buf();
-        let subx_repo = self.tmp_path.join("subx").to_path_buf();
+        let top_repo = self.tmp_path.join("top");
+        let subx_repo = self.tmp_path.join("subx");
 
         std::fs::create_dir_all(&top_repo).unwrap();
         std::fs::create_dir_all(&subx_repo).unwrap();
@@ -284,8 +284,8 @@ impl GitTopRepoExample {
     /// Sets up the repo structure and returns the top repo path.
     pub fn merge_with_one_submodule_b(&self) -> PathBuf {
         let env = commit_env();
-        let top_repo = self.tmp_path.join("top").to_path_buf();
-        let subx_repo = self.tmp_path.join("subx").to_path_buf();
+        let top_repo = self.tmp_path.join("top");
+        let subx_repo = self.tmp_path.join("subx");
 
         std::fs::create_dir_all(&top_repo).unwrap();
         std::fs::create_dir_all(&subx_repo).unwrap();
@@ -345,9 +345,9 @@ impl GitTopRepoExample {
     /// Sets up the repo structure and returns the top repo path.
     pub fn merge_with_two_submodules(&self) -> PathBuf {
         let env = commit_env();
-        let top_repo = self.tmp_path.join("top").to_path_buf();
-        let subx_repo = self.tmp_path.join("subx").to_path_buf();
-        let suby_repo = self.tmp_path.join("suby").to_path_buf();
+        let top_repo = self.tmp_path.join("top");
+        let subx_repo = self.tmp_path.join("subx");
+        let suby_repo = self.tmp_path.join("suby");
 
         std::fs::create_dir_all(&top_repo).unwrap();
         std::fs::create_dir_all(&subx_repo).unwrap();
@@ -421,8 +421,8 @@ impl GitTopRepoExample {
     /// Sets up the repo structure and returns the top repo path.
     pub fn submodule_removal(&self) -> PathBuf {
         let env = commit_env();
-        let top_repo = self.tmp_path.join("top").to_path_buf();
-        let subx_repo = self.tmp_path.join("subx").to_path_buf();
+        let top_repo = self.tmp_path.join("top");
+        let subx_repo = self.tmp_path.join("subx");
 
         std::fs::create_dir_all(&top_repo).unwrap();
         std::fs::create_dir_all(&subx_repo).unwrap();
@@ -474,8 +474,8 @@ impl GitTopRepoExample {
     /// Sets up the repo structure and returns the top repo path.
     pub fn move_submodule(&self) -> PathBuf {
         let env = commit_env();
-        let top_repo = self.tmp_path.join("top").to_path_buf();
-        let subx_repo = self.tmp_path.join("subx").to_path_buf();
+        let top_repo = self.tmp_path.join("top");
+        let subx_repo = self.tmp_path.join("subx");
 
         std::fs::create_dir_all(&top_repo).unwrap();
         std::fs::create_dir_all(&subx_repo).unwrap();

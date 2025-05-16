@@ -505,23 +505,22 @@ mod tests {
     #[test]
     fn test_create_config_from_invalid_ref() {
         let tmp_dir = tempfile::tempdir().unwrap();
-        let tmp_path = tmp_dir.path().to_path_buf();
+        let tmp_path = tmp_dir.path();
         let env = commit_env();
 
-        git_command(&tmp_path)
+        git_command(tmp_path)
             .args(["init"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(&tmp_path)
+        git_command(tmp_path)
             .args(["config", "toprepo.config", ":foobar.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        let err: anyhow::Error =
-            GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap_err();
+        let err: anyhow::Error = GitTopRepoConfig::load_config_from_repo(tmp_path).unwrap_err();
         assert_eq!(
             format!("{err:#}"),
             "Loading worktree file: foobar.toml\
@@ -535,10 +534,10 @@ mod tests {
         use std::io::Write;
 
         let tmp_dir = tempfile::tempdir().unwrap();
-        let tmp_path = tmp_dir.path().to_path_buf();
+        let tmp_path = tmp_dir.path();
         let env = commit_env();
 
-        git_command(&tmp_path)
+        git_command(tmp_path)
             .args(["init"])
             .envs(&env)
             .check_success_with_stderr()
@@ -555,19 +554,19 @@ url = "ssh://bar/baz.git"
         )
         .unwrap();
 
-        git_command(&tmp_path)
+        git_command(tmp_path)
             .args(["add", "foobar.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(&tmp_path)
+        git_command(tmp_path)
             .args(["config", "toprepo.config", ":foobar.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        let config = GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap();
+        let config = GitTopRepoConfig::load_config_from_repo(tmp_path).unwrap();
 
         let foo_name = SubRepoName::new("foo".to_owned());
         assert!(config.subrepos.contains_key(&foo_name));
@@ -594,33 +593,31 @@ url = "ssh://bar/baz.git"
     #[test]
     fn test_create_config_from_empty_string() {
         let tmp_dir = tempfile::tempdir().unwrap();
-        let tmp_path: PathBuf = tmp_dir.path().to_path_buf();
+        let tmp_path = tmp_dir.path();
         let env = commit_env();
 
-        git_command(&tmp_path)
+        git_command(tmp_path)
             .args(["init"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(&tmp_path)
+        git_command(tmp_path)
             .args(["commit", "--allow-empty", "-m", "Initial commit"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(&tmp_path)
+        git_command(tmp_path)
             .args(["update-ref", "refs/namespaces/top/HEAD", "HEAD"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
         let mut search_log = String::new();
-        let config = GitTopRepoConfig::load_config_from_repo_with_log(
-            tmp_path.as_path(),
-            Some(&mut search_log),
-        )
-        .unwrap();
+        let config =
+            GitTopRepoConfig::load_config_from_repo_with_log(tmp_path, Some(&mut search_log))
+                .unwrap();
         assert_eq!(
             search_log,
             "git config toprepo.config: <unset>\n\
@@ -637,10 +634,10 @@ url = "ssh://bar/baz.git"
         use std::io::Write;
 
         let tmp_dir = tempfile::tempdir().unwrap();
-        let tmp_path = tmp_dir.path().to_path_buf();
+        let tmp_path = tmp_dir.path();
         let env = commit_env();
 
-        git_command(&tmp_path)
+        git_command(tmp_path)
             .args(["init"])
             .envs(&env)
             .check_success_with_stderr()
@@ -657,37 +654,37 @@ url = "ssh://bar/baz.git"
         )
         .unwrap();
 
-        git_command(&tmp_path)
+        git_command(tmp_path)
             .args(["add", ".gittoprepo.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(&tmp_path)
+        git_command(tmp_path)
             .args(["commit", "-m", "Initial commit"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(&tmp_path)
+        git_command(tmp_path)
             .args(["update-ref", "refs/namespaces/top/HEAD", "HEAD"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(&tmp_path)
+        git_command(tmp_path)
             .args(["rm", ".gittoprepo.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(&tmp_path)
+        git_command(tmp_path)
             .args(["commit", "-m", "Remove .gittoprepo.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        let config = GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap();
+        let config = GitTopRepoConfig::load_config_from_repo(tmp_path).unwrap();
 
         let foo_name = SubRepoName::new("foo".to_owned());
         assert!(config.subrepos.contains_key(&foo_name));
