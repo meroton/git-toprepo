@@ -24,12 +24,8 @@ jobs:
       - run: rustup default nightly-2025-05-16
       - uses: Swatinem/rust-cache@v2
 
-      - name: Format code
-        run: cargo fmt
-      - name: Check for modified workspace
-        run: git add . && git diff --exit-code HEAD --
       - name: Build and test
-        run: ./build.sh
+        run: ./build.sh ci
       - name: Check for modified workspace
         run: git add . && git diff --exit-code HEAD --
 
