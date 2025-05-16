@@ -87,25 +87,13 @@ pub struct Config {
 #[derive(Subcommand, Debug)]
 pub enum ConfigCommands {
     /// Prints the configuration location.
-    Location(ConfigLocation),
+    Location,
     /// Show the configuration of the current repository.
-    Show(ConfigShow),
+    Show,
     /// Reads a configuration and prints it in normalized form.
     Normalize(ConfigNormalize),
     /// Verifies that a given configuration can be loaded.
     Validate(ConfigValidate),
-}
-
-#[derive(Args, Debug)]
-pub struct ConfigLocation {
-    #[arg(short = 'v', long = "verbose")]
-    pub verbose: bool,
-}
-
-#[derive(Args, Debug)]
-pub struct ConfigShow {
-    #[arg(short = 'v', long = "verbose")]
-    pub verbose: bool,
 }
 
 #[derive(Args, Debug)]

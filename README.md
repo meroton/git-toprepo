@@ -66,13 +66,11 @@ The algorithm steps are:
 
 The configuration is specified in [Toml](https://toml.io/) format. The location
 of the configuration file is set in the git-config of the super repository using
-`git config --local toprepo.config <ref>:<git-repo-relative-path>` which
-defaults to `refs/remotes/origin/HEAD:.gittoprepo.toml`. An empty `ref`, for
-example `:.gittoprepo.user.toml`, means that the file is read from the worktree
-instead of the commits.
-
-Overriding the location is only recommended for testing out a new config and
-debugging purpose.
+`git config --local toprepo.config <location>`
+Where the location is either a git ref `ref:<ref>:<path>` or a local file
+`local:<path>`.
+By default the toprepo has a configuration through a git ref that is committed.
+But it is possible to override it with a local path.
 
 ### Sub repositories
 

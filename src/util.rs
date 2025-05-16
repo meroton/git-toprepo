@@ -507,14 +507,14 @@ pub fn is_default<T: Default + PartialEq>(t: &T) -> bool {
 ///
 /// assert_eq!(trim_newline_suffix("foo\n\r"), "foo\n\r");
 /// ```
-pub fn trim_newline_suffix(s: &str) -> &str {
-    if let Some(stripped) = s.strip_suffix("\r\n") {
-        stripped
-    } else if let Some(stripped) = s.strip_suffix('\n') {
-        stripped
-    } else {
-        s
-    }
+pub fn trim_newline_suffix(line: &str) -> &str {
+    let Some(line) = line.strip_suffix('\n') else {
+        return line;
+    };
+    let Some(line) = line.strip_suffix('\r') else {
+        return line;
+    };
+    line
 }
 
 /// Removes trailing LF or CRLF from a byte string.

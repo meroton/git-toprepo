@@ -105,6 +105,15 @@ impl TopRepo {
             .check_success()
             .context("Failed to set git-config remote.origin.tagOpt")?;
         git_command(&directory)
+            .args([
+                "config",
+                "toprepo.config",
+                "repo:refs/remotes/origin/HEAD:.gittoprepo.toml",
+            ])
+            .safe_status()?
+            .check_success()
+            .context("Failed to set git-config remote.origin.url")?;
+        git_command(&directory)
             .args(["symbolic-ref", "HEAD", "refs/remotes/origin/HEAD"])
             .safe_status()?
             .check_success()
