@@ -67,52 +67,17 @@ fn config(config_args: &cli::Config) -> Result<ExitCode> {
             .with_context(|| format!("Loading config file {}", file.display()))
         }
     };
+    let repo_dir = Path::new("");
     match &config_args.config_command {
-        cli::ConfigCommands::Location(args) => {
-            let mut search_log = match args.verbose {
-                true => Some(String::new()),
-                false => None,
-            };
-            let location = config::GitTopRepoConfig::find_configuration_location(
-                Path::new(""),
-                search_log.as_mut(),
-            );
-            let location = location.map_err(|mut e| {
-                // TODO: Context is typically printed in LIFO
-                // whereas the search log is written as a chronological (FIFO)
-                // log. So this print has mismatched order and does not look so
-                // good.
-                let mut contexts: Vec<String> = Vec::new();
-                if let Some(search_log) = search_log.clone() {
-                    contexts.extend(
-                        search_log
-                            .lines()
-                            .map(|s| s.to_owned())
-                            .collect::<Vec<String>>(),
-                    );
-                };
-                for context in contexts.into_iter().rev() {
-                    e = e.context(context.clone())
-                }
-                e.context("Looking for configuration")
-            })?;
-            if let Some(log) = search_log {
-                eprint!("{log}");
+        cli::ConfigCommands::Location => {
+            let location = config::GitTopRepoConfig::find_configuration_location(repo_dir)?;
+            if let Err(err) = location.validate_existence(repo_dir) {
+                eprintln!("{}: {:#}", "WARNING".yellow().bold(), err);
             }
             println!("{location}");
         }
-        cli::ConfigCommands::Show(args) => {
-            let mut search_log = match args.verbose {
-                true => Some(String::new()),
-                false => None,
-            };
-            let config = config::GitTopRepoConfig::load_config_from_repo_with_log(
-                Path::new(""),
-                search_log.as_mut(),
-            )?;
-            if let Some(log) = search_log {
-                eprint!("{log}");
-            }
+        cli::ConfigCommands::Show => {
+            let config = config::GitTopRepoConfig::load_config_from_repo(repo_dir)?;
             print!("{}", toml::to_string(&config)?);
         }
         cli::ConfigCommands::Normalize(args) => {
@@ -537,9 +502,11 @@ fn dump_import_cache() -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn main_impl() -> Result<ExitCode> {
-    let args = Cli::parse();
-
+fn main_impl<I>(argv: I) -> Result<ExitCode>
+where
+    I: IntoIterator<Item = std::ffi::OsString>,
+{
+    let args = Cli::parse_from(argv);
     let working_directory = &git_toprepo::util::find_working_directory(args.working_directory)?;
     std::env::set_current_dir(working_directory).with_context(|| {
         format!(
@@ -548,8 +515,12 @@ fn main_impl() -> Result<ExitCode> {
         )
     })?;
 
+    if let Commands::Init(ref init_args) = args.command {
+        return init(init_args);
+    }
+    git_toprepo::config::GitTopRepoConfig::find_configuration_location(Path::new(""))?;
     let res: ExitCode = match args.command {
-        Commands::Init(ref init_args) => init(init_args)?,
+        Commands::Init(_) => unreachable!("init already processed"),
         Commands::Config(ref config_args) => config(config_args)?,
         Commands::Refilter(ref refilter_args) => refilter(refilter_args)?,
         Commands::Fetch(ref fetch_args) => fetch(fetch_args)?,
@@ -573,11 +544,30 @@ fn main() -> ExitCode {
         default_hook(panic);
     }));
 
-    match main_impl() {
+    match main_impl(std::env::args_os()) {
         Ok(exit_code) => exit_code,
         Err(err) => {
             eprintln!("{}: {:#}", "ERROR".red().bold(), err);
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_main_outside_git_toprepo() {
+        let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
+        // Debug with temp_dir.into_path() to presist the path.
+        let temp_dir = temp_dir.path();
+        let temp_dir_str = temp_dir.to_str().unwrap();
+        let argv = vec!["git-toprepo", "-C", temp_dir_str, "config", "show"];
+        let argv = argv.into_iter().map(|s| s.into());
+        assert_eq!(
+            format!("{:#}", main_impl(argv).unwrap_err()),
+            "git-config 'toprepo.config' is missing. Is this an initialized git-toprepo?"
+        );
     }
 }

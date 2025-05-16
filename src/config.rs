@@ -4,7 +4,6 @@ use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::util::CommandExtension as _;
 use crate::util::is_default;
-use crate::util::trim_newline_suffix;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
@@ -20,7 +19,6 @@ use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::fmt::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -54,20 +52,70 @@ pub struct LogConfig {
 
 pub enum ConfigLocation {
     /// Load a blob from the repo.
-    RepoBlob(String),
+    RepoBlob { gitref: String, path: PathBuf },
     /// Load from the path relative to the repository root.
-    Worktree(PathBuf),
-    /// Default empty configuration should be loaded.
-    None,
+    Worktree { path: PathBuf },
+}
+
+impl ConfigLocation {
+    /// Check if the config file exists in the repository.
+    pub fn validate_existence(&self, repo_dir: &Path) -> Result<()> {
+        match self {
+            ConfigLocation::RepoBlob { gitref, path } => {
+                let location = format!("{gitref}:{}", path.display());
+                // Check for existence.
+                git_command(repo_dir)
+                    .args(["cat-file", "-e", &location])
+                    .safe_output()?
+                    .check_success_with_stderr()
+                    .with_context(|| {
+                        format!("Config file {} does not exist in {gitref}", path.display())
+                    })?;
+            }
+            ConfigLocation::Worktree { path } => {
+                // Check if the file exists in the worktree.
+                if !repo_dir.join(path).exists() {
+                    bail!("Config file {path:?} does not exist in the worktree")
+                }
+            }
+        };
+        Ok(())
+    }
 }
 
 impl Display for ConfigLocation {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            ConfigLocation::RepoBlob(blob) => write!(f, "blob: {blob}"),
-            ConfigLocation::Worktree(path) => write!(f, "worktree file: {}", path.display()),
-            ConfigLocation::None => write!(f, "<default-empty>"),
+            ConfigLocation::RepoBlob { gitref, path } => {
+                write!(f, "repo:{gitref}:{}", path.display())
+            }
+            ConfigLocation::Worktree { path } => write!(f, "local:{}", path.display()),
         }
+    }
+}
+
+impl FromStr for ConfigLocation {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let ret = if let Some(residual) = s.strip_prefix("repo:") {
+            let Some((gitref, path)) = residual.split_once(':') else {
+                bail!(
+                    "Invalid repo config location {s:?}, expected 'repo:<ref>:<path>', e.g. 'repo:refs/remotes/origin/HEAD:.gittoprepo.toml'"
+                )
+            };
+            ConfigLocation::RepoBlob {
+                gitref: gitref.to_owned(),
+                path: PathBuf::from(path),
+            }
+        } else if let Some(path) = s.strip_prefix("local:") {
+            ConfigLocation::Worktree {
+                path: PathBuf::from(path),
+            }
+        } else {
+            bail!("Invalid config location {s:?}, expected '(ref|local):...'");
+        };
+        Ok(ret)
     }
 }
 
@@ -178,110 +226,42 @@ impl GitTopRepoConfig {
     /// Finds the location of the configuration to load.
     ///
     /// The location of the configuration file is set in the git-config of the
-    /// super repository using `git config --local toprepo.config
-    /// <ref>:<git-repo-relative-path>` which defaults to
-    /// `refs/remotes/origin/HEAD:.gittoprepo.toml`. An empty `ref`, for example
-    /// `:.gittoprepo.user.toml`, means that the file is read from the worktree
-    /// instead of the commits.
+    /// super repository using
+    ///    `git config --local toprepo.config <ref>:<git-repo-relative-path>`
+    /// . This is initialized with `git-toprepo init` to
+    /// `ref:refs/remotes/origin/HEAD:.gittoprepo.toml`, which is managed for
+    /// the entire project by the maintainers.
+    /// A developer can choose their own config file with a `local:` reference
+    /// to a file on disk.
+    ///    `local:.gittoprepo.user.toml`,
     ///
-    /// Overriding the location is only recommended for testing out a new config
-    /// and debugging purpose.
-    ///
-    /// The `search_log` will be filled with information about how the config
-    /// was found.
+    /// Overriding the location is not recommended.
     ///
     /// Returns the configuration and the location it was loaded from.
-    pub fn find_configuration_location(
-        repo_dir: &Path,
-        mut search_log: Option<&mut String>,
-    ) -> Result<ConfigLocation> {
+    pub fn find_configuration_location(repo_dir: &Path) -> Result<ConfigLocation> {
         // Load config file location.
         const GIT_CONFIG_KEY: &str = "toprepo.config";
-        const DEFAULT_LOCATION: &str = "refs/namespaces/top/HEAD:.gittoprepo.toml";
 
-        #[cfg(test)]
-        assert_eq!(
-            DEFAULT_LOCATION,
-            format!(
-                "{}HEAD:.gittoprepo.toml",
-                crate::repo_name::RepoName::Top.to_ref_prefix()
-            )
-        );
+        let location = git_config_get(repo_dir, GIT_CONFIG_KEY)?.with_context(|| {
+            format!("git-config '{GIT_CONFIG_KEY}' is missing. Is this an initialized git-toprepo?")
+        })?;
 
-        let mut log = |s| search_log.as_mut().map(|w| writeln!(w, "{s}").unwrap());
-
-        log(format!(
-            "Checking for user configuration in git-config {GIT_CONFIG_KEY}",
-        ));
-
-        let user_location = git_config_get(repo_dir, GIT_CONFIG_KEY)?;
-        let (using_default_location, location) = match user_location.as_deref().unwrap_or("") {
-            "" => {
-                let l = DEFAULT_LOCATION;
-                log("git-config {GIT_CONFIG_KEY}: <unset>".to_string());
-                log(format!("Using default location: {l}"));
-                (true, l)
-            }
-            s => {
-                let l = user_location.clone().unwrap();
-                log(format!("Using user-specified location: {l}"));
-                (false, s)
-            }
-        };
-
-        let parsed_location = if let Some(path) = location.strip_prefix(':') {
-            log(format!("Using configuration from file path {path}"));
-            ConfigLocation::Worktree(PathBuf::from_str(path)?)
-        } else {
-            // Read config file from the repository.
-            log(format!(
-                "Checking for repository ref configuration {location}",
-            ));
-            let config_toml_output = git_command(repo_dir)
-                .args(["cat-file", "-e", location])
-                .safe_output()?;
-            match config_toml_output.check_success_with_stderr() {
-                Ok(_) => {
-                    // The config file blob exists in the repo.
-                    ConfigLocation::RepoBlob(location.to_owned())
-                }
-                Err(e) => {
-                    // The config file does not exist in the repository refs
-                    if using_default_location {
-                        // If no config location has been specified, having the file is optional.
-                        log(format!(
-                            "'git cat-file -e' reported {}",
-                            trim_newline_suffix(&config_toml_output.stderr.to_str_lossy())
-                        ));
-                        log("Falling back to default configuration".to_string());
-                        ConfigLocation::None
-                    } else {
-                        bail!(
-                            "Config file {} does not exist in the repository refs: {}",
-                            location,
-                            e
-                        )
-                    }
-                }
-            }
-        };
-        Ok(parsed_location)
+        ConfigLocation::from_str(&location)
     }
 
     /// Loads the TOML configuration string without parsing it.
     pub fn load_config_toml(repo_dir: &Path, location: &ConfigLocation) -> Result<String> {
         || -> Result<String> {
             match location {
-                ConfigLocation::RepoBlob(object) => Ok(git_command(repo_dir)
-                    .args(["show", object])
+                ConfigLocation::RepoBlob { gitref, path } => Ok(git_command(repo_dir)
+                    .args(["show", &format!("{gitref}:{}", path.display())])
                     .check_success_with_stderr()?
                     .stdout
                     .to_str()?
                     .to_owned()),
-                ConfigLocation::Worktree(path) => {
+                ConfigLocation::Worktree { path } => {
                     std::fs::read_to_string(repo_dir.join(path)).context("Reading config file")
                 }
-                ConfigLocation::None => Ok(String::new()),
             }
         }()
         .with_context(|| format!("Loading {location}"))
@@ -297,18 +277,11 @@ impl GitTopRepoConfig {
         Ok(config)
     }
 
-    pub fn load_config_from_repo_with_log(
-        repo_dir: &Path,
-        search_log: Option<&mut String>,
-    ) -> Result<Self> {
-        let location = Self::find_configuration_location(repo_dir, search_log)?;
+    pub fn load_config_from_repo(repo_dir: &Path) -> Result<Self> {
+        let location = Self::find_configuration_location(repo_dir)?;
         let config_toml = Self::load_config_toml(repo_dir, &location)?;
         Self::parse_config_toml_string(&config_toml)
             .with_context(|| format!("Parsing {}", &location))
-    }
-
-    pub fn load_config_from_repo(repo_dir: &Path) -> Result<Self> {
-        Self::load_config_from_repo_with_log(repo_dir, None)
     }
 
     pub fn save_config_to_repo(&self, path: &Path) -> Result<()> {
@@ -519,7 +492,7 @@ mod tests {
             .unwrap();
 
         git_command(tmp_path)
-            .args(["config", "toprepo.config", ":foobar.toml"])
+            .args(["config", "toprepo.config", "local:foobar.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
@@ -527,9 +500,7 @@ mod tests {
         let err: anyhow::Error = GitTopRepoConfig::load_config_from_repo(tmp_path).unwrap_err();
         assert_eq!(
             format!("{err:#}"),
-            "Loading worktree file: foobar.toml\
-            : Reading config file\
-            : No such file or directory (os error 2)"
+            "Loading local:foobar.toml: Reading config file: No such file or directory (os error 2)"
         );
     }
 
@@ -565,7 +536,7 @@ url = "ssh://bar/baz.git"
             .unwrap();
 
         git_command(tmp_path)
-            .args(["config", "toprepo.config", ":foobar.toml"])
+            .args(["config", "toprepo.config", "local:foobar.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
@@ -595,7 +566,7 @@ url = "ssh://bar/baz.git"
     }
 
     #[test]
-    fn test_create_config_from_empty_string() {
+    fn test_missing_config() {
         let tmp_dir = tempfile::tempdir().unwrap();
         let tmp_path = tmp_dir.path();
         let env = commit_env();
@@ -618,22 +589,31 @@ url = "ssh://bar/baz.git"
             .check_success_with_stderr()
             .unwrap();
 
-        let mut search_log = String::new();
-        let config =
-            GitTopRepoConfig::load_config_from_repo_with_log(tmp_path, Some(&mut search_log))
-                .unwrap();
+        // Try a path in the repository.
+        git_command(tmp_path)
+            .args(["config", "toprepo.config", "repo:HEAD:.gittoprepo.toml"])
+            .check_success_with_stderr()
+            .unwrap();
+
         assert_eq!(
-            search_log,
-            "Checking for user configuration in git-config toprepo.config\n\
-            git-config {GIT_CONFIG_KEY}: <unset>\nUsing default location: \
-            refs/namespaces/top/HEAD:.gittoprepo.toml\nChecking for repository \
-            ref configuration refs/namespaces/top/HEAD:.gittoprepo.toml\n\
-            'git cat-file -e' reported fatal: path '.gittoprepo.toml' \
-            does not exist in 'refs/namespaces/top/HEAD'\n\
-            Falling back to default configuration\n"
+            format!(
+                "{:#}",
+                GitTopRepoConfig::load_config_from_repo(tmp_path).unwrap_err()
+            ),
+            "Loading repo:HEAD:.gittoprepo.toml: exit status: 128:\n\
+            fatal: path '.gittoprepo.toml' does not exist in 'HEAD'\n"
         );
 
-        assert!(config.subrepos.is_empty());
+        // Try the worktree.
+        git_command(tmp_path)
+            .args(["config", "toprepo.config", "local:nonexisting.toml"])
+            .check_success_with_stderr()
+            .unwrap();
+        let err = GitTopRepoConfig::load_config_from_repo(tmp_path).unwrap_err();
+        assert_eq!(
+            format!("{err:#}"),
+            "Loading local:nonexisting.toml: Reading config file: No such file or directory (os error 2)"
+        );
     }
 
     #[test]
@@ -688,6 +668,15 @@ url = "ssh://bar/baz.git"
         git_command(tmp_path)
             .args(["commit", "-m", "Remove .gittoprepo.toml"])
             .envs(&env)
+            .check_success_with_stderr()
+            .unwrap();
+
+        git_command(tmp_path)
+            .args([
+                "config",
+                "toprepo.config",
+                "repo:refs/namespaces/top/HEAD:.gittoprepo.toml",
+            ])
             .check_success_with_stderr()
             .unwrap();
 
