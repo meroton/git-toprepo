@@ -1,22 +1,10 @@
 #!/bin/bash
 set -eux
-{
-    export POETRY_VIRTUALENVS_PATH=.virtualenvs/lint
-    poetry env use python
-    poetry install --sync --only lint
-    poetry run black git_toprepo*.py
-    poetry run ruff check git_toprepo*.py
-}
-{
-    export POETRY_VIRTUALENVS_PATH=.virtualenvs/test
-    poetry env use python
-    poetry install --sync --only main,test
-    poetry run pytest
-}
-poetry build
 
-cat <<EOF
-Consider to run
-  poetry update
-  poetry lock
-EOF
+# Run both with and without `--all-features` to make sure that both configurations work.
+cargo clippy --all-targets --all-features -- -Dwarnings
+cargo clippy --all-targets -- -Dwarnings
+cargo build --all-targets --all-features
+cargo build --all-targets
+RUST_BACKTRACE=1 cargo test --workspace --all-features
+RUST_BACKTRACE=1 cargo test --workspace

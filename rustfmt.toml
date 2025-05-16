@@ -1,0 +1,7 @@
+style_edition = "2024"
+
+# Discard existing import groups, and create a single group for everything.
+group_imports = "One"
+
+# Flatten imports so that each has its own use statement.
+imports_granularity = "Item"

@@ -11,28 +11,31 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest]  # TODO: macos-latest, windows-latest
     runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install python poetry
-        uses: abatilo/actions-poetry@v2
+      # Upgrade tools before rust-cache.
+      # Use nightly instead of 'stable' to get improved rustfmt features.
+      - run: rustup toolchain install nightly-2025-05-16 --profile minimal
+      - run: rustup component add --toolchain nightly-2025-05-16 rustfmt clippy
+      - run: rustup default nightly-2025-05-16
+      - uses: Swatinem/rust-cache@v2
+  
+      - name: Format code
+        run: cargo fmt
+      - name: Check for modified workspace
+        run: git add . && git diff --exit-code HEAD --
       - name: Build and test
         run: ./build.sh
       - name: Check for modified workspace
         run: git add . && git diff --exit-code HEAD --
-  nix-build:
-    strategy:
-      fail-fast: true
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@main
-      - name: Build
-        run: nix build
+
+      - name: Upload artifact
+        if: ${{ github.event_name == 'push' }}
+        uses: "actions/upload-artifact@v4"
+        with:
+          name: "git-toprepo.linux_amd64"
+          path: "target/release/git-toprepo"
