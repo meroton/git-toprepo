@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: [ubuntu-latest]  # TODO: macos-latest, windows-latest
+        os: [ubuntu-22.04] # TODO: macos-latest, windows-latest
     runs-on: ${{ matrix.os }}
     env:
       CARGO_TERM_COLOR: always
@@ -23,7 +23,7 @@ jobs:
       - run: rustup component add --toolchain nightly-2025-05-16 rustfmt clippy
       - run: rustup default nightly-2025-05-16
       - uses: Swatinem/rust-cache@v2
-  
+
       - name: Format code
         run: cargo fmt
       - name: Check for modified workspace
