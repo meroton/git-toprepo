@@ -5,6 +5,7 @@ use git_toprepo::git::git_command;
 use git_toprepo::git::git_update_submodule_in_index;
 use git_toprepo::util::CommandExtension as _;
 use std::collections::HashMap;
+use std::path::Path;
 use std::path::PathBuf;
 
 pub fn commit_env() -> HashMap<String, String> {
@@ -21,7 +22,7 @@ pub fn commit_env() -> HashMap<String, String> {
     )
 }
 
-fn git_commit(repo: &PathBuf, env: &HashMap<String, String>, message: &str) -> CommitId {
+fn git_commit(repo: &Path, env: &HashMap<String, String>, message: &str) -> CommitId {
     let file_name = message.to_owned() + ".txt";
     {
         std::fs::File::create_new(repo.join(&file_name)).unwrap();
@@ -48,7 +49,7 @@ fn git_commit(repo: &PathBuf, env: &HashMap<String, String>, message: &str) -> C
     CommitId::from_hex(commit_id_hex.as_bytes()).unwrap()
 }
 
-fn git_checkout(repo: &PathBuf, commit_id: &CommitId) {
+fn git_checkout(repo: &Path, commit_id: &CommitId) {
     git_command(repo)
         .args(["reset", "--hard"])
         .arg(format!("{}", commit_id.to_hex()))
@@ -56,9 +57,9 @@ fn git_checkout(repo: &PathBuf, commit_id: &CommitId) {
         .unwrap();
 }
 
-fn git_merge(repo: &PathBuf, commit_ids: &[&CommitId]) {
+fn git_merge(repo: &Path, commit_ids: &[&CommitId]) {
     let commit_ids: Vec<String> = commit_ids
-        .into_iter()
+        .iter()
         .map(|id| format!("{}", id.to_hex()))
         .collect();
     // Skip checking exit code, merging conflicts in submodules will fail.
@@ -71,7 +72,7 @@ fn git_merge(repo: &PathBuf, commit_ids: &[&CommitId]) {
         .unwrap();
 }
 
-fn git_add_local_submodule_to_index(repo: &PathBuf, path: &GitPath, url: &str) {
+fn git_add_local_submodule_to_index(repo: &Path, path: &GitPath, url: &str) {
     let path_str = path.to_str().unwrap();
     git_command(repo)
         .args(["-c", "protocol.file.allow=always"])

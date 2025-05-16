@@ -95,26 +95,11 @@ pub enum ImportCommitRef {
     CommitId(gix::ObjectId),
 }
 
-impl ImportCommitRef {
-    fn from_bytes(bytes: &BStr) -> Result<Self> {
-        || -> Result<Self> {
-            if bytes.starts_with(b":") {
-                let mark = bytes[1..].to_str()?.parse()?;
-                Ok(ImportCommitRef::Mark(mark))
-            } else {
-                let oid = gix::ObjectId::from_hex(bytes)?;
-                Ok(ImportCommitRef::CommitId(oid))
-            }
-        }()
-        .with_context(|| format!("Could not parse import mark {bytes}"))
-    }
-}
-
 impl std::fmt::Display for ImportCommitRef {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            ImportCommitRef::Mark(mark) => write!(f, ":{}", mark),
-            ImportCommitRef::CommitId(oid) => write!(f, "{}", oid),
+            ImportCommitRef::Mark(mark) => write!(f, ":{mark}"),
+            ImportCommitRef::CommitId(oid) => write!(f, "{oid}"),
         }
     }
 }
@@ -615,7 +600,7 @@ impl FastImportRepo {
         out.write_all(commit.branch.as_bstr())?;
         out.write_all(b"\n")?;
 
-        writeln!(out, "mark :{}", mark)?;
+        writeln!(out, "mark :{mark}")?;
 
         out.write_all(b"author ")?;
         out.write_all(&commit.author_info)?;
@@ -681,9 +666,9 @@ impl FastImportRepo {
         commit_ref: &ImportCommitRef,
     ) -> BString {
         match commit_ref {
-            ImportCommitRef::Mark(mark) => format!(":{}", mark).into(),
+            ImportCommitRef::Mark(mark) => format!(":{mark}").into(),
             ImportCommitRef::CommitId(oid) => match oid_to_mark.get(oid) {
-                Some(mark) => format!(":{}", mark).into(),
+                Some(mark) => format!(":{mark}").into(),
                 None => oid.to_hex().to_string().into(),
             },
         }
@@ -812,7 +797,7 @@ mod tests {
     }
 
     /// Copied from `tests/fixtures/toprepo.rs`.
-    fn commit(repo: &PathBuf, env: &HashMap<String, String>, message: &str) -> CommitId {
+    fn commit(repo: &Path, env: &HashMap<String, String>, message: &str) -> CommitId {
         git_command(repo)
             .args(["commit", "--allow-empty", "-m", message])
             .envs(env)
@@ -831,9 +816,9 @@ mod tests {
         CommitId::from_hex(commit_id_hex.as_bytes()).unwrap()
     }
 
-    /// The example repository is from `tests/fixtures/toprepo.rs`.
+    /// The example repository is from `tests/fixtures/toprepo.rs`. Sets up the
+    /// repo structure and returns the top repo path.
     fn setup_example_repo(path: &Path) -> PathBuf {
-        //! Sets up the repo structure and returns the top repo path.
         let env = commit_env();
         let top_repo = path.join("top").to_path_buf();
         let sub_repo = path.join("sub").to_path_buf();

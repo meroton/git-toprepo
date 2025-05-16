@@ -19,13 +19,13 @@ impl RepoName {
         let fullname = fullname.as_bstr();
         let rest = fullname
             .strip_prefix(b"refs/namespaces/")
-            .with_context(|| format!("Not a toprepo ref {}", fullname))?;
+            .with_context(|| format!("Not a toprepo ref {fullname}"))?;
         let idx = rest
             .find_char('/')
-            .with_context(|| format!("Too short toprepo ref {}", fullname))?;
+            .with_context(|| format!("Too short toprepo ref {fullname}"))?;
         let name = rest[..idx]
             .to_str()
-            .with_context(|| format!("Invalid encoding in ref {}", fullname))?;
+            .with_context(|| format!("Invalid encoding in ref {fullname}"))?;
         match name {
             "top" => Ok(RepoName::Top),
             _ => Ok(RepoName::SubRepo(SubRepoName::new(name.to_owned()))),

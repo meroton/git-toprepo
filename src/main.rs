@@ -71,9 +71,9 @@ fn config(config_args: &cli::Config) -> Result<ExitCode> {
                 search_log.as_mut(),
             )?;
             if let Some(log) = search_log {
-                eprint!("{}", log);
+                eprint!("{log}");
             }
-            println!("{}", location);
+            println!("{location}");
         }
         cli::ConfigCommands::Show(args) => {
             let mut search_log = match args.verbose {
@@ -85,7 +85,7 @@ fn config(config_args: &cli::Config) -> Result<ExitCode> {
                 search_log.as_mut(),
             )?;
             if let Some(log) = search_log {
-                eprint!("{}", log);
+                eprint!("{log}");
             }
             print!("{}", toml::to_string(&config)?);
         }
@@ -278,7 +278,7 @@ fn dump_import_cache() -> Result<ExitCode> {
         git_toprepo::log::ErrorMode::FailFast(std::sync::Arc::new(
             std::sync::atomic::AtomicBool::new(false),
         )),
-        |msg| eprintln!("{}", msg),
+        |msg| eprintln!("{msg}"),
     );
     let serde_repo_states = git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
         toprepo.git_dir(),

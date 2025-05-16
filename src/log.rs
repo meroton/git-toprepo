@@ -143,12 +143,12 @@ impl LogResult {
         };
         match (self.error_count, self.warning_count()) {
             (0, 0) => (),
-            (0, wcnt) => eprintln!("{}", format!("Found {} {}", wcnt, warning_str).yellow()),
-            (ecnt, 0) => eprintln!("{}", format!("Failed due to {} {}", ecnt, error_str).red()),
+            (0, wcnt) => eprintln!("{}", format!("Found {wcnt} {warning_str}").yellow()),
+            (ecnt, 0) => eprintln!("{}", format!("Failed due to {ecnt} {error_str}").red()),
             (ecnt, wcnt) => eprintln!(
                 "{} and {}",
-                format!("Failed due to {} {}", ecnt, error_str).red(),
-                format!("{} {}", wcnt, warning_str).yellow()
+                format!("Failed due to {ecnt} {error_str}").red(),
+                format!("{wcnt} {warning_str}").yellow()
             ),
         }
     }
@@ -191,7 +191,7 @@ impl LogReceiver {
     /// Create a new `LogReceiver` that prints to `stderr`.
     pub fn new_stderr(ignored_warnings: HashSet<String>, error_mode: ErrorMode) -> Self {
         Self::new(ignored_warnings, error_mode, |msg| {
-            eprintln!("{}", msg);
+            eprintln!("{msg}");
         })
     }
 

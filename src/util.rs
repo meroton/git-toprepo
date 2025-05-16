@@ -284,7 +284,7 @@ impl CommandExtension for Command {
         let joined = args.into_iter().map(|s| s.to_str().unwrap()).join(" ");
         let display = format!("{} {}", self.get_program().to_str().unwrap(), joined);
 
-        eprintln!("Running   {}", display);
+        eprintln!("Running   {display}");
         self
     }
 
@@ -536,7 +536,7 @@ pub fn annotate_message(message: &str, subdir: &str, orig_commit_hash: &CommitId
         res.push('\n');
     }
 
-    format!("{}^-- {} {}\n", res, subdir, orig_commit_hash)
+    format!("{res}^-- {subdir} {orig_commit_hash}\n")
 }
 
 pub fn iter_to_string<'a, I>(items: I) -> Vec<String>

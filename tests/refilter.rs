@@ -6,6 +6,7 @@ use git_toprepo::git::git_command;
 use git_toprepo::util::CommandExtension as _;
 use itertools::Itertools as _;
 use std::collections::HashSet;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -21,7 +22,7 @@ fn test_init_and_refilter_example() {
     let to_repo_path = temp_dir.join("to");
     let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
     let log_graph = extract_log_graph(&toprepo.directory, vec!["--name-status", "HEAD", "--"]);
-    println!("{}", log_graph);
+    println!("{log_graph}");
     let expected_graph = r"
 *-.   N
 |\ \
@@ -118,7 +119,7 @@ fn test_refilter_merge_with_one_submodule_a() {
     let to_repo_path = temp_dir.join("to");
     let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
     let log_graph = extract_log_graph(&toprepo.directory, vec!["--name-status", "HEAD", "--"]);
-    println!("{}", log_graph);
+    println!("{log_graph}");
     let expected_graph = r"
 *-.   D6-release
 |\ \
@@ -160,7 +161,7 @@ fn test_refilter_merge_with_one_submodule_b() {
     let to_repo_path = temp_dir.join("to");
     let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
     let log_graph = extract_log_graph(&toprepo.directory, vec!["--name-status", "HEAD", "--"]);
-    println!("{}", log_graph);
+    println!("{log_graph}");
     let expected_graph = r"
 *-----.   F8-release
 |\ \ \ \
@@ -216,7 +217,7 @@ fn test_refilter_merge_with_two_submodules() {
     let to_repo_path = temp_dir.join("to");
     let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
     let log_graph = extract_log_graph(&toprepo.directory, vec!["--name-status", "HEAD", "--"]);
-    println!("{}", log_graph);
+    println!("{log_graph}");
     let expected_graph = r"
 *---.   D6-release
 |\ \ \
@@ -272,7 +273,7 @@ fn test_refilter_submodule_removal() {
     let to_repo_path = temp_dir.join("to");
     let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
     let log_graph = extract_log_graph(&toprepo.directory, vec!["--name-status", "HEAD", "--"]);
-    println!("{}", log_graph);
+    println!("{log_graph}");
     let expected_graph = r"
 *   E
 |\
@@ -313,7 +314,7 @@ fn test_refilter_moved_submodule() {
     let to_repo_path = temp_dir.join("to");
     let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
     let log_graph = extract_log_graph(&toprepo.directory, vec!["--name-status", "HEAD", "--"]);
-    println!("{}", log_graph);
+    println!("{log_graph}");
     let expected_graph = r"
 * E
 |
@@ -377,7 +378,7 @@ fn run_init_and_refilter(
     let error_mode = git_toprepo::log::ErrorMode::FailFast(Arc::new(AtomicBool::new(false)));
     let progress_clone = progress.clone();
     let log = git_toprepo::log::LogReceiver::new(HashSet::new(), error_mode.clone(), move |msg| {
-        progress_clone.suspend(|| eprintln!("{}", msg));
+        progress_clone.suspend(|| eprintln!("{msg}"));
     });
     let gix_toprepo = toprepo.gix_repo.to_thread_local();
     let mut commit_loader = git_toprepo::loader::CommitLoader::new(
@@ -405,7 +406,7 @@ fn run_init_and_refilter(
     toprepo
 }
 
-fn extract_log_graph(repo_path: &PathBuf, extra_args: Vec<&str>) -> String {
+fn extract_log_graph(repo_path: &Path, extra_args: Vec<&str>) -> String {
     let log_output = git_command(repo_path)
         .args(["log", "--graph", "--format=%s"])
         .args(extra_args)
@@ -413,10 +414,10 @@ fn extract_log_graph(repo_path: &PathBuf, extra_args: Vec<&str>) -> String {
         .unwrap();
     let log_graph = log_output.stdout.to_str().unwrap();
     // Replace TAB and trailing spaces.
-    let log_graph = log_graph
+
+    log_graph
         .split('\n')
         .map(str::trim_end)
         .join("\n")
-        .replace('\t', " ");
-    log_graph
+        .replace('\t', " ")
 }

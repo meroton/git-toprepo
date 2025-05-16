@@ -6,7 +6,6 @@ use crate::util::trim_newline_suffix;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
-use bstr::BStr;
 use bstr::ByteSlice as _;
 use itertools::Itertools;
 use serde::Deserialize;
@@ -55,7 +54,7 @@ pub enum ConfigLocation {
 impl Display for ConfigLocation {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            ConfigLocation::RepoBlob(blob) => write!(f, "blob: {}", blob),
+            ConfigLocation::RepoBlob(blob) => write!(f, "blob: {blob}"),
             ConfigLocation::Worktree(path) => write!(f, "worktree file: {}", path.display()),
             ConfigLocation::None => write!(f, "<default-empty>"),
         }
@@ -63,17 +62,6 @@ impl Display for ConfigLocation {
 }
 
 impl GitTopRepoConfig {
-    /// Trims the URL path from optional `.git` and `/` suffixes.
-    fn trim_url_path(url: &gix::Url) -> &BStr {
-        let mut p = url.path.as_bstr();
-        if p.ends_with(b".git") {
-            p = p[..p.len() - 4].as_bstr();
-        } else if p.ends_with(b"/") {
-            p = p[..p.len() - 1].as_bstr();
-        }
-        p
-    }
-
     /// Gets a `SubrepoConfig` based on a URL using exact matching. If an URL is
     /// missing, the user should add it to the `SubrepoConfig::urls` list.
     pub fn get_name_from_url(&self, url: &gix::Url) -> Result<Option<String>> {
@@ -213,7 +201,7 @@ impl GitTopRepoConfig {
                 user_location.as_deref().unwrap_or("<unset>")
             )?;
             if using_default_location {
-                writeln!(search_log, "Using default location: {}", DEFAULT_LOCATION)?;
+                writeln!(search_log, "Using default location: {DEFAULT_LOCATION}")?;
             }
         }
 
@@ -271,7 +259,7 @@ impl GitTopRepoConfig {
                 ConfigLocation::None => Ok(String::new()),
             }
         }()
-        .with_context(|| format!("Loading {}", location))
+        .with_context(|| format!("Loading {location}"))
     }
 
     /// Parse a TOML configuration string.
@@ -314,7 +302,7 @@ impl GitTopRepoConfig {
             // Validate each subrepo config.
             subrepo_config
                 .validate()
-                .with_context(|| format!("Invalid subrepo configuration for {}", repo_name))?;
+                .with_context(|| format!("Invalid subrepo configuration for {repo_name}"))?;
         }
         self.ensure_unique_urls()?;
         Ok(())
@@ -507,7 +495,7 @@ mod tests {
         let err: anyhow::Error =
             GitTopRepoConfig::load_config_from_repo(tmp_path.as_path()).unwrap_err();
         assert_eq!(
-            format!("{:#}", err),
+            format!("{err:#}"),
             "Loading worktree file: foobar.toml\
             : Reading config file\
             : No such file or directory (os error 2)"
@@ -737,7 +725,7 @@ url = "ssh://bar/baz.git"
         )
         .unwrap_err();
         assert_eq!(
-            format!("{:#}", err),
+            format!("{err:#}"),
             "URLs must be unique across all repos, found ssh://bar/baz.git in bar and foo"
         );
     }

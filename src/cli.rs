@@ -175,7 +175,7 @@ fn parse_refspec(refspec: &str) -> Result<(String, String), std::io::Error> {
         }
         let mut rhs = rhs.to_owned();
         if !rhs.starts_with("refs/") {
-            rhs = format!("refs/heads/{}", rhs);
+            rhs = format!("refs/heads/{rhs}");
         }
         Ok((lhs.to_owned(), rhs))
     } else {

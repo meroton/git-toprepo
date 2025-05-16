@@ -155,7 +155,7 @@ impl TopRepoExpander<'_> {
                         let ms = now.elapsed().as_millis();
                         if ms > 100 {
                             // TODO: Remove this debug print.
-                            pb.suspend(|| eprintln!("DEBUG: Commit {} took {} ms", commit_id, ms));
+                            pb.suspend(|| eprintln!("DEBUG: Commit {commit_id} took {ms} ms"));
                         }
                         pb.inc(1);
                     }
@@ -698,12 +698,11 @@ impl TopRepoExpander<'_> {
             if non_descendants.len() == 1 { "" } else { "s" },
         )?;
         for non_descendant in non_descendants {
-            writeln!(commit_message, "- {}", non_descendant)?;
+            writeln!(commit_message, "- {non_descendant}")?;
         }
         write!(
             commit_message,
-            "Regress the gitlink to the earlier commit\n{}:\n\n",
-            commit_id_str
+            "Regress the gitlink to the earlier commit\n{commit_id_str}:\n\n"
         )?;
         commit_message.push_str(source_gix_commit.message_raw().unwrap_or_default());
         drop(source_gix_commit);

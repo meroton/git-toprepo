@@ -235,7 +235,7 @@ impl SerdeTopRepoCache {
     }
 
     fn pack_repo_states(repo_states: &RepoStates) -> SerdeRepoStates {
-        let ret = repo_states
+        repo_states
             .iter()
             .map(|(repo_name, repo_data)| {
                 let thin_commits = repo_data
@@ -253,8 +253,7 @@ impl SerdeTopRepoCache {
                     },
                 )
             })
-            .collect();
-        ret
+            .collect()
     }
 }
 
@@ -285,9 +284,7 @@ impl SerdeThinCommit {
             .map(|parent_id| {
                 previous_commits
                     .get(parent_id)
-                    .with_context(|| {
-                        format!("Parent {} of {} not yet parsed", parent_id, commit_id)
-                    })
+                    .with_context(|| format!("Parent {parent_id} of {commit_id} not yet parsed"))
                     .cloned()
             })
             .collect::<Result<Vec<_>>>()?;
@@ -398,10 +395,7 @@ impl SerdeMonoRepoCommit {
                     monorepo_commits
                         .get(&monorepo_commit_id)
                         .with_context(|| {
-                            format!(
-                                "Parent monorepo commit {} not yet parsed",
-                                monorepo_commit_id
-                            )
+                            format!("Parent monorepo commit {monorepo_commit_id} not yet parsed")
                         })?
                         .clone(),
                 )),

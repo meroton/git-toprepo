@@ -20,7 +20,6 @@ use anyhow::Context;
 use anyhow::Result;
 use bstr::BStr;
 use itertools::Itertools as _;
-use std::borrow::Borrow as _;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -671,41 +670,6 @@ impl<'a> CommitLoader<'a> {
         }
     }
 
-    fn resolve_reference(r: gix::Reference, logger: &Logger) -> Option<(RepoName, gix::ObjectId)> {
-        let name = r.name().as_bstr();
-        if !name.starts_with(b"refs/namespaces/") {
-            // Not a toprepo ref.
-            return None;
-        }
-        match r.id().header() {
-            Ok(header) if header.kind().is_commit() => (),
-            Ok(_) => {
-                logger.warning(format!("Ref {} is not a commit", r.name().as_bstr()));
-                return None;
-            }
-            Err(err) => {
-                logger.warning(format!("{err:#}: Missing header in {}", r.name().as_bstr()));
-                return None;
-            }
-        }
-        let r = r.detach();
-        let commit_id = match r.peeled {
-            Some(commit_id) => commit_id,
-            None => {
-                logger.warning(format!("Could not peel commit ref {}", r.name.as_bstr()));
-                return None;
-            }
-        };
-        let repo_name = match RepoName::from_ref(r.name.borrow()) {
-            Ok(repo_name) => repo_name,
-            Err(err) => {
-                logger.warning(format!("{err:#}"));
-                return None;
-            }
-        };
-        Some((repo_name, commit_id))
-    }
-
     /// Converts a `FastExportCommit` to a `ThinCommit`.
     fn export_thin_commit(
         repo_storage: &RepoData,
@@ -724,7 +688,7 @@ impl<'a> CommitLoader<'a> {
                     .thin_commits
                     .get(parent_id)
                     .with_context(|| {
-                        format!("BUG: Parent {} of {} not yet parsed", parent_id, commit_id)
+                        format!("BUG: Parent {parent_id} of {commit_id} not yet parsed")
                     })
                     .cloned()
             })

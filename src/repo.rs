@@ -236,7 +236,7 @@ impl TopRepo {
             )?;
             drop(pb);
 
-            println!("Found {} commits to expand", num_commits_to_export);
+            println!("Found {num_commits_to_export} commits to expand");
             // TODO: FRME Remove this debug print.
             for c in &stop_commits {
                 eprintln!("DEBUG: Stop commit: {}", c.to_hex());
@@ -793,14 +793,14 @@ mod tests {
                 .args(["rev-parse", "--verify", orig_ref])
                 .output_stdout_only()?
                 .check_success_with_stderr()
-                .with_context(|| format!("orig {}", orig_ref))?
+                .with_context(|| format!("orig {orig_ref}"))?
                 .stdout
                 .to_owned();
             let top_rev = git_command(&toprepo.directory)
                 .args(["rev-parse", "--verify", top_ref])
                 .output_stdout_only()?
                 .check_success_with_stderr()
-                .with_context(|| format!("top {}", top_ref))?
+                .with_context(|| format!("top {top_ref}"))?
                 .stdout
                 .to_owned();
             assert_eq!(
