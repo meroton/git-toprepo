@@ -17,7 +17,7 @@ git-toprepo merges subrepositories into a common history, similar to git-subtree
 #[derive(Parser, Debug)]
 #[command(version, about = ABOUT)]
 pub struct Cli {
-    /// Run as if started in <path> as current working directory.
+    /// Run as if started in <path>.
     #[arg(name = "path", short = 'C')]
     pub working_directory: Option<PathBuf>,
 
@@ -42,8 +42,7 @@ pub enum Commands {
     Config(Config),
     Refilter(Refilter),
     Fetch(Fetch),
-    /// Push commits that are not part of any `refs/remotes/origin/*` to a
-    /// remote.
+    /// Push commits to the respective remotes of each filtered submodule.
     Push(Push),
 
     #[command(subcommand)]
