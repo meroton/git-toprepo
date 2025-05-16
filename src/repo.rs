@@ -192,12 +192,6 @@ impl TopRepo {
                 }
             }
             let r = r.detach();
-            // TODO: FRME Remove this debug print.
-            eprintln!(
-                "DEBUG: Initial top commits: {:?} {:?}",
-                r.name, // c.name_without_namespace(&top_namespace).with_context(|| format!("ref {}", c.name)).unwrap().as_bstr(),
-                r.target.kind(),
-            );
             new_origin_ref_names.insert(TopRepoExpander::input_ref_to_output_ref(r.name.borrow())?);
             match r.target {
                 gix::refs::Target::Symbolic(target_name) => {
@@ -237,11 +231,6 @@ impl TopRepo {
             drop(pb);
 
             println!("Found {num_commits_to_export} commits to expand");
-            // TODO: FRME Remove this debug print.
-            for c in &stop_commits {
-                eprintln!("DEBUG: Stop commit: {}", c.to_hex());
-            }
-
             let fast_importer = crate::git_fast_export_import::FastImportRepo::new(
                 self.gix_repo.git_dir(),
                 logger.clone(),
