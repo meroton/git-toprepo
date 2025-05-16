@@ -818,8 +818,8 @@ mod tests {
     /// repo structure and returns the top repo path.
     fn setup_example_repo(path: &Path) -> PathBuf {
         let env = commit_env();
-        let top_repo = path.join("top").to_path_buf();
-        let sub_repo = path.join("sub").to_path_buf();
+        let top_repo = path.join("top");
+        let sub_repo = path.join("sub");
 
         std::fs::create_dir_all(&top_repo).unwrap();
         std::fs::create_dir_all(&sub_repo).unwrap();
