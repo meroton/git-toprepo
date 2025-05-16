@@ -66,143 +66,15 @@ The algorithm steps are:
 
 ## Configuration
 
-The configuration is specified in git-config format and read by default
-from `refs/meta/git-toprepo:toprepo.config` from the top repo remote.
-This default loading location can be overridden by setting
-`toprepo.config.default.*` in your own git-config.
+The configuration is specified in [Toml](https://toml.io/) format. The location
+of the configuration file is set in the git-config of the super repository using
+`git config --local toprepo.config <ref>:<git-repo-relative-path>` which
+defaults to `refs/remotes/origin/HEAD:.gittoprepo.toml`. An empty `ref`, for
+example `:.gittoprepo.user.toml`, means that the file is read from the worktree
+instead of the commits.
 
-### Edit default configuration
-
-To setup and edit the configuration in the default location, run
-
-```bash
-mkdir my-toprepo-config
-cd my-toprepo-config
-git init
-# Initial commits.
-vim toprepo.config
-git add toprepo.config
-git commit
-git push <repository> HEAD:refs/meta/git-toprepo
-
-# Fetch to edit
-git fetch <repository> refs/meta/git-toprepo
-git checkout FETCH_HEAD
-```
-
-Alternatively, setup the repository with a remote using:
-
-```bash
-mkdir my-toprepo-config
-cd my-toprepo-config
-git init
-git remote add origin <repository>
-git config remote.origin.fetch +refs/meta/*:refs/remotes/origin/meta/*
-git fetch origin
-```
-
-### Configuration loading
-
-The configuration is specified in the git-config under the section
-`toprepo.config.<name>`. The default setting is:
-
-```
-[toprepo.config.default]
-    type = "git"
-    url = .
-    ref = refs/meta/git-toprepo
-    path = toprepo.config
-```
-
-This will load configuration from `toprepo.config` at `refs/meta/git-toprepo`
-in the top repo remote.
-More configurations can be loaded recursively and they are parsed using
-`git config --file - --list`.
-
-#### Configuration loading related fields
-The following fields are available for different
-`toprepo.config.<config-name>.type`:
-
-* `toprepo.config.<config-name>.type=file` loads a file from local disk.
-  * `toprepo.config.<config-name>.path`: The path to the config file to load.
-* `toprepo.config.<config-name>.type=git` loads a file from local disk.
-  * `toprepo.config.<config-name>.url`: The local or remote repository
-    location. If the URL starts with `.`, it is assumed to be an URL relative
-    to the top repository remote origin.
-  * `toprepo.config.<config-name>.ref`: The remote reference to load.
-  * `toprepo.config.<config-name>.path`: The path to the config file
-    in the repository.
-* `toprepo.config.<config-name>.type=none` has no more fields.
-
-#### Configuration loading examples
-
-Load from worktree:
-
-```
-[toprepo.config.default]
-    type = "file"
-    path = .gittoprepo
-```
-
-Load from remote `HEAD` (instead of `refs/meta/git-toprepo`)
-
-```ini
-[toprepo.config.default]
-    type = "git"
-    url = .
-    ref = HEAD
-    path = .gittoprepo
-```
-
-or simply
-
-```ini
-[toprepo.config.default]
-    ref = HEAD
-    path = .gittoprepo
-```
-
-### Roles
-
-Roles are used to load and filter a set of repositories.
-The build-in default configuration includes:
-
-```ini
-[toprepo]
-    role = default
-[toprepo.role.default]
-    repos = +.*
-```
-
-This means that the role to load resolves to `default` if unset.
-The `default` role resolves to filtering all repositories if unset.
-
-#### Role related fields
-
-* `toprepo.role`: A named role to use. Defaults to `default`.
-* `toprepo.role.<role>.repos`: Tells which sub repos to use.
-  Multiple values are accumulated.
-  Each value starts with `+` or `-` followed by a regexp that should match a
-  whole repository name. The last matching regex decides whether the repo
-  should be expanded or not.
-  `toprepo.role.default.repos` defaults to `+.*`.
-
-#### Role configuration examples
-
-```ini
-[toprepo.role]
-    # Default to this role, git-config can override.
-    role = "active-only"
-
-[toprepo.role.all]
-    repos = +.*
-[toprepo.role.active-only]
-    # Remove all repositories.
-    repos = -.*
-    # Match certain ones.
-    repos = +git-toprepo
-    repos = +git-filter-repo
-```
+Overriding the location is only recommended for testing out a new config and
+debugging purpose.
 
 ### Sub repositories
 
@@ -212,64 +84,32 @@ access each sub repository in the full history of the top repository.
 For example, multiple URLs might have been configured in
 the `.gitmodules` file, but all of them refers to the same repository.
 
-#### Repository related fields
+Each submodule is fetched using
+`git fetch --prune <url> +refs/heads/*:refs/namespaces/<repo-name>/heads/* +refs/tags/*:refs/namespaces/<repo-name>/tags/*`.
 
-* `toprepo.repo.<repo-name>.urls`: Repositories with this specified URL in the
-  .gitmodules file will use the configuration under `repo-name`.
-  Multiple values are allowed, in which case `fetchUrl` must also be
-  specified to make upstream connections unambiguous.
-* `toprepo.repo.<repo-name>.fetchUrl`: Overrides `toprepo.repo.<repo-name>.url`
-  for clone and fetch.
-* `toprepo.repo.<repo-name>.pushUrl`: Overrides `toprepo.repo.<repo-name>.fetchUrl`
-  for push.
-* `toprepo.repo.<repo-name>.fetchArgs`: Extra command line arguments for
-  git-fetch, multiple uses are accumulated.
-  Default is `--prune`, `--prune-tags` and `--tags`.
-
-#### Repository configuration examples
-
-```ini
-# The repository will be cloned under `.git/repos/myrepo` and
-# the role will filter on the myrepo identifier (case sensitive).
-[toprepo.repo "myrepo"]
-    url = ../some-repo.git
-    url = https://my-git-server/some-repo.git
-    # Multiple urls makes fetchUrl required.
-    fetchUrl = ../some-repo.git
-```
-
-Note that without quotes, the configuration is read in lowercase:
-
-```bash
-$ git config --list --file - <<EOF
-[toprepo.repo.LowerCase]
-    url = ../LowerCase.git
-[toprepo.repo "Other_Repo"]
-    url = ../Other/Repo.git
-EOF
-
-toprepo.repo.lowercase.url=../LowerCase.git
-toprepo.repo.Other_Repo.url=../Other/Repo.git
-```
-
-###  Missing commits
-
-Sometimes, submodules point to commits that do not exist anymore,
-with there branch removed, or are otherwise erroneous.
-To give the same view and resolved commit hashes to all users,
-every missing commit needs to be listed.
-git-toprepo will print the lines to add to your configuration when needed.
-
-#### Missing commits syntax
-
-* `toprepo.missing-commit.rev-<commit-hash>=<raw-url>`: This commit hash
-  will be ignored if referenced by a subdmodule that has its URL in the
-  `.gitmodules` file specified as `raw-url`.
-
-#### Missing commits example
+After each run of `git toprepo fetch`, the actually resolved configuration is
+written to `.git/toprepo/last-effective-git-toprepo.toml`. This file includes
+suggested additions to the `.gittoprepo.toml` configuration.
 
 ```
-[toprepo.missing-commits]
-    rev-b6a50df1c26c6b0f8755cac88203a9f4547adccd = ../some-repo.git
-    rev-bfd24a62a7d5d5c67e396dd78e28137f99757508 = https://my-git-server/some-repo.git
+[repo.something]
+urls = [
+    "https://github.com/meroton/git-toprepo.git",
+    "server.internal/git-toprepo.git",
+]
+# push.url defaults to fetch.url.
+push.url = "ssh://git@github.com/meroton/git-toprepo.git"
+push.args = []
+
+[repo.something.fetch]
+url = "ssh://git@github.com/meroton/git-toprepo.git"
+# Affects the --prune fetch arg, defaults to true.
+prune = true
+# --depth is added if set to non-zero.
+depth = 0
+
+[log]
+ignored_warnings = [
+    "This warning will not be displayed",
+]
 ```
