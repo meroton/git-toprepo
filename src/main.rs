@@ -25,7 +25,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-fn init(init_args: &cli::Init) -> Result<ExitCode> {
+fn init(init_args: &cli::Init) -> Result<PathBuf> {
     let url = gix::url::Url::from_bytes(init_args.repository.as_bytes().as_bstr())?;
     // TODO: Should url.path be canonicalized for scheme=File like git does?
     let directory = match &init_args.directory {
@@ -39,12 +39,30 @@ fn init(init_args: &cli::Init) -> Result<ExitCode> {
         }
     };
 
-    let toprepo = git_toprepo::repo::TopRepo::create(directory, url)?;
+    let toprepo = git_toprepo::repo::TopRepo::create(directory.clone(), url)?;
     eprintln!("Initialized git-toprepo in {}", toprepo.directory.display());
+    Ok(directory)
+}
 
-    if init_args.fetch {
-        eprintln!("Fetching from {}", toprepo.url);
-        toprepo.fetch_toprepo()?;
+fn clone_after_init(clone_args: &cli::Clone) -> Result<ExitCode> {
+    if clone_args.minimal {
+        fetch(&cli::Fetch {
+            keep_going: false,
+            jobs: std::num::NonZero::new(1).unwrap(),
+            skip_filter: true,
+            repo: Some(RepoName::Top),
+            top_or_submodule_remote: "origin".to_owned(),
+            refspecs: None,
+        })?;
+    } else {
+        fetch(&cli::Fetch {
+            keep_going: false,
+            jobs: std::num::NonZero::new(1).unwrap(),
+            skip_filter: false,
+            repo: None,
+            top_or_submodule_remote: "origin".to_owned(),
+            refspecs: None,
+        })?;
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -392,8 +410,7 @@ where
     }
     const EFFECTIVE_TOPREPO_CONFIG: &str = "toprepo/last-effective-git-toprepo.toml";
     config.log = log_config;
-    if let Err(err) =
-        config.save_config_to_repo(&toprepo.gix_repo.git_dir().join(EFFECTIVE_TOPREPO_CONFIG))
+    if let Err(err) = config.save(&toprepo.gix_repo.git_dir().join(EFFECTIVE_TOPREPO_CONFIG))
         && result.is_ok()
     {
         result = Err(err);
@@ -497,34 +514,51 @@ where
     I: IntoIterator<Item = std::ffi::OsString>,
 {
     let args = Cli::parse_from(argv);
-
-    if let Commands::Init(ref init_args) = args.command {
-        return init(init_args);
+    if let Some(path) = &args.working_directory {
+        std::env::set_current_dir(path)
+            .with_context(|| format!("Failed to change working directory to {}", path.display()))?;
     }
 
-    let working_directory = match args.working_directory {
-        Some(dir) => dir,
-        None => {
-            let current_dir = std::env::current_dir()?;
-            git_toprepo::util::find_working_directory(&current_dir)?
+    match &args.command {
+        Commands::Init(init_args) => {
+            return init(init_args).map(|_| ExitCode::SUCCESS);
         }
-    };
-    std::env::set_current_dir(&working_directory).with_context(|| {
-        format!(
-            "Failed to change working directory to {}",
-            &working_directory.display()
-        )
-    })?;
+        Commands::Clone(cli::Clone {
+            init: init_args,
+            minimal: _,
+        }) => {
+            let directory = init(init_args)?;
+            std::env::set_current_dir(&directory).with_context(|| {
+                format!(
+                    "Failed to change working directory to {}",
+                    directory.display()
+                )
+            })?;
+        }
+        _ => {
+            if args.working_directory.is_none() {
+                let current_dir = std::env::current_dir()?;
+                let working_directory = git_toprepo::util::find_working_directory(&current_dir)?;
+                std::env::set_current_dir(&working_directory).with_context(|| {
+                    format!(
+                        "Failed to change working directory to {}",
+                        &working_directory.display()
+                    )
+                })?;
+            }
+        }
+    }
 
     git_toprepo::config::GitTopRepoConfig::find_configuration_location(Path::new(""))?;
     let res: ExitCode = match args.command {
         Commands::Init(_) => unreachable!("init already processed"),
-        Commands::Config(ref config_args) => config(config_args)?,
-        Commands::Refilter(ref refilter_args) => refilter(refilter_args)?,
-        Commands::Fetch(ref fetch_args) => fetch(fetch_args)?,
-        Commands::Push(ref push_args) => push(push_args)?,
-        Commands::Dump(ref dump_args) => dump(dump_args)?,
-        Commands::Replace(ref _replace_args) => todo!(), //replace(&args, replace_args)?,
+        Commands::Clone(clone_args) => clone_after_init(&clone_args)?,
+        Commands::Config(config_args) => config(&config_args)?,
+        Commands::Refilter(refilter_args) => refilter(&refilter_args)?,
+        Commands::Fetch(fetch_args) => fetch(&fetch_args)?,
+        Commands::Push(push_args) => push(&push_args)?,
+        Commands::Dump(dump_args) => dump(&dump_args)?,
+        Commands::Replace(_replace_args) => todo!(), //replace(&args, replace_args)?,
     };
     Ok(res)
 }

@@ -141,6 +141,9 @@ impl SerdeTopRepoCache {
         let now = std::time::Instant::now();
         let cache_path = Self::get_cache_path(git_dir);
         let cache_path_tmp = cache_path.with_extension(".tmp");
+        if let Some(parent) = cache_path.parent() {
+            std::fs::create_dir_all(parent).context("Failed to create parent directory")?;
+        }
         let mut writer = std::io::BufWriter::new(std::fs::File::create(&cache_path_tmp)?);
         writer.write_all(Self::CACHE_VERSION_PRELUDE.as_bytes())?;
         bincode::serde::encode_into_std_write(self, &mut writer, bincode::config::standard())

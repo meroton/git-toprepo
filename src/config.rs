@@ -128,25 +128,27 @@ impl GitTopRepoConfig {
     /// Gets a `SubRepoConfig` based on a URL using exact matching. If an URL is
     /// missing, the user should add it to the `SubRepoConfig::urls` list.
     pub fn get_name_from_url(&self, url: &gix::Url) -> Result<Option<SubRepoName>> {
-        let matches: Vec<_> = self
+        let mut matches = self
             .subrepos
             .iter()
-            .filter(|(_name, subrepo_config)| subrepo_config.urls.iter().any(|u| u == url))
-            .collect();
-        match matches.len() {
-            0 => Ok(None),
-            1 => {
-                let repo_name = matches[0].0;
-                if self.missing_subrepos.contains(repo_name) {
-                    Ok(None)
-                } else {
-                    Ok(Some(repo_name.clone()))
-                }
-            }
-            _ => {
-                let names = matches.into_iter().map(|(name, _)| name).join(", ");
-                bail!("Multiple remote candidates for {url}: {names}");
-            }
+            .filter(|(_name, subrepo_config)| subrepo_config.urls.iter().any(|u| u == url));
+        let Some(first_match) = matches.next() else {
+            return Ok(None);
+        };
+        if let Some(second_match) = matches.next() {
+            let names = [first_match, second_match]
+                .into_iter()
+                .chain(matches)
+                .map(|(name, _)| name)
+                .join(", ");
+            bail!("Multiple remote candidates for {url}: {names}");
+        }
+        // Only a single match.
+        let repo_name = first_match.0;
+        if self.missing_subrepos.contains(repo_name) {
+            Ok(None)
+        } else {
+            Ok(Some(repo_name.clone()))
         }
     }
 
@@ -194,7 +196,7 @@ impl GitTopRepoConfig {
     pub fn get_or_insert_from_url(
         &mut self,
         repo_url: &gix::Url,
-    ) -> Result<(SubRepoName, &SubRepoConfig)> {
+    ) -> Result<(SubRepoName, &mut SubRepoConfig)> {
         let Some(repo_name) = self.get_name_from_url(repo_url)? else {
             let mut repo_name = self.default_name_from_url(repo_url).with_context(|| {
                 format!(
@@ -213,11 +215,10 @@ impl GitTopRepoConfig {
                     repo_name = existing_name.clone();
                 }
             }
-            self.subrepos
-                .entry(repo_name.clone())
-                .or_default()
-                .urls
-                .push(repo_url.clone());
+            let urls = &mut self.subrepos.entry(repo_name.clone()).or_default().urls;
+            if !urls.contains(repo_url) {
+                urls.push(repo_url.clone());
+            }
             self.missing_subrepos.insert(repo_name.clone());
             bail!("URL {repo_url} is missing in the git-toprepo configuration");
         };
@@ -289,11 +290,15 @@ impl GitTopRepoConfig {
             .with_context(|| format!("Parsing {}", &location))
     }
 
-    pub fn save_config_to_repo(&self, path: &Path) -> Result<()> {
-        std::fs::create_dir_all(
-            path.parent()
-                .with_context(|| format!("Bad config path {}", path.display()))?,
-        )?;
+    pub fn save(&self, path: &Path) -> Result<()> {
+        self.save_impl(path)
+            .with_context(|| format!("Saving config to {}", path.display()))
+    }
+
+    fn save_impl(&self, path: &Path) -> Result<()> {
+        if let Some(parent_dir) = path.parent() {
+            std::fs::create_dir_all(parent_dir).context("Failed to create parent directory")?;
+        }
         let config_toml = toml::to_string_pretty(self).context("Serializing config")?;
         std::fs::write(path, config_toml).context("Writing config file")?;
         Ok(())
