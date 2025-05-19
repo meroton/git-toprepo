@@ -513,12 +513,12 @@ fn dump_import_cache() -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn set_working_directory(working_directory: Option<PathBuf>) -> Result<ExitCode> {
-    let path = match &working_directory {
+fn find_working_directory(working_directory: Option<PathBuf>) -> Result<PathBuf> {
+    let path = match working_directory {
         Some(path) => path,
         _ => {
             let git_dir = std::env::current_dir()?;
-            &upwards(&git_dir)?.0
+            upwards(&git_dir)?.0
                 .into_repository_and_work_tree_directories().1
                 .ok_or(
                     std::io::Error::new(
@@ -528,15 +528,15 @@ fn set_working_directory(working_directory: Option<PathBuf>) -> Result<ExitCode>
                 )?.to_owned()
         },
     };
-    std::env::set_current_dir(path)
-        .with_context(|| format!("Failed to change working directory to {}", path.display()))?;
-    Ok(ExitCode::SUCCESS)
+    Ok(path)
 }
 
 fn main_impl() -> Result<ExitCode> {
     let args = Cli::parse();
 
-    set_working_directory(args.working_directory)?;
+    let working_directory = &find_working_directory(args.working_directory)?;
+    std::env::set_current_dir(working_directory)
+        .with_context(|| format!("Failed to change working directory to {}", working_directory.display()))?;
 
     let res: ExitCode = match args.command {
         Commands::Init(ref init_args) => init(init_args)?,
