@@ -242,12 +242,17 @@ impl GitTopRepoConfig {
                     // The config file does not exist in the commit.
                     if using_default_location {
                         // If no config location has been specified, having the file is optional.
+                        let cat_file_error = &config_toml_output.stderr.to_str_lossy();
+                        let errorsnippet = format!(
+                            "'git cat-file -e' reported {}",
+                            trim_newline_suffix(cat_file_error)
+                        );
+                        if cat_file_error.contains("exists on disk") {
+                            eprintln!("Warning: This repository is not configured to use git-toprepo. A local file exists at the path it is read from a git ref, but this file is ignored.");
+                            eprintln!("{}", errorsnippet);
+                        }
                         if let Some(ref mut search_log) = search_log {
-                            writeln!(
-                                search_log,
-                                "'git cat-file -e' reported {}",
-                                trim_newline_suffix(&config_toml_output.stderr.to_str_lossy())
-                            )?;
+                            writeln!(search_log, "{}", errorsnippet)?;
                             writeln!(search_log, "Falling back to default configuration")?;
                         }
                         ConfigLocation::None
