@@ -516,8 +516,12 @@ fn main_impl() -> Result<ExitCode> {
     let args = Cli::parse();
 
     let working_directory = &git_toprepo::util::find_working_directory(args.working_directory)?;
-    std::env::set_current_dir(working_directory)
-        .with_context(|| format!("Failed to change working directory to {}", working_directory.display()))?;
+    std::env::set_current_dir(working_directory).with_context(|| {
+        format!(
+            "Failed to change working directory to {}",
+            working_directory.display()
+        )
+    })?;
 
     let res: ExitCode = match args.command {
         Commands::Init(ref init_args) => init(init_args)?,
