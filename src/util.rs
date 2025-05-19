@@ -1,8 +1,9 @@
 use crate::git::CommitId;
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use bstr::ByteSlice as _;
 use bstr::ByteVec;
+use gix::discover::upwards;
 use itertools::Itertools;
 use serde::Deserialize as _;
 use serde::Serialize as _;
@@ -12,11 +13,10 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::path::PathBuf;
 use std::process::Command;
 use std::process::ExitStatus;
 use std::sync::atomic::AtomicBool;
-use std::path::PathBuf;
-use gix::discover::upwards;
 
 pub type RawUrl = String;
 pub type Url = String;
