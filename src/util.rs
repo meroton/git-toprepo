@@ -1,5 +1,6 @@
 use crate::git::CommitId;
 use anyhow::bail;
+use anyhow::Result;
 use bstr::ByteSlice as _;
 use bstr::ByteVec;
 use itertools::Itertools;
@@ -14,6 +15,8 @@ use std::ops::DerefMut;
 use std::process::Command;
 use std::process::ExitStatus;
 use std::sync::atomic::AtomicBool;
+use std::path::PathBuf;
+use gix::discover::upwards;
 
 pub type RawUrl = String;
 pub type Url = String;
@@ -21,6 +24,25 @@ pub type Url = String;
 lazy_static::lazy_static! {
     /// A URL that serializes to an empty string.
     pub static ref EMPTY_GIX_URL: gix::Url = new_empty_gix_url();
+}
+
+pub fn find_working_directory(working_directory: Option<PathBuf>) -> Result<PathBuf> {
+    let path = match working_directory {
+        Some(path) => path,
+        _ => {
+            let git_dir = std::env::current_dir()?;
+            upwards(&git_dir)?
+                .0
+                .into_repository_and_work_tree_directories()
+                .1
+                .ok_or(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Couldn't find git directory",
+                ))?
+                .to_owned()
+        }
+    };
+    Ok(path)
 }
 
 /// Creates a `gix::Url` that serializes to an empty string.
