@@ -43,7 +43,7 @@ pub struct GitTopRepoConfig {
 pub struct LogConfig {
     /// Warning messages that should be ignored and not displayed for the user.
     #[serde(default)]
-    pub ignored_warnings: Vec<String>,
+    pub ignore_warnings: Vec<String>,
     /// Error messages that were displayed to the user.
     #[serde(skip_deserializing)]
     pub reported_errors: Vec<String>,
