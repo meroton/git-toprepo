@@ -2,7 +2,6 @@
  *
  * See also https://jmmv.dev/2013/08/cli-design-putting-flags-to-good-use.html#bad-using-flags-to-select-subcommands.
  */
-use clap::ArgAction;
 use clap::Args;
 use clap::Parser;
 use clap::Subcommand;
@@ -38,7 +37,10 @@ pub enum GitEnum {
 #[derive(Subcommand, Debug)]
 #[command(version)]
 pub enum Commands {
+    /// Initialize a repository and the git-config, without fetching from the remote.
     Init(Init),
+    /// Initialize a repository and fetch from the remote.
+    Clone(Clone),
     Config(Config),
     Refilter(Refilter),
     Fetch(Fetch),
@@ -64,17 +66,22 @@ pub enum Commands {
 
 #[derive(Args, Debug)]
 pub struct Init {
-    /// Skip the initial fetch of the top repository. This means the the
-    /// default configuration will not be fetched either.
-    #[clap(long = "no-fetch", action = ArgAction::SetFalse)]
-    pub fetch: bool,
-
-    /// The remote repository to clone from.
+    /// The repository to be configured as remote.
     pub repository: String,
 
-    /// The name of a new directory to clone into. If no directory is given, the
-    /// basename of the repository is used.
+    /// The name of a new directory to create the repository in. If no directory
+    /// is given, the basename of the repository is used.
     pub directory: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct Clone {
+    #[command(flatten)]
+    pub init: Init,
+
+    /// After fetching the top repository, skip fetching the submodules.
+    #[clap(long)]
+    pub minimal: bool,
 }
 
 #[derive(Args, Debug)]

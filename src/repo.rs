@@ -34,6 +34,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::Display;
 use std::hash::Hash;
+use std::io::Write as _;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -89,6 +90,8 @@ impl TopRepo {
             .safe_status()?
             .check_success()
             .context("Failed to set git-config remote.origin.fetch (tags)")?;
+        // TODO: Does HEAD always exist on the remote? Is `git ls-remote` needed
+        // to prioritize HEAD, main, master, etc.
         git_command(&directory)
             .args([
                 "config",
@@ -108,11 +111,86 @@ impl TopRepo {
             .args([
                 "config",
                 "toprepo.config",
-                "repo:refs/remotes/origin/HEAD:.gittoprepo.toml",
+                &format!(
+                    "repo:{}HEAD:.gittoprepo.toml",
+                    RepoName::Top.to_ref_prefix()
+                ),
             ])
             .safe_status()?
             .check_success()
-            .context("Failed to set git-config remote.origin.url")?;
+            .context("Failed to set git-config toprepo.config")?;
+
+        let process = git_command(&directory)
+            .args(["hash-object", "-t", "blob", "-w", "--stdin"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()?;
+        let result = process.wait_with_output()?;
+        if !result.status.success() {
+            anyhow::bail!(
+                "Failed to create tree for empty .gittoprepo.toml: {}",
+                result.status
+            );
+        }
+        let gittoprepotoml_blob_hash = crate::util::trim_newline_suffix(result.stdout.to_str()?);
+
+        let mut process = git_command(&directory)
+            .arg("mktree")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()?;
+        let mut stdin = process.stdin.take().expect("stdin is piped");
+        stdin.write_all(
+            format!("100644 blob {gittoprepotoml_blob_hash}\t.gittoprepo.toml\n").as_bytes(),
+        )?;
+        drop(stdin);
+        let result = process.wait_with_output()?;
+        if !result.status.success() {
+            anyhow::bail!(
+                "Failed to create tree for empty .gittoprepo.toml: {}",
+                result.status
+            );
+        }
+        let gittoprepotoml_tree_hash =
+            bstr::BStr::new(crate::util::trim_bytes_newline_suffix(&result.stdout));
+
+        let mut process = git_command(&directory)
+            .args(["hash-object", "-t", "commit", "-w", "--stdin"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()?;
+        let mut stdin = process.stdin.take().expect("stdin is piped");
+        stdin.write_all(
+            format!(
+                "\
+tree {gittoprepotoml_tree_hash}
+author Git Toprepo <noname@example.com> 946684800 +0000
+committer Git Toprepo <noname@example.com> 946684800 +0000
+
+Initial empty git-toprepo configuration
+"
+            )
+            .as_bytes(),
+        )?;
+        drop(stdin);
+        let result = process.wait_with_output()?;
+        if !result.status.success() {
+            anyhow::bail!(
+                "Failed to create tree for empty .gittoprepo.toml: {}",
+                result.status
+            );
+        }
+        let gittoprepotoml_commit_hash =
+            bstr::BStr::new(crate::util::trim_bytes_newline_suffix(&result.stdout));
+
+        let first_time_config_ref = RepoName::Top.to_ref_prefix() + "HEAD";
+        git_command(&directory)
+            .arg("update-ref")
+            .arg(&first_time_config_ref)
+            .arg(gittoprepotoml_commit_hash.to_os_str()?)
+            .safe_status()?
+            .check_success()
+            .with_context(|| format!("Failed to reset {first_time_config_ref}"))?;
         git_command(&directory)
             .args(["symbolic-ref", "HEAD", "refs/remotes/origin/HEAD"])
             .safe_status()?
