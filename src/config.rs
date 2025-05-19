@@ -39,13 +39,17 @@ pub struct GitTopRepoConfig {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct LogConfig {
+    // Settings:
     /// Warning messages that should be ignored and not displayed for the user.
     #[serde(default)]
     pub ignore_warnings: Vec<String>,
-    /// Error messages that were displayed to the user.
+
+    // State propagation: These are filled in during execution of the program
+    // and logs are collected from subcomponents and subprocesses.
+    /// Error messages that were displayed to the user during execution.
     #[serde(skip_deserializing)]
     pub reported_errors: Vec<String>,
-    /// Warning messages that were displayed to the user.
+    /// Warning messages that were displayed to the user during execution.
     #[serde(skip_deserializing)]
     pub reported_warnings: Vec<String>,
 }
@@ -340,7 +344,7 @@ impl GitTopRepoConfig {
     }
 }
 
-/// `ToprepoConfig`` holds the configuration for the toprepo itself. The content is
+/// `ToprepoConfig` holds the configuration for the toprepo itself. The content is
 /// taken from the default git remote configuration.
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -351,7 +355,7 @@ pub struct ToprepoConfig {
     pub push_url: gix::Url,
 }
 
-/// `SubrepoConfig`` holds the configuration for a subrepo in the super repo. If
+/// `SubrepoConfig` holds the configuration for a subrepo in the super repo. If
 /// `fetch.url` is empty, the first entry in `urls` is used. If `push.url` is
 /// empty, the value of `fetch.url` is used.
 #[serde_as]
@@ -382,7 +386,7 @@ fn is_true(value: &bool) -> bool {
 impl SubrepoConfig {
     /// Validates that the configuration is sane.
     /// This will check that a fetch URL is set
-    /// if `urls` does not contain exacly one entry.
+    /// if `urls` does not contain exactly one entry.
     pub fn validate(&self) -> Result<()> {
         // Set fetch/push urls.
         if self.fetch.url.is_some() {
