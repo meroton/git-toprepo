@@ -17,7 +17,6 @@ use git_toprepo::gitmodules::SubmoduleUrlExt as _;
 use git_toprepo::loader::FetchParams;
 use git_toprepo::repo_name::RepoName;
 use gix::refs::FullName;
-use gix::discover::upwards;
 use itertools::Itertools;
 use std::collections::HashSet;
 use std::io::Read;
@@ -513,28 +512,10 @@ fn dump_import_cache() -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn find_working_directory(working_directory: Option<PathBuf>) -> Result<PathBuf> {
-    let path = match working_directory {
-        Some(path) => path,
-        _ => {
-            let git_dir = std::env::current_dir()?;
-            upwards(&git_dir)?.0
-                .into_repository_and_work_tree_directories().1
-                .ok_or(
-                    std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        "Couldn't find git directory",
-                    )
-                )?.to_owned()
-        },
-    };
-    Ok(path)
-}
-
 fn main_impl() -> Result<ExitCode> {
     let args = Cli::parse();
 
-    let working_directory = &find_working_directory(args.working_directory)?;
+    let working_directory = &git_toprepo::util::find_working_directory(args.working_directory)?;
     std::env::set_current_dir(working_directory)
         .with_context(|| format!("Failed to change working directory to {}", working_directory.display()))?;
 
