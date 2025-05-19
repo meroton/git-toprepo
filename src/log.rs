@@ -21,12 +21,12 @@ where
     progress.set_draw_target(indicatif::ProgressDrawTarget::stderr_with_hz(2));
 
     let progress_clone = progress.clone();
-    let ignored_warnings = log_config
-        .ignored_warnings
+    let ignore_warnings = log_config
+        .ignore_warnings
         .iter()
         .cloned()
         .collect::<HashSet<_>>();
-    let log_receiver = LogReceiver::new(ignored_warnings, error_mode.clone(), move |msg| {
+    let log_receiver = LogReceiver::new(ignore_warnings, error_mode.clone(), move |msg| {
         progress_clone.suspend(|| eprintln!("{msg}"));
     });
     let result = task(log_receiver.get_logger(), progress.clone());
@@ -199,22 +199,18 @@ pub struct LogReceiver {
 
 impl LogReceiver {
     /// Create a new `LogReceiver` that prints to `stderr`.
-    pub fn new_stderr(ignored_warnings: HashSet<String>, error_mode: ErrorMode) -> Self {
-        Self::new(ignored_warnings, error_mode, |msg| {
+    pub fn new_stderr(ignore_warnings: HashSet<String>, error_mode: ErrorMode) -> Self {
+        Self::new(ignore_warnings, error_mode, |msg| {
             eprintln!("{msg}");
         })
     }
 
-    pub fn new<F>(
-        ignored_warnings: HashSet<String>,
-        error_mode: ErrorMode,
-        draw_callback: F,
-    ) -> Self
+    pub fn new<F>(ignore_warnings: HashSet<String>, error_mode: ErrorMode, draw_callback: F) -> Self
     where
         F: Fn(&str) + Send + 'static,
     {
         let mut seen_warnings: HashSet<String> =
-            HashSet::from_iter(ignored_warnings.iter().cloned());
+            HashSet::from_iter(ignore_warnings.iter().cloned());
         let (tx, rx) = std::sync::mpsc::channel::<LogTask>();
         let logger_thread = std::thread::Builder::new()
             .name("logger".into())
