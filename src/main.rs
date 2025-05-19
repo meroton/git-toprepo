@@ -180,95 +180,101 @@ where
 
     let base_url = git_toprepo::git::get_default_remote_url(&repo)?;
 
-    let (fetch_repo_name, abs_sub_path, fetch_params) = if fetch_args
-        .top_or_submodule_remote
-        .is_empty()
-        && fetch_args.repo.is_none()
-    {
-        if fetch_args.refspecs.is_some() {
-            anyhow::bail!("Refspecs are not supported unless a remote is specified");
+    let fetch_everything =
+        fetch_args.top_or_submodule_remote.is_empty() && fetch_args.repo.is_none();
+    let (fetch_repo_name, abs_sub_path, fetch_params) = match fetch_everything {
+        true => {
+            if fetch_args.refspecs.is_some() {
+                anyhow::bail!("Refspecs are not supported unless a remote is specified");
+            }
+            (RepoName::Top, GitPath::new(b"".into()), None)
         }
-        (RepoName::Top, GitPath::new(b"".into()), None)
-    } else {
-        let (repo_name, submod_path, fetch_url_str) = if fetch_args.top_or_submodule_remote
-            == "origin"
-        {
-            if let Some(repo_name) = &fetch_args.repo {
-                if repo_name != &RepoName::Top {
-                    anyhow::bail!(
-                        "Expected the 'top' repository, not {repo_name}, for the remote 'origin'"
-                    );
-                }
-            }
-            (
-                RepoName::Top,
-                GitPath::new(b"".into()),
-                fetch_args.top_or_submodule_remote.clone(),
-            )
-        } else {
-            let fetch_arg_url = base_url.join(&gix::url::Url::from_bytes(
-                fetch_args.top_or_submodule_remote.as_bytes().as_bstr(),
-            )?);
-            let fetch_url_str = fetch_arg_url.to_string();
-            let trimmed_fetch_url = fetch_arg_url.trim_url_path();
-            let mut matching_submod_names = HashSet::new();
-            let mut matching_submod_path = GitPath::new("".into());
-            if trimmed_fetch_url.approx_equal(&base_url.clone().trim_url_path()) {
-                matching_submod_names.insert(RepoName::Top);
-            }
-            let gitmod_infos = GitModulesInfo::parse_dot_gitmodules_in_repo(&repo)?;
-            for (submod_path, submod_url) in gitmod_infos.submodules {
-                let Ok(submod_url) = submod_url else {
-                    continue;
-                };
-                let full_url = base_url.join(&submod_url).trim_url_path();
-                if full_url.approx_equal(&trimmed_fetch_url) {
-                    let (name, submod_config) = config.get_or_insert_from_url(&submod_url)?;
-                    if !submod_config.enabled {
-                        anyhow::bail!("Submodule {name} is disabled in the configuration");
+        false => {
+            let (repo_name, submod_path, fetch_url_str) = match fetch_args.top_or_submodule_remote
+                == "origin"
+            {
+                true => {
+                    if let Some(repo_name) = &fetch_args.repo {
+                        if repo_name != &RepoName::Top {
+                            anyhow::bail!(
+                                "Expected the 'top' repository, not {repo_name}, for the remote 'origin'"
+                            );
+                        }
                     }
-                    matching_submod_names.insert(RepoName::SubRepo(name));
-                    matching_submod_path = submod_path;
+                    (
+                        RepoName::Top,
+                        GitPath::new(b"".into()),
+                        fetch_args.top_or_submodule_remote.clone(),
+                    )
                 }
-            }
-            let matching_submod_names = matching_submod_names.into_iter().sorted().collect_vec();
-            let repo_name = match matching_submod_names.as_slice() {
-                [] => anyhow::bail!(
-                    "No submodule matches {}",
-                    fetch_args.top_or_submodule_remote
-                ),
-                [submod_name] => submod_name.clone(),
-                [_, ..] => anyhow::bail!(
-                    "Multiple submodules match: {}",
-                    matching_submod_names
-                        .iter()
-                        .map(|name| name.to_string())
-                        .join(", ")
-                ),
+                false => {
+                    let fetch_arg_url = base_url.join(&gix::url::Url::from_bytes(
+                        fetch_args.top_or_submodule_remote.as_bytes().as_bstr(),
+                    )?);
+                    let fetch_url_str = fetch_arg_url.to_string();
+                    let trimmed_fetch_url = fetch_arg_url.trim_url_path();
+                    let mut matching_submod_names = HashSet::new();
+                    let mut matching_submod_path = GitPath::new("".into());
+                    if trimmed_fetch_url.approx_equal(&base_url.clone().trim_url_path()) {
+                        matching_submod_names.insert(RepoName::Top);
+                    }
+                    let gitmod_infos = GitModulesInfo::parse_dot_gitmodules_in_repo(&repo)?;
+                    for (submod_path, submod_url) in gitmod_infos.submodules {
+                        let Ok(submod_url) = submod_url else {
+                            continue;
+                        };
+                        let full_url = base_url.join(&submod_url).trim_url_path();
+                        if full_url.approx_equal(&trimmed_fetch_url) {
+                            let (name, submod_config) =
+                                config.get_or_insert_from_url(&submod_url)?;
+                            if !submod_config.enabled {
+                                anyhow::bail!("Submodule {name} is disabled in the configuration");
+                            }
+                            matching_submod_names.insert(RepoName::SubRepo(name));
+                            matching_submod_path = submod_path;
+                        }
+                    }
+                    let matching_submod_names =
+                        matching_submod_names.into_iter().sorted().collect_vec();
+                    let repo_name = match matching_submod_names.as_slice() {
+                        [] => anyhow::bail!(
+                            "No submodule matches {}",
+                            fetch_args.top_or_submodule_remote
+                        ),
+                        [submod_name] => submod_name.clone(),
+                        [_, ..] => anyhow::bail!(
+                            "Multiple submodules match: {}",
+                            matching_submod_names
+                                .iter()
+                                .map(|name| name.to_string())
+                                .join(", ")
+                        ),
+                    };
+                    (repo_name, matching_submod_path, fetch_url_str)
+                }
             };
-            (repo_name, matching_submod_path, fetch_url_str)
-        };
-        if let Some(refspecs) = &fetch_args.refspecs {
-            if refspecs.len() != 1 {
-                todo!("Handle multiple refspecs");
-            }
-            (
-                repo_name,
-                submod_path,
-                Some(FetchParams::Custom {
-                    remote: fetch_url_str,
-                    refspec: refspecs[0].clone(),
-                }),
-            )
-        } else {
-            match repo_name {
-                RepoName::Top => (
-                    RepoName::Top,
-                    GitPath::new(b"".into()),
-                    Some(FetchParams::Default),
-                ),
-                RepoName::SubRepo(_) => {
-                    anyhow::bail!("Refspecs are required for submodules");
+            if let Some(refspecs) = &fetch_args.refspecs {
+                if refspecs.len() != 1 {
+                    todo!("Handle multiple refspecs");
+                }
+                (
+                    repo_name,
+                    submod_path,
+                    Some(FetchParams::Custom {
+                        remote: fetch_url_str,
+                        refspec: refspecs[0].clone(),
+                    }),
+                )
+            } else {
+                match repo_name {
+                    RepoName::Top => (
+                        RepoName::Top,
+                        GitPath::new(b"".into()),
+                        Some(FetchParams::Default),
+                    ),
+                    RepoName::SubRepo(_) => {
+                        anyhow::bail!("Refspecs are required for submodules");
+                    }
                 }
             }
         }
