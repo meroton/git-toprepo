@@ -208,28 +208,35 @@ impl GitTopRepoConfig {
             )
         );
 
+        let mut log = |s| search_log.as_mut().map(|w| writeln!(w, "{s}").unwrap());
+
+        log(format!(
+            "Checking for user configuration in git-config {GIT_CONFIG_KEY}",
+        ));
+
         let user_location = git_config_get(repo_dir, GIT_CONFIG_KEY)?;
         let (using_default_location, location) = match user_location.as_deref().unwrap_or("") {
-            "" => (true, DEFAULT_LOCATION),
-            s => (false, s),
-        };
-        // Log the search.
-        if let Some(ref mut search_log) = search_log {
-            writeln!(
-                search_log,
-                "git config {}: {}",
-                GIT_CONFIG_KEY,
-                user_location.as_deref().unwrap_or("<unset>")
-            )?;
-            if using_default_location {
-                writeln!(search_log, "Using default location: {DEFAULT_LOCATION}")?;
+            "" => {
+                let l = DEFAULT_LOCATION;
+                log("git-config {GIT_CONFIG_KEY}: <unset>".to_string());
+                log(format!("Using default location: {l}"));
+                (true, l)
             }
-        }
+            s => {
+                let l = user_location.clone().unwrap();
+                log(format!("Using user-specified location: {l}"));
+                (false, s)
+            }
+        };
 
         let parsed_location = if let Some(path) = location.strip_prefix(':') {
+            log(format!("Using configuration from file path {path}"));
             ConfigLocation::Worktree(PathBuf::from_str(path)?)
         } else {
             // Read config file from the repository.
+            log(format!(
+                "Checking for repository ref configuration {location}",
+            ));
             let config_toml_output = git_command(repo_dir)
                 .args(["cat-file", "-e", location])
                 .safe_output()?;
@@ -239,21 +246,18 @@ impl GitTopRepoConfig {
                     ConfigLocation::RepoBlob(location.to_owned())
                 }
                 Err(e) => {
-                    // The config file does not exist in the commit.
+                    // The config file does not exist in the repository refs
                     if using_default_location {
                         // If no config location has been specified, having the file is optional.
-                        if let Some(ref mut search_log) = search_log {
-                            writeln!(
-                                search_log,
-                                "'git cat-file -e' reported {}",
-                                trim_newline_suffix(&config_toml_output.stderr.to_str_lossy())
-                            )?;
-                            writeln!(search_log, "Falling back to default configuration")?;
-                        }
+                        log(format!(
+                            "'git cat-file -e' reported {}",
+                            trim_newline_suffix(&config_toml_output.stderr.to_str_lossy())
+                        ));
+                        log("Falling back to default configuration".to_string());
                         ConfigLocation::None
                     } else {
                         bail!(
-                            "Config file {} does not exist in the commit: {}",
+                            "Config file {} does not exist in the repository refs: {}",
                             location,
                             e
                         )
@@ -623,9 +627,12 @@ url = "ssh://bar/baz.git"
         .unwrap();
         assert_eq!(
             search_log,
-            "git config toprepo.config: <unset>\n\
-            Using default location: refs/namespaces/top/HEAD:.gittoprepo.toml\n\
-            'git cat-file -e' reported fatal: path '.gittoprepo.toml' does not exist in 'refs/namespaces/top/HEAD'\n\
+            "Checking for user configuration in git-config toprepo.config\n\
+            git-config {GIT_CONFIG_KEY}: <unset>\nUsing default location: \
+            refs/namespaces/top/HEAD:.gittoprepo.toml\nChecking for repository \
+            ref configuration refs/namespaces/top/HEAD:.gittoprepo.toml\n\
+            'git cat-file -e' reported fatal: path '.gittoprepo.toml' \
+            does not exist in 'refs/namespaces/top/HEAD'\n\
             Falling back to default configuration\n"
         );
 

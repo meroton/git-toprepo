@@ -75,7 +75,26 @@ fn config(config_args: &cli::Config) -> Result<ExitCode> {
             let location = config::GitTopRepoConfig::find_configuration_location(
                 Path::new(""),
                 search_log.as_mut(),
-            )?;
+            );
+            let location = location.map_err(|mut e| {
+                // TODO: Context is typically printed in LIFO
+                // whereas the search log is written as a chronological (FIFO)
+                // log. So this print has mismatched order and does not look so
+                // good.
+                let mut contexts: Vec<String> = Vec::new();
+                if let Some(search_log) = search_log.clone() {
+                    contexts.extend(
+                        search_log
+                            .lines()
+                            .map(|s| s.to_owned())
+                            .collect::<Vec<String>>(),
+                    );
+                };
+                for context in contexts.into_iter().rev() {
+                    e = e.context(context.clone())
+                }
+                e.context("Looking for configuration")
+            })?;
             if let Some(log) = search_log {
                 eprint!("{log}");
             }
