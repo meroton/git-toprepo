@@ -62,23 +62,24 @@ fn clone_after_init(
     Ok(ExitCode::SUCCESS)
 }
 
+fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
+    if file == PathBuf::from("-") {
+        || -> Result<GitTopRepoConfig> {
+            let mut toml_string = String::new();
+            std::io::stdin().read_to_string(&mut toml_string)?;
+            config::GitTopRepoConfig::parse_config_toml_string(&toml_string)
+        }()
+        .context("Loading from stdin")
+    } else {
+        || -> Result<GitTopRepoConfig> {
+            let toml_string = std::fs::read_to_string(file)?;
+            config::GitTopRepoConfig::parse_config_toml_string(&toml_string)
+        }()
+        .with_context(|| format!("Loading config file {}", file.display()))
+    }
+}
+
 fn config(config_args: &cli::Config) -> Result<ExitCode> {
-    let load_config_from_file = |file: &Path| -> Result<GitTopRepoConfig> {
-        if file == PathBuf::from("-") {
-            || -> Result<GitTopRepoConfig> {
-                let mut toml_string = String::new();
-                std::io::stdin().read_to_string(&mut toml_string)?;
-                config::GitTopRepoConfig::parse_config_toml_string(&toml_string)
-            }()
-            .context("Loading from stdin")
-        } else {
-            || -> Result<GitTopRepoConfig> {
-                let toml_string = std::fs::read_to_string(file)?;
-                config::GitTopRepoConfig::parse_config_toml_string(&toml_string)
-            }()
-            .with_context(|| format!("Loading config file {}", file.display()))
-        }
-    };
     let repo_dir = Path::new("");
     match &config_args.config_command {
         cli::ConfigCommands::Location => {
@@ -92,7 +93,7 @@ fn config(config_args: &cli::Config) -> Result<ExitCode> {
             let config = config::GitTopRepoConfig::load_config_from_repo(repo_dir)?;
             print!("{}", toml::to_string(&config)?);
         }
-        &cli::ConfigCommands::Bootstrap => {
+        cli::ConfigCommands::Bootstrap => {
             let config = config_bootstrap()?;
             print!("{}", toml::to_string(&config)?);
         }
@@ -100,8 +101,8 @@ fn config(config_args: &cli::Config) -> Result<ExitCode> {
             let config = load_config_from_file(args.file.as_path())?;
             print!("{}", toml::to_string(&config)?);
         }
-        cli::ConfigCommands::Validate(args) => {
-            let _ = load_config_from_file(args.file.as_path())?;
+        cli::ConfigCommands::Validate(validation) => {
+            let _config = load_config_from_file(validation.file.as_path())?;
         }
     }
     Ok(ExitCode::SUCCESS)
@@ -481,6 +482,8 @@ where
         std::env::set_current_dir(path)
             .with_context(|| format!("Failed to change working directory to {}", path.display()))?;
     }
+
+    // First run subcommands that can run with a mis- or unconfigured repo.
     match &args.command {
         Commands::Init(init_args) => return init(init_args).map(|_| ExitCode::SUCCESS),
         Commands::Clone(cli::Clone {

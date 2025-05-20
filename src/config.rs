@@ -24,6 +24,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+pub const GIT_CONFIG_KEY: &str = "toprepo.config";
+
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 #[serde(deny_unknown_fields)]
@@ -286,7 +288,6 @@ impl GitTopRepoConfig {
     /// Returns the configuration and the location it was loaded from.
     pub fn find_configuration_location(repo_dir: &Path) -> Result<ConfigLocation> {
         // Load config file location.
-        const GIT_CONFIG_KEY: &str = "toprepo.config";
 
         let location = git_config_get(repo_dir, GIT_CONFIG_KEY)?.with_context(|| {
             format!("git-config '{GIT_CONFIG_KEY}' is missing. Is this an initialized git-toprepo?")
@@ -540,14 +541,23 @@ pub struct PushConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::super::git::tests::commit_env;
+    use super::super::git::commit_env_for_testing;
     use super::*;
+
+    const BAR_BAZ: &str = r#"
+        [repo]
+        [repo.foo.fetch]
+        url = "ssh://bar/baz.git"
+    "#;
+
+    const BAR_BAZ_FETCH_URL: &str = "ssh://bar/baz.git";
+    const BAR_BAZ_FETCH: &str = r#"url = "ssh://bar/baz.git""#;
 
     #[test]
     fn test_create_config_from_invalid_ref() {
         let tmp_dir = tempfile::tempdir().unwrap();
         let tmp_path = tmp_dir.path();
-        let env = commit_env();
+        let env = commit_env_for_testing();
 
         git_command(tmp_path)
             .args(["init"])
@@ -556,7 +566,7 @@ mod tests {
             .unwrap();
 
         git_command(tmp_path)
-            .args(["config", "toprepo.config", "local:foobar.toml"])
+            .args(["config", GIT_CONFIG_KEY, "local:foobar.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
@@ -574,7 +584,7 @@ mod tests {
 
         let tmp_dir = tempfile::tempdir().unwrap();
         let tmp_path = tmp_dir.path();
-        let env = commit_env();
+        let env = commit_env_for_testing();
 
         git_command(tmp_path)
             .args(["init"])
@@ -593,7 +603,7 @@ mod tests {
             .unwrap();
 
         git_command(tmp_path)
-            .args(["config", "toprepo.config", "local:foobar.toml"])
+            .args(["config", GIT_CONFIG_KEY, "local:foobar.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
@@ -626,7 +636,7 @@ mod tests {
     fn test_missing_config() {
         let tmp_dir = tempfile::tempdir().unwrap();
         let tmp_path = tmp_dir.path();
-        let env = commit_env();
+        let env = commit_env_for_testing();
 
         git_command(tmp_path)
             .args(["init"])
@@ -648,7 +658,7 @@ mod tests {
 
         // Try a path in the repository.
         git_command(tmp_path)
-            .args(["config", "toprepo.config", "repo:HEAD:.gittoprepo.toml"])
+            .args(["config", GIT_CONFIG_KEY, "repo:HEAD:.gittoprepo.toml"])
             .check_success_with_stderr()
             .unwrap();
 
@@ -663,7 +673,7 @@ mod tests {
 
         // Try the worktree.
         git_command(tmp_path)
-            .args(["config", "toprepo.config", "local:nonexisting.toml"])
+            .args(["config", GIT_CONFIG_KEY, "local:nonexisting.toml"])
             .check_success_with_stderr()
             .unwrap();
         let err = GitTopRepoConfig::load_config_from_repo(tmp_path).unwrap_err();
@@ -672,15 +682,6 @@ mod tests {
             "Loading local:nonexisting.toml: Reading config file: No such file or directory (os error 2)"
         );
     }
-
-    const BAR_BAZ: &str = r#"
-        [repo]
-        [repo.foo.fetch]
-        url = "ssh://bar/baz.git"
-    "#;
-
-    const BAR_BAZ_FETCH_URL: &str = "ssh://bar/baz.git";
-    const BAR_BAZ_FETCH: &str = r#"url = "ssh://bar/baz.git""#;
 
     #[test]
     fn test_parse_fetch_url() {
@@ -715,7 +716,7 @@ mod tests {
 
         let tmp_dir = tempfile::tempdir().unwrap();
         let tmp_path = tmp_dir.path();
-        let env = commit_env();
+        let env = commit_env_for_testing();
 
         git_command(tmp_path)
             .args(["init"])
@@ -759,7 +760,7 @@ mod tests {
         git_command(tmp_path)
             .args([
                 "config",
-                "toprepo.config",
+                GIT_CONFIG_KEY,
                 "repo:refs/namespaces/top/HEAD:.gittoprepo.toml",
             ])
             .check_success_with_stderr()
