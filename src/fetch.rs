@@ -128,7 +128,7 @@ impl RemoteFetcher {
         Ok(())
     }
 
-    pub fn fetch(self, pb: &indicatif::ProgressBar) -> Result<()> {
+    pub fn fetch_with_progress_bar(self, pb: &indicatif::ProgressBar) -> Result<()> {
         let remote = self.remote.context("No fetch remote set")?;
         pb.set_prefix(remote.clone());
         pb.set_message("Starting git-fetch");
