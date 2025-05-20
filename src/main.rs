@@ -6,6 +6,7 @@ use crate::cli::Cli;
 use crate::cli::Commands;
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::bail;
 use bstr::ByteSlice as _;
 use clap::Parser;
 use colored::Colorize;
@@ -451,8 +452,13 @@ fn push(push_args: &cli::Push) -> Result<ExitCode> {
     .unpack()?;
     log_receiver.join().check()?;
 
-    let [(local_ref, remote_ref)] = push_args.refspecs.as_slice() else {
-        unimplemented!("Handle multiple refspecs");
+    let refspecs = push_args.refspecs.as_slice();
+    let [(local_ref, remote_ref)] = refspecs else {
+        if refspecs.is_empty() {
+            bail!("Missing remote or refspec")
+        } else {
+            unimplemented!("Handle multiple refspecs");
+        }
     };
 
     let mut result = git_toprepo::log::log_task_to_stderr(
