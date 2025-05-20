@@ -7,11 +7,12 @@ on:
   # Allow this workflow to be called from other workflows.
   workflow_call: {}
 jobs:
-  build-and-test:
+  test:
     strategy:
       fail-fast: true
       matrix:
-        os: [ubuntu-22.04] # TODO: macos-latest, windows-latest
+        os: [ubuntu-latest] # TODO: macos-latest, windows-latest
+    name: Test on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     env:
       CARGO_TERM_COLOR: always
@@ -25,13 +26,37 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build and test
-        run: ./build.sh ci
+        run: ./build-and-test.sh ci
       - name: Check for modified workspace
         run: git add . && git diff --exit-code HEAD --
 
-      - name: Upload artifact
+  publish:
+    strategy:
+      fail-fast: true
+      matrix:
+        platform:
+          - rust_target: x86_64-unknown-linux-musl
+            suffix: .linux_amd64
+    name: Publish ${{ matrix.platform.rust_target }}
+    runs-on: ubuntu-latest # TODO: Run build.sh on maxOS and Windows as well to see that the tests pass?
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      # Install the toolchain before rust-cache.
+      - run: rustup toolchain install stable --target ${{ matrix.platform.rust_target }} --profile minimal
+      - run: rustup default stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build ${{ matrix.platform.rust_target }}
+        run: cargo build --release --target ${{ matrix.platform.rust_target }}
+      - name: Upload ${{ matrix.platform.rust_target }}
         if: ${{ github.event_name == 'push' }}
-        uses: "actions/upload-artifact@v4"
+        uses: actions/upload-artifact@v4
         with:
-          name: "git-toprepo.linux_amd64"
-          path: "target/release/git-toprepo"
+          name: git-toprepo${{ matrix.platform.suffix }}
+          path: target/${{ matrix.platform.rust_target }}/release/git-toprepo
+          if-no-files-found: error
+
+      - name: Check for modified workspace
+        run: git add . && git diff --exit-code HEAD --
