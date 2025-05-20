@@ -50,23 +50,24 @@ fn init(init_args: &cli::Init) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
+    if file == PathBuf::from("-") {
+        || -> Result<GitTopRepoConfig> {
+            let mut toml_string = String::new();
+            std::io::stdin().read_to_string(&mut toml_string)?;
+            config::GitTopRepoConfig::parse_config_toml_string(&toml_string)
+        }()
+        .context("Loading from stdin")
+    } else {
+        || -> Result<GitTopRepoConfig> {
+            let toml_string = std::fs::read_to_string(file)?;
+            config::GitTopRepoConfig::parse_config_toml_string(&toml_string)
+        }()
+        .with_context(|| format!("Loading config file {}", file.display()))
+    }
+}
+
 fn config(config_args: &cli::Config) -> Result<ExitCode> {
-    let load_config_from_file = |file: &Path| -> Result<GitTopRepoConfig> {
-        if file == PathBuf::from("-") {
-            || -> Result<GitTopRepoConfig> {
-                let mut toml_string = String::new();
-                std::io::stdin().read_to_string(&mut toml_string)?;
-                config::GitTopRepoConfig::parse_config_toml_string(&toml_string)
-            }()
-            .context("Loading from stdin")
-        } else {
-            || -> Result<GitTopRepoConfig> {
-                let toml_string = std::fs::read_to_string(file)?;
-                config::GitTopRepoConfig::parse_config_toml_string(&toml_string)
-            }()
-            .with_context(|| format!("Loading config file {}", file.display()))
-        }
-    };
     let repo_dir = Path::new("");
     match &config_args.config_command {
         cli::ConfigCommands::Location => {
@@ -84,9 +85,7 @@ fn config(config_args: &cli::Config) -> Result<ExitCode> {
             let config = load_config_from_file(args.file.as_path())?;
             print!("{}", toml::to_string(&config)?);
         }
-        cli::ConfigCommands::Validate(args) => {
-            let _ = load_config_from_file(args.file.as_path())?;
-        }
+        cli::ConfigCommands::Validate(_) => unreachable!("validation has already been processed"),
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -515,12 +514,24 @@ where
         )
     })?;
 
+    // / Subcommands that can run with a mis- or unconfigured repo.
+    // Initialize the repo before trying to load it.
     if let Commands::Init(ref init_args) = args.command {
         return init(init_args);
     }
+    // Config file validation must be done before parsing the main repo's
+    // configuration. This should work with corrupt configuration.
+    if let Commands::Config(ref args) = args.command {
+        if let crate::cli::ConfigCommands::Validate(validation) = args.config_command.clone() {
+            let _ = load_config_from_file(validation.file.as_path())?;
+            return Ok(ExitCode::SUCCESS);
+        }
+    }
+
+    // / The other subcommands must all load the toprepo.
     git_toprepo::config::GitTopRepoConfig::find_configuration_location(Path::new(""))?;
     let res: ExitCode = match args.command {
-        Commands::Init(_) => unreachable!("init already processed"),
+        Commands::Init(_) => unreachable!("init has already been processed"),
         Commands::Config(ref config_args) => config(config_args)?,
         Commands::Refilter(ref refilter_args) => refilter(refilter_args)?,
         Commands::Fetch(ref fetch_args) => fetch(fetch_args)?,
