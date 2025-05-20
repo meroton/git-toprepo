@@ -432,9 +432,7 @@ where
                     threadpool::ThreadPool::new(fetch_args.jobs.get() as usize),
                 )?;
                 commit_loader_setup(&mut commit_loader)?;
-                if let Some(fetch_params) = &fetch_params {
-                    commit_loader.fetch_repo(fetch_repo_name.clone(), fetch_params.clone());
-                }
+                commit_loader.fetch_repo(fetch_repo_name.clone());
                 commit_loader.join();
                 Ok(())
             })()

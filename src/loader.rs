@@ -29,12 +29,11 @@ use std::fmt::Debug;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 
 enum TaskResult {
-    RepoFetchDone(RepoName, FetchParams),
-    LoadCachedCommits(RepoName, Vec<CommitId>, Arc<OnceLock<Result<()>>>),
+    RepoFetchDone(RepoName),
+    LoadCachedCommits(RepoName, Vec<CommitId>, oneshot::Sender<Result<()>>),
     ImportCommit(Arc<RepoName>, FastExportCommit, TreeId),
     LoadRepoDone(RepoName),
 }
@@ -121,13 +120,13 @@ impl<'a> CommitLoader<'a> {
 
     /// Enqueue fetching of a repo with specific refspecs. Using `None` as
     /// refspec will fetch all heads and tags.
-    pub fn fetch_repo(&mut self, repo_name: RepoName, fetch_params: FetchParams) {
-        if let Err(err) = self.fetch_repo_impl(repo_name, fetch_params) {
+    pub fn fetch_repo(&mut self, repo_name: RepoName) {
+        if let Err(err) = self.fetch_repo_impl(repo_name) {
             self.logger.error(format!("{err:#}"));
         }
     }
 
-    fn fetch_repo_impl(&mut self, repo_name: RepoName, fetch_params: FetchParams) -> Result<()> {
+    fn fetch_repo_impl(&mut self, repo_name: RepoName) -> Result<()> {
         let repo_fetcher = self.get_or_create_repo_fetcher(&repo_name)?;
         if !repo_fetcher.enabled {
             self.logger.warning(format!(
@@ -135,14 +134,8 @@ impl<'a> CommitLoader<'a> {
             ));
             return Ok(());
         }
-        if repo_fetcher.fetches_done.contains(&fetch_params)
-            || repo_fetcher.fetches_todo.contains(&fetch_params)
-        {
-            return Ok(());
-        }
-        let was_empty = repo_fetcher.fetches_todo.is_empty();
-        repo_fetcher.fetches_todo.push_back(fetch_params);
-        if was_empty {
+        if repo_fetcher.fetch_state == RepoFetcherState::Idle {
+            repo_fetcher.fetch_state = RepoFetcherState::Queued;
             self.repos_to_fetch.push_back(repo_name);
         }
         Ok(())
@@ -237,15 +230,15 @@ impl<'a> CommitLoader<'a> {
 
         // Process one messages.
         match msg {
-            TaskResult::RepoFetchDone(repo_name, fetch_params) => {
-                self.finish_fetch_repo_job(repo_name, fetch_params);
+            TaskResult::RepoFetchDone(repo_name) => {
+                self.finish_fetch_repo_job(repo_name);
                 self.ongoing_jobs_in_threads -= 1;
                 self.fetch_progress.inc_num_fetches_done();
             }
             TaskResult::LoadCachedCommits(repo_name, cached_tips_to_load, result_channel) => {
                 let result = self.load_cached_commits(&repo_name, cached_tips_to_load);
                 result_channel
-                    .set(result)
+                    .send(result)
                     .expect("result from loading cached commits has not been set yet");
             }
             TaskResult::ImportCommit(repo_name, commit, tree_id) => {
@@ -264,52 +257,31 @@ impl<'a> CommitLoader<'a> {
 
     fn start_fetch_repo_job(&mut self, repo_name: RepoName) -> Result<()> {
         let repo_fetcher = self.repos.get_mut(&repo_name).unwrap();
-        let fetch_params = repo_fetcher
-            .fetches_todo
-            .front()
-            .expect("fetches_todo is not empty")
-            .clone();
+        assert_eq!(repo_fetcher.fetch_state, RepoFetcherState::Queued);
+        repo_fetcher.fetch_state = RepoFetcherState::InProgress;
 
         let mut fetcher = crate::fetch::RemoteFetcher::new(&self.toprepo);
-        match &fetch_params {
-            FetchParams::Default => {
-                fetcher.set_remote_from_repo_name(&self.toprepo, &repo_name, self.config)?;
-            }
-            FetchParams::Custom {
-                remote,
-                refspec: (from_ref, to_ref),
-            } => {
-                fetcher.remote = Some(remote.clone());
-                fetcher.refspecs =
-                    vec![format!("{from_ref}:{}{to_ref}", repo_name.to_ref_prefix())];
-            }
-        };
+        fetcher.set_remote_from_repo_name(&self.toprepo, &repo_name, self.config)?;
 
         let pb = self.add_progress_bar();
         pb.enable_steady_tick(std::time::Duration::from_millis(1000));
         let logger = self.logger.with_context(&format!("Fetching {repo_name}"));
         let tx = self.tx.clone();
         self.thread_pool.execute(move || {
-            if let Err(err) = fetcher.fetch(&pb) {
+            if let Err(err) = fetcher.fetch_with_progress_bar(&pb) {
                 logger.error(format!("{err:#}"));
             }
-            tx.send(TaskResult::RepoFetchDone(repo_name, fetch_params))
+            tx.send(TaskResult::RepoFetchDone(repo_name))
                 .expect("receiver never close");
         });
         Ok(())
     }
 
-    fn finish_fetch_repo_job(&mut self, repo_name: RepoName, fetch_params: FetchParams) {
+    fn finish_fetch_repo_job(&mut self, repo_name: RepoName) {
         let repo_fetcher = self.repos.get_mut(&repo_name).unwrap();
-        if repo_fetcher.fetches_todo.pop_front().as_ref() != Some(&fetch_params) {
-            panic!("the first entry in fetches_todo is not the one that was fetches");
-        }
-        repo_fetcher.fetches_done.insert(fetch_params);
+        assert_eq!(repo_fetcher.fetch_state, RepoFetcherState::InProgress);
+        repo_fetcher.fetch_state = RepoFetcherState::Done;
 
-        if !repo_fetcher.fetches_todo.is_empty() {
-            // Enqueue again.
-            self.repos_to_fetch.push_back(repo_name.clone());
-        }
         // Load the fetched data.
         if self.load_after_fetch {
             self.load_repo(repo_name)
@@ -355,7 +327,42 @@ impl<'a> CommitLoader<'a> {
                 logger: &logger,
                 interrupted: &interrupted,
             };
-            if let Err(err) = single_repo_loader.load_repo(&existing_commits, &cached_commits, &tx)
+
+            struct LoadRepoCallback {
+                tx: std::sync::mpsc::Sender<TaskResult>,
+                repo_name: Arc<RepoName>,
+            }
+            impl SingleLoadRepoCallback for LoadRepoCallback {
+                fn load_cached_commits(&self, cached_tips_to_load: Vec<CommitId>) -> Result<()> {
+                    let (result_tx, result_rx) = oneshot::channel();
+                    self.tx
+                        .send(TaskResult::LoadCachedCommits(
+                            (*self.repo_name).clone(),
+                            cached_tips_to_load,
+                            result_tx,
+                        ))
+                        .expect("receiver never close");
+                    result_rx.recv().expect("result channel never closed")
+                }
+
+                fn import_commit(&self, commit: FastExportCommit, tree_id: TreeId) -> Result<()> {
+                    self.tx
+                        .send(TaskResult::ImportCommit(
+                            self.repo_name.clone(),
+                            commit,
+                            tree_id,
+                        ))
+                        .expect("receiver never close");
+                    Ok(())
+                }
+            }
+            let callback = LoadRepoCallback {
+                tx: tx.clone(),
+                repo_name: Arc::new(repo_name.clone()),
+            };
+
+            if let Err(err) =
+                single_repo_loader.load_repo(&existing_commits, &cached_commits, &callback)
             {
                 logger.error(format!("{err:#}"));
             }
@@ -385,7 +392,7 @@ impl<'a> CommitLoader<'a> {
                         let missing_commits = std::mem::take(&mut repo_fetcher.needed_commits);
                         Self::add_missing_commits(&repo_name, missing_commits, repo_fetcher);
                     } else {
-                        self.fetch_repo(repo_name, FetchParams::Default);
+                        self.fetch_repo(repo_name);
                     }
                 }
             }
@@ -667,7 +674,7 @@ impl<'a> CommitLoader<'a> {
                 } else {
                     repo_fetcher.needed_commits.insert(commit_id);
                     if self.fetch_missing_commits {
-                        self.fetch_repo(repo_name, FetchParams::Default);
+                        self.fetch_repo(repo_name);
                     }
                 }
             }
@@ -944,39 +951,37 @@ struct SingleRepoLoader<'a> {
     interrupted: &'a AtomicBool,
 }
 
+trait SingleLoadRepoCallback {
+    fn load_cached_commits(&self, cached_tips_to_load: Vec<CommitId>) -> Result<()>;
+
+    fn import_commit(&self, exported_commit: FastExportCommit, tree_id: TreeId) -> Result<()>;
+}
+
 impl SingleRepoLoader<'_> {
     pub fn load_repo(
         &self,
         existing_commits: &HashSet<CommitId>,
         cached_commits: &HashSet<CommitId>,
-        tx: &std::sync::mpsc::Sender<TaskResult>,
+        callback: &impl SingleLoadRepoCallback,
     ) -> Result<()> {
         let (mut refs_arg, mut cached_tips_to_load, mut unknown_commit_count) = self
             .get_refs_to_load_arg(existing_commits, cached_commits)
             .context("Failed to find refs to load")?;
-        if !cached_tips_to_load.is_empty() {
-            let load_cached_commits_result = Arc::new(OnceLock::new());
-            tx.send(TaskResult::LoadCachedCommits(
-                self.repo_name.clone(),
-                cached_tips_to_load,
-                load_cached_commits_result.clone(),
-            ))
-            .expect("receiver never close");
-            if let Err(err) = load_cached_commits_result.wait() {
-                // Loading the cache failed, try again without the cache. Some
-                // of the commits might have been loaded, but this kind of
-                // failure should be rare so it is not worth updating
-                // existing_commits.
-                self.logger
-                    .warning(format!("Discarding cache for {}: {err:#}", self.repo_name));
-                (refs_arg, cached_tips_to_load, unknown_commit_count) = self
-                    .get_refs_to_load_arg(existing_commits, &HashSet::new())
-                    .context("Failed to find refs to load")?;
-                assert!(cached_tips_to_load.is_empty());
-            }
+        if !cached_tips_to_load.is_empty()
+            && let Err(err) = callback.load_cached_commits(cached_tips_to_load)
+        {
+            // Loading the cache failed, try again without the cache. Some of
+            // the commits might have been loaded, but this kind of failure
+            // should be rare so it is not worth updating existing_commits.
+            self.logger
+                .warning(format!("Discarding cache for {}: {err:#}", self.repo_name));
+            (refs_arg, cached_tips_to_load, unknown_commit_count) = self
+                .get_refs_to_load_arg(existing_commits, &HashSet::new())
+                .context("Failed to find refs to load")?;
+            assert!(cached_tips_to_load.is_empty());
         }
         if !refs_arg.is_empty() {
-            self.load_from_refs(refs_arg, unknown_commit_count, tx)
+            self.load_from_refs(refs_arg, unknown_commit_count, callback)
                 .context("Failed to load commits")?;
         }
         Ok(())
@@ -1052,7 +1057,7 @@ impl SingleRepoLoader<'_> {
         &self,
         refs_arg: Vec<String>,
         unknown_commit_count: usize,
-        tx: &std::sync::mpsc::Sender<TaskResult>,
+        callback: &impl SingleLoadRepoCallback,
     ) -> Result<()> {
         self.pb
             .set_message(format!("Exporting commits in {}", self.repo_name));
@@ -1063,7 +1068,6 @@ impl SingleRepoLoader<'_> {
 
         // TODO: The super repository will get an empty URL, which is exactly
         // what is wanted. Does the rest of the code handle that?
-        let arc_repo_name = Arc::new(self.repo_name.clone());
         let toprepo_git_dir = self.toprepo.git_dir();
         for export_entry in
             FastExportRepo::load_from_path(toprepo_git_dir, Some(refs_arg), self.logger.clone())?
@@ -1084,12 +1088,7 @@ impl SingleRepoLoader<'_> {
                             format!("Missing tree id in commit {}", exported_commit.original_id)
                         })?
                         .detach();
-                    tx.send(TaskResult::ImportCommit(
-                        arc_repo_name.clone(),
-                        exported_commit,
-                        tree_id,
-                    ))
-                    .expect("receiver never close");
+                    callback.import_commit(exported_commit, tree_id)?;
                     self.pb.inc(1);
                 }
                 FastExportEntry::Reset(_exported_reset) => {
@@ -1142,8 +1141,19 @@ struct RepoFetcher {
     missing_commits: HashSet<CommitId>,
 
     /// What be fetched.
-    fetches_todo: VecDeque<FetchParams>,
-    fetches_done: HashSet<FetchParams>,
+    fetch_state: RepoFetcherState,
+}
+
+#[derive(Debug, PartialEq)]
+enum RepoFetcherState {
+    /// Not requested to be fetched yet.
+    Idle,
+    /// Queued for fetching.
+    Queued,
+    /// Currently fetching.
+    InProgress,
+    /// Fetching done.
+    Done,
 }
 
 impl RepoFetcher {
@@ -1154,13 +1164,12 @@ impl RepoFetcher {
             needed_commits: HashSet::new(),
             loading: LoadRepoState::NotLoadedYet,
             missing_commits: HashSet::new(),
-            fetches_todo: VecDeque::new(),
-            fetches_done: HashSet::new(),
+            fetch_state: RepoFetcherState::Idle,
         }
     }
 
     fn fetching_default_refspec_done(&self) -> bool {
-        self.fetches_done.contains(&FetchParams::Default)
+        self.fetch_state == RepoFetcherState::Done
     }
 }
 
