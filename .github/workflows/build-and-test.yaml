@@ -30,15 +30,15 @@ jobs:
       - name: Check for modified workspace
         run: git add . && git diff --exit-code HEAD --
 
-  publish:
+  build:
     strategy:
       fail-fast: true
       matrix:
         platform:
           - rust_target: x86_64-unknown-linux-musl
             suffix: .linux_amd64
-    name: Publish ${{ matrix.platform.rust_target }}
-    runs-on: ubuntu-latest # TODO: Run build.sh on maxOS and Windows as well to see that the tests pass?
+    name: Build for ${{ matrix.platform.rust_target }}
+    runs-on: ubuntu-latest
     env:
       CARGO_TERM_COLOR: always
     steps:
