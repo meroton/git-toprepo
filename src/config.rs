@@ -23,6 +23,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+const GIT_CONFIG_KEY: &str = "toprepo.config";
+
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct GitTopRepoConfig {
@@ -240,7 +242,6 @@ impl GitTopRepoConfig {
     /// Returns the configuration and the location it was loaded from.
     pub fn find_configuration_location(repo_dir: &Path) -> Result<ConfigLocation> {
         // Load config file location.
-        const GIT_CONFIG_KEY: &str = "toprepo.config";
 
         let location = git_config_get(repo_dir, GIT_CONFIG_KEY)?.with_context(|| {
             format!("git-config '{GIT_CONFIG_KEY}' is missing. Is this an initialized git-toprepo?")
@@ -492,7 +493,7 @@ mod tests {
             .unwrap();
 
         git_command(tmp_path)
-            .args(["config", "toprepo.config", "local:foobar.toml"])
+            .args(["config", GIT_CONFIG_KEY, "local:foobar.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
@@ -536,7 +537,7 @@ url = "ssh://bar/baz.git"
             .unwrap();
 
         git_command(tmp_path)
-            .args(["config", "toprepo.config", "local:foobar.toml"])
+            .args(["config", GIT_CONFIG_KEY, "local:foobar.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
@@ -591,7 +592,7 @@ url = "ssh://bar/baz.git"
 
         // Try a path in the repository.
         git_command(tmp_path)
-            .args(["config", "toprepo.config", "repo:HEAD:.gittoprepo.toml"])
+            .args(["config", GIT_CONFIG_KEY, "repo:HEAD:.gittoprepo.toml"])
             .check_success_with_stderr()
             .unwrap();
 
@@ -606,7 +607,7 @@ url = "ssh://bar/baz.git"
 
         // Try the worktree.
         git_command(tmp_path)
-            .args(["config", "toprepo.config", "local:nonexisting.toml"])
+            .args(["config", GIT_CONFIG_KEY, "local:nonexisting.toml"])
             .check_success_with_stderr()
             .unwrap();
         let err = GitTopRepoConfig::load_config_from_repo(tmp_path).unwrap_err();
@@ -674,7 +675,7 @@ url = "ssh://bar/baz.git"
         git_command(tmp_path)
             .args([
                 "config",
-                "toprepo.config",
+                GIT_CONFIG_KEY,
                 "repo:refs/namespaces/top/HEAD:.gittoprepo.toml",
             ])
             .check_success_with_stderr()
