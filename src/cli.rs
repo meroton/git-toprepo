@@ -175,12 +175,12 @@ pub struct Push {
 
     /// A configured git remote in the mono repository or a URL of the top
     /// repository to push to. Submodules are calculated relative this remote.
-    #[arg(name = "top-remote", default_value_t = String::from("origin"), verbatim_doc_comment)]
+    #[arg(name = "top-remote", verbatim_doc_comment)]
     pub top_remote: String,
 
     /// A reference to push from the top repository. Refspec wildcards are not
     /// supported.
-    #[arg(id = "refspec", num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec), verbatim_doc_comment)]
+    #[arg(id = "refspec", required=true, num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec), verbatim_doc_comment)]
     pub refspecs: Vec<(String, String)>,
 }
 
