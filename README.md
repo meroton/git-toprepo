@@ -10,7 +10,7 @@ replaces the submodule pointers with the actual content in the repository histor
 
 `git toprepo fetch` fetches from the `remote` and performs the submodule resolution.
 
-`git toprepo push [-n/--dry-run] <rev>:<ref> ...` does a reverse submodule resolution
+`git toprepo push [-n/--dry-run] <remote> <rev>:<ref> ...` does a reverse submodule resolution
 so that each submodule can be pushed individually to each submodule upstream.
 If running with `-n` or `--dry-run`, the resulting `git push` command lines
 will be printed but not executed.
