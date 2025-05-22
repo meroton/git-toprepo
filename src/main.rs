@@ -502,6 +502,11 @@ where
     I: IntoIterator<Item = std::ffi::OsString>,
 {
     let args = Cli::parse_from(argv);
+
+    if let Commands::Init(ref init_args) = args.command {
+        return init(init_args);
+    }
+
     let working_directory = &git_toprepo::util::find_working_directory(args.working_directory)?;
     std::env::set_current_dir(working_directory).with_context(|| {
         format!(
@@ -510,9 +515,6 @@ where
         )
     })?;
 
-    if let Commands::Init(ref init_args) = args.command {
-        return init(init_args);
-    }
     git_toprepo::config::GitTopRepoConfig::find_configuration_location(Path::new(""))?;
     let res: ExitCode = match args.command {
         Commands::Init(_) => unreachable!("init already processed"),
