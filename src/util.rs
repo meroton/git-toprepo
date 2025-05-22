@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::ExitStatus;
@@ -26,22 +27,16 @@ lazy_static::lazy_static! {
     pub static ref EMPTY_GIX_URL: gix::Url = new_empty_gix_url();
 }
 
-pub fn find_working_directory(working_directory: Option<PathBuf>) -> Result<PathBuf> {
-    let path = match working_directory {
-        Some(path) => path,
-        _ => {
-            let git_dir = std::env::current_dir()?;
-            upwards(&git_dir)?
-                .0
-                .into_repository_and_work_tree_directories()
-                .1
-                .ok_or(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "Couldn't find git directory",
-                ))?
-                .to_owned()
-        }
-    };
+pub fn find_working_directory(relative_to: &Path) -> Result<PathBuf> {
+    let path = upwards(relative_to)?
+        .0
+        .into_repository_and_work_tree_directories()
+        .1
+        .ok_or(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Couldn't find git directory",
+        ))?
+        .to_owned();
     Ok(path)
 }
 
