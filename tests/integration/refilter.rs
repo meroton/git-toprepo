@@ -1,5 +1,3 @@
-mod fixtures;
-
 use bstr::ByteSlice as _;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::config::SubrepoConfig;
@@ -20,7 +18,7 @@ fn test_init_and_refilter_example() {
     // Debug with temp_dir.into_path() to presist the path.
     let temp_dir = temp_dir.path();
     let from_repo_path =
-        fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from")).init_server_top();
+        crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from")).init_server_top();
 
     let to_repo_path = temp_dir.join("to");
     let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
@@ -116,7 +114,7 @@ fn test_refilter_merge_with_one_submodule_a() {
     let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
     // Debug with temp_dir.into_path() to presist the path.
     let temp_dir = temp_dir.path();
-    let from_repo_path = fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
+    let from_repo_path = crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
         .merge_with_one_submodule_a();
 
     let to_repo_path = temp_dir.join("to");
@@ -158,7 +156,7 @@ fn test_refilter_merge_with_one_submodule_b() {
     let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
     // Debug with temp_dir.into_path() to presist the path.
     let temp_dir = temp_dir.path();
-    let from_repo_path = fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
+    let from_repo_path = crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
         .merge_with_one_submodule_b();
 
     let to_repo_path = temp_dir.join("to");
@@ -214,7 +212,7 @@ fn test_refilter_merge_with_two_submodules() {
     let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
     // Debug with temp_dir.into_path() to presist the path.
     let temp_dir = temp_dir.path();
-    let from_repo_path = fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
+    let from_repo_path = crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
         .merge_with_two_submodules();
 
     let to_repo_path = temp_dir.join("to");
@@ -271,7 +269,7 @@ fn test_refilter_submodule_removal() {
     // Debug with temp_dir.into_path() to presist the path.
     let temp_dir = temp_dir.path();
     let from_repo_path =
-        fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from")).submodule_removal();
+        crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from")).submodule_removal();
 
     let to_repo_path = temp_dir.join("to");
     let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
@@ -312,7 +310,7 @@ fn test_refilter_moved_submodule() {
     // Debug with temp_dir.into_path() to presist the path.
     let temp_dir = temp_dir.path();
     let from_repo_path =
-        fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from")).move_submodule();
+        crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from")).move_submodule();
 
     let to_repo_path = temp_dir.join("to");
     let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);

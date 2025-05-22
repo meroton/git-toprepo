@@ -507,11 +507,17 @@ where
         return init(init_args);
     }
 
-    let working_directory = &git_toprepo::util::find_working_directory(args.working_directory)?;
-    std::env::set_current_dir(working_directory).with_context(|| {
+    let working_directory = match args.working_directory {
+        Some(dir) => dir,
+        None => {
+            let current_dir = std::env::current_dir()?;
+            git_toprepo::util::find_working_directory(&current_dir)?
+        }
+    };
+    std::env::set_current_dir(&working_directory).with_context(|| {
         format!(
             "Failed to change working directory to {}",
-            working_directory.display()
+            &working_directory.display()
         )
     })?;
 
