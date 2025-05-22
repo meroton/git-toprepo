@@ -118,6 +118,27 @@ impl TopRepo {
             .safe_status()?
             .check_success()
             .context("Failed to reset HEAD")?;
+        git_command(&directory)
+            .args(["status"])
+            .safe_status()?
+            .check_success()
+            .context("Failed to check status")?;
+
+        match gix::discover::is_git(&directory) {
+            Err(_) => {
+                let mut cmd = std::process::Command::new("ls");
+                let out = cmd.current_dir(&directory).arg("-al").output()?;
+                let stdout = String::from_utf8(out.stdout);
+                dbg!(stdout);
+                let mut cmd = std::process::Command::new("git");
+                let out = cmd.current_dir(&directory).arg("rev-parse").arg("--is-inside-work-tree").output()?;
+                let stdout = String::from_utf8(out.stdout);
+                dbg!(stdout);
+                panic!("not git: {:?}", directory);
+            },
+            _ => {},
+        };
+
         Self::open(directory)
     }
 
