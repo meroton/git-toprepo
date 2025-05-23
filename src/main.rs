@@ -507,8 +507,7 @@ where
     I: IntoIterator<Item = std::ffi::OsString>,
 {
     let args = Cli::parse_from(argv);
-    let working_directory =
-        &git_toprepo::util::find_working_directory(args.working_directory.clone())?;
+    let working_directory = &git_toprepo::util::find_working_directory(args.working_directory)?;
     std::env::set_current_dir(working_directory).with_context(|| {
         format!(
             "Failed to change working directory to {}",
