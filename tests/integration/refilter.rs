@@ -1,6 +1,6 @@
 use bstr::ByteSlice as _;
 use git_toprepo::config::GitTopRepoConfig;
-use git_toprepo::config::SubrepoConfig;
+use git_toprepo::config::SubRepoConfig;
 use git_toprepo::git::git_command;
 use git_toprepo::loader::FetchParams;
 use git_toprepo::repo_name::SubRepoName;
@@ -375,7 +375,7 @@ fn run_init_and_refilter(
     let mut config = GitTopRepoConfig::default();
     config.subrepos.insert(
         SubRepoName::new("sub".into()),
-        SubrepoConfig {
+        SubRepoConfig {
             urls: vec![gix::Url::from_bytes("../sub/".into()).unwrap()],
             enabled: true,
             ..Default::default()
@@ -383,7 +383,7 @@ fn run_init_and_refilter(
     );
     config.subrepos.insert(
         SubRepoName::new("subx".into()),
-        SubrepoConfig {
+        SubRepoConfig {
             urls: vec![gix::Url::from_bytes("../subx/".into()).unwrap()],
             enabled: true,
             ..Default::default()
@@ -392,7 +392,7 @@ fn run_init_and_refilter(
     let suby_path = from_repo_path.parent().unwrap().join("suby");
     config.subrepos.insert(
         SubRepoName::new("suby".into()),
-        SubrepoConfig {
+        SubRepoConfig {
             urls: vec![gix::Url::from_bytes(suby_path.to_str().unwrap().into()).unwrap()],
             enabled: true,
             ..Default::default()

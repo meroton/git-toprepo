@@ -29,7 +29,7 @@ pub struct GitTopRepoConfig {
     #[serde(skip)]
     pub checksum: String,
     #[serde(rename = "repo")]
-    pub subrepos: BTreeMap<SubRepoName, SubrepoConfig>,
+    pub subrepos: BTreeMap<SubRepoName, SubRepoConfig>,
     /// List of subrepos that are missing in the configuration and have
     /// automatically been added to `suprepos`.
     #[serde(skip)]
@@ -124,8 +124,8 @@ impl FromStr for ConfigLocation {
 }
 
 impl GitTopRepoConfig {
-    /// Gets a `SubrepoConfig` based on a URL using exact matching. If an URL is
-    /// missing, the user should add it to the `SubrepoConfig::urls` list.
+    /// Gets a `SubRepoConfig` based on a URL using exact matching. If an URL is
+    /// missing, the user should add it to the `SubRepoConfig::urls` list.
     pub fn get_name_from_url(&self, url: &gix::Url) -> Result<Option<SubRepoName>> {
         let matches: Vec<_> = self
             .subrepos
@@ -179,7 +179,7 @@ impl GitTopRepoConfig {
     pub fn get_from_url(
         &self,
         repo_url: &gix::Url,
-    ) -> Result<Option<(SubRepoName, &SubrepoConfig)>> {
+    ) -> Result<Option<(SubRepoName, &SubRepoConfig)>> {
         match self.get_name_from_url(repo_url)? {
             Some(repo_name) => {
                 let subrepo_config = self.subrepos.get(&repo_name).expect("valid subrepo name");
@@ -193,7 +193,7 @@ impl GitTopRepoConfig {
     pub fn get_or_insert_from_url(
         &mut self,
         repo_url: &gix::Url,
-    ) -> Result<(SubRepoName, &SubrepoConfig)> {
+    ) -> Result<(SubRepoName, &SubRepoConfig)> {
         let Some(repo_name) = self.get_name_from_url(repo_url)? else {
             let mut repo_name = self.default_name_from_url(repo_url).with_context(|| {
                 format!(
@@ -344,24 +344,25 @@ impl GitTopRepoConfig {
     }
 }
 
-/// `ToprepoConfig` holds the configuration for the toprepo itself. The content is
+/// `TopRepoConfig` holds the configuration for the toprepo itself. The content is
 /// taken from the default git remote configuration.
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-pub struct ToprepoConfig {
+#[serde(deny_unknown_fields)]
+pub struct TopRepoConfig {
     #[serde_as(as = "crate::util::SerdeGixUrl")]
     pub url: gix::Url,
     #[serde_as(as = "crate::util::SerdeGixUrl")]
     pub push_url: gix::Url,
 }
 
-/// `SubrepoConfig` holds the configuration for a subrepo in the super repo. If
+/// `SubRepoConfig` holds the configuration for a subrepo in the super repo. If
 /// `fetch.url` is empty, the first entry in `urls` is used. If `push.url` is
 /// empty, the value of `fetch.url` is used.
 #[serde_as]
 #[derive(Default, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
-pub struct SubrepoConfig {
+pub struct SubRepoConfig {
     #[serde_as(as = "Vec<crate::util::SerdeGixUrl>")]
     pub urls: Vec<gix::Url>,
     #[serde(skip_serializing_if = "is_default")]
@@ -383,7 +384,7 @@ fn is_true(value: &bool) -> bool {
     *value
 }
 
-impl SubrepoConfig {
+impl SubRepoConfig {
     /// Validates that the configuration is sane.
     /// This will check that a fetch URL is set
     /// if `urls` does not contain exactly one entry.
