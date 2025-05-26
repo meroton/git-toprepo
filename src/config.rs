@@ -621,8 +621,43 @@ url = "ssh://bar/baz.git"
         );
     }
 
+    const BAR_BAZ: &str = r#"[repo]
+[repo.foo.fetch]
+url = "ssh://bar/baz.git"
+"#;
+
+    const BAR_BAZ_FETCH_URL: &str = "ssh://bar/baz.git";
+    const BAR_BAZ_FETCH: &str = r#"url = "ssh://bar/baz.git""#;
+
+    #[test]
+    fn test_parse_fetch_url() {
+        let table = BAR_BAZ_FETCH.parse::<toml::Table>();
+        assert!(table.is_ok(), "{table:?}");
+        let table = table.unwrap();
+
+        let fetch: Result<FetchConfig, _> = serde_path_to_error::deserialize(table);
+        assert!(fetch.is_ok(), "{fetch:?}");
+        let fetch = fetch.unwrap();
+        assert!(fetch.url.is_some(), "{fetch:?}");
+        assert_eq!(
+            fetch.url.unwrap(),
+            gix::Url::from_bytes(BAR_BAZ_FETCH_URL.into()).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_parse_config() {
+        let table = BAR_BAZ.parse::<toml::Table>();
+        assert!(table.is_ok(), "{table:?}");
+        let table = table.unwrap();
+
+        let res: Result<GitTopRepoConfig, _> = serde_path_to_error::deserialize(table);
+        assert!(res.is_ok(), "{res:?}");
+    }
+
     #[test]
     fn test_create_config_from_head() {
+        // TODO: Move to integration tests.
         use std::io::Write;
 
         let tmp_dir = tempfile::tempdir().unwrap();
@@ -637,14 +672,7 @@ url = "ssh://bar/baz.git"
 
         let mut tmp_file = std::fs::File::create(tmp_path.join(".gittoprepo.toml")).unwrap();
 
-        writeln!(
-            tmp_file,
-            r#"[repo]
-[repo.foo.fetch]
-url = "ssh://bar/baz.git"
-[repos]"#
-        )
-        .unwrap();
+        writeln!(tmp_file, "{BAR_BAZ}").unwrap();
 
         git_command(tmp_path)
             .args(["add", ".gittoprepo.toml"])
