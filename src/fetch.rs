@@ -1,5 +1,5 @@
 use crate::config::GitTopRepoConfig;
-use crate::config::SubrepoConfig;
+use crate::config::SubRepoConfig;
 use crate::git::git_command;
 use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::repo_name::RepoName;
@@ -57,7 +57,7 @@ impl RemoteFetcher {
         &mut self,
         gix_repo: &gix::Repository,
         repo_name: &RepoName,
-        subrepo_config: &SubrepoConfig,
+        subrepo_config: &SubRepoConfig,
     ) -> Result<()> {
         let fetch_config = subrepo_config.get_fetch_config_with_url();
         let subrepo_url = fetch_config.url.expect("with fetch url");
