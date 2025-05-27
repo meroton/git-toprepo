@@ -477,13 +477,13 @@ impl<'a> CommitLoader<'a> {
                 // Load all submodule commits as well as that would be done if not
                 // using the cache.
                 for bump in thin_commit.submodule_bumps.values() {
-                    if let ThinSubmodule::AddedOrModified(bump) = bump {
-                        if let Some(submod_repo_name) = &bump.repo_name {
-                            needed_commits.push(NeededCommit {
-                                repo_name: submod_repo_name.clone(),
-                                commit_id: bump.commit_id,
-                            });
-                        }
+                    if let ThinSubmodule::AddedOrModified(bump) = bump
+                        && let Some(submod_repo_name) = &bump.repo_name
+                    {
+                        needed_commits.push(NeededCommit {
+                            repo_name: submod_repo_name.clone(),
+                            commit_id: bump.commit_id,
+                        });
                     }
                 }
                 // TODO: The without_committer_id for thin_commit might not be

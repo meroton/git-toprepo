@@ -471,18 +471,17 @@ impl TopRepoExpander<'_> {
                             mono_parent,
                             abs_sub_path,
                             &submod.repo_name,
-                        ) {
-                            if other_parent_submod.get_orig_commit_id() != &submod.orig_commit_id {
-                                // Even if not bumped compared to the first parent,
-                                // a check for unrelated parents must be performed.
-                                submodule_bumps.insert(
-                                    rel_sub_path.clone(),
-                                    ThinSubmodule::AddedOrModified(ThinSubmoduleContent {
-                                        repo_name: Some(submod.repo_name.clone()),
-                                        commit_id: submod.orig_commit_id,
-                                    }),
-                                );
-                            }
+                        ) && other_parent_submod.get_orig_commit_id() != &submod.orig_commit_id
+                        {
+                            // Even if not bumped compared to the first parent,
+                            // a check for unrelated parents must be performed.
+                            submodule_bumps.insert(
+                                rel_sub_path.clone(),
+                                ThinSubmodule::AddedOrModified(ThinSubmoduleContent {
+                                    repo_name: Some(submod.repo_name.clone()),
+                                    commit_id: submod.orig_commit_id,
+                                }),
+                            );
                         }
                     }
                 }
@@ -1104,17 +1103,17 @@ impl BumpCache {
             let submod = self
                 .get_submodule(mono_commit, path)
                 .expect("submodule path exists");
-            if let Some(submod_content) = submod.get_known_submod() {
-                if submod_content.repo_name == *submod_repo_name {
-                    if mono_commit.submodule_bumps.get(path)
-                        == Some(&ExpandedOrRemovedSubmodule::Removed)
-                    {
-                        // It is the same submodule and it has been moved or removed.
-                        moved_orig_commit_ids.insert(submod.clone());
-                    }
-                    // It is the same submodule, so copied, moved or removed.
-                    duplicated_orig_commit_ids.insert(submod);
+            if let Some(submod_content) = submod.get_known_submod()
+                && submod_content.repo_name == *submod_repo_name
+            {
+                if mono_commit.submodule_bumps.get(path)
+                    == Some(&ExpandedOrRemovedSubmodule::Removed)
+                {
+                    // It is the same submodule and it has been moved or removed.
+                    moved_orig_commit_ids.insert(submod.clone());
                 }
+                // It is the same submodule, so copied, moved or removed.
+                duplicated_orig_commit_ids.insert(submod);
             }
         }
         // If there are multiple submodule commit ids to choose from, then
@@ -1482,10 +1481,10 @@ pub fn calculate_mono_commit_message(
             for line in alt_message.lines() {
                 if line.starts_with(b"* Update ") {
                     line_idx_after_submod = 0;
-                } else if line_idx_after_submod == 2 {
-                    if let Some(subject) = line.strip_prefix(B("  - ")) {
-                        alt_subject.insert(subject);
-                    }
+                } else if line_idx_after_submod == 2
+                    && let Some(subject) = line.strip_prefix(B("  - "))
+                {
+                    alt_subject.insert(subject);
                 }
                 line_idx_after_submod += 1;
             }

@@ -110,13 +110,13 @@ impl SerdeTopRepoCache {
                 now.elapsed()
             );
             // If the checksum has changed, the imported and exported commits might be totally different.
-            if let Some(config_checksum) = config_checksum {
-                if loaded_cache.config_checksum != config_checksum {
-                    logger.warning(
-                        "The git-toprepo configuration has, discarding the toprepo cache".into(),
-                    );
-                    return Ok(Self::default());
-                }
+            if let Some(config_checksum) = config_checksum
+                && loaded_cache.config_checksum != config_checksum
+            {
+                logger.warning(
+                    "The git-toprepo configuration has, discarding the toprepo cache".into(),
+                );
+                return Ok(Self::default());
             }
             Ok(loaded_cache)
         })()
