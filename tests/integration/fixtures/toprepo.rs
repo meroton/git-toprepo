@@ -1,3 +1,5 @@
+use assert_cmd::Command;
+use assert_cmd::assert::OutputAssertExt as _;
 use bstr::ByteSlice;
 use git_toprepo::git::CommitId;
 use git_toprepo::git::GitPath;
@@ -117,6 +119,32 @@ impl GitTopRepoExample {
         GitTopRepoExample { tmp_path }
     }
 
+    fn add_toprepo_config(top_repo: &Path, suby_path: Option<&Path>) {
+        let config_path = top_repo.join(".gittoprepo.toml");
+        let mut config_content = "\
+[repo.sub]
+urls = [\"../sub/\"]
+[repo.subx]
+urls = [\"../subx/\"]
+"
+        .to_owned();
+        if let Some(suby_path) = suby_path {
+            config_content = format!(
+                "{config_content}
+[repo.suby]
+urls = [\"{}\"]
+",
+                suby_path.to_str().unwrap()
+            );
+        }
+        std::fs::write(&config_path, config_content).unwrap();
+        git_command(config_path.parent().unwrap())
+            .arg("add")
+            .arg(config_path.file_name().unwrap())
+            .assert()
+            .success();
+    }
+
     /// Sets up the repo structure and returns the top repo path.
     pub fn init_server_top(&self) -> PathBuf {
         let env = commit_env_for_testing();
@@ -133,7 +161,7 @@ impl GitTopRepoExample {
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
-
+        Self::add_toprepo_config(&top_repo, None);
         git_command(&sub_repo)
             .args(["init", "--quiet", "--initial-branch", "main"])
             .envs(&env)
@@ -230,6 +258,7 @@ impl GitTopRepoExample {
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
+        Self::add_toprepo_config(&top_repo, None);
         git_command(&subx_repo)
             .args(["init", "--quiet", "--initial-branch", "main"])
             .envs(&env)
@@ -284,6 +313,7 @@ impl GitTopRepoExample {
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
+        Self::add_toprepo_config(&top_repo, None);
         git_command(&subx_repo)
             .args(["init", "--quiet", "--initial-branch", "main"])
             .envs(&env)
@@ -348,6 +378,7 @@ impl GitTopRepoExample {
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
+        Self::add_toprepo_config(&top_repo, Some(&suby_repo));
         git_command(&subx_repo)
             .args(["init", "--quiet", "--initial-branch", "main"])
             .envs(&env)
@@ -421,6 +452,7 @@ impl GitTopRepoExample {
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
+        Self::add_toprepo_config(&top_repo, None);
         git_command(&subx_repo)
             .args(["init", "--quiet", "--initial-branch", "main"])
             .envs(&env)
@@ -475,6 +507,7 @@ impl GitTopRepoExample {
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
+        Self::add_toprepo_config(&top_repo, None);
         git_command(&subx_repo)
             .args(["init", "--quiet", "--initial-branch", "main"])
             .envs(&env)
@@ -520,4 +553,14 @@ impl GitTopRepoExample {
 
         top_repo
     }
+}
+
+pub fn clone(toprepo: &Path, monorepo: &Path) {
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .arg("clone")
+        .arg(toprepo)
+        .arg(monorepo)
+        .assert()
+        .success();
 }

@@ -1,30 +1,20 @@
-use assert_cmd::assert::OutputAssertExt as _;
-use assert_cmd::cargo::CommandCargoExt as _;
 use bstr::ByteSlice as _;
-use git_toprepo::config::GitTopRepoConfig;
-use git_toprepo::config::SubRepoConfig;
 use git_toprepo::git::git_command;
-use git_toprepo::repo_name::SubRepoName;
 use git_toprepo::util::CommandExtension as _;
 use itertools::Itertools as _;
 use std::path::Path;
-use std::path::PathBuf;
-use std::process::Command;
 
 #[test]
 fn test_init_and_refilter_example() {
     let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
     // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
-    let from_repo_path =
+    let toprepo =
         crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from")).init_server_top();
 
-    let to_repo_path = temp_dir.join("to");
-    let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
-    let log_graph = extract_log_graph(
-        toprepo.work_tree().unwrap(),
-        vec!["--name-status", "HEAD", "--"],
-    );
+    let monorepo = temp_dir.join("to");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
     println!("{log_graph}");
     let expected_graph = r"
 *-.   N
@@ -104,6 +94,7 @@ fn test_init_and_refilter_example() {
 |   A 1.txt
 * A
 
+  A .gittoprepo.toml
   A A.txt
 "
     .strip_prefix("\n")
@@ -116,15 +107,12 @@ fn test_refilter_merge_with_one_submodule_a() {
     let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
     // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
-    let from_repo_path = crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
+    let toprepo = crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
         .merge_with_one_submodule_a();
 
-    let to_repo_path = temp_dir.join("to");
-    let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
-    let log_graph = extract_log_graph(
-        toprepo.work_tree().unwrap(),
-        vec!["--name-status", "HEAD", "--"],
-    );
+    let monorepo = temp_dir.join("to");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
     println!("{log_graph}");
     let expected_graph = r"
 *-.   D6-release
@@ -161,15 +149,12 @@ fn test_refilter_merge_with_one_submodule_b() {
     let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
     // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
-    let from_repo_path = crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
+    let toprepo = crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
         .merge_with_one_submodule_b();
 
-    let to_repo_path = temp_dir.join("to");
-    let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
-    let log_graph = extract_log_graph(
-        toprepo.work_tree().unwrap(),
-        vec!["--name-status", "HEAD", "--"],
-    );
+    let monorepo = temp_dir.join("to");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
     println!("{log_graph}");
     let expected_graph = r"
 *-----.   F8-release
@@ -220,15 +205,12 @@ fn test_refilter_merge_with_two_submodules() {
     let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
     // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
-    let from_repo_path = crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
+    let toprepo = crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
         .merge_with_two_submodules();
 
-    let to_repo_path = temp_dir.join("to");
-    let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
-    let log_graph = extract_log_graph(
-        toprepo.work_tree().unwrap(),
-        vec!["--name-status", "HEAD", "--"],
-    );
+    let monorepo = temp_dir.join("to");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
     println!("{log_graph}");
     let expected_graph = r"
 *---.   D6-release
@@ -279,15 +261,12 @@ fn test_refilter_submodule_removal() {
     let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
     // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
-    let from_repo_path =
+    let toprepo =
         crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from")).submodule_removal();
 
-    let to_repo_path = temp_dir.join("to");
-    let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
-    let log_graph = extract_log_graph(
-        toprepo.work_tree().unwrap(),
-        vec!["--name-status", "HEAD", "--"],
-    );
+    let monorepo = temp_dir.join("to");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
     println!("{log_graph}");
     let expected_graph = r"
 *   E
@@ -323,15 +302,12 @@ fn test_refilter_moved_submodule() {
     let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
     // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
-    let from_repo_path =
+    let toprepo =
         crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from")).move_submodule();
 
-    let to_repo_path = temp_dir.join("to");
-    let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
-    let log_graph = extract_log_graph(
-        toprepo.work_tree().unwrap(),
-        vec!["--name-status", "HEAD", "--"],
-    );
+    let monorepo = temp_dir.join("to");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
     println!("{log_graph}");
     let expected_graph = r"
 * E
@@ -372,62 +348,6 @@ fn test_refilter_moved_submodule() {
     .strip_prefix("\n")
     .unwrap();
     assert_eq!(log_graph, expected_graph);
-}
-
-fn run_init_and_refilter(
-    from_repo_path: PathBuf,
-    to_repo_path: PathBuf,
-) -> git_toprepo::repo::TopRepo {
-    let mut config = GitTopRepoConfig::default();
-    config.subrepos.insert(
-        SubRepoName::new("sub".into()),
-        SubRepoConfig {
-            urls: vec![gix::Url::from_bytes("../sub/".into()).unwrap()],
-            enabled: true,
-            ..Default::default()
-        },
-    );
-    config.subrepos.insert(
-        SubRepoName::new("subx".into()),
-        SubRepoConfig {
-            urls: vec![gix::Url::from_bytes("../subx/".into()).unwrap()],
-            enabled: true,
-            ..Default::default()
-        },
-    );
-    let suby_path = from_repo_path.parent().unwrap().join("suby");
-    config.subrepos.insert(
-        SubRepoName::new("suby".into()),
-        SubRepoConfig {
-            urls: vec![gix::Url::from_bytes(suby_path.to_str().unwrap().into()).unwrap()],
-            enabled: true,
-            ..Default::default()
-        },
-    );
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
-        .arg("init")
-        .arg(from_repo_path)
-        .arg(&to_repo_path)
-        .assert()
-        .success();
-    std::fs::write(
-        to_repo_path.join("gittoprepo.toml"),
-        toml::to_string(&config).unwrap(),
-    )
-    .unwrap();
-    git_command(&to_repo_path)
-        .args(["config", "toprepo.config", "local:gittoprepo.toml"])
-        .assert()
-        .success();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
-        .arg("-C")
-        .arg(&to_repo_path)
-        .arg("fetch")
-        .assert()
-        .success();
-    git_toprepo::repo::TopRepo::open(&to_repo_path).unwrap()
 }
 
 fn extract_log_graph(repo_path: &Path, extra_args: Vec<&str>) -> String {
