@@ -25,6 +25,7 @@ use std::str::FromStr;
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
+#[serde(deny_unknown_fields)]
 pub struct GitTopRepoConfig {
     #[serde(skip)]
     pub checksum: String,
@@ -362,6 +363,7 @@ pub struct TopRepoConfig {
 #[serde_as]
 #[derive(Default, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
+#[serde(deny_unknown_fields)]
 pub struct SubRepoConfig {
     #[serde_as(as = "Vec<crate::util::SerdeGixUrl>")]
     pub urls: Vec<gix::Url>,
@@ -440,6 +442,7 @@ impl SubRepoConfig {
 #[serde_with::skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
+#[serde(deny_unknown_fields)]
 pub struct FetchConfig {
     #[serde(default = "fetch_prune_default")]
     #[serde(skip_serializing_if = "eq_fetch_prune_default")]
@@ -472,6 +475,7 @@ fn eq_fetch_prune_default(value: &bool) -> bool {
 #[serde_with::skip_serializing_none]
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
+#[serde(deny_unknown_fields)]
 pub struct PushConfig {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
@@ -525,14 +529,7 @@ mod tests {
 
         let mut tmp_file = std::fs::File::create(tmp_path.join("foobar.toml")).unwrap();
 
-        writeln!(
-            tmp_file,
-            r#"[repo]
-[repo.foo.fetch]
-url = "ssh://bar/baz.git"
-[repos]"#
-        )
-        .unwrap();
+        writeln!(tmp_file, "{BAR_BAZ}").unwrap();
 
         git_command(tmp_path)
             .args(["add", "foobar.toml"])
@@ -621,10 +618,11 @@ url = "ssh://bar/baz.git"
         );
     }
 
-    const BAR_BAZ: &str = r#"[repo]
-[repo.foo.fetch]
-url = "ssh://bar/baz.git"
-"#;
+    const BAR_BAZ: &str = r#"
+        [repo]
+        [repo.foo.fetch]
+        url = "ssh://bar/baz.git"
+    "#;
 
     const BAR_BAZ_FETCH_URL: &str = "ssh://bar/baz.git";
     const BAR_BAZ_FETCH: &str = r#"url = "ssh://bar/baz.git""#;
@@ -671,7 +669,6 @@ url = "ssh://bar/baz.git"
             .unwrap();
 
         let mut tmp_file = std::fs::File::create(tmp_path.join(".gittoprepo.toml")).unwrap();
-
         writeln!(tmp_file, "{BAR_BAZ}").unwrap();
 
         git_command(tmp_path)
@@ -763,12 +760,14 @@ url = "ssh://bar/baz.git"
 
     #[test]
     fn test_get_repo_without_new_entry() -> Result<()> {
-        let mut config = GitTopRepoConfig::parse_config_toml_string(
-            r#"[repo.foo]
-        urls = ["../bar/repo.git"]
-
-        [repos]"#,
-        )?;
+        let config = GitTopRepoConfig::parse_config_toml_string(
+            r#"
+                [repo.foo]
+                urls = ["../bar/repo.git"]
+            "#,
+        );
+        assert!(config.is_ok(), "{config:?}");
+        let mut config = config.unwrap();
 
         assert!(
             config
@@ -789,13 +788,13 @@ url = "ssh://bar/baz.git"
     #[test]
     fn test_config_with_duplicate_urls() {
         let err = GitTopRepoConfig::parse_config_toml_string(
-            r#"[repo.foo]
-        urls = ["ssh://bar/baz.git"]
+            r#"
+                [repo.foo]
+                urls = ["ssh://bar/baz.git"]
 
-        [repo.bar]
-        urls = ["ssh://bar/baz.git"]
-
-        [repos]"#,
+                [repo.bar]
+                urls = ["ssh://bar/baz.git"]
+            "#,
         )
         .unwrap_err();
         assert_eq!(
