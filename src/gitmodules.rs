@@ -94,14 +94,12 @@ impl SubmoduleUrlExt for gix::url::Url {
                 || other.path == b".."
                 || other.path.starts_with(b"./")
                 || other.path.starts_with(b"../"))
+            && let Ok(self_path_str) = self.path.to_str()
+            && let Ok(other_path_str) = other.path.to_str()
         {
-            if let Ok(self_path_str) = self.path.to_str() {
-                if let Ok(other_path_str) = other.path.to_str() {
-                    let mut ret = self.clone();
-                    ret.path = join_relative_url_paths(self_path_str, other_path_str).into();
-                    return ret;
-                }
-            }
+            let mut ret = self.clone();
+            ret.path = join_relative_url_paths(self_path_str, other_path_str).into();
+            return ret;
         }
         other.clone()
     }
