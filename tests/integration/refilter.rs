@@ -1,16 +1,15 @@
+use assert_cmd::assert::OutputAssertExt as _;
+use assert_cmd::cargo::CommandCargoExt as _;
 use bstr::ByteSlice as _;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::config::SubRepoConfig;
 use git_toprepo::git::git_command;
-use git_toprepo::loader::FetchParams;
 use git_toprepo::repo_name::SubRepoName;
 use git_toprepo::util::CommandExtension as _;
 use itertools::Itertools as _;
-use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::process::Command;
 
 #[test]
 fn test_init_and_refilter_example() {
@@ -361,17 +360,6 @@ fn run_init_and_refilter(
     from_repo_path: PathBuf,
     to_repo_path: PathBuf,
 ) -> git_toprepo::repo::TopRepo {
-    let toprepo = git_toprepo::repo::TopRepo::create(
-        to_repo_path.clone(),
-        gix::Url::from_bytes(
-            format!("file://{}", from_repo_path.to_string_lossy())
-                .as_bytes()
-                .into(),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    toprepo.fetch_toprepo_quiet().unwrap();
     let mut config = GitTopRepoConfig::default();
     config.subrepos.insert(
         SubRepoName::new("sub".into()),
@@ -398,38 +386,30 @@ fn run_init_and_refilter(
             ..Default::default()
         },
     );
-    let mut toprepo_cache = git_toprepo::repo::TopRepoCache::default();
-    let progress =
-        indicatif::MultiProgress::with_draw_target(indicatif::ProgressDrawTarget::hidden());
-    let error_mode = git_toprepo::log::ErrorMode::FailFast(Arc::new(AtomicBool::new(false)));
-    let progress_clone = progress.clone();
-    let log = git_toprepo::log::LogReceiver::new(HashSet::new(), error_mode.clone(), move |msg| {
-        progress_clone.suspend(|| eprintln!("{msg}"));
-    });
-    let gix_toprepo = toprepo.gix_repo.to_thread_local();
-    let mut commit_loader = git_toprepo::loader::CommitLoader::new(
-        gix_toprepo,
-        &mut toprepo_cache.repos,
-        &mut config,
-        progress.clone(),
-        log.get_logger(),
-        error_mode.interrupted(),
-        threadpool::ThreadPool::new(2),
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .arg("init")
+        .arg(from_repo_path)
+        .arg(&to_repo_path)
+        .assert()
+        .success();
+    std::fs::write(
+        to_repo_path.join("gittoprepo.toml"),
+        toml::to_string(&config).unwrap(),
     )
     .unwrap();
-    commit_loader.fetch_repo(git_toprepo::repo_name::RepoName::Top, FetchParams::Default);
-    commit_loader.join();
-    let log_result = log.peek_result();
-    log_result.print_to_stderr();
-    assert!(log_result.is_success());
-
-    toprepo
-        .refilter(&mut toprepo_cache, &config, log.get_logger(), progress)
-        .unwrap();
-    let log_result = log.join();
-    log_result.print_to_stderr();
-    assert!(log_result.is_success());
-    toprepo
+    git_command(&to_repo_path)
+        .args(["config", "toprepo.config", "local:gittoprepo.toml"])
+        .assert()
+        .success();
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .arg("-C")
+        .arg(&to_repo_path)
+        .arg("fetch")
+        .assert()
+        .success();
+    git_toprepo::repo::TopRepo::open(to_repo_path).unwrap()
 }
 
 fn extract_log_graph(repo_path: &Path, extra_args: Vec<&str>) -> String {
