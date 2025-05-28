@@ -1,5 +1,6 @@
 use crate::git::git_command;
 use crate::git::git_config_get;
+use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::util::CommandExtension as _;
@@ -176,6 +177,42 @@ impl GitTopRepoConfig {
             RepoName::Top => None,
             RepoName::SubRepo(name) => Some(name),
         }
+    }
+
+    /// Get a repo name given a full url when doing an approximative matching,
+    /// for example matching `ssh://foo/bar.git` with `https://foo/bar`.
+    pub fn get_name_from_similar_full_url(
+        &self,
+        wanted_full_url: gix::Url,
+        base_url: &gix::Url,
+    ) -> Result<RepoName> {
+        let wanted_url_str = wanted_full_url.to_string();
+        let trimmed_wanted_full_url = wanted_full_url.trim_url_path();
+        let mut matching_names = Vec::new();
+        if trimmed_wanted_full_url.approx_equal(&base_url.clone().trim_url_path()) {
+            matching_names.push(RepoName::Top);
+        }
+        for (submod_name, submod_config) in self.subrepos.iter() {
+            if submod_config.urls.iter().any(|submod_url| {
+                let full_submod_url = base_url.join(submod_url).trim_url_path();
+                full_submod_url.approx_equal(&trimmed_wanted_full_url)
+            }) {
+                matching_names.push(RepoName::SubRepo(submod_name.clone()));
+            }
+        }
+        matching_names.sort();
+        let repo_name = match matching_names.as_slice() {
+            [] => anyhow::bail!("No configured submodule matches {wanted_url_str}"),
+            [repo_name] => repo_name.clone(),
+            [_, ..] => anyhow::bail!(
+                "Multiple configured repos match: {}",
+                matching_names
+                    .iter()
+                    .map(|name| name.to_string())
+                    .join(", ")
+            ),
+        };
+        Ok(repo_name)
     }
 
     /// Get a subrepo configuration without creating a new entry if missing.

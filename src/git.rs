@@ -18,7 +18,16 @@ pub type BlobId = gix::ObjectId;
 
 #[serde_as]
 #[derive(
-    Debug, Clone, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
+    Default,
+    Debug,
+    Clone,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub struct GitPath(
     /// The serialized human readable form is a string, so non-UTF8 will panic.
@@ -102,6 +111,15 @@ impl Deref for GitPath {
 impl Display for GitPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+impl<S> From<S> for GitPath
+where
+    S: Into<BString>,
+{
+    fn from(path: S) -> Self {
+        Self(path.into())
     }
 }
 
@@ -351,6 +369,19 @@ where
         info.context("Looking for commits to process")?;
     }
     Ok((stop_commit_ids, unknown_commit_count))
+}
+
+/// Resolve a working directory relative path to a path relative to the git
+/// worktree.
+pub fn repo_relative_path(worktree: &Path, cwd_relpath: &Path) -> Result<GitPath> {
+    let worktree = worktree.canonicalize()?;
+    let wanted_path = cwd_relpath.canonicalize()?;
+    let worktree_path = wanted_path
+        .strip_prefix(worktree)
+        .context("Path is not relative to the worktree")?;
+    Ok(GitPath::new(
+        worktree_path.as_os_str().as_encoded_bytes().into(),
+    ))
 }
 
 #[cfg(test)]

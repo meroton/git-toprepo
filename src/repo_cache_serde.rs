@@ -4,7 +4,6 @@ use crate::git::GitPath;
 use crate::git::TreeId;
 use crate::git_fast_export_import::WithoutCommitterId;
 use crate::git_fast_export_import_dedup::GitFastExportImportDedupCache;
-use crate::log::Logger;
 use crate::repo::ExpandedOrRemovedSubmodule;
 use crate::repo::MonoRepoCommit;
 use crate::repo::MonoRepoCommitId;
@@ -61,16 +60,16 @@ impl SerdeTopRepoCache {
     pub fn load_from_repo(
         toprepo: &gix::Repository,
         config_checksum: Option<&str>,
-        logger: &Logger,
+        warning_callback: impl Fn(&str),
     ) -> Result<Self> {
-        Self::load_from_git_dir(toprepo.git_dir(), config_checksum, logger)
+        Self::load_from_git_dir(toprepo.git_dir(), config_checksum, warning_callback)
     }
 
     /// Load parsed git repository information from `.git/toprepo/`.
     pub fn load_from_git_dir(
         git_dir: &Path,
         config_checksum: Option<&str>,
-        logger: &Logger,
+        warning_callback: impl Fn(&str),
     ) -> Result<Self> {
         let cache_path = Self::get_cache_path(git_dir);
         (|| -> anyhow::Result<_> {
@@ -88,7 +87,7 @@ impl SerdeTopRepoCache {
             let mut version_prelude = [0; Self::CACHE_VERSION_PRELUDE.len()];
             reader.read_exact(&mut version_prelude)?;
             if version_prelude != Self::CACHE_VERSION_PRELUDE.as_bytes() {
-                logger.warning(format!(
+                warning_callback(&format!(
                     "Discarding toprepo cache {} due to version mismatch, expected {:?}",
                     cache_path.display(),
                     Self::CACHE_VERSION_PRELUDE
@@ -113,8 +112,8 @@ impl SerdeTopRepoCache {
             if let Some(config_checksum) = config_checksum
                 && loaded_cache.config_checksum != config_checksum
             {
-                logger.warning(
-                    "The git-toprepo configuration has, discarding the toprepo cache".into(),
+                warning_callback(
+                    "The git-toprepo configuration has changed, discarding the toprepo cache",
                 );
                 return Ok(Self::default());
             }
@@ -136,13 +135,23 @@ impl SerdeTopRepoCache {
         serde_json::to_writer_pretty(writer, &self).context("Failed to serialize repo states")
     }
 
-    /// Store parsed git repository information from `.git/toprepo/`.
+    /// Store parsed git repository information to `.git/toprepo/`.
     pub fn store_to_git_dir(&self, git_dir: &Path) -> Result<()> {
-        let now = std::time::Instant::now();
         let cache_path = Self::get_cache_path(git_dir);
+        self.store(&cache_path)
+    }
+
+    /// Store parsed git repository information.
+    pub fn store(&self, cache_path: &Path) -> Result<()> {
+        self.store_impl(cache_path)
+            .with_context(|| format!("Failed to store repo cache to {}", cache_path.display()))
+    }
+
+    fn store_impl(&self, cache_path: &Path) -> Result<()> {
+        let now = std::time::Instant::now();
         let cache_path_tmp = cache_path.with_extension(".tmp");
-        if let Some(parent) = cache_path.parent() {
-            std::fs::create_dir_all(parent).context("Failed to create parent directory")?;
+        if let Some(parent_dir) = cache_path.parent() {
+            std::fs::create_dir_all(parent_dir).context("Failed to create parent directory")?;
         }
         let mut writer = std::io::BufWriter::new(std::fs::File::create(&cache_path_tmp)?);
         writer.write_all(Self::CACHE_VERSION_PRELUDE.as_bytes())?;
@@ -153,7 +162,7 @@ impl SerdeTopRepoCache {
             // .into_inner()
             .context("Failed to flush buffered writer")?;
         drop(file);
-        std::fs::rename(cache_path_tmp, &cache_path)?;
+        std::fs::rename(cache_path_tmp, cache_path)?;
         eprintln!(
             "DEBUG: Serialized repo states to {} in {:.2?}",
             cache_path.display(),

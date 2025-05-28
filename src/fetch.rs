@@ -3,6 +3,7 @@ use crate::config::SubRepoConfig;
 use crate::git::git_command;
 use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::repo_name::RepoName;
+use crate::util::CommandExtension;
 use crate::util::SafeExitStatus;
 use anyhow::Context;
 use anyhow::Result;
@@ -36,12 +37,7 @@ impl RemoteFetcher {
         config: &GitTopRepoConfig,
     ) -> Result<()> {
         match repo_name {
-            RepoName::Top => {
-                self.remote = match gix_repo.remote_default_name(Direction::Fetch) {
-                    Some(name) => Some(name.to_str()?.to_string()),
-                    None => Some("origin".to_owned()),
-                };
-            }
+            RepoName::Top => self.set_remote_as_top_repo(gix_repo)?,
             RepoName::SubRepo(sub_repo_name) => {
                 let subrepo_config = config
                     .subrepos
@@ -49,6 +45,14 @@ impl RemoteFetcher {
                     .with_context(|| format!("Repo {repo_name} not found in config"))?;
                 self.set_remote_from_subrepo_config(gix_repo, repo_name, subrepo_config)?;
             }
+        };
+        Ok(())
+    }
+
+    pub fn set_remote_as_top_repo(&mut self, gix_repo: &gix::Repository) -> Result<()> {
+        self.remote = match gix_repo.remote_default_name(Direction::Fetch) {
+            Some(name) => Some(name.to_str()?.to_string()),
+            None => Some("origin".to_owned()),
         };
         Ok(())
     }
@@ -128,12 +132,8 @@ impl RemoteFetcher {
         Ok(())
     }
 
-    pub fn fetch_with_progress_bar(self, pb: &indicatif::ProgressBar) -> Result<()> {
-        let remote = self.remote.context("No fetch remote set")?;
-        pb.set_prefix(remote.clone());
-        pb.set_message("Starting git-fetch");
-
-        let mut cmd: std::process::Command = git_command(&self.git_dir);
+    fn create_command(&self) -> std::process::Command {
+        let mut cmd = git_command(&self.git_dir);
         cmd.args([
             "fetch",
             "--progress",
@@ -143,11 +143,19 @@ impl RemoteFetcher {
             "--no-write-commit-graph",
             "--no-write-fetch-head",
         ])
-        .args(self.args)
-        .arg(&remote)
-        .args(self.refspecs);
-        pb.suspend(|| eprintln!("Running: {cmd:?}"));
+        .args(&self.args);
+        if let Some(remote) = &self.remote {
+            cmd.arg(remote);
+        }
+        cmd.args(&self.refspecs);
+        cmd
+    }
 
+    pub fn fetch_with_progress_bar(self, pb: &indicatif::ProgressBar) -> Result<()> {
+        let mut cmd = self.create_command();
+        pb.set_prefix(self.remote.as_deref().unwrap_or_default().to_owned());
+        pb.set_message("Starting git-fetch");
+        pb.suspend(|| eprintln!("Running: {cmd:#?}"));
         let mut proc = cmd
             // TODO: Collect stdout (use a thread to avoid backpressure deadlock).
             .stdout(std::process::Stdio::null())
@@ -162,9 +170,27 @@ impl RemoteFetcher {
         let exit_status = SafeExitStatus::new(proc.wait().context("Failed to wait for git-fetch")?);
         if let Err(err) = exit_status.check_success() {
             let maybe_newline = if last_paragraph.is_empty() { "" } else { "\n" };
-            bail!("git fetch {remote} failed: {err:#}{maybe_newline}{last_paragraph}");
+            bail!(
+                "git fetch {} failed: {err:#}{maybe_newline}{last_paragraph}",
+                self.remote.as_deref().unwrap_or("<default>")
+            );
         }
         pb.set_message("git-fetch done");
+        Ok(())
+    }
+
+    pub fn fetch_on_terminal(self) -> Result<()> {
+        let mut cmd = self.create_command();
+        eprintln!("Running: {cmd:?}");
+        cmd.safe_output()
+            .with_context(|| "Failed to spawn git-fetch".to_string())?
+            .check_success_with_stderr()
+            .with_context(|| {
+                format!(
+                    "git fetch {} failed",
+                    self.remote.as_deref().unwrap_or("<default>")
+                )
+            })?;
         Ok(())
     }
 }

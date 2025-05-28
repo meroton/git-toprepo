@@ -38,6 +38,7 @@ use std::io::Write as _;
 use std::ops::Deref;
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct TopRepo {
@@ -212,6 +213,72 @@ Initial empty git-toprepo configuration
                 self.gix_repo.git_dir().display()
             )
         })
+    }
+}
+
+pub struct MonoRepoProcessor {
+    pub gix_repo: gix::ThreadSafeRepository,
+    pub config: crate::config::GitTopRepoConfig,
+    pub top_repo_cache: crate::repo::TopRepoCache,
+    pub interrupted: Arc<std::sync::atomic::AtomicBool>,
+    pub progress: indicatif::MultiProgress,
+}
+
+impl MonoRepoProcessor {
+    pub fn run<T, F>(directory: &Path, error_mode: crate::log::ErrorMode, f: F) -> Result<T>
+    where
+        F: FnOnce(&mut MonoRepoProcessor, &Logger) -> Result<T>,
+    {
+        let gix_repo = gix::open(directory)?.into_sync();
+        let config = crate::config::GitTopRepoConfig::load_config_from_repo(
+            gix_repo.work_tree.as_deref().with_context(|| {
+                format!(
+                    "Bare repository without worktree {}",
+                    gix_repo.git_dir().display()
+                )
+            })?,
+        )?;
+        let top_repo_cache = crate::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
+            gix_repo.git_dir(),
+            Some(&config.checksum),
+            crate::log::eprint_warning,
+        )
+        .with_context(|| format!("Loading cache from {}", gix_repo.git_dir().display()))?
+        .unpack()?;
+        let mut log_config = config.log.clone();
+        let mut processor = MonoRepoProcessor {
+            gix_repo,
+            config,
+            top_repo_cache,
+            interrupted: error_mode.interrupted(),
+            progress: indicatif::MultiProgress::new(),
+        };
+        let mut result =
+            crate::log::log_task_to_stderr(error_mode, &mut log_config, |logger, progress| {
+                let old_progress = std::mem::replace(&mut processor.progress, progress);
+                let result = f(&mut processor, &logger);
+                processor.progress = old_progress;
+                result
+            });
+        // Store some result files.
+        if let Err(err) = crate::repo_cache_serde::SerdeTopRepoCache::pack(
+            &processor.top_repo_cache,
+            processor.config.checksum.clone(),
+        )
+        .store_to_git_dir(processor.gix_repo.git_dir())
+            && result.is_ok()
+        {
+            result = Err(err);
+        }
+        const EFFECTIVE_TOPREPO_CONFIG: &str = "toprepo/last-effective-git-toprepo.toml";
+        processor.config.log = log_config;
+        let config_path = processor.gix_repo.git_dir().join(EFFECTIVE_TOPREPO_CONFIG);
+        if let Err(err) = processor.config.save(&config_path)
+            && result.is_ok()
+        {
+            result = Err(err);
+        }
+        result
     }
 
     pub fn fetch_toprepo(&self) -> Result<()> {
@@ -430,14 +497,7 @@ Initial empty git-toprepo configuration
         Ok(())
     }
 
-    pub fn expand_toprepo_refs(
-        &self,
-        refs: &Vec<FullName>,
-        storage: &mut TopRepoCache,
-        config: &crate::config::GitTopRepoConfig,
-        logger: Logger,
-        progress: indicatif::MultiProgress,
-    ) -> Result<()> {
+    pub fn expand_toprepo_refs(&mut self, refs: &Vec<FullName>, logger: &Logger) -> Result<()> {
         let repo = self.gix_repo.to_thread_local();
 
         let mut toprepo_object_tip_names = Vec::new();
@@ -478,7 +538,7 @@ Initial empty git-toprepo configuration
                 }
             }
         }
-        let progress = progress.clone();
+        let progress = self.progress.clone();
         let pb = progress.add(
             indicatif::ProgressBar::no_length()
                 .with_style(
@@ -499,7 +559,8 @@ Initial empty git-toprepo configuration
                 .map(|commit_id| commit_id.into_inner()),
             |commit_id| {
                 !toprepo_object_tip_ids_set.contains(&commit_id)
-                    && storage
+                    && self
+                        .top_repo_cache
                         .top_to_mono_map
                         .contains_key(&TopRepoCommitId(commit_id))
             },
@@ -514,9 +575,9 @@ Initial empty git-toprepo configuration
         )?;
         let mut expander = TopRepoExpander {
             gix_repo: &repo,
-            storage,
-            config,
-            progress,
+            storage: &mut self.top_repo_cache,
+            config: &mut self.config,
+            progress: self.progress.clone(),
             logger: logger.clone(),
             fast_importer,
             imported_commits: HashMap::new(),
@@ -535,21 +596,19 @@ Initial empty git-toprepo configuration
 
     #[allow(clippy::too_many_arguments)]
     pub fn expand_submodule_ref_onto_head(
-        &self,
+        &mut self,
         ref_to_inject: &FullNameRef,
         sub_repo_name: &SubRepoName,
         abs_sub_path: &GitPath,
         dest_ref: &FullNameRef,
-        storage: &mut TopRepoCache,
-        config: &crate::config::GitTopRepoConfig,
-        logger: Logger,
-        progress: indicatif::MultiProgress,
+        logger: &Logger,
     ) -> Result<()> {
         let repo = self.gix_repo.to_thread_local();
 
         let mut ref_to_inject = repo.refs.find(ref_to_inject)?;
         let id_to_inject = ref_to_inject.peel_to_id_in_place(&repo.refs, &repo.objects)?;
-        let thin_commit_to_inject = storage
+        let thin_commit_to_inject = self
+            .top_repo_cache
             .repos
             .get(&RepoName::SubRepo(sub_repo_name.clone()))
             .and_then(|repo_data| repo_data.thin_commits.get(&id_to_inject))
@@ -562,7 +621,7 @@ Initial empty git-toprepo configuration
             })?
             .clone(); // Clone to avoid borrowing the `storage` object.
 
-        let pb = progress.add(
+        let pb = self.progress.add(
             indicatif::ProgressBar::no_length()
                 .with_style(
                     indicatif::ProgressStyle::default_spinner()
@@ -579,8 +638,10 @@ Initial empty git-toprepo configuration
                 &repo,
                 [head_id].into_iter(),
                 |commit_id| {
-                    let Some(mono_parent) =
-                        storage.monorepo_commits.get(&MonoRepoCommitId(commit_id))
+                    let Some(mono_parent) = self
+                        .top_repo_cache
+                        .monorepo_commits
+                        .get(&MonoRepoCommitId(commit_id))
                     else {
                         return false;
                     };
@@ -597,9 +658,9 @@ Initial empty git-toprepo configuration
         )?;
         let mut expander = TopRepoExpander {
             gix_repo: &repo,
-            storage,
-            config,
-            progress,
+            storage: &mut self.top_repo_cache,
+            config: &mut self.config,
+            progress: self.progress.clone(),
             logger: logger.clone(),
             fast_importer,
             imported_commits: HashMap::new(),
@@ -630,15 +691,12 @@ Initial empty git-toprepo configuration
     #[allow(unused_variables)]
     #[allow(clippy::too_many_arguments)]
     pub fn push(
-        &self,
+        &mut self,
         top_push_url: &gix::Url,
         local_ref: &FullName,
         remote_ref: &FullName,
-        top_repo_cache: &mut TopRepoCache,
-        config: &mut crate::config::GitTopRepoConfig,
         dry_run: bool,
-        logger: Logger,
-        progress: indicatif::MultiProgress,
+        logger: &Logger,
     ) -> Result<()> {
         let repo = self.gix_repo.to_thread_local();
 
@@ -664,232 +722,78 @@ Initial empty git-toprepo configuration
             .collect::<std::result::Result<Vec<_>, _>>()
             .with_context(|| "Failed while iterating refs/remotes/origin/")?;
 
-        let pb = progress.add(
-            indicatif::ProgressBar::no_length()
-                .with_style(
-                    indicatif::ProgressStyle::default_spinner()
-                        .template("{elapsed:>4} {msg} {pos}")
-                        .unwrap(),
-                )
-                .with_message("Splitting commits"),
-        );
+        let mut dedup_cache = std::mem::take(&mut self.top_repo_cache.dedup);
         let mut fast_importer = crate::git_fast_export_import_dedup::FastImportRepoDedup::new(
             crate::git_fast_export_import::FastImportRepo::new(
                 self.gix_repo.git_dir(),
                 logger.clone(),
             )?,
-            &mut top_repo_cache.dedup,
+            &mut dedup_cache,
         );
-        let fast_exporter = crate::git_fast_export_import::FastExportRepo::load_from_path(
-            self.gix_repo.git_dir(),
-            Some(export_refs_args),
-            logger.clone(),
-        )?;
-
-        let mut to_push_metadata = Vec::new();
-        let mut bumps = BumpCache::default();
-        let mut imported_mono_commits = HashMap::new();
-        let mut imported_submod_commits = HashMap::new();
-        for entry in fast_exporter {
-            let entry = entry?; // TODO: error handling
-            match entry {
-                crate::git_fast_export_import::FastExportEntry::Commit(exported_mono_commit) => {
-                    // TODO: Should we check if exported_mono_commit.original_id exists in the top_repo_cache?
-                    let mono_commit_id = MonoRepoCommitId::new(exported_mono_commit.original_id);
-                    let gix_mono_commit = repo.find_commit(*mono_commit_id)?;
-                    let mono_parents = exported_mono_commit
-                        .parents
-                        .iter()
-                        .map(|parent_id| {
-                            let mono_parent = top_repo_cache
-                                .monorepo_commits
-                                .get(&MonoRepoCommitId::new(*parent_id))
-                                // Fallback to the newly imported commits.
-                                .or_else(|| imported_mono_commits.get(parent_id))
-                                .cloned()
-                                .with_context(|| {
-                                    format!("Unknown mono commit parent {}", parent_id.to_hex())
-                                })?;
-                            Ok(mono_parent)
-                        })
-                        .collect::<Result<Vec<_>>>()?;
-                    // The user should make sure that the .gitmodules is
-                    // correct. Note that inner submodules might be
-                    // mentioned, but there should not be any submodule
-                    // mentioned that is a valid path in the repository.
-                    // TODO: Handle updated URLs in the .gitmodules file.
-                    // TODO: How to handle added and removed submodules from the .gitmodules file?
-                    let mut grouped_file_changes: BTreeMap<(GitPath, RepoName, gix::Url), Vec<_>> =
-                        BTreeMap::new();
-                    for fc in exported_mono_commit.file_changes {
-                        let (repo_name, submod_path, rel_path, push_url) = Self::resolve_push_repo(
-                            &gix_mono_commit,
-                            GitPath::new(fc.path),
-                            top_push_url.clone(),
-                            config,
-                        )?;
-                        grouped_file_changes
-                            .entry((submod_path, repo_name, push_url))
-                            .or_default()
-                            .push(ChangedFile {
-                                path: (*rel_path).clone(),
-                                change: fc.change,
-                            });
-                    }
-                    let (message, topic) =
-                        Self::rewrite_push_message(exported_mono_commit.message.to_str()?);
-                    if grouped_file_changes.len() > 1 && topic.is_none() {
-                        anyhow::bail!(
-                            "Multiple submodules changed in commit {mono_commit_id}, but no topic was provided. \
-                            Please amend the commit message to add a 'Topic: something-descriptive' line."
-                        );
-                    }
-                    for ((abs_sub_path, repo_name, push_url), file_changes) in grouped_file_changes
-                    {
-                        let push_branch = format!("{}push", repo_name.to_ref_prefix());
-                        let parents_commit_ids = mono_parents
-                            .iter()
-                            .filter_map(|mono_parent| match &repo_name {
-                                RepoName::Top => {
-                                    bumps.get_top_bump(mono_parent).map(|top_bump| *top_bump)
-                                }
-                                RepoName::SubRepo(sub_repo_name) => bumps
-                                    .get_some_submodule(mono_parent, &abs_sub_path, sub_repo_name)
-                                    .map(|parent_submod| *parent_submod.get_orig_commit_id()),
-                            })
-                            .unique()
-                            .collect_vec();
-                        let parents = parents_commit_ids
-                            .iter()
-                            .map(|parent_submod_id| {
-                                imported_submod_commits
-                                    .get(parent_submod_id)
-                                    .cloned()
-                                    .unwrap_or(ImportCommitRef::CommitId(*parent_submod_id))
-                            })
-                            .collect_vec();
-                        if parents.is_empty() {
-                            match repo_name {
-                                RepoName::Top => anyhow::bail!(
-                                    "Mono commit {mono_commit_id} has no parents with content outside of the submodules, which is impossible"
-                                ),
-                                RepoName::SubRepo(sub_repo_name) => anyhow::bail!(
-                                    "Submodule {sub_repo_name} at {abs_sub_path} does not exist as a git-link in any parent of {mono_commit_id}"
-                                ),
-                            }
-                        }
-                        let import_ref = fast_importer.write_commit(&FastImportCommit {
-                            branch: <&FullNameRef as TryFrom<_>>::try_from(&push_branch)
-                                .expect("valid ref name"),
-                            author_info: exported_mono_commit.author_info.clone(),
-                            committer_info: exported_mono_commit.committer_info.clone(),
-                            encoding: exported_mono_commit.encoding.clone(),
-                            message: bstr::BString::from(message.clone()),
-                            file_changes,
-                            parents,
-                            original_id: None,
-                        })?;
-                        let import_commit_id = fast_importer.get_object_id(&import_ref)?;
-                        imported_submod_commits.insert(import_commit_id, import_ref);
-
-                        let (top_bump, submodule_bumps) = match repo_name {
-                            RepoName::Top => {
-                                (Some(TopRepoCommitId::new(import_commit_id)), HashMap::new())
-                            }
-                            RepoName::SubRepo(sub_repo_name) => (
-                                None,
-                                HashMap::from([(
-                                    abs_sub_path,
-                                    ExpandedOrRemovedSubmodule::Expanded(
-                                        ExpandedSubmodule::Expanded(SubmoduleContent {
-                                            repo_name: sub_repo_name,
-                                            orig_commit_id: import_commit_id,
-                                        }),
-                                    ),
-                                )]),
-                            ),
-                        };
-                        let mono_commit = MonoRepoCommit::new_rc(
-                            mono_parents
-                                .iter()
-                                .map(|mono_parent| MonoRepoParent::Mono(mono_parent.clone()))
-                                .collect(),
-                            top_bump,
-                            submodule_bumps,
-                        );
-                        imported_mono_commits
-                            .insert(exported_mono_commit.original_id, mono_commit.clone());
-                        to_push_metadata.push((
-                            push_url,
-                            topic.clone(),
-                            import_commit_id,
-                            parents_commit_ids,
-                        ));
-                    }
-                    pb.inc(1);
-                }
-                crate::git_fast_export_import::FastExportEntry::Reset(reset) => {
-                    logger.warning(format!(
-                        "Resetting {} to {} is unimplemented",
-                        reset.branch, reset.from
-                    ));
-                }
-            };
-        }
+        let to_push_metadata =
+            self.split_for_push(&mut fast_importer, top_push_url, &export_refs_args, logger);
+        // Make sure to gracefully shutdown the fast-importer before returning.
         fast_importer.wait()?;
-        drop(pb);
+        self.top_repo_cache.dedup = dedup_cache;
+        let mut to_push_metadata = to_push_metadata?;
 
         // Group the pushes together to run fewer git-push commands.
         to_push_metadata.reverse();
         let mut redundant_pushes = HashMap::new();
-        to_push_metadata.retain(|(push_url, topic, commit_id, parents)| {
+        to_push_metadata.retain(|push_info| {
             let is_needed = redundant_pushes
-                .remove(&(push_url.clone(), *commit_id))
+                .remove(&(push_info.push_url.clone(), push_info.commit_id))
                 .as_ref()
-                != Some(topic);
-            for parent in parents {
+                != Some(&push_info.topic);
+            for parent in &push_info.parents {
                 // Even if the entry exists, it should be replaced to show that
                 // the first push after `*parent` will be with `topic`. Later
                 // pushes will not affect anything anyway.
-                redundant_pushes.insert((push_url.clone(), *parent), topic.clone());
+                redundant_pushes.insert(
+                    (push_info.push_url.clone(), *parent),
+                    push_info.topic.clone(),
+                );
             }
             is_needed
         });
         to_push_metadata.reverse();
 
-        progress.suspend(|| {
-            let info_label = if dry_run { "Would run" } else { "Running" };
-            for (push_url, topic, commit_id, _parents) in &to_push_metadata {
-                let topic_arg = match topic {
-                    Some(topic) => format!(" -o topic={topic}"),
-                    None => String::new(),
-                };
-                println!(
-                    "{info_label}: git push {push_url}{topic_arg} {}:{remote_ref}",
-                    commit_id.to_hex()
-                );
+        let info_label = if dry_run { "Would run" } else { "Running" };
+        let mut failed_pushes = 0;
+        for push_info in to_push_metadata {
+            let topic_arg = match &push_info.topic {
+                Some(topic) => format!(" -o topic={topic}"),
+                None => String::new(),
+            };
+            self.progress.suspend(|| {
+                eprintln!(
+                    "{info_label}: git push {}{topic_arg} {}:{remote_ref}",
+                    push_info.push_url,
+                    push_info.commit_id.to_hex()
+                )
+            });
+            if dry_run {
+                continue;
             }
-        });
-        if !dry_run {
-            let mut failed_pushes = 0;
-            for (push_url, topic, commit_id, _parents) in to_push_metadata {
-                let mut cmd = git_command(self.gix_repo.git_dir());
-                cmd.arg("push").arg(push_url.to_bstring().to_os_str()?);
-                if let Some(topic) = topic {
-                    cmd.arg("-o").arg(format!("topic={topic}"));
-                }
-                cmd.arg(format!("{commit_id}:{remote_ref}"));
-                if let Err(err) = cmd.check_success_with_stderr() {
-                    logger.error(format!(
-                        "Failed to git push {push_url} {commit_id}:{remote_ref}: {err:#}"
-                    ));
-                    failed_pushes += 1;
-                }
+            // Do the push.
+            let mut cmd = git_command(self.gix_repo.git_dir());
+            cmd.arg("push")
+                .arg(push_info.push_url.to_bstring().to_os_str()?);
+            if let Some(topic) = &push_info.topic {
+                cmd.arg("-o").arg(format!("topic={topic}"));
             }
-            if failed_pushes != 0 {
-                let times_string = if failed_pushes == 1 { "time" } else { "times" };
-                anyhow::bail!(format!("git-push failed {failed_pushes} {times_string}"));
+            cmd.arg(format!("{}:{remote_ref}", push_info.commit_id));
+            if let Err(err) = cmd.check_success_with_stderr() {
+                logger.error(format!(
+                    "Failed to git push {} {}:{remote_ref}: {err:#}",
+                    push_info.push_url, push_info.commit_id
+                ));
+                failed_pushes += 1;
             }
+        }
+        if failed_pushes != 0 {
+            let times_string = if failed_pushes == 1 { "time" } else { "times" };
+            anyhow::bail!(format!("git-push failed {failed_pushes} {times_string}"));
         }
         Ok(())
     }
@@ -972,6 +876,190 @@ Initial empty git-toprepo configuration
             repo_name = RepoName::SubRepo(sub_repo_name);
         }
     }
+
+    fn split_for_push(
+        &mut self,
+        fast_importer: &mut crate::git_fast_export_import_dedup::FastImportRepoDedup<'_>,
+        top_push_url: &gix::Url,
+        export_refs_args: &[std::ffi::OsString],
+        logger: &Logger,
+    ) -> Result<Vec<PushMetadata>> {
+        let monorepo_commits = &self.top_repo_cache.monorepo_commits;
+        let repo = self.gix_repo.to_thread_local();
+
+        let pb = self.progress.add(
+            indicatif::ProgressBar::no_length()
+                .with_style(
+                    indicatif::ProgressStyle::default_spinner()
+                        .template("{elapsed:>4} {msg} {pos}")
+                        .unwrap(),
+                )
+                .with_message("Splitting commits"),
+        );
+        let fast_exporter = crate::git_fast_export_import::FastExportRepo::load_from_path(
+            self.gix_repo.git_dir(),
+            Some(export_refs_args),
+            logger.clone(),
+        )?;
+
+        let mut to_push_metadata = Vec::new();
+        let mut bumps = BumpCache::default();
+        let mut imported_mono_commits = HashMap::new();
+        let mut imported_submod_commits = HashMap::new();
+        for entry in fast_exporter {
+            let entry = entry?; // TODO: error handling
+            match entry {
+                crate::git_fast_export_import::FastExportEntry::Commit(exported_mono_commit) => {
+                    // TODO: Should we check if exported_mono_commit.original_id exists in the top_repo_cache?
+                    let mono_commit_id = MonoRepoCommitId::new(exported_mono_commit.original_id);
+                    let gix_mono_commit = repo.find_commit(*mono_commit_id)?;
+                    let mono_parents = exported_mono_commit
+                        .parents
+                        .iter()
+                        .map(|parent_id| {
+                            let mono_parent = monorepo_commits
+                                .get(&MonoRepoCommitId::new(*parent_id))
+                                // Fallback to the newly imported commits.
+                                .or_else(|| imported_mono_commits.get(parent_id))
+                                .cloned()
+                                .with_context(|| {
+                                    format!("Unknown mono commit parent {}", parent_id.to_hex())
+                                })?;
+                            Ok(mono_parent)
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    // The user should make sure that the .gitmodules is
+                    // correct. Note that inner submodules might be
+                    // mentioned, but there should not be any submodule
+                    // mentioned that is a valid path in the repository.
+                    // TODO: Handle updated URLs in the .gitmodules file.
+                    // TODO: How to handle added and removed submodules from the .gitmodules file?
+                    let mut grouped_file_changes: BTreeMap<(GitPath, RepoName, gix::Url), Vec<_>> =
+                        BTreeMap::new();
+                    for fc in exported_mono_commit.file_changes {
+                        let (repo_name, submod_path, rel_path, push_url) = Self::resolve_push_repo(
+                            &gix_mono_commit,
+                            GitPath::new(fc.path),
+                            top_push_url.clone(),
+                            &mut self.config,
+                        )?;
+                        grouped_file_changes
+                            .entry((submod_path, repo_name, push_url))
+                            .or_default()
+                            .push(ChangedFile {
+                                path: (*rel_path).clone(),
+                                change: fc.change,
+                            });
+                    }
+                    let (message, topic) =
+                        Self::rewrite_push_message(exported_mono_commit.message.to_str()?);
+                    if grouped_file_changes.len() > 1 && topic.is_none() {
+                        anyhow::bail!(
+                            "Multiple submodules changed in commit {mono_commit_id}, but no topic was provided. \
+                        Please amend the commit message to add a 'Topic: something-descriptive' line."
+                        );
+                    }
+                    for ((abs_sub_path, repo_name, push_url), file_changes) in grouped_file_changes
+                    {
+                        let push_branch = format!("{}push", repo_name.to_ref_prefix());
+                        let parents_commit_ids = mono_parents
+                            .iter()
+                            .filter_map(|mono_parent| match &repo_name {
+                                RepoName::Top => {
+                                    bumps.get_top_bump(mono_parent).map(|top_bump| *top_bump)
+                                }
+                                RepoName::SubRepo(sub_repo_name) => bumps
+                                    .get_some_submodule(mono_parent, &abs_sub_path, sub_repo_name)
+                                    .map(|parent_submod| *parent_submod.get_orig_commit_id()),
+                            })
+                            .unique()
+                            .collect_vec();
+                        let parents = parents_commit_ids
+                            .iter()
+                            .map(|parent_submod_id| {
+                                imported_submod_commits
+                                    .get(parent_submod_id)
+                                    .cloned()
+                                    .unwrap_or(ImportCommitRef::CommitId(*parent_submod_id))
+                            })
+                            .collect_vec();
+                        if parents.is_empty() {
+                            match repo_name {
+                                RepoName::Top => anyhow::bail!(
+                                    "Mono commit {mono_commit_id} has no parents with content outside of the submodules, which is impossible"
+                                ),
+                                RepoName::SubRepo(sub_repo_name) => anyhow::bail!(
+                                    "Submodule {sub_repo_name} at {abs_sub_path} does not exist as a git-link in any parent of {mono_commit_id}"
+                                ),
+                            }
+                        }
+                        let import_ref = fast_importer.write_commit(&FastImportCommit {
+                            branch: <&FullNameRef as TryFrom<_>>::try_from(&push_branch)
+                                .expect("valid ref name"),
+                            author_info: exported_mono_commit.author_info.clone(),
+                            committer_info: exported_mono_commit.committer_info.clone(),
+                            encoding: exported_mono_commit.encoding.clone(),
+                            message: bstr::BString::from(message.clone()),
+                            file_changes,
+                            parents,
+                            original_id: None,
+                        })?;
+                        let import_commit_id = fast_importer.get_object_id(&import_ref)?;
+                        imported_submod_commits.insert(import_commit_id, import_ref);
+
+                        let (top_bump, submodule_bumps) = match repo_name {
+                            RepoName::Top => {
+                                (Some(TopRepoCommitId::new(import_commit_id)), HashMap::new())
+                            }
+                            RepoName::SubRepo(sub_repo_name) => (
+                                None,
+                                HashMap::from([(
+                                    abs_sub_path,
+                                    ExpandedOrRemovedSubmodule::Expanded(
+                                        ExpandedSubmodule::Expanded(SubmoduleContent {
+                                            repo_name: sub_repo_name,
+                                            orig_commit_id: import_commit_id,
+                                        }),
+                                    ),
+                                )]),
+                            ),
+                        };
+                        let mono_commit = MonoRepoCommit::new_rc(
+                            mono_parents
+                                .iter()
+                                .map(|mono_parent| MonoRepoParent::Mono(mono_parent.clone()))
+                                .collect(),
+                            top_bump,
+                            submodule_bumps,
+                        );
+                        imported_mono_commits
+                            .insert(exported_mono_commit.original_id, mono_commit.clone());
+                        to_push_metadata.push(PushMetadata {
+                            push_url,
+                            topic: topic.clone(),
+                            commit_id: import_commit_id,
+                            parents: parents_commit_ids,
+                        });
+                    }
+                    pb.inc(1);
+                }
+                crate::git_fast_export_import::FastExportEntry::Reset(reset) => {
+                    logger.warning(format!(
+                        "Resetting {} to {} is unimplemented",
+                        reset.branch, reset.from
+                    ));
+                }
+            };
+        }
+        Ok(to_push_metadata)
+    }
+}
+
+struct PushMetadata {
+    pub push_url: gix::Url,
+    pub topic: Option<String>,
+    pub commit_id: CommitId,
+    pub parents: Vec<CommitId>,
 }
 
 #[serde_as]
@@ -1365,79 +1453,5 @@ impl ThinCommit {
             node = parent;
         }
         None
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_create_and_fetch() -> Result<()> {
-        use tempfile::tempdir;
-
-        let from_dir = tempdir().unwrap();
-        let from_path = from_dir.path();
-
-        let to_dir = tempdir().unwrap();
-        let to_path = to_dir.path();
-        let env = HashMap::from([
-            ("GIT_AUTHOR_NAME", "A Name"),
-            ("GIT_AUTHOR_EMAIL", "a@no.domain"),
-            ("GIT_AUTHOR_DATE", "2023-01-02T03:04:05Z+01:00"),
-            ("GIT_COMMITTER_NAME", "C Name"),
-            ("GIT_COMMITTER_EMAIL", "c@no.domain"),
-            ("GIT_COMMITTER_DATE", "2023-06-07T08:09:10Z+01:00"),
-        ]);
-
-        git_command(from_path)
-            .args(["init", "--quiet", "--initial-branch", "main"])
-            .envs(&env)
-            .safe_status()?
-            .check_success()?;
-        git_command(from_path)
-            .args(["commit", "--allow-empty", "--quiet"])
-            .args(["-m", "Initial commit"])
-            .envs(&env)
-            .safe_status()?
-            .check_success()?;
-        git_command(from_path)
-            .args(["tag", "mytag"])
-            .envs(&env)
-            .safe_status()?
-            .check_success()?;
-
-        let toprepo =
-            TopRepo::create(to_path, gix::url::Url::try_from(from_path).unwrap()).unwrap();
-
-        toprepo.fetch_toprepo_quiet().unwrap();
-
-        let ref_pairs = vec![
-            ("HEAD", "refs/namespaces/top/HEAD"),
-            ("main", "refs/namespaces/top/refs/heads/main"),
-            ("mytag", "refs/namespaces/top/refs/tags/mytag"),
-        ];
-        for (orig_ref, top_ref) in ref_pairs {
-            let orig_rev = git_command(from_path)
-                .args(["rev-parse", "--verify", orig_ref])
-                .output_stdout_only()?
-                .check_success_with_stderr()
-                .with_context(|| format!("orig {orig_ref}"))?
-                .stdout
-                .to_owned();
-            let top_rev = git_command(toprepo.gix_repo.git_dir())
-                .args(["rev-parse", "--verify", top_ref])
-                .output_stdout_only()?
-                .check_success_with_stderr()
-                .with_context(|| format!("top {top_ref}"))?
-                .stdout
-                .to_owned();
-            assert_eq!(
-                orig_rev.to_str().unwrap(),
-                top_rev.to_str().unwrap(),
-                "ref {orig_ref} mismatch",
-            );
-        }
-        Ok(())
     }
 }
