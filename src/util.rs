@@ -157,8 +157,6 @@ where
     }
 }
 
-/// Interface for returning a unique element, possibly duplicated, from an
-/// iterator.
 pub trait IterSingleUnique<T> {
     fn single_unique(self) -> Option<T>;
 }

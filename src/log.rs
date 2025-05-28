@@ -6,6 +6,10 @@ use std::ops::DerefMut;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+pub fn eprint_warning(msg: &str) {
+    eprintln!("{}: {msg}", "WARNING:".yellow().bold());
+}
+
 pub fn log_task_to_stderr<F, T>(
     error_mode: ErrorMode,
     log_config: &mut crate::config::LogConfig,
@@ -26,7 +30,7 @@ where
         .iter()
         .cloned()
         .collect::<HashSet<_>>();
-    let log_receiver = LogReceiver::new(ignore_warnings, error_mode.clone(), move |msg| {
+    let log_receiver = LogReceiver::new(ignore_warnings, error_mode, move |msg| {
         progress_clone.suspend(|| eprintln!("{msg}"));
     });
     let result = task(log_receiver.get_logger(), progress.clone());
