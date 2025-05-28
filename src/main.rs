@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 mod cli;
 
 use crate::cli::Cli;
@@ -560,7 +558,7 @@ mod tests {
     #[test]
     fn test_main_outside_git_toprepo() {
         let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
-        // Debug with temp_dir.into_path() to presist the path.
+        // Debug with &temp_dir.into_path() to persist the path.
         let temp_dir = temp_dir.path();
         let temp_dir_str = temp_dir.to_str().unwrap();
         let argv = vec!["git-toprepo", "-C", temp_dir_str, "config", "show"];
