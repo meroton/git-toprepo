@@ -957,7 +957,13 @@ Initial empty git-toprepo configuration
             generic_url = generic_url.join(sub_url);
             push_url = push_url.join(sub_url);
             // Update the return value.
-            let (sub_repo_name, _) = config.get_or_insert_from_url(&generic_url)?;
+            let sub_repo_name = match config.get_or_insert_from_url(&generic_url)? {
+                crate::config::GetOrInsertOk::Found((name, _)) => name,
+                crate::config::GetOrInsertOk::Missing(_)
+                | crate::config::GetOrInsertOk::MissingAgain(_) => {
+                    anyhow::bail!("Missing URL {generic_url} in the git-toprepo configuration");
+                }
+            };
             repo_name = RepoName::SubRepo(sub_repo_name);
         }
     }

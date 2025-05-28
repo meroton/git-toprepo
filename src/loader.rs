@@ -897,14 +897,27 @@ impl<'a> CommitLoader<'a> {
                 return None;
             }
         };
-        let (name, _subrepo_config) = config
-            .get_or_insert_from_url(&base_url.join(submod_url))
+        let full_url = base_url.join(submod_url);
+        let name = match config
+            .get_or_insert_from_url(&full_url)
             .map_err(|err| {
                 if let Some(logger) = get_logger() {
                     logger.error(format!("{err:#}"));
                 }
             })
-            .ok()?;
+            .ok()?
+        {
+            crate::config::GetOrInsertOk::Found((name, _)) => name,
+            crate::config::GetOrInsertOk::Missing(_) => {
+                if let Some(logger) = get_logger() {
+                    logger.warning(format!(
+                        "URL {full_url} is missing in the git-toprepo configuration"
+                    ));
+                }
+                return None;
+            }
+            crate::config::GetOrInsertOk::MissingAgain(_) => return None,
+        };
         Some(name)
     }
 
