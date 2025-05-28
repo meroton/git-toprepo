@@ -39,8 +39,8 @@ fn init(init_args: &cli::Init) -> Result<PathBuf> {
         }
     };
 
-    let toprepo = git_toprepo::repo::TopRepo::create(directory.clone(), url)?;
-    eprintln!("Initialized git-toprepo in {}", toprepo.directory.display());
+    git_toprepo::repo::TopRepo::create(&directory, url)?;
+    eprintln!("Initialized git-toprepo in {}", directory.display());
     Ok(directory)
 }
 
@@ -292,10 +292,10 @@ fn fetch_and_refilter<F>(fetch_args: &cli::Fetch, commit_loader_setup: F) -> Res
 where
     F: FnOnce(&mut git_toprepo::loader::CommitLoader) -> Result<()>,
 {
-    let toprepo = git_toprepo::repo::TopRepo::open(PathBuf::from("."))?;
+    let toprepo = git_toprepo::repo::TopRepo::open(Path::new("."))?;
     let repo = toprepo.gix_repo.to_thread_local();
     let mut config =
-        git_toprepo::config::GitTopRepoConfig::load_config_from_repo(&toprepo.directory)?;
+        git_toprepo::config::GitTopRepoConfig::load_config_from_repo(toprepo.work_tree()?)?;
 
     let base_url = git_toprepo::git::get_default_remote_url(&repo)?;
 
@@ -532,10 +532,10 @@ where
 }
 
 fn push(push_args: &cli::Push) -> Result<ExitCode> {
-    let toprepo = git_toprepo::repo::TopRepo::open(PathBuf::from("."))?;
+    let toprepo = git_toprepo::repo::TopRepo::open(Path::new("."))?;
     let repo = toprepo.gix_repo.to_thread_local();
     let mut config =
-        git_toprepo::config::GitTopRepoConfig::load_config_from_repo(&toprepo.directory)?;
+        git_toprepo::config::GitTopRepoConfig::load_config_from_repo(toprepo.work_tree()?)?;
     let base_url = match repo.try_find_remote(push_args.top_remote.as_bytes()) {
         Some(Ok(remote)) => remote
             // TODO: Support push URL config.

@@ -21,7 +21,10 @@ fn test_init_and_refilter_example() {
 
     let to_repo_path = temp_dir.join("to");
     let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
-    let log_graph = extract_log_graph(&toprepo.directory, vec!["--name-status", "HEAD", "--"]);
+    let log_graph = extract_log_graph(
+        toprepo.work_tree().unwrap(),
+        vec!["--name-status", "HEAD", "--"],
+    );
     println!("{log_graph}");
     let expected_graph = r"
 *-.   N
@@ -118,7 +121,10 @@ fn test_refilter_merge_with_one_submodule_a() {
 
     let to_repo_path = temp_dir.join("to");
     let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
-    let log_graph = extract_log_graph(&toprepo.directory, vec!["--name-status", "HEAD", "--"]);
+    let log_graph = extract_log_graph(
+        toprepo.work_tree().unwrap(),
+        vec!["--name-status", "HEAD", "--"],
+    );
     println!("{log_graph}");
     let expected_graph = r"
 *-.   D6-release
@@ -160,7 +166,10 @@ fn test_refilter_merge_with_one_submodule_b() {
 
     let to_repo_path = temp_dir.join("to");
     let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
-    let log_graph = extract_log_graph(&toprepo.directory, vec!["--name-status", "HEAD", "--"]);
+    let log_graph = extract_log_graph(
+        toprepo.work_tree().unwrap(),
+        vec!["--name-status", "HEAD", "--"],
+    );
     println!("{log_graph}");
     let expected_graph = r"
 *-----.   F8-release
@@ -216,7 +225,10 @@ fn test_refilter_merge_with_two_submodules() {
 
     let to_repo_path = temp_dir.join("to");
     let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
-    let log_graph = extract_log_graph(&toprepo.directory, vec!["--name-status", "HEAD", "--"]);
+    let log_graph = extract_log_graph(
+        toprepo.work_tree().unwrap(),
+        vec!["--name-status", "HEAD", "--"],
+    );
     println!("{log_graph}");
     let expected_graph = r"
 *---.   D6-release
@@ -272,7 +284,10 @@ fn test_refilter_submodule_removal() {
 
     let to_repo_path = temp_dir.join("to");
     let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
-    let log_graph = extract_log_graph(&toprepo.directory, vec!["--name-status", "HEAD", "--"]);
+    let log_graph = extract_log_graph(
+        toprepo.work_tree().unwrap(),
+        vec!["--name-status", "HEAD", "--"],
+    );
     println!("{log_graph}");
     let expected_graph = r"
 *   E
@@ -313,7 +328,10 @@ fn test_refilter_moved_submodule() {
 
     let to_repo_path = temp_dir.join("to");
     let toprepo = run_init_and_refilter(from_repo_path, to_repo_path);
-    let log_graph = extract_log_graph(&toprepo.directory, vec!["--name-status", "HEAD", "--"]);
+    let log_graph = extract_log_graph(
+        toprepo.work_tree().unwrap(),
+        vec!["--name-status", "HEAD", "--"],
+    );
     println!("{log_graph}");
     let expected_graph = r"
 * E
@@ -409,7 +427,7 @@ fn run_init_and_refilter(
         .arg("fetch")
         .assert()
         .success();
-    git_toprepo::repo::TopRepo::open(to_repo_path).unwrap()
+    git_toprepo::repo::TopRepo::open(&to_repo_path).unwrap()
 }
 
 fn extract_log_graph(repo_path: &Path, extra_args: Vec<&str>) -> String {
