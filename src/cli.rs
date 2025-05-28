@@ -103,7 +103,7 @@ pub struct Config {
     pub config_command: ConfigCommands,
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
 pub enum ConfigCommands {
     /// Prints the configuration location.
     Location,
@@ -118,14 +118,14 @@ pub enum ConfigCommands {
     Validate(ConfigValidate),
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 pub struct ConfigNormalize {
     /// The configuration file to normalize or - for stdin.
     #[arg(id = "file")]
     pub file: PathBuf,
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 pub struct ConfigValidate {
     /// The configuration file to validate or - for stdin.
     #[arg(id = "file")]

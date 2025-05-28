@@ -1,26 +1,13 @@
 use bstr::ByteSlice;
 use git_toprepo::git::CommitId;
 use git_toprepo::git::GitPath;
+use git_toprepo::git::commit_env_for_testing;
 use git_toprepo::git::git_command;
 use git_toprepo::git::git_update_submodule_in_index;
 use git_toprepo::util::CommandExtension as _;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
-
-pub fn commit_env() -> HashMap<String, String> {
-    HashMap::from(
-        [
-            ("GIT_AUTHOR_NAME", "A Name"),
-            ("GIT_AUTHOR_EMAIL", "a@no.domain"),
-            ("GIT_AUTHOR_DATE", "2023-01-02T03:04:05Z+01:00"),
-            ("GIT_COMMITTER_NAME", "C Name"),
-            ("GIT_COMMITTER_EMAIL", "c@no.domain"),
-            ("GIT_COMMITTER_DATE", "2023-06-07T08:09:10Z+01:00"),
-        ]
-        .map(|(k, v)| (k.into(), v.into())),
-    )
-}
 
 fn git_commit(repo: &Path, env: &HashMap<String, String>, message: &str) -> CommitId {
     let file_name = message.to_owned() + ".txt";
@@ -67,7 +54,7 @@ fn git_merge(repo: &Path, commit_ids: &[&CommitId]) {
         .args(["merge", "--no-ff", "--no-commit", "--strategy=ours"])
         .args(["-m", "Dummy"])
         .args(commit_ids)
-        .envs(commit_env())
+        .envs(commit_env_for_testing())
         .check_success_with_stderr()
         .unwrap();
 }
@@ -99,7 +86,7 @@ fn git_add_local_submodule_to_index(repo: &Path, path: &GitPath, url: &str) {
 ///                                    8b--------9b-----11--12----/
 /// ```
 /// The commit N is pointing to commit 11 in the submodule, which is a bad merge
-/// because even if N keeps the submodule K was pointong to, the submodule
+/// because even if N keeps the submodule K was pointing to, the submodule
 /// pointer goes backwards in relation to M.
 ///
 /// # Examples
@@ -132,7 +119,7 @@ impl GitTopRepoExample {
 
     /// Sets up the repo structure and returns the top repo path.
     pub fn init_server_top(&self) -> PathBuf {
-        let env = commit_env();
+        let env = commit_env_for_testing();
         let top_repo = self.tmp_path.join("top");
         let sub_repo = self.tmp_path.join("sub");
 
@@ -229,7 +216,7 @@ impl GitTopRepoExample {
 
     /// Sets up the repo structure and returns the top repo path.
     pub fn merge_with_one_submodule_a(&self) -> PathBuf {
-        let env = commit_env();
+        let env = commit_env_for_testing();
         let top_repo = self.tmp_path.join("top");
         let subx_repo = self.tmp_path.join("subx");
 
@@ -283,7 +270,7 @@ impl GitTopRepoExample {
 
     /// Sets up the repo structure and returns the top repo path.
     pub fn merge_with_one_submodule_b(&self) -> PathBuf {
-        let env = commit_env();
+        let env = commit_env_for_testing();
         let top_repo = self.tmp_path.join("top");
         let subx_repo = self.tmp_path.join("subx");
 
@@ -344,7 +331,7 @@ impl GitTopRepoExample {
 
     /// Sets up the repo structure and returns the top repo path.
     pub fn merge_with_two_submodules(&self) -> PathBuf {
-        let env = commit_env();
+        let env = commit_env_for_testing();
         let top_repo = self.tmp_path.join("top");
         let subx_repo = self.tmp_path.join("subx");
         let suby_repo = self.tmp_path.join("suby");
@@ -420,7 +407,7 @@ impl GitTopRepoExample {
 
     /// Sets up the repo structure and returns the top repo path.
     pub fn submodule_removal(&self) -> PathBuf {
-        let env = commit_env();
+        let env = commit_env_for_testing();
         let top_repo = self.tmp_path.join("top");
         let subx_repo = self.tmp_path.join("subx");
 
@@ -473,7 +460,7 @@ impl GitTopRepoExample {
 
     /// Sets up the repo structure and returns the top repo path.
     pub fn move_submodule(&self) -> PathBuf {
-        let env = commit_env();
+        let env = commit_env_for_testing();
         let top_repo = self.tmp_path.join("top");
         let subx_repo = self.tmp_path.join("subx");
 
