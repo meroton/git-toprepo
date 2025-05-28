@@ -14,7 +14,7 @@ use std::process::Command;
 #[test]
 fn test_init_and_refilter_example() {
     let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
-    // Debug with temp_dir.into_path() to presist the path.
+    // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
     let from_repo_path =
         crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from")).init_server_top();
@@ -114,7 +114,7 @@ fn test_init_and_refilter_example() {
 #[test]
 fn test_refilter_merge_with_one_submodule_a() {
     let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
-    // Debug with temp_dir.into_path() to presist the path.
+    // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
     let from_repo_path = crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
         .merge_with_one_submodule_a();
@@ -159,7 +159,7 @@ fn test_refilter_merge_with_one_submodule_a() {
 #[test]
 fn test_refilter_merge_with_one_submodule_b() {
     let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
-    // Debug with temp_dir.into_path() to presist the path.
+    // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
     let from_repo_path = crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
         .merge_with_one_submodule_b();
@@ -218,7 +218,7 @@ fn test_refilter_merge_with_one_submodule_b() {
 #[test]
 fn test_refilter_merge_with_two_submodules() {
     let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
-    // Debug with temp_dir.into_path() to presist the path.
+    // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
     let from_repo_path = crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
         .merge_with_two_submodules();
@@ -277,7 +277,7 @@ fn test_refilter_merge_with_two_submodules() {
 #[test]
 fn test_refilter_submodule_removal() {
     let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
-    // Debug with temp_dir.into_path() to presist the path.
+    // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
     let from_repo_path =
         crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from")).submodule_removal();
@@ -321,7 +321,7 @@ fn test_refilter_submodule_removal() {
 #[test]
 fn test_refilter_moved_submodule() {
     let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
-    // Debug with temp_dir.into_path() to presist the path.
+    // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
     let from_repo_path =
         crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from")).move_submodule();
