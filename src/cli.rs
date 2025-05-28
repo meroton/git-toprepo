@@ -96,6 +96,9 @@ pub enum ConfigCommands {
     Location,
     /// Show the configuration of the current repository.
     Show,
+    /// Create a new configuration file based on direct submodules only and
+    /// print it to stdout.
+    Bootstrap,
     /// Reads a configuration and prints it in normalized form.
     Normalize(ConfigNormalize),
     /// Verifies that a given configuration can be loaded.

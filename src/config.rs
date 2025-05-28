@@ -48,10 +48,10 @@ pub struct LogConfig {
     // State propagation: These are filled in during execution of the program
     // and logs are collected from subcomponents and subprocesses.
     /// Error messages that were displayed to the user during execution.
-    #[serde(skip_deserializing)]
+    #[serde(skip_deserializing, skip_serializing_if = "is_default")]
     pub reported_errors: Vec<String>,
     /// Warning messages that were displayed to the user during execution.
-    #[serde(skip_deserializing)]
+    #[serde(skip_deserializing, skip_serializing_if = "is_default")]
     pub reported_warnings: Vec<String>,
 }
 
@@ -193,10 +193,10 @@ impl GitTopRepoConfig {
     }
 
     /// Get a subrepo configuration or create a new entry if missing.
-    pub fn get_or_insert_from_url(
-        &mut self,
+    pub fn get_or_insert_from_url<'a>(
+        &'a mut self,
         repo_url: &gix::Url,
-    ) -> Result<(SubRepoName, &mut SubRepoConfig)> {
+    ) -> Result<GetOrInsertOk<'a>> {
         let Some(repo_name) = self.get_name_from_url(repo_url)? else {
             let mut repo_name = self.default_name_from_url(repo_url).with_context(|| {
                 format!(
@@ -219,14 +219,17 @@ impl GitTopRepoConfig {
             if !urls.contains(repo_url) {
                 urls.push(repo_url.clone());
             }
-            self.missing_subrepos.insert(repo_name.clone());
-            bail!("URL {repo_url} is missing in the git-toprepo configuration");
+            return Ok(if self.missing_subrepos.insert(repo_name.clone()) {
+                GetOrInsertOk::Missing(repo_name.clone())
+            } else {
+                GetOrInsertOk::MissingAgain(repo_name.clone())
+            });
         };
         let subrepo_config = self
             .subrepos
             .get_mut(&repo_name)
             .expect("valid subrepo name");
-        Ok((repo_name, subrepo_config))
+        Ok(GetOrInsertOk::Found((repo_name, subrepo_config)))
     }
 
     /// Finds the location of the configuration to load.
@@ -348,6 +351,16 @@ impl GitTopRepoConfig {
                 .is_none_or(|repo_config| repo_config.enabled),
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum GetOrInsertOk<'a> {
+    /// The subrepo was found in the configuration.
+    Found((SubRepoName, &'a mut SubRepoConfig)),
+    /// The subrepo was not found in the configuration.
+    Missing(SubRepoName),
+    /// The subrepo was not found in the configuration, but `Missing` was reported previously.
+    MissingAgain(SubRepoName),
 }
 
 /// `TopRepoConfig` holds the configuration for the toprepo itself. The content is
@@ -744,10 +757,11 @@ mod tests {
         let mut config = GitTopRepoConfig::parse_config_toml_string("")?;
 
         assert_eq!(config.subrepos.len(), 0);
-        assert!(
+        assert_eq!(
             config
                 .get_or_insert_from_url(&gix::Url::from_bytes(b"ssh://bar/baz.git".as_bstr())?)
-                .is_err()
+                .unwrap(),
+            GetOrInsertOk::Missing(SubRepoName::new("baz".to_owned()))
         );
         assert!(
             config
@@ -755,10 +769,11 @@ mod tests {
                 .contains_key(&SubRepoName::new("baz".to_owned()))
         );
         // Second time, it should still report an error.
-        assert!(
+        assert_eq!(
             config
                 .get_or_insert_from_url(&gix::Url::from_bytes(b"ssh://bar/baz.git".as_bstr())?)
-                .is_err()
+                .unwrap(),
+            GetOrInsertOk::MissingAgain(SubRepoName::new("baz".to_owned()))
         );
         Ok(())
     }
@@ -779,12 +794,13 @@ mod tests {
                 .subrepos
                 .contains_key(&SubRepoName::new("foo".to_owned()))
         );
-        assert!(
+        assert_eq!(
             config
                 .get_or_insert_from_url(&gix::Url::from_bytes(
                     b"https://example.com/foo.git".as_bstr()
                 )?)
-                .is_err()
+                .unwrap(),
+            GetOrInsertOk::Missing(SubRepoName::new("foo".to_owned()))
         );
         assert_eq!(config.subrepos.len(), 1);
         Ok(())
