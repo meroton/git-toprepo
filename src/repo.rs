@@ -36,18 +36,16 @@ use std::fmt::Display;
 use std::hash::Hash;
 use std::io::Write as _;
 use std::ops::Deref;
-use std::path::PathBuf;
+use std::path::Path;
 use std::rc::Rc;
 
 #[derive(Debug)]
 pub struct TopRepo {
-    pub directory: PathBuf,
     pub gix_repo: gix::ThreadSafeRepository,
-    pub url: gix::url::Url,
 }
 
 impl TopRepo {
-    pub fn create(directory: PathBuf, url: gix::url::Url) -> Result<TopRepo> {
+    pub fn create(directory: &Path, url: gix::url::Url) -> Result<TopRepo> {
         git_global_command()
             .arg("init")
             .arg("--quiet")
@@ -55,7 +53,7 @@ impl TopRepo {
             .safe_status()?
             .check_success()
             .context("Failed to initialize git repository")?;
-        git_command(&directory)
+        git_command(directory)
             .args([
                 "config",
                 "remote.origin.pushUrl",
@@ -64,13 +62,13 @@ impl TopRepo {
             .safe_status()?
             .check_success()
             .context("Failed to set git-config remote.origin.pushUrl")?;
-        git_command(&directory)
+        git_command(directory)
             .args(["config", "remote.origin.url", &url.to_string()])
             .safe_status()?
             .check_success()
             .context("Failed to set git-config remote.origin.url")?;
         let toprepo_ref_prefix: String = RepoName::Top.to_ref_prefix();
-        git_command(&directory)
+        git_command(directory)
             .args([
                 "config",
                 "--replace-all",
@@ -80,7 +78,7 @@ impl TopRepo {
             .safe_status()?
             .check_success()
             .context("Failed to set git-config remote.origin.fetch (heads)")?;
-        git_command(&directory)
+        git_command(directory)
             .args([
                 "config",
                 "--add",
@@ -92,7 +90,7 @@ impl TopRepo {
             .context("Failed to set git-config remote.origin.fetch (tags)")?;
         // TODO: Does HEAD always exist on the remote? Is `git ls-remote` needed
         // to prioritize HEAD, main, master, etc.
-        git_command(&directory)
+        git_command(directory)
             .args([
                 "config",
                 "--add",
@@ -102,12 +100,12 @@ impl TopRepo {
             .safe_status()?
             .check_success()
             .context("Failed to set git-config remote.origin.fetch (HEAD)")?;
-        git_command(&directory)
+        git_command(directory)
             .args(["config", "remote.origin.tagOpt", "--no-tags"])
             .safe_status()?
             .check_success()
             .context("Failed to set git-config remote.origin.tagOpt")?;
-        git_command(&directory)
+        git_command(directory)
             .args([
                 "config",
                 "toprepo.config",
@@ -120,7 +118,7 @@ impl TopRepo {
             .check_success()
             .context("Failed to set git-config toprepo.config")?;
 
-        let process = git_command(&directory)
+        let process = git_command(directory)
             .args(["hash-object", "-t", "blob", "-w", "--stdin"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -134,7 +132,7 @@ impl TopRepo {
         }
         let gittoprepotoml_blob_hash = crate::util::trim_newline_suffix(result.stdout.to_str()?);
 
-        let mut process = git_command(&directory)
+        let mut process = git_command(directory)
             .arg("mktree")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -154,7 +152,7 @@ impl TopRepo {
         let gittoprepotoml_tree_hash =
             bstr::BStr::new(crate::util::trim_bytes_newline_suffix(&result.stdout));
 
-        let mut process = git_command(&directory)
+        let mut process = git_command(directory)
             .args(["hash-object", "-t", "commit", "-w", "--stdin"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -184,14 +182,14 @@ Initial empty git-toprepo configuration
             bstr::BStr::new(crate::util::trim_bytes_newline_suffix(&result.stdout));
 
         let first_time_config_ref = RepoName::Top.to_ref_prefix() + "HEAD";
-        git_command(&directory)
+        git_command(directory)
             .arg("update-ref")
             .arg(&first_time_config_ref)
             .arg(gittoprepotoml_commit_hash.to_os_str()?)
             .safe_status()?
             .check_success()
             .with_context(|| format!("Failed to reset {first_time_config_ref}"))?;
-        git_command(&directory)
+        git_command(directory)
             .args(["symbolic-ref", "HEAD", "refs/remotes/origin/HEAD"])
             .safe_status()?
             .check_success()
@@ -199,18 +197,25 @@ Initial empty git-toprepo configuration
         Self::open(directory)
     }
 
-    pub fn open(directory: PathBuf) -> Result<TopRepo> {
-        let gix_repo = gix::open(&directory)?;
-        let url = crate::git::get_default_remote_url(&gix_repo)?;
+    pub fn open(directory: &Path) -> Result<TopRepo> {
+        let gix_repo = gix::open(directory)?;
         Ok(TopRepo {
-            directory,
             gix_repo: gix_repo.into_sync(),
-            url,
+        })
+    }
+
+    /// Get the main work tree path of the repository.
+    pub fn work_tree(&self) -> Result<&Path> {
+        self.gix_repo.work_dir().with_context(|| {
+            format!(
+                "Bare repository without worktree {}",
+                self.gix_repo.git_dir().display()
+            )
         })
     }
 
     pub fn fetch_toprepo(&self) -> Result<()> {
-        git_command(&self.directory)
+        git_command(self.gix_repo.git_dir())
             .arg("fetch")
             .arg("--recurse-submodules=false")
             .safe_status()?
@@ -219,7 +224,7 @@ Initial empty git-toprepo configuration
     }
 
     pub fn fetch_toprepo_quiet(&self) -> Result<()> {
-        git_command(&self.directory)
+        git_command(self.gix_repo.git_dir())
             .arg("fetch")
             .arg("--recurse-submodules=false")
             .arg("--quiet")
@@ -868,7 +873,7 @@ Initial empty git-toprepo configuration
         if !dry_run {
             let mut failed_pushes = 0;
             for (push_url, topic, commit_id, _parents) in to_push_metadata {
-                let mut cmd = git_command(&self.directory);
+                let mut cmd = git_command(self.gix_repo.git_dir());
                 cmd.arg("push").arg(push_url.to_bstring().to_os_str()?);
                 if let Some(topic) = topic {
                     cmd.arg("-o").arg(format!("topic={topic}"));
@@ -1402,11 +1407,8 @@ mod tests {
             .safe_status()?
             .check_success()?;
 
-        let toprepo = TopRepo::create(
-            to_path.to_path_buf(),
-            gix::url::Url::try_from(from_path).unwrap(),
-        )
-        .unwrap();
+        let toprepo =
+            TopRepo::create(to_path, gix::url::Url::try_from(from_path).unwrap()).unwrap();
 
         toprepo.fetch_toprepo_quiet().unwrap();
 
@@ -1423,7 +1425,7 @@ mod tests {
                 .with_context(|| format!("orig {orig_ref}"))?
                 .stdout
                 .to_owned();
-            let top_rev = git_command(&toprepo.directory)
+            let top_rev = git_command(toprepo.gix_repo.git_dir())
                 .args(["rev-parse", "--verify", top_ref])
                 .output_stdout_only()?
                 .check_success_with_stderr()
