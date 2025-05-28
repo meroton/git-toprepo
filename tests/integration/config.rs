@@ -15,8 +15,10 @@ const GENERIC_CONFIG: &str = r#"
 
 #[test]
 fn test_validate_external_file_in_corrupt_repository() {
-    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
+    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-config-").unwrap();
     // Debug with &temp_dir.into_path() to persist the path.
+    // TODO: Parameterize all integrations tests to keep their temporary files.
+    // Possibly with an environment variable?
     let temp_dir = temp_dir.path();
 
     // TODO: Set NO_COLOR here.
