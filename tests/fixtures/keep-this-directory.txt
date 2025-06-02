@@ -1,0 +1,3 @@
+The gix-testtools fixture caching assumes fixtures placed in this directory. For
+git-toprepo, ../ is used in the path and to resolve that this directory must
+exist.

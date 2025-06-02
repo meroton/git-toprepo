@@ -5,10 +5,9 @@ use std::process::Command;
 
 #[test]
 fn test_push_empty_commit_should_fail() {
-    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let temp_dir = temp_dir.path();
-    let toprepo =
-        crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.to_path_buf()).init_server_top();
+    let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
@@ -35,10 +34,9 @@ fn test_push_empty_commit_should_fail() {
 
 #[test]
 fn test_push_top() {
-    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let temp_dir = temp_dir.path();
-    let toprepo =
-        crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.to_path_buf()).init_server_top();
+    let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
@@ -63,7 +61,7 @@ fn test_push_top() {
         .success()
         .stderr(predicate::str::contains(format!(
             "To {}\n",
-            toprepo.display()
+            toprepo.canonicalize().unwrap().display()
         )))
         .stderr(predicate::str::is_match(r"\n \* \[new branch\]\s+[0-9a-f]+ -> foo\n").unwrap());
 
@@ -77,10 +75,9 @@ fn test_push_top() {
 
 #[test]
 fn test_push_submodule() {
-    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
-    let temp_dir = temp_dir.path();
-    let toprepo =
-        crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.to_path_buf()).init_server_top();
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
+    let temp_dir = &temp_dir.into_path();
+    let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
@@ -104,8 +101,8 @@ fn test_push_submodule() {
         .assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            "To {}\n",
-            toprepo.parent().unwrap().join("sub/").display()
+            "To {}/\n",
+            toprepo.join("../sub").canonicalize().unwrap().display()
         )))
         .stderr(predicate::str::is_match(r"\n \* \[new branch\]\s+[0-9a-f]+ -> foo\n").unwrap());
 
@@ -119,10 +116,9 @@ fn test_push_submodule() {
 
 #[test]
 fn test_push_revision() {
-    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let temp_dir = temp_dir.path();
-    let toprepo =
-        crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.to_path_buf()).init_server_top();
+    let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
@@ -157,17 +153,16 @@ fn test_push_revision() {
         .success()
         .stderr(predicate::str::contains(format!(
             "To {}\n",
-            toprepo.display()
+            toprepo.canonicalize().unwrap().display()
         )))
         .stderr(predicate::str::is_match(r"\n \* \[new branch\]\s+[0-9a-f]+ -> foo\n").unwrap());
 }
 
 #[test]
 fn test_push_from_sub_directory() {
-    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let temp_dir = temp_dir.path();
-    let toprepo =
-        crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.to_path_buf()).init_server_top();
+    let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
@@ -193,7 +188,7 @@ fn test_push_from_sub_directory() {
         .success()
         .stderr(predicate::str::contains(format!(
             "To {}\n",
-            toprepo.display()
+            toprepo.canonicalize().unwrap().display()
         )))
         .stderr(predicate::str::is_match(r"\n \* \[new branch\]\s+[0-9a-f]+ -> foo\n").unwrap());
 

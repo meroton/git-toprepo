@@ -9,10 +9,10 @@ use std::process::Command;
 
 #[test]
 fn test_toprepo_clone() {
-    let from_dir = tempfile::TempDir::with_prefix("git-toprepo").unwrap();
+    let from_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
     let from_path = from_dir.path();
 
-    let to_dir = tempfile::TempDir::with_prefix("git-toprepo").unwrap();
+    let to_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
     let to_path = to_dir.path();
     let env = HashMap::from([
         ("GIT_AUTHOR_NAME", "A Name"),
@@ -52,14 +52,20 @@ fn test_toprepo_clone() {
         .assert()
         .success();
 
-    let mut cmd = Command::cargo_bin("git-toprepo").unwrap();
-    cmd.arg("clone").arg(from_path).arg(to_path);
-    cmd.assert()
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .arg("clone")
+        .arg(from_path)
+        .arg(to_path)
+        .assert()
         .success()
         .stderr(predicate::str::contains(format!(
             "Initialized git-toprepo in {}",
             to_path.display()
-        )));
+        )))
+        .stderr(predicate::str::contains(
+            "Expanding the toprepo to a monorepo...",
+        ));
 
     let to_gix_repo = gix::open(to_path)
         .with_context(|| format!("Failed to open gix repository {}", to_path.display()))

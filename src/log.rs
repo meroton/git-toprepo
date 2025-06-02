@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 pub fn eprint_warning(msg: &str) {
-    eprintln!("{}: {msg}", "WARNING:".yellow().bold());
+    eprintln!("{}: {msg}", "WARNING".yellow().bold());
 }
 
 pub fn log_task_to_stderr<F, T>(
