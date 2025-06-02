@@ -776,7 +776,6 @@ impl MonoRepoProcessor {
                 cmd.arg("-o").arg(format!("topic={topic}"));
             }
             cmd.arg(format!("{}:{remote_ref}", push_info.commit_id));
-            cmd.stdin(std::process::Stdio::null());
             if let Err(err) = cmd.safe_status()?.check_success() {
                 logger.error(format!(
                     "Failed to git push {} {}:{remote_ref}: {err:#}",

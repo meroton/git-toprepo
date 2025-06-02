@@ -26,8 +26,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 fn init(init_args: &cli::Init) -> Result<PathBuf> {
-    let url = gix::url::Url::from_bytes(init_args.repository.as_bytes().as_bstr())?;
-    // TODO: Should url.path be canonicalized for scheme=File like git does?
+    let mut url = gix::url::Url::from_bytes(init_args.repository.as_bytes().as_bstr())?;
+    // git-clone converts paths URLs to absolute paths.
+    url.canonicalize(&std::env::current_dir()?)
+        .with_context(|| format!("Failed to canonicalize URL {url}"))?;
+
     let directory = match &init_args.directory {
         Some(dir) => dir.clone(),
         None => {

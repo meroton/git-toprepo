@@ -6,13 +6,14 @@ use std::path::Path;
 
 #[test]
 fn test_init_and_refilter_example() {
-    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
+    let temp_dir =
+        gix_testtools::scripted_fixture_writable("../integration/fixtures/make_readme_example.sh")
+            .unwrap();
     // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
-    let toprepo =
-        crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from")).init_server_top();
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
 
-    let monorepo = temp_dir.join("to");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
     println!("{log_graph}");
@@ -29,7 +30,7 @@ fn test_init_and_refilter_example() {
 | |   A sub/11.txt
 | *   M
 |/|\
-| | * Resetting submodule sub to 27fead0c2209
+| | * Resetting submodule sub to 2903c2551c19
 | |/
 | |
 | |   D sub/11.txt
@@ -104,13 +105,15 @@ fn test_init_and_refilter_example() {
 
 #[test]
 fn test_refilter_merge_with_one_submodule_a() {
-    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
+    let temp_dir = gix_testtools::scripted_fixture_writable(
+        "../integration/fixtures/make_merge_with_one_submodule_a.sh",
+    )
+    .unwrap();
     // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
-    let toprepo = crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
-        .merge_with_one_submodule_a();
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
 
-    let monorepo = temp_dir.join("to");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
     println!("{log_graph}");
@@ -146,13 +149,15 @@ fn test_refilter_merge_with_one_submodule_a() {
 
 #[test]
 fn test_refilter_merge_with_one_submodule_b() {
-    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
+    let temp_dir = gix_testtools::scripted_fixture_writable(
+        "../integration/fixtures/make_merge_with_one_submodule_b.sh",
+    )
+    .unwrap();
     // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
-    let toprepo = crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
-        .merge_with_one_submodule_b();
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
 
-    let monorepo = temp_dir.join("to");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
     println!("{log_graph}");
@@ -202,13 +207,15 @@ fn test_refilter_merge_with_one_submodule_b() {
 
 #[test]
 fn test_refilter_merge_with_two_submodules() {
-    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
+    let temp_dir = gix_testtools::scripted_fixture_writable(
+        "../integration/fixtures/make_merge_with_two_submodules.sh",
+    )
+    .unwrap();
     // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
-    let toprepo = crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from"))
-        .merge_with_two_submodules();
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
 
-    let monorepo = temp_dir.join("to");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
     println!("{log_graph}");
@@ -258,13 +265,15 @@ fn test_refilter_merge_with_two_submodules() {
 
 #[test]
 fn test_refilter_submodule_removal() {
-    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
+    let temp_dir = gix_testtools::scripted_fixture_writable(
+        "../integration/fixtures/make_submodule_removal.sh",
+    )
+    .unwrap();
     // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
-    let toprepo =
-        crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from")).submodule_removal();
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
 
-    let monorepo = temp_dir.join("to");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
     println!("{log_graph}");
@@ -299,13 +308,14 @@ fn test_refilter_submodule_removal() {
 
 #[test]
 fn test_refilter_moved_submodule() {
-    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
+    let temp_dir =
+        gix_testtools::scripted_fixture_writable("../integration/fixtures/make_moved_submodule.sh")
+            .unwrap();
     // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
-    let toprepo =
-        crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.join("from")).move_submodule();
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
 
-    let monorepo = temp_dir.join("to");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
     println!("{log_graph}");

@@ -40,6 +40,7 @@ pub struct FastExportReset {
     pub from: gix::ObjectId,
 }
 
+#[derive(Debug)]
 pub enum FastExportEntry {
     Commit(FastExportCommit),
     Reset(FastExportReset),

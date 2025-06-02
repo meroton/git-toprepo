@@ -1,17 +1,13 @@
-use anyhow::Result;
-
 #[test]
-fn test_workspace_search() -> Result<()> {
-    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo").unwrap();
+fn test_workspace_search() {
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let temp_dir = temp_dir.path();
-    let toprepo =
-        crate::fixtures::toprepo::GitTopRepoExample::new(temp_dir.to_path_buf()).init_server_top();
+    let toprepo = temp_dir.join("top");
 
-    let workspace = git_toprepo::util::find_working_directory(&toprepo)?;
+    let workspace = git_toprepo::util::find_working_directory(&toprepo).unwrap();
     assert_eq!(workspace, toprepo);
 
     let subrepo = toprepo.join("sub").to_path_buf();
-    let workspace = git_toprepo::util::find_working_directory(&subrepo)?;
+    let workspace = git_toprepo::util::find_working_directory(&subrepo).unwrap();
     assert_eq!(workspace, toprepo);
-    Ok(())
 }

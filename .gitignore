@@ -1,6 +1,6 @@
 # --- Manual entries ---
-.ruff_cache/
-.virtualenvs/
+/tests/fixtures/generated-archives/
+/tests/fixtures/generated-do-not-edit/
 
 # --- GitHub standard entries below ---
 
