@@ -110,10 +110,7 @@ impl TopRepo {
             .args([
                 "config",
                 "toprepo.config",
-                &format!(
-                    "repo:{}HEAD:.gittoprepo.toml",
-                    RepoName::Top.to_ref_prefix()
-                ),
+                &format!("repo:{toprepo_ref_prefix}HEAD:.gittoprepo.toml"),
             ])
             .safe_status()?
             .check_success()
@@ -182,7 +179,7 @@ Initial empty git-toprepo configuration
         let gittoprepotoml_commit_hash =
             bstr::BStr::new(crate::util::trim_bytes_newline_suffix(&result.stdout));
 
-        let first_time_config_ref = RepoName::Top.to_ref_prefix() + "HEAD";
+        let first_time_config_ref = toprepo_ref_prefix + "HEAD";
         git_command(directory)
             .arg("update-ref")
             .arg(&first_time_config_ref)
@@ -190,11 +187,6 @@ Initial empty git-toprepo configuration
             .safe_status()?
             .check_success()
             .with_context(|| format!("Failed to reset {first_time_config_ref}"))?;
-        git_command(directory)
-            .args(["symbolic-ref", "HEAD", "refs/remotes/origin/HEAD"])
-            .safe_status()?
-            .check_success()
-            .context("Failed to reset HEAD")?;
         Self::open(directory)
     }
 
@@ -281,22 +273,17 @@ impl MonoRepoProcessor {
         result
     }
 
-    pub fn fetch_toprepo(&self) -> Result<()> {
-        git_command(self.gix_repo.git_dir())
-            .arg("fetch")
-            .arg("--recurse-submodules=false")
-            .safe_status()?
-            .check_success()?;
-        Ok(())
-    }
-
-    pub fn fetch_toprepo_quiet(&self) -> Result<()> {
-        git_command(self.gix_repo.git_dir())
-            .arg("fetch")
-            .arg("--recurse-submodules=false")
-            .arg("--quiet")
-            .safe_status()?
-            .check_success()?;
+    /// Reload the git-toprepo configuration in case anything has changed. Also
+    /// check if the top repo cache is still valid given the new configuration.
+    pub fn reload_config(&mut self) -> Result<()> {
+        self.config = crate::config::GitTopRepoConfig::load_config_from_repo(
+            self.gix_repo.work_tree.as_deref().with_context(|| {
+                format!(
+                    "Bare repository without worktree {}",
+                    self.gix_repo.git_dir().display()
+                )
+            })?,
+        )?;
         Ok(())
     }
 
@@ -693,17 +680,19 @@ impl MonoRepoProcessor {
     pub fn push(
         &mut self,
         top_push_url: &gix::Url,
-        local_ref: &FullName,
+        local_rev: &String,
         remote_ref: &FullName,
         dry_run: bool,
         logger: &Logger,
     ) -> Result<()> {
+        if self.top_repo_cache.monorepo_commits.is_empty() {
+            anyhow::bail!(
+                "No filtered mono commits exists, please run `git toprepo refilter` first"
+            );
+        }
         let repo = self.gix_repo.to_thread_local();
 
-        let local_ref_arg = match local_ref.as_bstr().to_os_str() {
-            Ok(arg) => Ok(arg.to_owned()),
-            Err(err) => anyhow::bail!("{err:#}"),
-        };
+        let local_rev_arg: std::ffi::OsString = local_rev.into();
         let export_refs_args: Vec<std::ffi::OsString> = repo
             .references()?
             .prefixed(b"refs/remotes/origin/".as_bstr())?
@@ -718,7 +707,7 @@ impl MonoRepoProcessor {
                     Err(err) => anyhow::bail!("{err:#}"),
                 }
             })
-            .chain([local_ref_arg])
+            .chain([Ok(local_rev_arg)])
             .collect::<std::result::Result<Vec<_>, _>>()
             .with_context(|| "Failed while iterating refs/remotes/origin/")?;
 
@@ -757,6 +746,10 @@ impl MonoRepoProcessor {
             is_needed
         });
         to_push_metadata.reverse();
+        if to_push_metadata.is_empty() {
+            eprintln!("Nothing to push");
+            return Ok(());
+        }
 
         let info_label = if dry_run { "Would run" } else { "Running" };
         let mut failed_pushes = 0;
@@ -783,7 +776,8 @@ impl MonoRepoProcessor {
                 cmd.arg("-o").arg(format!("topic={topic}"));
             }
             cmd.arg(format!("{}:{remote_ref}", push_info.commit_id));
-            if let Err(err) = cmd.check_success_with_stderr() {
+            cmd.stdin(std::process::Stdio::null());
+            if let Err(err) = cmd.safe_status()?.check_success() {
                 logger.error(format!(
                     "Failed to git push {} {}:{remote_ref}: {err:#}",
                     push_info.push_url, push_info.commit_id
@@ -928,6 +922,12 @@ impl MonoRepoProcessor {
                             Ok(mono_parent)
                         })
                         .collect::<Result<Vec<_>>>()?;
+                    if exported_mono_commit.file_changes.is_empty() {
+                        // Unknown which repository to push to if there are no file changes at all.
+                        anyhow::bail!(
+                            "Pushing empty commits like {mono_commit_id} is not supported"
+                        );
+                    }
                     // The user should make sure that the .gitmodules is
                     // correct. Note that inner submodules might be
                     // mentioned, but there should not be any submodule
@@ -956,7 +956,7 @@ impl MonoRepoProcessor {
                     if grouped_file_changes.len() > 1 && topic.is_none() {
                         anyhow::bail!(
                             "Multiple submodules changed in commit {mono_commit_id}, but no topic was provided. \
-                        Please amend the commit message to add a 'Topic: something-descriptive' line."
+                            Please amend the commit message to add a 'Topic: something-descriptive' line."
                         );
                     }
                     for ((abs_sub_path, repo_name, push_url), file_changes) in grouped_file_changes
@@ -1055,6 +1055,7 @@ impl MonoRepoProcessor {
     }
 }
 
+#[derive(Debug, Clone)]
 struct PushMetadata {
     pub push_url: gix::Url,
     pub topic: Option<String>,
@@ -1125,7 +1126,9 @@ pub enum MonoRepoParent {
 
 /// While importing, the commit id might not yet be known and set to a dummy id.
 #[serde_as]
-#[derive(Clone, Eq, Hash, PartialEq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Eq, Hash, PartialEq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct MonoRepoCommitId(
     #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")] CommitId,
 );

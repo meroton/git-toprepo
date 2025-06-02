@@ -7,6 +7,8 @@ mod clone;
 #[cfg(test)]
 mod config;
 #[cfg(test)]
+mod push;
+#[cfg(test)]
 mod refilter;
 #[cfg(test)]
 mod workspace;

@@ -11,9 +11,11 @@ use colored::Colorize;
 use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::GitModulesInfo;
+use git_toprepo::git::git_command;
 use git_toprepo::log::Logger;
 use git_toprepo::repo::MonoRepoProcessor;
 use git_toprepo::repo_name::RepoName;
+use git_toprepo::util::CommandExtension as _;
 use gix::refs::FullName;
 use itertools::Itertools as _;
 use std::io::Read;
@@ -59,6 +61,9 @@ fn clone_after_init(
         processor,
         logger,
     )?;
+    git_command(Path::new("."))
+        .args(["checkout", "refs/remotes/origin/HEAD"])
+        .check_success_with_stderr()?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -311,6 +316,7 @@ fn fetch(
         fetcher.fetch_on_terminal()?;
 
         if !fetch_args.skip_filter {
+            processor.reload_config()?;
             refilter(
                 &cli::Refilter {
                     keep_going: fetch_args.keep_going,
@@ -344,6 +350,7 @@ fn fetch(
     if fetch_args.skip_filter {
         return Ok(ExitCode::SUCCESS);
     }
+    processor.reload_config()?;
 
     load_commits(
         fetch_args.jobs.into(),
@@ -443,11 +450,13 @@ fn push(
     let [(local_ref, remote_ref)] = refspecs else {
         unimplemented!("Handle multiple refspecs");
     };
+    // TODO: This assumes a single ref in the refspec. What about patterns?
+    let local_rev = local_ref;
 
     processor
         .push(
             &base_url,
-            &FullName::try_from(local_ref.clone())?,
+            local_rev,
             &FullName::try_from(remote_ref.clone())?,
             push_args.dry_run,
             logger,
