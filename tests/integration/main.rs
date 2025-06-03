@@ -11,4 +11,6 @@ mod push;
 #[cfg(test)]
 mod refilter;
 #[cfg(test)]
+mod version;
+#[cfg(test)]
 mod workspace;
