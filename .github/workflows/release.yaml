@@ -1,0 +1,44 @@
+name: Release
+on:
+  release:
+    types:
+      - published
+
+# Make sure the GITHUB_TOKEN has permission to upload to our releases.
+permissions:
+  contents: write
+
+jobs:
+  publish-artifacts:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - rust_target: x86_64-unknown-linux-musl
+            suffix: .linux_amd64
+    name: Release for ${{ matrix.platform.rust_target }}
+    environment: release-on-github
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify git hash
+        run: |
+          set -eux
+          [ "$(git rev-parse HEAD)" == "$(git rev-parse ${{ github.event.release.tag_name }})" ]
+      # Install the toolchain before rust-cache.
+      - run: rustup target add ${{ matrix.platform.rust_target }}
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build ${{ matrix.platform.rust_target }}
+        run: |
+          set -eux
+          export BUILD_SCM_TAG="${{ github.event.release.tag_name }}"
+          export BUILD_SCM_REVISION="$(git rev-parse --short HEAD)"
+          export BUILD_SCM_TIMESTAMP="$(TZ=UTC date --date "@$(git show -s --format=%ct HEAD)" +%Y%m%dT%H%M%SZ)"
+          cargo build --release --target ${{ matrix.platform.rust_target }}
+      - name: Publish ${{ matrix.platform.rust_target }}
+        run: gh release upload ${{ github.event.release.tag_name }} target/${{ matrix.platform.rust_target }}/release/git-toprepo#git-toprepo${{ matrix.platform.suffix }} --clobber
+        env:
+          GITHUB_TOKEN: ${{ github.TOKEN }}
