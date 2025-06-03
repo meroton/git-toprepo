@@ -2,7 +2,6 @@ use anyhow::Result;
 use anyhow::bail;
 use colored::Colorize as _;
 use std::collections::HashSet;
-use std::ops::DerefMut;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
@@ -191,9 +190,7 @@ enum LogTask {
         message: String,
     },
     /// Return a copy of the current result into the `tx` channel.
-    PeekResult {
-        tx: std::sync::mpsc::Sender<LogResult>,
-    },
+    PeekResult { tx: oneshot::Sender<LogResult> },
 }
 
 pub struct LogReceiver {
@@ -202,13 +199,6 @@ pub struct LogReceiver {
 }
 
 impl LogReceiver {
-    /// Create a new `LogReceiver` that prints to `stderr`.
-    pub fn new_stderr(ignore_warnings: HashSet<String>, error_mode: ErrorMode) -> Self {
-        Self::new(ignore_warnings, error_mode, |msg| {
-            eprintln!("{msg}");
-        })
-    }
-
     pub fn new<F>(ignore_warnings: HashSet<String>, error_mode: ErrorMode, draw_callback: F) -> Self
     where
         F: Fn(&str) + Send + 'static,
@@ -271,7 +261,7 @@ impl LogReceiver {
     /// Get the current result of the logger thread after pending log tasks have
     /// been processed.
     pub fn peek_result(&self) -> LogResult {
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = oneshot::channel();
         self.logger
             .sender
             .send(LogTask::PeekResult { tx })
@@ -295,59 +285,50 @@ impl LogReceiver {
 }
 
 /// Accumulates all messages to be printed into a buffer.
-pub struct LogAccumulator {
-    log_receiver: LogReceiver,
-    all_messages: Arc<std::sync::Mutex<Vec<String>>>,
-}
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use std::ops::DerefMut as _;
 
-impl LogAccumulator {
-    pub fn new(error_mode: ErrorMode) -> (Self, Logger) {
-        let all_messages = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let all_messages_clone = all_messages.clone();
-        let log_receiver = LogReceiver::new(HashSet::new(), error_mode, move |msg| {
-            all_messages_clone.lock().unwrap().push(msg.to_string());
-        });
-        let logger = log_receiver.get_logger();
-        let ret = LogAccumulator {
-            log_receiver,
-            all_messages,
-        };
-        (ret, logger)
+    pub struct LogAccumulator {
+        log_receiver: LogReceiver,
+        pub all_messages: Arc<std::sync::Mutex<Vec<String>>>,
     }
 
-    pub fn new_fail_fast() -> (Self, Logger, Arc<AtomicBool>) {
-        let interrupted = Arc::new(AtomicBool::new(false));
-        let (ret, logger) = Self::new(ErrorMode::FailFast(interrupted.clone()));
-        (ret, logger, interrupted)
-    }
-
-    pub fn join_allow_warnings(self) -> Result<()> {
-        let log_result = self.log_receiver.join();
-        let all_messages = std::mem::take(self.all_messages.lock().unwrap().deref_mut());
-        if log_result.error_count() != 0 || log_result.warning_count() != 0 {
-            let messages = all_messages.join("\n");
-            anyhow::bail!(
-                "{} errors and {} warnings:\n{}",
-                log_result.error_count(),
-                log_result.warning_count(),
-                messages
-            );
+    impl LogAccumulator {
+        pub fn new(error_mode: ErrorMode) -> (Self, Logger) {
+            let all_messages = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let all_messages_clone = all_messages.clone();
+            let log_receiver = LogReceiver::new(HashSet::new(), error_mode, move |msg| {
+                all_messages_clone.lock().unwrap().push(msg.to_string());
+            });
+            let logger = log_receiver.get_logger();
+            let ret = LogAccumulator {
+                log_receiver,
+                all_messages,
+            };
+            (ret, logger)
         }
-        Ok(())
-    }
 
-    pub fn join_no_warnings(self) -> Result<()> {
-        let log_result = self.log_receiver.join();
-        let all_messages = std::mem::take(self.all_messages.lock().unwrap().deref_mut());
-        if log_result.error_count() != 0 || log_result.warning_count() != 0 {
-            let messages = all_messages.join("\n");
-            anyhow::bail!(
-                "{} errors and {} warnings:\n{}",
-                log_result.error_count(),
-                log_result.warning_count(),
-                messages
-            );
+        pub fn new_fail_fast() -> (Self, Logger, Arc<AtomicBool>) {
+            let interrupted = Arc::new(AtomicBool::new(false));
+            let (ret, logger) = Self::new(ErrorMode::FailFast(interrupted.clone()));
+            (ret, logger, interrupted)
         }
-        Ok(())
+
+        pub fn join_no_warnings(self) -> Result<()> {
+            let log_result = self.log_receiver.join();
+            let all_messages = std::mem::take(self.all_messages.lock().unwrap().deref_mut());
+            if log_result.error_count() != 0 || log_result.warning_count() != 0 {
+                let messages = all_messages.join("\n");
+                anyhow::bail!(
+                    "{} errors and {} warnings:\n{}",
+                    log_result.error_count(),
+                    log_result.warning_count(),
+                    messages
+                );
+            }
+            Ok(())
+        }
     }
 }
