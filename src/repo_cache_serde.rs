@@ -47,8 +47,8 @@ pub struct SerdeTopRepoCache {
 }
 
 impl SerdeTopRepoCache {
-    const TOPREPO_CACHE_PATH: &str = "toprepo/import_cache.bincode";
-    const CACHE_VERSION_PRELUDE: &str = "#import-cache-format-v1\n";
+    const TOPREPO_CACHE_PATH: &str = "toprepo/cache.bincode";
+    const CACHE_VERSION_PRELUDE: &str = "#cache-format-v1\n";
 
     /// Constructs the path to the git repository information cache inside
     /// `.git/toprepo/`.
