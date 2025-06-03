@@ -482,6 +482,18 @@ fn dump_import_cache() -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// Print the version of the git-toprepo to stdout.
+fn print_version() -> Result<()> {
+    println!(
+        "{} {}~{}-{}",
+        env!("CARGO_PKG_NAME"),
+        option_env!("BUILD_SCM_TAG").unwrap_or("0.0.0"),
+        option_env!("BUILD_SCM_TIMESTAMP").unwrap_or("timestamp"),
+        option_env!("BUILD_SCM_REVISION").unwrap_or("git-hash"),
+    );
+    Ok(())
+}
+
 fn main_impl<I>(argv: I) -> Result<ExitCode>
 where
     I: IntoIterator<Item = std::ffi::OsString>,
@@ -509,6 +521,7 @@ where
         }
         Commands::Config(config_args) => return config(config_args),
         Commands::Dump(dump_args) => return dump(dump_args),
+        Commands::Version => return print_version().map(|_| ExitCode::SUCCESS),
         _ => {
             if args.working_directory.is_none() {
                 let current_dir = std::env::current_dir()?;
@@ -537,6 +550,7 @@ where
             Commands::Push(push_args) => push(&push_args, processor, logger),
             Commands::Dump(_) => unreachable!("dump already processed"),
             Commands::Replace(_replace_args) => todo!(), //replace(&args, replace_args)?,
+            Commands::Version => unreachable!("version already processed"),
         }
     })
 }

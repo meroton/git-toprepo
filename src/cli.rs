@@ -27,7 +27,7 @@ git-toprepo merges subrepositories into a common history, similar to git-subtree
 ";
 
 #[derive(Parser, Debug)]
-#[command(version, about = ABOUT)]
+#[command(about = ABOUT)]
 pub struct Cli {
     /// Run as if started in <path>.
     #[arg(name = "path", short = 'C')]
@@ -48,7 +48,6 @@ pub enum GitEnum {
 }
 
 #[derive(Subcommand, Debug)]
-#[command(version)]
 pub enum Commands {
     /// Initialize a repository and the git-config, without fetching from the remote.
     Init(Init),
@@ -75,6 +74,9 @@ pub enum Commands {
     /// checkouts. For a git-toprepo super repo purposeful checkout must be
     /// implemented.
     Replace(Replace),
+    /// Print the version of the git-toprepo tool.
+    #[clap(aliases = ["-V", "--version"])]
+    Version,
 }
 
 #[derive(Args, Debug)]
