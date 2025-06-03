@@ -115,10 +115,14 @@ impl ErrorMode {
         }
     }
 
-    pub fn interrupted(&self) -> Arc<AtomicBool> {
+    /// Returns `true` if the error mode is `FailFast` and the processing
+    /// should be interrupted.
+    pub fn should_interrupt(&self) -> bool {
         match self {
-            ErrorMode::KeepGoing => Arc::new(AtomicBool::new(false)),
-            ErrorMode::FailFast(interrupted) => interrupted.clone(),
+            ErrorMode::KeepGoing => false,
+            ErrorMode::FailFast(interrupted) => {
+                interrupted.load(std::sync::atomic::Ordering::Relaxed)
+            }
         }
     }
 }

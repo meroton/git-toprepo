@@ -29,7 +29,6 @@ use std::fmt::Debug;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 
 enum TaskResult {
     RepoFetchDone(RepoName),
@@ -59,7 +58,7 @@ pub struct CommitLoader<'a> {
     fetch_progress: FetchProgress,
     logger: Logger,
     /// Signal to not start new work but to fail as fast as possible.
-    interrupted: Arc<std::sync::atomic::AtomicBool>,
+    error_mode: crate::log::ErrorMode,
 
     thread_pool: threadpool::ThreadPool,
     ongoing_jobs_in_threads: usize,
@@ -83,7 +82,7 @@ impl<'a> CommitLoader<'a> {
         config: &'a mut GitTopRepoConfig,
         progress: indicatif::MultiProgress,
         logger: Logger,
-        interrupted: Arc<std::sync::atomic::AtomicBool>,
+        error_mode: crate::log::ErrorMode,
         thread_pool: threadpool::ThreadPool,
     ) -> Result<Self> {
         let (tx, rx) = std::sync::mpsc::channel::<TaskResult>();
@@ -104,7 +103,7 @@ impl<'a> CommitLoader<'a> {
             progress,
             fetch_progress: FetchProgress::new(pb_fetch_queue),
             logger,
-            interrupted,
+            error_mode,
             thread_pool,
             ongoing_jobs_in_threads: 0,
             load_after_fetch: true,
@@ -168,7 +167,7 @@ impl<'a> CommitLoader<'a> {
 
     /// Waits for all ongoing tasks to finish.
     pub fn join(mut self) {
-        while !self.interrupted.load(std::sync::atomic::Ordering::Relaxed) {
+        while !self.error_mode.should_interrupt() {
             if !self.process_one_event() {
                 break;
             }
@@ -318,14 +317,14 @@ impl<'a> CommitLoader<'a> {
 
         let toprepo = self.toprepo.clone();
         let tx = self.tx.clone();
-        let interrupted = self.interrupted.clone();
+        let error_mode = self.error_mode.clone();
         self.thread_pool.execute(move || {
             let single_repo_loader = SingleRepoLoader {
                 toprepo: &toprepo,
                 repo_name: &repo_name,
                 pb: &pb,
                 logger: &logger,
-                interrupted: &interrupted,
+                error_mode: &error_mode,
             };
 
             struct LoadRepoCallback {
@@ -948,7 +947,7 @@ struct SingleRepoLoader<'a> {
     repo_name: &'a RepoName,
     pb: &'a indicatif::ProgressBar,
     logger: &'a Logger,
-    interrupted: &'a AtomicBool,
+    error_mode: &'a crate::log::ErrorMode,
 }
 
 trait SingleLoadRepoCallback {
@@ -1072,7 +1071,7 @@ impl SingleRepoLoader<'_> {
         for export_entry in
             FastExportRepo::load_from_path(toprepo_git_dir, Some(refs_arg), self.logger.clone())?
         {
-            if self.interrupted.load(std::sync::atomic::Ordering::Relaxed) {
+            if self.error_mode.should_interrupt() {
                 break;
             }
             match export_entry? {

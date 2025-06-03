@@ -38,7 +38,6 @@ use std::io::Write as _;
 use std::ops::Deref;
 use std::path::Path;
 use std::rc::Rc;
-use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct TopRepo {
@@ -212,7 +211,7 @@ pub struct MonoRepoProcessor {
     pub gix_repo: gix::ThreadSafeRepository,
     pub config: crate::config::GitTopRepoConfig,
     pub top_repo_cache: crate::repo::TopRepoCache,
-    pub interrupted: Arc<std::sync::atomic::AtomicBool>,
+    pub error_mode: crate::log::ErrorMode,
     pub progress: indicatif::MultiProgress,
 }
 
@@ -242,7 +241,7 @@ impl MonoRepoProcessor {
             gix_repo,
             config,
             top_repo_cache,
-            interrupted: error_mode.interrupted(),
+            error_mode: error_mode.clone(),
             progress: indicatif::MultiProgress::new(),
         };
         let mut result =

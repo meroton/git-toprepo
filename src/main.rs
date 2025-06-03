@@ -149,7 +149,7 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
                     &mut config,
                     progress.clone(),
                     logger.clone(),
-                    error_mode.interrupted(),
+                    error_mode,
                     threadpool::ThreadPool::new(1),
                 )?;
                 commit_loader.fetch_missing_commits = false;
@@ -361,10 +361,7 @@ fn fetch(
         processor,
         logger,
     )?;
-    if processor
-        .interrupted
-        .load(std::sync::atomic::Ordering::Relaxed)
-    {
+    if processor.error_mode.should_interrupt() {
         return Ok(ExitCode::FAILURE);
     }
 
@@ -381,10 +378,7 @@ fn fetch(
         }
         RepoName::SubRepo(sub_repo_name) => {
             for (_, mono_ref) in refspecs {
-                if processor
-                    .interrupted
-                    .load(std::sync::atomic::Ordering::Relaxed)
-                {
+                if processor.error_mode.should_interrupt() {
                     break;
                 }
                 let submod_ref = format!("{ref_prefix}{mono_ref}");
@@ -423,7 +417,7 @@ where
         &mut processor.config,
         processor.progress.clone(),
         logger.clone(),
-        processor.interrupted.clone(),
+        processor.error_mode.clone(),
         threadpool::ThreadPool::new(job_count.get()),
     )?;
     commit_loader_setup(&mut commit_loader).with_context(|| "Failed to setup the commit loader")?;
