@@ -14,6 +14,31 @@ const GENERIC_CONFIG: &str = r#"
 "#;
 
 #[test]
+fn test_forgot_initialization_without_git() {
+    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-init").unwrap();
+    // Debug with &temp_dir.into_path() to persist the path.
+    // TODO: Parameterize all integrations tests to keep their temporary files.
+    // Possibly with an environment variable?
+    let temp_dir = temp_dir.path();
+
+    let toprepo = ".gittoprepo.toml";
+    let mut config_file = std::fs::File::create(temp_dir.join(toprepo)).unwrap();
+    writeln!(config_file, "{GENERIC_CONFIG}").unwrap();
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(temp_dir)
+        // An arbitrary subcommand that requires it to be initialized
+        .arg("dump")
+        .arg("import-cache")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            git_toprepo::repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY,
+        ));
+}
+
+#[test]
 fn test_validate_external_file_in_corrupt_repository() {
     let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
     // Debug with &temp_dir.into_path() to persist the path.

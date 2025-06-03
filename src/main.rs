@@ -13,6 +13,7 @@ use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::git::git_command;
 use git_toprepo::log::Logger;
+use git_toprepo::repo;
 use git_toprepo::repo::MonoRepoProcessor;
 use git_toprepo::repo_name::RepoName;
 use git_toprepo::util::CommandExtension as _;
@@ -468,7 +469,8 @@ fn dump(dump_args: &cli::Dump) -> Result<ExitCode> {
 }
 
 fn dump_import_cache() -> Result<ExitCode> {
-    let toprepo = gix::open("")?;
+    let toprepo = gix::open(PathBuf::from("."))
+        .context(repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
 
     let serde_repo_states = git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
         toprepo.git_dir(),

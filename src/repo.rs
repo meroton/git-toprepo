@@ -39,6 +39,9 @@ use std::ops::Deref;
 use std::path::Path;
 use std::rc::Rc;
 
+pub const COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY: &str =
+    "Could not open toprepo, it must be a git repository";
+
 #[derive(Debug)]
 pub struct TopRepo {
     pub gix_repo: gix::ThreadSafeRepository,
