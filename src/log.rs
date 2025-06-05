@@ -60,6 +60,7 @@ pub enum LogLevel {
 pub struct Logger {
     context: String,
     sender: std::sync::mpsc::Sender<LogTask>,
+    enabled: bool,
 }
 
 impl Logger {
@@ -67,6 +68,15 @@ impl Logger {
         Logger {
             context: String::new(),
             sender,
+            enabled: true,
+        }
+    }
+
+    pub fn disabled(&self) -> Self {
+        Logger {
+            context: self.context.clone(),
+            sender: self.sender.clone(),
+            enabled: false,
         }
     }
 
@@ -75,6 +85,7 @@ impl Logger {
         Logger {
             context: full_context,
             sender: self.sender.clone(),
+            enabled: self.enabled,
         }
     }
 
@@ -84,6 +95,7 @@ impl Logger {
                 level,
                 context: self.context.clone(),
                 message: msg,
+                enabled: self.enabled,
             })
             .expect("receiver never closed");
     }
@@ -192,6 +204,7 @@ enum LogTask {
         level: LogLevel,
         context: String,
         message: String,
+        enabled: bool,
     },
     /// Return a copy of the current result into the `tx` channel.
     PeekResult { tx: oneshot::Sender<LogResult> },
@@ -223,6 +236,7 @@ impl LogReceiver {
                         level,
                         context,
                         message,
+                        enabled,
                     } => {
                         let context_and_msg = &format!("{context}: {message}")[2..];
                         let level_str = match level {
@@ -240,6 +254,9 @@ impl LogReceiver {
                             }
                             LogLevel::Warning => {
                                 if !seen_warnings.insert(context_and_msg.to_string()) {
+                                    return;
+                                }
+                                if !enabled {
                                     return;
                                 }
                                 result.reported_warnings.push(context_and_msg.to_string());
