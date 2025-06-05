@@ -264,7 +264,6 @@ pub fn get_first_known_commits<F, I>(
     repo: &gix::Repository,
     start_commit_ids: I,
     mut exists_filter: F,
-    pb: &indicatif::ProgressBar,
 ) -> Result<(Vec<CommitId>, usize)>
 where
     F: FnMut(CommitId) -> bool,
@@ -276,13 +275,7 @@ where
         return Ok((Vec::new(), 0));
     }
 
-    pb.unset_length();
-    pb.set_style(
-        indicatif::ProgressStyle::default_spinner()
-            .template("{elapsed:>4} {msg} {pos}")
-            .unwrap(),
-    );
-    pb.set_message("Looking for new commits to expand");
+    // TODO: pb.set_message("Looking for new commits to expand");
 
     let walk = repo.rev_walk(start_commit_ids);
     // TODO: The commit graph cannot be reused. Until fixed upstream,
@@ -296,7 +289,6 @@ where
             // Skip the parents of this commit.
             false
         } else {
-            pb.inc(1);
             unknown_commit_count += 1;
             // Dig deeper.
             true

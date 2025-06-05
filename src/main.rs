@@ -154,7 +154,7 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
                     threadpool::ThreadPool::new(1),
                 )?;
                 commit_loader.fetch_missing_commits = false;
-                commit_loader.load_repo(git_toprepo::repo_name::RepoName::Top)?;
+                commit_loader.load_repo(&git_toprepo::repo_name::RepoName::Top)?;
                 commit_loader.join();
                 Ok(())
             })()
@@ -278,7 +278,7 @@ fn refilter(
         refilter_args.jobs.into(),
         |commit_loader| {
             commit_loader.fetch_missing_commits = !refilter_args.no_fetch;
-            commit_loader.load_repo(git_toprepo::repo_name::RepoName::Top)
+            commit_loader.load_repo(&git_toprepo::repo_name::RepoName::Top)
         },
         processor,
         logger,
@@ -358,7 +358,7 @@ fn fetch(
 
     load_commits(
         fetch_args.jobs.into(),
-        |commit_loader| commit_loader.load_repo(resolved_args.repo.clone()),
+        |commit_loader| commit_loader.load_repo(&resolved_args.repo),
         processor,
         logger,
     )?;
