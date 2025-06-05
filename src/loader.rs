@@ -20,6 +20,7 @@ use crate::repo_name::SubRepoName;
 use anyhow::Context;
 use anyhow::Result;
 use bstr::BStr;
+use gix::refs::FullName;
 use itertools::Itertools as _;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -33,7 +34,12 @@ use std::sync::Arc;
 enum TaskResult {
     RepoFetchDone(RepoName),
     LoadCachedCommits(RepoName, Vec<CommitId>, oneshot::Sender<Result<()>>),
-    ImportCommit(Arc<RepoName>, FastExportCommit, TreeId),
+    ImportCommit {
+        repo_name: Arc<RepoName>,
+        commit: FastExportCommit,
+        tree_id: TreeId,
+        ref_names: Vec<FullName>,
+    },
     LoadRepoDone(RepoName),
 }
 
@@ -240,8 +246,13 @@ impl<'a> CommitLoader<'a> {
                     .send(result)
                     .expect("result from loading cached commits has not been set yet");
             }
-            TaskResult::ImportCommit(repo_name, commit, tree_id) => {
-                if let Err(err) = self.import_commit(&repo_name, commit, tree_id) {
+            TaskResult::ImportCommit {
+                repo_name,
+                commit,
+                tree_id,
+                ref_names,
+            } => {
+                if let Err(err) = self.import_commit(&repo_name, commit, tree_id, &ref_names) {
                     self.logger.error(format!("{err:#}"));
                 }
             }
@@ -344,13 +355,19 @@ impl<'a> CommitLoader<'a> {
                     result_rx.recv().expect("result channel never closed")
                 }
 
-                fn import_commit(&self, commit: FastExportCommit, tree_id: TreeId) -> Result<()> {
+                fn import_commit(
+                    &self,
+                    commit: FastExportCommit,
+                    tree_id: TreeId,
+                    ref_names: &[FullName],
+                ) -> Result<()> {
                     self.tx
-                        .send(TaskResult::ImportCommit(
-                            self.repo_name.clone(),
+                        .send(TaskResult::ImportCommit {
+                            repo_name: self.repo_name.clone(),
                             commit,
                             tree_id,
-                        ))
+                            ref_names: Vec::from(ref_names),
+                        })
                         .expect("receiver never close");
                     Ok(())
                 }
@@ -522,8 +539,19 @@ impl<'a> CommitLoader<'a> {
         repo_name: &RepoName,
         exported_commit: FastExportCommit,
         tree_id: TreeId,
+        ref_names: &[FullName],
     ) -> Result<()> {
-        let context = format!("Repo {} commit {}", repo_name, exported_commit.original_id);
+        let (logger, context) = if !ref_names.is_empty() {
+            let ref_names_str = ref_names.iter().join(", ");
+            let context = format!(
+                "Repo {} commit {} ({ref_names_str})",
+                repo_name, exported_commit.original_id
+            );
+            (self.logger.with_context(&context), context)
+        } else {
+            let context = format!("Repo {} commit {}", repo_name, exported_commit.original_id);
+            (self.logger.with_context(&context).disabled(), context)
+        };
         let hash_without_committer = exported_commit.hash_without_committer()?;
         let repo_data = &mut self.repos.get_mut(repo_name).unwrap().repo_data;
         let (thin_commit, updated_submodule_commits) = Self::export_thin_commit(
@@ -532,7 +560,7 @@ impl<'a> CommitLoader<'a> {
             tree_id,
             self.config,
             &mut self.dot_gitmodules_cache,
-            &self.logger.with_context(&context),
+            &logger,
         )
         .context(context)?;
         // Always overwrite the cache entry with the newest commit with
@@ -942,6 +970,8 @@ impl<'a> CommitLoader<'a> {
     }
 }
 
+type CommitToRefMap = HashMap<CommitId, Vec<FullName>>;
+
 struct SingleRepoLoader<'a> {
     toprepo: &'a gix::Repository,
     repo_name: &'a RepoName,
@@ -953,7 +983,12 @@ struct SingleRepoLoader<'a> {
 trait SingleLoadRepoCallback {
     fn load_cached_commits(&self, cached_tips_to_load: Vec<CommitId>) -> Result<()>;
 
-    fn import_commit(&self, exported_commit: FastExportCommit, tree_id: TreeId) -> Result<()>;
+    fn import_commit(
+        &self,
+        exported_commit: FastExportCommit,
+        tree_id: TreeId,
+        ref_names: &[FullName],
+    ) -> Result<()>;
 }
 
 impl SingleRepoLoader<'_> {
@@ -963,8 +998,9 @@ impl SingleRepoLoader<'_> {
         cached_commits: &HashSet<CommitId>,
         callback: &impl SingleLoadRepoCallback,
     ) -> Result<()> {
+        let (tips, reverse_tip_map) = self.get_tips().context("Failed to resolve refs")?;
         let (mut refs_arg, mut cached_tips_to_load, mut unknown_commit_count) = self
-            .get_refs_to_load_arg(existing_commits, cached_commits)
+            .get_refs_to_load_arg(&tips, existing_commits, cached_commits)
             .context("Failed to find refs to load")?;
         if !cached_tips_to_load.is_empty()
             && let Err(err) = callback.load_cached_commits(cached_tips_to_load)
@@ -975,30 +1011,23 @@ impl SingleRepoLoader<'_> {
             self.logger
                 .warning(format!("Discarding cache for {}: {err:#}", self.repo_name));
             (refs_arg, cached_tips_to_load, unknown_commit_count) = self
-                .get_refs_to_load_arg(existing_commits, &HashSet::new())
+                .get_refs_to_load_arg(&tips, existing_commits, &HashSet::new())
                 .context("Failed to find refs to load")?;
             assert!(cached_tips_to_load.is_empty());
         }
         if !refs_arg.is_empty() {
-            self.load_from_refs(refs_arg, unknown_commit_count, callback)
+            self.load_from_refs(&reverse_tip_map, refs_arg, unknown_commit_count, callback)
                 .context("Failed to load commits")?;
         }
         Ok(())
     }
 
-    /// Creates ref listing arguments to give to git, on the form of
-    /// `<start_rev> ^<stop_rev>`. An empty list means that there is nothing to
-    /// load.
-    fn get_refs_to_load_arg(
-        &self,
-        existing_commits: &HashSet<CommitId>,
-        cached_commits: &HashSet<CommitId>,
-    ) -> Result<(Vec<String>, Vec<CommitId>, usize)> {
+    fn get_tips(&self) -> Result<(Vec<CommitId>, CommitToRefMap)> {
         self.pb.set_message("Listing refs");
 
         let ref_prefix = self.repo_name.to_ref_prefix();
-        let mut unknown_tips: Vec<CommitId> = Vec::new();
-        let mut visited_cached_commits = Vec::new();
+        let mut tips = Vec::new();
+        let mut reverse_tip_map: CommitToRefMap = HashMap::new();
         for r in self
             .toprepo
             .references()?
@@ -1009,14 +1038,45 @@ impl SingleRepoLoader<'_> {
                 .peel_to_commit()
                 .with_context(|| format!("Failed to peel to commit: {r:?}"))?
                 .id;
-            if existing_commits.contains(&commit_id) {
+            tips.push(commit_id);
+            let ref_suffix = r
+                .name()
+                .as_bstr()
+                .strip_prefix(ref_prefix.as_bytes())
+                .expect("ref has prefix");
+            if !ref_suffix.starts_with("refs/tags/".as_bytes()) {
+                // Only non-tags can be expected to be updated.
+                reverse_tip_map
+                    .entry(commit_id)
+                    .or_default()
+                    .push(r.name().to_owned());
+            }
+        }
+        Ok((tips, reverse_tip_map))
+    }
+
+    /// Creates ref listing arguments to give to git, on the form of
+    /// `<start_rev> ^<stop_rev>`. An empty list means that there is nothing to
+    /// load.
+    fn get_refs_to_load_arg(
+        &self,
+        tips: &Vec<CommitId>,
+        existing_commits: &HashSet<CommitId>,
+        cached_commits: &HashSet<CommitId>,
+    ) -> Result<(Vec<String>, Vec<CommitId>, usize)> {
+        self.pb.set_message("Listing refs");
+
+        let mut unknown_tips: Vec<CommitId> = Vec::new();
+        let mut visited_cached_commits = Vec::new();
+        for commit_id in tips {
+            if existing_commits.contains(commit_id) {
                 continue;
             }
-            if cached_commits.contains(&commit_id) {
-                visited_cached_commits.push(commit_id);
+            if cached_commits.contains(commit_id) {
+                visited_cached_commits.push(*commit_id);
                 continue;
             }
-            unknown_tips.push(commit_id);
+            unknown_tips.push(*commit_id);
         }
         if unknown_tips.is_empty() {
             return Ok((vec![], visited_cached_commits, 0));
@@ -1054,6 +1114,7 @@ impl SingleRepoLoader<'_> {
 
     fn load_from_refs(
         &self,
+        tips: &CommitToRefMap,
         refs_arg: Vec<String>,
         unknown_commit_count: usize,
         callback: &impl SingleLoadRepoCallback,
@@ -1087,7 +1148,9 @@ impl SingleRepoLoader<'_> {
                             format!("Missing tree id in commit {}", exported_commit.original_id)
                         })?
                         .detach();
-                    callback.import_commit(exported_commit, tree_id)?;
+                    let empty_vec = Vec::new();
+                    let ref_names = tips.get(&exported_commit.original_id).unwrap_or(&empty_vec);
+                    callback.import_commit(exported_commit, tree_id, ref_names)?;
                     self.pb.inc(1);
                 }
                 FastExportEntry::Reset(_exported_reset) => {

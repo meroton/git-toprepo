@@ -422,6 +422,9 @@ where
     )?;
     commit_loader_setup(&mut commit_loader).with_context(|| "Failed to setup the commit loader")?;
     commit_loader.join();
+    if processor.error_mode.should_interrupt() {
+        anyhow::bail!("Errors while loading commits");
+    }
     Ok(())
 }
 
