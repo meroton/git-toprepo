@@ -11,6 +11,8 @@ mod fetch;
 #[cfg(test)]
 mod init;
 #[cfg(test)]
+mod log;
+#[cfg(test)]
 mod push;
 #[cfg(test)]
 mod refilter;
