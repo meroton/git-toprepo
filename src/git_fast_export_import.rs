@@ -873,7 +873,8 @@ mod tests {
         // Debug with tmp_dir.into_path() which persists the directory.
         let example_repo = setup_example_repo(tmp_dir.path());
 
-        let (log_accumulator, logger, _interrupted) = crate::log::LogAccumulator::new_fail_fast();
+        let (log_accumulator, logger, _interrupted) =
+            crate::log::tests::LogAccumulator::new_fail_fast();
         let mut repo =
             FastExportRepo::load_from_path_all_refs(example_repo.as_path(), logger).unwrap();
         let commit_a = match repo.next().unwrap().unwrap() {
@@ -964,7 +965,8 @@ mod tests {
             .check_success_with_stderr()
             .unwrap();
 
-        let (log_accumulator, logger, _interrupted) = crate::log::LogAccumulator::new_fail_fast();
+        let (log_accumulator, logger, _interrupted) =
+            crate::log::tests::LogAccumulator::new_fail_fast();
 
         let fast_export_repo =
             FastExportRepo::load_from_path_all_refs(from_repo_path.as_path(), logger.clone())
