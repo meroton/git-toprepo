@@ -28,7 +28,7 @@
         in rustPlatform.buildRustPackage {
           inherit src;
           pname = "git-toprepo";
-          version = "0.1.0";
+          version = "0.0.0";  # TODO: Use git-hash or similar.
           cargoLock.lockFile = "${src}/Cargo.lock";
           doCheck = false;  # TODO(albinvass): Fix tests in nix sandbox
         };
