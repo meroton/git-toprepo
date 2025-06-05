@@ -1,4 +1,4 @@
-name: Release
+name: release
 on:
   release:
     types:
@@ -9,14 +9,14 @@ permissions:
   contents: write
 
 jobs:
-  publish-artifacts:
+  publish:
     strategy:
       fail-fast: false
       matrix:
         platform:
           - rust_target: x86_64-unknown-linux-musl
             suffix: .linux_amd64
-    name: Release for ${{ matrix.platform.rust_target }}
+    name: publish (${{ matrix.platform.rust_target }})
     environment: release-on-github
     runs-on: ubuntu-latest
     env:
