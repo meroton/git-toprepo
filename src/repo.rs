@@ -376,7 +376,6 @@ impl MonoRepoProcessor {
                         .top_to_mono_map
                         .contains_key(&TopRepoCommitId(commit_id))
                 },
-                &pb,
             )?;
             drop(pb);
 
@@ -553,7 +552,6 @@ impl MonoRepoProcessor {
                         .top_to_mono_map
                         .contains_key(&TopRepoCommitId(commit_id))
             },
-            &pb,
         )?;
         drop(pb);
 
@@ -622,22 +620,17 @@ impl MonoRepoProcessor {
         let head_id: gix::ObjectId = repo.head_id()?.detach();
         let mut possible_mono_parents = Vec::new();
         let (_possible_mono_parent_ids, _num_skipped_unknowns) =
-            crate::git::get_first_known_commits(
-                &repo,
-                [head_id].into_iter(),
-                |commit_id| {
-                    let Some(mono_parent) = self
-                        .top_repo_cache
-                        .monorepo_commits
-                        .get(&MonoRepoCommitId(commit_id))
-                    else {
-                        return false;
-                    };
-                    possible_mono_parents.push(mono_parent.clone());
-                    true
-                },
-                &pb,
-            )?;
+            crate::git::get_first_known_commits(&repo, [head_id].into_iter(), |commit_id| {
+                let Some(mono_parent) = self
+                    .top_repo_cache
+                    .monorepo_commits
+                    .get(&MonoRepoCommitId(commit_id))
+                else {
+                    return false;
+                };
+                possible_mono_parents.push(mono_parent.clone());
+                true
+            })?;
         drop(pb);
 
         let fast_importer = crate::git_fast_export_import::FastImportRepo::new(

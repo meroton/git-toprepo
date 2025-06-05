@@ -55,7 +55,9 @@ pub struct CommitLoader<'a> {
     event_queue: VecDeque<TaskResult>,
 
     pub progress: indicatif::MultiProgress,
-    fetch_progress: FetchProgress,
+    import_progress: indicatif::ProgressBar,
+    load_progress: ProgressStatus,
+    fetch_progress: ProgressStatus,
     logger: Logger,
     /// Signal to not start new work but to fail as fast as possible.
     error_mode: crate::log::ErrorMode,
@@ -86,12 +88,36 @@ impl<'a> CommitLoader<'a> {
         thread_pool: threadpool::ThreadPool,
     ) -> Result<Self> {
         let (tx, rx) = std::sync::mpsc::channel::<TaskResult>();
-        let pb_fetch_queue = progress
-            .add(indicatif::ProgressBar::no_length().with_style(
-                indicatif::ProgressStyle::with_template("{elapsed:>4} {msg}").unwrap(),
-            ));
+        let import_progress = progress.add(
+            indicatif::ProgressBar::no_length()
+                .with_style(
+                    indicatif::ProgressStyle::with_template("{elapsed:>4} {prefix:.cyan}: {pos}")
+                        .unwrap(),
+                )
+                .with_prefix("Importing commits"),
+        );
         // Make sure that the elapsed time is updated continuously.
-        pb_fetch_queue.enable_steady_tick(std::time::Duration::from_millis(1000));
+        import_progress.enable_steady_tick(std::time::Duration::from_millis(1000));
+
+        let style = indicatif::ProgressStyle::with_template(
+            "     {prefix:.cyan} [{bar:24}] {pos}/{len}{msg!}",
+        )
+        .unwrap()
+        .progress_chars("=> ");
+        let load_progress = ProgressStatus::new(
+            progress.add(
+                indicatif::ProgressBar::no_length()
+                    .with_style(style.clone())
+                    .with_prefix("Loading "),
+            ),
+        );
+        let fetch_progress = ProgressStatus::new(
+            progress.add(
+                indicatif::ProgressBar::no_length()
+                    .with_style(style)
+                    .with_prefix("Fetching"),
+            ),
+        );
         Ok(Self {
             toprepo: toprepo.clone(),
             repos: HashMap::new(),
@@ -101,7 +127,9 @@ impl<'a> CommitLoader<'a> {
             rx,
             event_queue: VecDeque::new(),
             progress,
-            fetch_progress: FetchProgress::new(pb_fetch_queue),
+            import_progress,
+            load_progress,
+            fetch_progress,
             logger,
             error_mode,
             thread_pool,
@@ -141,8 +169,8 @@ impl<'a> CommitLoader<'a> {
     }
 
     /// Enqueue loading commits from a repo.
-    pub fn load_repo(&mut self, repo_name: RepoName) -> Result<()> {
-        let repo_fetcher = self.get_or_create_repo_fetcher(&repo_name)?;
+    pub fn load_repo(&mut self, repo_name: &RepoName) -> Result<()> {
+        let repo_fetcher = self.get_or_create_repo_fetcher(repo_name)?;
         if !repo_fetcher.enabled {
             self.logger.warning(format!(
                 "Repo {repo_name} is disabled in the configuration, will not load commits"
@@ -152,7 +180,7 @@ impl<'a> CommitLoader<'a> {
         match repo_fetcher.loading {
             LoadRepoState::NotLoadedYet | LoadRepoState::Done => {
                 repo_fetcher.loading = LoadRepoState::LoadingThenDone;
-                self.repos_to_load.push_back(repo_name);
+                self.repos_to_load.push_back(repo_name.clone());
             }
             LoadRepoState::LoadingThenQueueAgain => (),
             // If loading and this call is because a fetch has finished, or some
@@ -185,20 +213,27 @@ impl<'a> CommitLoader<'a> {
     /// events to be expected.
     pub fn process_one_event(&mut self) -> bool {
         self.fetch_progress
-            .set_queue_sizes(self.repos_to_fetch.len(), self.event_queue.len());
+            .set_queue_size(self.repos_to_fetch.len());
+        self.load_progress.set_queue_size(self.repos_to_load.len());
 
         // Start work if possible.
         if self.ongoing_jobs_in_threads < self.thread_pool.max_count() {
             if let Some(repo_name) = self.repos_to_fetch.pop_front() {
-                match self.start_fetch_repo_job(repo_name) {
-                    Ok(()) => self.ongoing_jobs_in_threads += 1,
+                match self.start_fetch_repo_job(repo_name.clone()) {
+                    Ok(pbs) => {
+                        self.ongoing_jobs_in_threads += 1;
+                        self.fetch_progress.start(repo_name.to_string(), pbs);
+                    }
                     Err(err) => self.logger.error(format!("{err:#}")),
                 }
                 return true;
             }
             if let Some(repo_name) = self.repos_to_load.pop_front() {
-                match self.start_load_repo_job(repo_name) {
-                    Ok(()) => self.ongoing_jobs_in_threads += 1,
+                match self.start_load_repo_job(repo_name.clone()) {
+                    Ok(()) => {
+                        self.ongoing_jobs_in_threads += 1;
+                        self.load_progress.start(repo_name.to_string(), Vec::new());
+                    }
                     Err(err) => self.logger.error(format!("{err:#}")),
                 }
                 return true;
@@ -230,9 +265,9 @@ impl<'a> CommitLoader<'a> {
         // Process one messages.
         match msg {
             TaskResult::RepoFetchDone(repo_name) => {
-                self.finish_fetch_repo_job(repo_name);
+                self.finish_fetch_repo_job(&repo_name);
                 self.ongoing_jobs_in_threads -= 1;
-                self.fetch_progress.inc_num_fetches_done();
+                self.fetch_progress.finish(&repo_name.to_string());
             }
             TaskResult::LoadCachedCommits(repo_name, cached_tips_to_load, result_channel) => {
                 let result = self.load_cached_commits(&repo_name, cached_tips_to_load);
@@ -244,17 +279,18 @@ impl<'a> CommitLoader<'a> {
                 if let Err(err) = self.import_commit(&repo_name, commit, tree_id) {
                     self.logger.error(format!("{err:#}"));
                 }
+                self.import_progress.inc(1);
             }
             TaskResult::LoadRepoDone(repo_name) => {
-                self.finish_load_repo_job(repo_name);
+                self.finish_load_repo_job(&repo_name);
                 self.ongoing_jobs_in_threads -= 1;
-                self.fetch_progress.inc_num_loads_done();
+                self.load_progress.finish(&repo_name.to_string());
             }
         }
         true
     }
 
-    fn start_fetch_repo_job(&mut self, repo_name: RepoName) -> Result<()> {
+    fn start_fetch_repo_job(&mut self, repo_name: RepoName) -> Result<Vec<indicatif::ProgressBar>> {
         let repo_fetcher = self.repos.get_mut(&repo_name).unwrap();
         assert_eq!(repo_fetcher.fetch_state, RepoFetcherState::Queued);
         repo_fetcher.fetch_state = RepoFetcherState::InProgress;
@@ -262,22 +298,38 @@ impl<'a> CommitLoader<'a> {
         let mut fetcher = crate::fetch::RemoteFetcher::new(&self.toprepo);
         fetcher.set_remote_from_repo_name(&self.toprepo, &repo_name, self.config)?;
 
-        let pb = self.add_progress_bar();
-        pb.enable_steady_tick(std::time::Duration::from_millis(1000));
+        let pb_url = self.progress.add(
+            indicatif::ProgressBar::no_length()
+                .with_style(
+                    indicatif::ProgressStyle::with_template("{elapsed:>4} {prefix:.cyan} {msg}")
+                        .unwrap(),
+                )
+                .with_prefix("git fetch")
+                .with_message(fetcher.remote.clone().unwrap_or_else(|| "<top>".to_owned())),
+        );
+        let pb_status = self.progress.add(
+            indicatif::ProgressBar::no_length()
+                .with_style(indicatif::ProgressStyle::with_template("     {wide_msg}").unwrap()),
+        );
+        // Now when it is added, we can start calling tick to print. Don't print
+        // before it is added as multiple ProgressBars will trash eachother.
+        pb_status.enable_steady_tick(std::time::Duration::from_millis(1000));
+
         let logger = self.logger.with_context(&format!("Fetching {repo_name}"));
         let tx = self.tx.clone();
+        let pb_clone = pb_status.clone();
         self.thread_pool.execute(move || {
-            if let Err(err) = fetcher.fetch_with_progress_bar(&pb) {
+            if let Err(err) = fetcher.fetch_with_progress_bar(&pb_clone) {
                 logger.error(format!("{err:#}"));
             }
             tx.send(TaskResult::RepoFetchDone(repo_name))
                 .expect("receiver never close");
         });
-        Ok(())
+        Ok(vec![pb_url, pb_status])
     }
 
-    fn finish_fetch_repo_job(&mut self, repo_name: RepoName) {
-        let repo_fetcher = self.repos.get_mut(&repo_name).unwrap();
+    fn finish_fetch_repo_job(&mut self, repo_name: &RepoName) {
+        let repo_fetcher = self.repos.get_mut(repo_name).unwrap();
         assert_eq!(repo_fetcher.fetch_state, RepoFetcherState::InProgress);
         repo_fetcher.fetch_state = RepoFetcherState::Done;
 
@@ -295,9 +347,6 @@ impl<'a> CommitLoader<'a> {
     fn start_load_repo_job(&self, repo_name: RepoName) -> Result<()> {
         let context = format!("Loading commits in {repo_name}");
         let logger = self.logger.with_context(&context);
-
-        let pb = self.add_progress_bar().with_prefix(repo_name.to_string());
-        pb.enable_steady_tick(std::time::Duration::from_millis(1000));
 
         // Use the main thread when getting the refs to make use of the gix cached
         let existing_commits: HashSet<_> = self
@@ -322,7 +371,6 @@ impl<'a> CommitLoader<'a> {
             let single_repo_loader = SingleRepoLoader {
                 toprepo: &toprepo,
                 repo_name: &repo_name,
-                pb: &pb,
                 logger: &logger,
                 error_mode: &error_mode,
             };
@@ -371,8 +419,8 @@ impl<'a> CommitLoader<'a> {
         Ok(())
     }
 
-    fn finish_load_repo_job(&mut self, repo_name: RepoName) {
-        let repo_fetcher = self.repos.get_mut(&repo_name).unwrap();
+    fn finish_load_repo_job(&mut self, repo_name: &RepoName) {
+        let repo_fetcher = self.repos.get_mut(repo_name).unwrap();
         // Load again?
         match repo_fetcher.loading {
             LoadRepoState::NotLoadedYet => unreachable!(),
@@ -389,9 +437,9 @@ impl<'a> CommitLoader<'a> {
                 if self.fetch_missing_commits && !repo_fetcher.needed_commits.is_empty() {
                     if repo_fetcher.fetching_default_refspec_done() {
                         let missing_commits = std::mem::take(&mut repo_fetcher.needed_commits);
-                        Self::add_missing_commits(&repo_name, missing_commits, repo_fetcher);
+                        Self::add_missing_commits(repo_name, missing_commits, repo_fetcher);
                     } else {
-                        self.fetch_repo(repo_name);
+                        self.fetch_repo(repo_name.clone());
                     }
                 }
             }
@@ -513,7 +561,7 @@ impl<'a> CommitLoader<'a> {
         for needed_commit in needed_commits {
             self.ensure_commit_available(needed_commit);
         }
-        self.fetch_progress.inc_num_cached_loads_done();
+        self.load_progress.inc_num_cached_done();
         result
     }
 
@@ -659,7 +707,7 @@ impl<'a> CommitLoader<'a> {
         match repo_fetcher.loading {
             LoadRepoState::NotLoadedYet => {
                 repo_fetcher.needed_commits.insert(commit_id);
-                self.load_repo(repo_name)
+                self.load_repo(&repo_name)
                     .expect("configuration exists for repo");
             }
             LoadRepoState::LoadingThenQueueAgain | LoadRepoState::LoadingThenDone => {
@@ -926,26 +974,11 @@ impl<'a> CommitLoader<'a> {
         };
         Some(name)
     }
-
-    fn add_progress_bar(&self) -> indicatif::ProgressBar {
-        let pb =
-            self.progress.add(
-                indicatif::ProgressBar::no_length().with_style(
-                    indicatif::ProgressStyle::with_template("{elapsed:>4} {prefix} {wide_msg}")
-                        .unwrap(),
-                ),
-            );
-        // Now when it is added, we can start calling tick to print. Don't print
-        // before it is added as multiple ProgressBars will trash eachother.
-        pb.enable_steady_tick(std::time::Duration::from_millis(1000));
-        pb
-    }
 }
 
 struct SingleRepoLoader<'a> {
     toprepo: &'a gix::Repository,
     repo_name: &'a RepoName,
-    pb: &'a indicatif::ProgressBar,
     logger: &'a Logger,
     error_mode: &'a crate::log::ErrorMode,
 }
@@ -994,7 +1027,7 @@ impl SingleRepoLoader<'_> {
         existing_commits: &HashSet<CommitId>,
         cached_commits: &HashSet<CommitId>,
     ) -> Result<(Vec<String>, Vec<CommitId>, usize)> {
-        self.pb.set_message("Listing refs");
+        // TODO: self.pb.set_message("Listing refs");
 
         let ref_prefix = self.repo_name.to_ref_prefix();
         let mut unknown_tips: Vec<CommitId> = Vec::new();
@@ -1022,10 +1055,7 @@ impl SingleRepoLoader<'_> {
             return Ok((vec![], visited_cached_commits, 0));
         }
 
-        self.pb.set_style(
-            indicatif::ProgressStyle::with_template("{elapsed:>4} {msg} {pos}").unwrap(),
-        );
-        self.pb.set_message("Walking the git history");
+        // TODO: self.pb.set_message("Walking the git history");
 
         let start_refs = unknown_tips
             .iter()
@@ -1044,7 +1074,6 @@ impl SingleRepoLoader<'_> {
                 }
                 false
             },
-            self.pb,
         )?;
         let stop_refs = stop_commit_ids.iter().map(|id| format!("^{}", id.to_hex()));
 
@@ -1055,15 +1084,10 @@ impl SingleRepoLoader<'_> {
     fn load_from_refs(
         &self,
         refs_arg: Vec<String>,
-        unknown_commit_count: usize,
+        _unknown_commit_count: usize, // TODO: Remove.
         callback: &impl SingleLoadRepoCallback,
     ) -> Result<()> {
-        self.pb
-            .set_message(format!("Exporting commits in {}", self.repo_name));
-        self.pb.set_style(
-            indicatif::ProgressStyle::with_template("{elapsed:>4} {msg} {pos}/{len}").unwrap(),
-        );
-        self.pb.set_length(unknown_commit_count as u64);
+        // TODO: self.pb.set_message(format!("Exporting commits"));
 
         // TODO: The super repository will get an empty URL, which is exactly
         // what is wanted. Does the rest of the code handle that?
@@ -1088,7 +1112,6 @@ impl SingleRepoLoader<'_> {
                         })?
                         .detach();
                     callback.import_commit(exported_commit, tree_id)?;
-                    self.pb.inc(1);
                 }
                 FastExportEntry::Reset(_exported_reset) => {
                     // Not used.
@@ -1197,87 +1220,86 @@ impl DotGitModulesCache {
     }
 }
 
-struct FetchProgress {
+struct ProgressStatus {
     pb: indicatif::ProgressBar,
-    fetch_queue_size: usize,
-    num_fetches_done: usize,
-    num_loads_done: usize,
-    num_cached_loads_done: usize,
-    event_queue_size: usize,
+    queue_size: usize,
+    active: Vec<(String, Vec<indicatif::ProgressBar>)>,
+    num_done: usize,
+    num_cached_done: usize,
 }
 
-impl FetchProgress {
+impl ProgressStatus {
     fn new(pb: indicatif::ProgressBar) -> Self {
         let ret = Self {
             pb,
-            fetch_queue_size: 0,
-            num_fetches_done: 0,
-            num_loads_done: 0,
-            num_cached_loads_done: 0,
-            event_queue_size: 0,
+            queue_size: 0,
+            active: Vec::new(),
+            num_done: 0,
+            num_cached_done: 0,
         };
         ret.draw();
         ret
     }
 
-    pub fn set_queue_sizes(&mut self, fetch_queue_size: usize, event_queue_size: usize) {
-        if fetch_queue_size != self.fetch_queue_size || event_queue_size != self.event_queue_size {
-            self.fetch_queue_size = fetch_queue_size;
-            self.event_queue_size = event_queue_size;
+    pub fn start(&mut self, name: String, pbs: Vec<indicatif::ProgressBar>) {
+        if !self.active.is_empty() {
+            for pb in &pbs {
+                pb.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+            }
+        }
+        self.active.push((name, pbs));
+        self.draw();
+    }
+
+    pub fn finish(&mut self, name: &str) {
+        let (idx, _value) = self
+            .active
+            .iter()
+            .find_position(|(n, _pb)| *n == name)
+            .expect("name is active");
+        // Remove the first occurrence of the name, in case of duplicates.
+        self.active.remove(idx);
+        if idx == 0
+            && let Some((_name, item_pbs)) = self.active.first()
+        {
+            // Show the first active item, the oldest one.
+            for item_pb in item_pbs {
+                item_pb.set_draw_target(indicatif::ProgressDrawTarget::stderr());
+            }
+        }
+        self.num_done += 1;
+        self.pb.inc(1);
+        self.draw();
+    }
+
+    pub fn set_queue_size(&mut self, queue_size: usize) {
+        if queue_size != self.queue_size {
             self.draw();
         }
     }
 
-    pub fn inc_num_fetches_done(&mut self) {
-        self.num_fetches_done += 1;
-        self.draw();
-    }
-
-    pub fn inc_num_loads_done(&mut self) {
-        self.num_loads_done += 1;
-        self.draw();
-    }
-
-    pub fn inc_num_cached_loads_done(&mut self) {
-        self.num_cached_loads_done += 1;
+    pub fn inc_num_cached_done(&mut self) {
+        self.num_cached_done += 1;
         self.draw();
     }
 
     fn draw(&self) {
+        self.pb
+            .set_length((self.num_done + self.active.len() + self.queue_size) as u64);
+
         let mut msg = String::new();
-        if self.fetch_queue_size != 0 {
-            msg.push_str(&format!(
-                "{} {} in queue for fetching, ",
-                self.fetch_queue_size,
-                if self.fetch_queue_size == 1 {
-                    "repository"
-                } else {
-                    "repositories"
-                },
-            ));
+        if !self.active.is_empty() {
+            msg.push_str(": ");
+            msg.push_str(&self.active.iter().map(|(name, _pb)| name).join(", "));
         }
-        msg.push_str(&format!(
-            "{} {} done",
-            self.num_fetches_done,
-            if self.num_fetches_done == 1 {
-                "fetch"
+        if self.num_cached_done > 0 {
+            if msg.is_empty() {
+                msg.push_str(": ");
             } else {
-                "fetches"
-            },
-        ));
-        if self.fetch_queue_size > 0 {
-            msg += &format!(" ({} in queue)", self.fetch_queue_size);
+                msg.push(' ');
+            }
+            msg.push_str(&format!("({} cached)", self.num_cached_done));
         }
-        msg.push_str(&format!(
-            ", {} {} done",
-            self.num_loads_done,
-            if self.num_loads_done == 1 {
-                "load"
-            } else {
-                "loads"
-            },
-        ));
-        msg.push_str(&format!(" ({} cached)", self.num_cached_loads_done));
         self.pb.set_message(msg);
     }
 }

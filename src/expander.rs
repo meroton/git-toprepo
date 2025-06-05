@@ -117,10 +117,10 @@ impl TopRepoExpander<'_> {
             indicatif::ProgressBar::new(c as u64)
                 .with_style(
                     indicatif::ProgressStyle::with_template(
-                        "{elapsed:>4} {prefix} {wide_bar} {pos}/{len} ({eta})",
+                        "{elapsed:>4} {prefix:.cyan} [{bar:24}] {pos}/{len} ({eta})",
                     )
                     .unwrap()
-                    .progress_chars("##-"),
+                    .progress_chars("=> "),
                 )
                 .with_prefix("Expanding commits"),
         );
