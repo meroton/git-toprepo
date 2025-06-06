@@ -5,7 +5,6 @@ use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::util::CommandExtension as _;
-use crate::util::OrderedHashMap;
 use crate::util::OrderedHashSet;
 use crate::util::is_default;
 use anyhow::Context;
@@ -441,13 +440,6 @@ pub struct SubRepoConfig {
         serialize_as = "serde_with::IfIsHumanReadable<OrderedHashSet<serde_with::DisplayFromStr>>"
     )]
     pub skip_expanding: HashSet<CommitId>,
-    /// Expand a different commit instead of the given. This is useful in case a
-    /// commit is missing or just represent a bad git history. By replacing a
-    /// commit by it's parent, the bump will effectively be removed.
-    #[serde_as(
-        serialize_as = "serde_with::IfIsHumanReadable<OrderedHashMap<serde_with::DisplayFromStr, serde_with::DisplayFromStr>>"
-    )]
-    pub replace_commit: HashMap<CommitId, CommitId>,
 }
 
 fn return_true() -> bool {

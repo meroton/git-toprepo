@@ -545,14 +545,9 @@ impl<'a> CommitLoader<'a> {
                             .get(submod_repo_name)
                             .expect("subrepo name exists");
                         if !subconfig.skip_expanding.contains(&bump.commit_id) {
-                            let needed_commit_id = subconfig
-                                .replace_commit
-                                .get(&bump.commit_id)
-                                .cloned()
-                                .unwrap_or(bump.commit_id);
                             needed_commits.push(NeededCommit {
                                 repo_name: submod_repo_name.clone(),
-                                commit_id: needed_commit_id,
+                                commit_id: bump.commit_id,
                             });
                         }
                     }

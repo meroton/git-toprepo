@@ -295,14 +295,9 @@ impl TopRepoExpander<'_> {
                             if subconfig.skip_expanding.contains(&bump.commit_id) {
                                 ExpandedSubmodule::KeptAsSubmodule(bump.commit_id)
                             } else {
-                                let bump_commit_id = subconfig
-                                    .replace_commit
-                                    .get(&bump.commit_id)
-                                    .cloned()
-                                    .unwrap_or(bump.commit_id);
                                 let submod_storage = self.storage.repos.get(&repo_name).unwrap();
                                 if let Some(submod_commit) =
-                                    submod_storage.thin_commits.get(&bump_commit_id)
+                                    submod_storage.thin_commits.get(&bump.commit_id)
                                 {
                                     tree_updates
                                         .push((abs_sub_path.clone(), submod_commit.tree_id));
@@ -316,7 +311,7 @@ impl TopRepoExpander<'_> {
                                     // is not interested in that information anyway.
                                     ExpandedSubmodule::Expanded(SubmoduleContent {
                                         repo_name: submod_repo_name.clone(),
-                                        orig_commit_id: bump_commit_id,
+                                        orig_commit_id: bump.commit_id,
                                     })
                                 } else {
                                     ExpandedSubmodule::CommitMissingInSubRepo(SubmoduleContent {
