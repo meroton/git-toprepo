@@ -1,9 +1,12 @@
+use crate::git::CommitId;
 use crate::git::git_command;
 use crate::git::git_config_get;
 use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::util::CommandExtension as _;
+use crate::util::OrderedHashMap;
+use crate::util::OrderedHashSet;
 use crate::util::is_default;
 use anyhow::Context;
 use anyhow::Result;
@@ -432,6 +435,19 @@ pub struct SubRepoConfig {
     #[serde(default = "return_true")]
     #[serde(skip_serializing_if = "is_true")]
     pub enabled: bool,
+    /// Commits that should not be expanded but rather kept as submodules. These
+    /// don't need to be fetched from the remote.
+    #[serde_as(
+        serialize_as = "serde_with::IfIsHumanReadable<OrderedHashSet<serde_with::DisplayFromStr>>"
+    )]
+    pub skip_expanding: HashSet<CommitId>,
+    /// Expand a different commit instead of the given. This is useful in case a
+    /// commit is missing or just represent a bad git history. By replacing a
+    /// commit by it's parent, the bump will effectively be removed.
+    #[serde_as(
+        serialize_as = "serde_with::IfIsHumanReadable<OrderedHashMap<serde_with::DisplayFromStr, serde_with::DisplayFromStr>>"
+    )]
+    pub replace_commit: HashMap<CommitId, CommitId>,
 }
 
 fn return_true() -> bool {
