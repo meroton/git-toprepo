@@ -4,6 +4,7 @@ use git_toprepo::git::commit_env_for_testing;
 use git_toprepo::git::git_command;
 use git_toprepo::util::CommandExtension as _;
 use predicates::prelude::*;
+use std::path::Path;
 use std::process::Command;
 
 const GENERIC_CONFIG: &str = r#"
@@ -98,6 +99,52 @@ fn test_validate_external_file_in_corrupt_repository() {
         .arg("config")
         .arg("validate")
         .arg(okay_config)
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_config_commands_use_correct_working_directory() {
+    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
+    // Debug with &temp_dir.into_path() to persist the path.
+    let temp_dir = temp_dir.path();
+
+    let okay_config = "okay.toml";
+    std::fs::write(temp_dir.join(okay_config), GENERIC_CONFIG).unwrap();
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(temp_dir)
+        .arg("config")
+        .arg("validate")
+        .arg(okay_config)
+        .assert()
+        .success();
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .arg("-C")
+        .arg(temp_dir)
+        .arg("config")
+        .arg("validate")
+        .arg(okay_config)
+        .assert()
+        .success();
+
+    // Try to run from a subdirectory inside a git repo.
+    Command::new("git")
+        .current_dir(temp_dir)
+        .arg("init")
+        .assert()
+        .success();
+    let subdir = temp_dir.join("subdir");
+    std::fs::create_dir(&subdir).unwrap();
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&subdir)
+        .arg("config")
+        .arg("validate")
+        .arg(Path::new("..").join(okay_config))
         .assert()
         .success();
 }
