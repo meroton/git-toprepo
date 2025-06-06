@@ -10,6 +10,7 @@ use serde::Serialize as _;
 use serde_with::DeserializeAs;
 use serde_with::SerializeAs;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::hash::Hash;
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -157,6 +158,45 @@ where
     }
 }
 
+/// A wrapper around `HashSet<T>` that serializes the entries in sorted order.
+/// This is useful when comparing JSON serialized data.
+#[allow(unused)]
+pub(crate) struct OrderedHashSet<T> {
+    phantom: std::marker::PhantomData<T>,
+}
+
+impl<T, TAs> SerializeAs<HashSet<T>> for OrderedHashSet<TAs>
+where
+    T: Hash + Ord,
+    TAs: serde_with::SerializeAs<T>,
+{
+    fn serialize_as<S>(source: &HashSet<T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let vec = source
+            .iter()
+            .sorted_by(|lhs, rhs| lhs.cmp(rhs))
+            .collect_vec();
+        <Vec<&TAs> as SerializeAs<Vec<&T>>>::serialize_as(&vec, serializer)
+    }
+}
+
+impl<'de, T, TAs> DeserializeAs<'de, HashSet<T>> for OrderedHashSet<TAs>
+where
+    T: Hash + Eq,
+    TAs: serde_with::DeserializeAs<'de, T>,
+{
+    fn deserialize_as<D>(deserializer: D) -> Result<HashSet<T>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        <HashSet<TAs> as DeserializeAs<'de, HashSet<T>>>::deserialize_as(deserializer)
+    }
+}
+
+/// Consumes an iterator to the end to check if it is non-empty and all the
+/// elements are equal.
 pub trait IterSingleUnique<T> {
     fn single_unique(self) -> Option<T>;
 }
