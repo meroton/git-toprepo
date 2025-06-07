@@ -1,6 +1,7 @@
 # --- Manual entries ---
 /tests/fixtures/generated-archives/
 /tests/fixtures/generated-do-not-edit/
+/.bacon-locations
 
 # --- GitHub standard entries below ---
 
