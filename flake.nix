@@ -22,9 +22,16 @@
             rustc = toolchain;
         };
         git-toprepo = let
-          # Needed to make the source path reproducible:
-          # https://nix.dev/guides/best-practices#reproducible-source-paths
-          src = builtins.path { path = ./.; name = "git-toprepo"; };
+          fs = inputs.nixpkgs.lib.fileset;
+          src = fs.toSource {
+            root = ./.;
+            fileset = fs.unions [
+              ./src
+              ./tests
+              ./Cargo.lock
+              ./Cargo.toml
+            ];
+          };
         in rustPlatform.buildRustPackage {
           inherit src;
           name = "git-toprepo";
