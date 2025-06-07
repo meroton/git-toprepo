@@ -16,7 +16,13 @@
       ];
       perSystem = { config, pkgs, inputs', ... }: let
         rustPlatform = let
-          toolchain = inputs'.fenix.packages.minimal.toolchain;
+          toolchain = inputs'.fenix.packages.fromToolchainFile {
+            file = builtins.path {
+              name = "rust-toolchain";
+              path = ./rust-toolchain.toml;
+            };
+            sha256 = "sha256-pw28Lw1M3clAtMjkE/wry0WopX0qvzxeKaPUFoupC00=";
+          };
         in pkgs.makeRustPlatform {
             cargo = toolchain;
             rustc = toolchain;
