@@ -41,6 +41,13 @@
         in rustPlatform.buildRustPackage {
           inherit src;
           name = "git-toprepo";
+          BUILD_SCM_TAG = "nix";
+          # Follows nix timestamp reproducibility by setting it to unix 1:
+          # https://nix.dev/manual/nix/2.22/language/derivations
+          BUILD_SCM_TIMESTAMP = "1";
+          # Hash the source outPath to make our version only depend on
+          # the input files for the build.
+          BUILD_SCM_REVISION = builtins.hashString "sha256" src.outPath;
           nativeBuildInputs = with pkgs; [
               git
           ];
