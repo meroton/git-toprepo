@@ -214,7 +214,7 @@ pub struct MonoRepoProcessor {
     pub gix_repo: gix::ThreadSafeRepository,
     pub config: crate::config::GitTopRepoConfig,
     pub top_repo_cache: crate::repo::TopRepoCache,
-    pub error_mode: crate::log::ErrorMode,
+    pub error_observer: crate::log::ErrorObserver,
     pub progress: indicatif::MultiProgress,
 }
 
@@ -240,15 +240,17 @@ impl MonoRepoProcessor {
         .with_context(|| format!("Loading cache from {}", gix_repo.git_dir().display()))?
         .unpack()?;
         let mut log_config = config.log.clone();
+        let error_observer = crate::log::ErrorObserver::new(error_mode);
+        let error_counter = error_observer.counter.clone();
         let mut processor = MonoRepoProcessor {
             gix_repo,
             config,
             top_repo_cache,
-            error_mode: error_mode.clone(),
+            error_observer,
             progress: indicatif::MultiProgress::new(),
         };
         let mut result =
-            crate::log::log_task_to_stderr(error_mode, &mut log_config, |logger, progress| {
+            crate::log::log_task_to_stderr(error_counter, &mut log_config, |logger, progress| {
                 let old_progress = std::mem::replace(&mut processor.progress, progress);
                 let result = f(&mut processor, &logger);
                 processor.progress = old_progress;

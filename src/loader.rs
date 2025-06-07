@@ -60,7 +60,7 @@ pub struct CommitLoader<'a> {
     fetch_progress: ProgressStatus,
     logger: Logger,
     /// Signal to not start new work but to fail as fast as possible.
-    error_mode: crate::log::ErrorMode,
+    error_observer: crate::log::ErrorObserver,
 
     thread_pool: threadpool::ThreadPool,
     ongoing_jobs_in_threads: usize,
@@ -84,7 +84,7 @@ impl<'a> CommitLoader<'a> {
         config: &'a mut GitTopRepoConfig,
         progress: indicatif::MultiProgress,
         logger: Logger,
-        error_mode: crate::log::ErrorMode,
+        error_observer: crate::log::ErrorObserver,
         thread_pool: threadpool::ThreadPool,
     ) -> Result<Self> {
         let (tx, rx) = std::sync::mpsc::channel::<TaskResult>();
@@ -131,7 +131,7 @@ impl<'a> CommitLoader<'a> {
             load_progress,
             fetch_progress,
             logger,
-            error_mode,
+            error_observer,
             thread_pool,
             ongoing_jobs_in_threads: 0,
             load_after_fetch: true,
@@ -195,7 +195,7 @@ impl<'a> CommitLoader<'a> {
 
     /// Waits for all ongoing tasks to finish.
     pub fn join(mut self) {
-        while !self.error_mode.should_interrupt() {
+        while !self.error_observer.should_interrupt() {
             if !self.process_one_event() {
                 break;
             }
@@ -366,13 +366,13 @@ impl<'a> CommitLoader<'a> {
 
         let toprepo = self.toprepo.clone();
         let tx = self.tx.clone();
-        let error_mode = self.error_mode.clone();
+        let error_observer = self.error_observer.clone();
         self.thread_pool.execute(move || {
             let single_repo_loader = SingleRepoLoader {
                 toprepo: &toprepo,
                 repo_name: &repo_name,
                 logger: &logger,
-                error_mode: &error_mode,
+                error_observer: &error_observer,
             };
 
             struct LoadRepoCallback {
@@ -1002,7 +1002,7 @@ struct SingleRepoLoader<'a> {
     toprepo: &'a gix::Repository,
     repo_name: &'a RepoName,
     logger: &'a Logger,
-    error_mode: &'a crate::log::ErrorMode,
+    error_observer: &'a crate::log::ErrorObserver,
 }
 
 trait SingleLoadRepoCallback {
@@ -1117,7 +1117,7 @@ impl SingleRepoLoader<'_> {
         for export_entry in
             FastExportRepo::load_from_path(toprepo_git_dir, Some(refs_arg), self.logger.clone())?
         {
-            if self.error_mode.should_interrupt() {
+            if self.error_observer.should_interrupt() {
                 break;
             }
             match export_entry? {

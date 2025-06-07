@@ -3,14 +3,14 @@ use anyhow::bail;
 use colored::Colorize as _;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
 
 pub fn eprint_warning(msg: &str) {
     eprintln!("{}: {msg}", "WARNING".yellow().bold());
 }
 
 pub fn log_task_to_stderr<F, T>(
-    error_mode: ErrorMode,
+    error_counter: Arc<AtomicUsize>,
     log_config: &mut crate::config::LogConfig,
     task: F,
 ) -> Result<T>
@@ -29,7 +29,7 @@ where
         .iter()
         .cloned()
         .collect::<HashSet<_>>();
-    let log_receiver = LogReceiver::new(ignore_warnings, error_mode, move |msg| {
+    let log_receiver = LogReceiver::new(error_counter, ignore_warnings, move |msg| {
         progress_clone.suspend(|| eprintln!("{msg}"));
     });
     let result = task(log_receiver.get_logger(), progress.clone());
@@ -103,7 +103,7 @@ pub enum ErrorMode {
     KeepGoing,
     /// Fail fast on the first error, setting the `AtomicBool` to `true`.
     /// In this mode, the error is printed after all threads have stopped.
-    FailFast(Arc<AtomicBool>),
+    FailFast,
 }
 
 impl ErrorMode {
@@ -111,19 +111,38 @@ impl ErrorMode {
         if keep_going {
             ErrorMode::KeepGoing
         } else {
-            ErrorMode::FailFast(Default::default())
+            ErrorMode::FailFast
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ErrorObserver {
+    /// Number of errors reported.
+    pub counter: Arc<AtomicUsize>,
+    pub strategy: ErrorMode,
+}
+
+impl ErrorObserver {
+    pub fn new(strategy: ErrorMode) -> Self {
+        ErrorObserver {
+            counter: Arc::new(AtomicUsize::new(0)),
+            strategy,
         }
     }
 
-    /// Returns `true` if the error mode is `FailFast` and the processing
+    /// Returns `true` if the strategy is `FailFast` and the processing
     /// should be interrupted.
     pub fn should_interrupt(&self) -> bool {
-        match self {
+        match self.strategy {
             ErrorMode::KeepGoing => false,
-            ErrorMode::FailFast(interrupted) => {
-                interrupted.load(std::sync::atomic::Ordering::Relaxed)
-            }
+            ErrorMode::FailFast => self.has_got_errors(),
         }
+    }
+
+    /// Returns `true` if at least one error has been reported.
+    pub fn has_got_errors(&self) -> bool {
+        self.counter.load(std::sync::atomic::Ordering::Relaxed) > 0
     }
 }
 
@@ -203,7 +222,11 @@ pub struct LogReceiver {
 }
 
 impl LogReceiver {
-    pub fn new<F>(ignore_warnings: HashSet<String>, error_mode: ErrorMode, draw_callback: F) -> Self
+    pub fn new<F>(
+        error_counter: Arc<AtomicUsize>,
+        ignore_warnings: HashSet<String>,
+        draw_callback: F,
+    ) -> Self
     where
         F: Fn(&str) + Send + 'static,
     {
@@ -231,11 +254,7 @@ impl LogReceiver {
                                     return;
                                 }
                                 result.reported_errors.push(context_and_msg.to_string());
-                                match error_mode {
-                                    ErrorMode::KeepGoing => (),
-                                    ErrorMode::FailFast(ref interrupted) => interrupted
-                                        .store(true, std::sync::atomic::Ordering::Relaxed),
-                                }
+                                error_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 "ERROR:".red()
                             }
                             LogLevel::Warning => {
@@ -293,6 +312,7 @@ impl LogReceiver {
 pub(crate) mod tests {
     use super::*;
     use std::ops::DerefMut as _;
+    use std::sync::atomic::AtomicUsize;
 
     pub struct LogAccumulator {
         log_receiver: LogReceiver,
@@ -300,10 +320,10 @@ pub(crate) mod tests {
     }
 
     impl LogAccumulator {
-        pub fn new(error_mode: ErrorMode) -> (Self, Logger) {
+        pub fn new(error_counter: Arc<AtomicUsize>) -> (Self, Logger) {
             let all_messages = Arc::new(std::sync::Mutex::new(Vec::new()));
             let all_messages_clone = all_messages.clone();
-            let log_receiver = LogReceiver::new(HashSet::new(), error_mode, move |msg| {
+            let log_receiver = LogReceiver::new(error_counter, HashSet::new(), move |msg| {
                 all_messages_clone.lock().unwrap().push(msg.to_string());
             });
             let logger = log_receiver.get_logger();
@@ -312,12 +332,6 @@ pub(crate) mod tests {
                 all_messages,
             };
             (ret, logger)
-        }
-
-        pub fn new_fail_fast() -> (Self, Logger, Arc<AtomicBool>) {
-            let interrupted = Arc::new(AtomicBool::new(false));
-            let (ret, logger) = Self::new(ErrorMode::FailFast(interrupted.clone()));
-            (ret, logger, interrupted)
         }
 
         pub fn join_no_warnings(self) -> Result<()> {
