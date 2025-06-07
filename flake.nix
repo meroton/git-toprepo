@@ -15,15 +15,14 @@
         "aarch64-darwin"
       ];
       perSystem = { config, pkgs, inputs', ... }: let
-        rustPlatform = let
-          toolchain = inputs'.fenix.packages.fromToolchainFile {
-            file = builtins.path {
-              name = "rust-toolchain";
-              path = ./rust-toolchain.toml;
-            };
-            sha256 = "sha256-pw28Lw1M3clAtMjkE/wry0WopX0qvzxeKaPUFoupC00=";
+        toolchain = inputs'.fenix.packages.fromToolchainFile {
+          file = builtins.path {
+            name = "rust-toolchain";
+            path = ./rust-toolchain.toml;
           };
-        in pkgs.makeRustPlatform {
+          sha256 = "sha256-pw28Lw1M3clAtMjkE/wry0WopX0qvzxeKaPUFoupC00=";
+        };
+        rustPlatform = pkgs.makeRustPlatform {
             cargo = toolchain;
             rustc = toolchain;
         };
@@ -57,6 +56,11 @@
           packages = {
             inherit git-toprepo;
             default =  git-toprepo;
+          };
+          devShells.default = pkgs.mkShell {
+            buildInputs = [
+              toolchain
+            ];
           };
           apps = let
               git-toprepo-app = {
