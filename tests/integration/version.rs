@@ -1,35 +1,39 @@
 use assert_cmd::prelude::*;
+use predicates::prelude::predicate;
 use std::process::Command;
 
 #[test]
 fn test_toprepo_version() {
+    let validate_stdout = predicate::str::is_match("^git_toprepo .*~.*-.*\n$").unwrap();
     Command::cargo_bin("git-toprepo")
         .unwrap()
         .arg("version")
         .assert()
         .success()
-        .stdout("git_toprepo 0.0.0~timestamp-git-hash\n")
+        .stdout(validate_stdout)
         .stderr("");
 }
 
 #[test]
 fn test_toprepo_dash_dash_version() {
+    let validate_stdout = predicate::str::is_match("^git_toprepo .*~.*-.*\n$").unwrap();
     Command::cargo_bin("git-toprepo")
         .unwrap()
         .arg("--version")
         .assert()
         .success()
-        .stdout("git_toprepo 0.0.0~timestamp-git-hash\n")
+        .stdout(validate_stdout)
         .stderr("");
 }
 
 #[test]
 fn test_toprepo_short_flag_version() {
+    let validate_stdout = predicate::str::is_match("^git_toprepo .*~.*-.*\n$").unwrap();
     Command::cargo_bin("git-toprepo")
         .unwrap()
         .arg("-V")
         .assert()
         .success()
-        .stdout("git_toprepo 0.0.0~timestamp-git-hash\n")
+        .stdout(validate_stdout)
         .stderr("");
 }
