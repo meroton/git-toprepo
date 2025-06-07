@@ -27,8 +27,7 @@
           src = builtins.path { path = ./.; name = "git-toprepo"; };
         in rustPlatform.buildRustPackage {
           inherit src;
-          pname = "git-toprepo";
-          version = "0.0.0";  # TODO: Use git-hash or similar.
+          name = "git-toprepo";
           nativeBuildInputs = with pkgs; [
               git
           ];
