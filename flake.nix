@@ -29,8 +29,10 @@
           inherit src;
           pname = "git-toprepo";
           version = "0.0.0";  # TODO: Use git-hash or similar.
+          nativeBuildInputs = with pkgs; [
+              git
+          ];
           cargoLock.lockFile = "${src}/Cargo.lock";
-          doCheck = false;  # TODO(albinvass): Fix tests in nix sandbox
         };
         in {
           packages = {
