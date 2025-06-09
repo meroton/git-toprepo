@@ -5,6 +5,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+pub const COULD_NOT_FETCH_ALL_REPOSITORIES: &str = "Could not fetch all repositories";
+
 pub fn eprint_warning(msg: &str) {
     eprintln!("{}: {msg}", "WARNING".yellow().bold());
 }
@@ -158,12 +160,12 @@ impl LogResult {
         };
         match (self.error_count(), self.warning_count()) {
             (0, 0) => (),
-            (0, wcnt) => eprintln!("{}", format!("Found {wcnt} {warning_str}").yellow()),
-            (ecnt, 0) => eprintln!("{}", format!("Failed due to {ecnt} {error_str}").red()),
-            (ecnt, wcnt) => eprintln!(
+            (0, count) => eprintln!("{}", format!("Found {count} {warning_str}").yellow()),
+            (count, 0) => eprintln!("{}", format!("Failed due to {count} {error_str}").red()),
+            (ecount, wcount) => eprintln!(
                 "{} and {}",
-                format!("Failed due to {ecnt} {error_str}").red(),
-                format!("{wcnt} {warning_str}").yellow()
+                format!("Failed due to {ecount} {error_str}").red(),
+                format!("{wcount} {warning_str}").yellow()
             ),
         }
     }
