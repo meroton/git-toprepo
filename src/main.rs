@@ -52,7 +52,7 @@ fn clone_after_init(
     clone_args: &cli::Clone,
     processor: &mut MonoRepoProcessor,
     logger: &Logger,
-) -> Result<ExitCode> {
+) -> Result<()> {
     fetch(
         &cli::Fetch {
             keep_going: false,
@@ -68,7 +68,7 @@ fn clone_after_init(
     git_command(Path::new("."))
         .args(["checkout", "refs/remotes/origin/HEAD"])
         .check_success_with_stderr()?;
-    Ok(ExitCode::SUCCESS)
+    Ok(())
 }
 
 fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
@@ -88,7 +88,7 @@ fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
     }
 }
 
-fn config(config_args: &cli::Config) -> Result<ExitCode> {
+fn config(config_args: &cli::Config) -> Result<()> {
     let repo_dir = Path::new("");
     match &config_args.config_command {
         cli::ConfigCommands::Location => {
@@ -114,7 +114,7 @@ fn config(config_args: &cli::Config) -> Result<ExitCode> {
             let _config = load_config_from_file(validation.file.as_path())?;
         }
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(())
 }
 
 fn config_bootstrap() -> Result<GitTopRepoConfig> {
@@ -216,7 +216,7 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
 }
 /*
 /// Replace references to Gerrit projects to the local file paths of submodules.
-fn replace(args: &Cli, replace: &cli::Replace) -> Result<ExitCode> {
+fn replace(args: &Cli, replace: &cli::Replace) -> Result<()> {
     /// The main repo is not technically a submodule.
     /// But it is very convenient to have transparent handling of the main
     /// project in code that iterates over projects provided by the users.
@@ -239,7 +239,7 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<ExitCode> {
         for module in modules {
             println!("{}: {}", module.project, module.path);
         }
-        return Ok(ExitCode::SUCCESS)
+        return Ok(())
     }
 
     // TODO: This became really cluttered :(
@@ -266,7 +266,7 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<ExitCode> {
         println!("{}", replaced);
     }
 
-    Ok(ExitCode::SUCCESS)
+    Ok(())
 }
 */
 
@@ -274,7 +274,7 @@ fn refilter(
     refilter_args: &cli::Refilter,
     processor: &mut MonoRepoProcessor,
     logger: &Logger,
-) -> Result<ExitCode> {
+) -> Result<()> {
     load_commits(
         refilter_args.jobs.into(),
         |commit_loader| {
@@ -285,7 +285,7 @@ fn refilter(
         logger,
     )?;
     if processor.error_observer.has_got_errors() {
-        return Ok(ExitCode::FAILURE);
+        return Ok(());
     }
     let top_refs = processor
         .gix_repo
@@ -295,16 +295,14 @@ fn refilter(
         .map(|r| r.map_err(|err| anyhow::anyhow!("Bad ref: {err}")))
         .map_ok(|r| r.detach().name)
         .collect::<Result<Vec<_>>>()?;
-    processor
-        .expand_toprepo_refs(&top_refs, logger)
-        .map(|_| ExitCode::SUCCESS)
+    processor.expand_toprepo_refs(&top_refs, logger)
 }
 
 fn fetch(
     fetch_args: &cli::Fetch,
     processor: &mut MonoRepoProcessor,
     logger: &Logger,
-) -> Result<ExitCode> {
+) -> Result<()> {
     let repo = processor.gix_repo.to_thread_local();
     let mut fetcher = git_toprepo::fetch::RemoteFetcher::new(&repo);
 
@@ -335,7 +333,7 @@ fn fetch(
                 logger,
             )?;
         }
-        return Ok(ExitCode::SUCCESS);
+        return Ok(());
     };
 
     // Fetch a specific refspec.
@@ -356,7 +354,7 @@ fn fetch(
     fetcher.fetch_on_terminal()?;
     // Stop early?
     if fetch_args.skip_filter {
-        return Ok(ExitCode::SUCCESS);
+        return Ok(());
     }
     processor.reload_config()?;
 
@@ -367,7 +365,7 @@ fn fetch(
         logger,
     )?;
     if processor.error_observer.has_got_errors() {
-        return Ok(ExitCode::FAILURE);
+        return Ok(());
     }
 
     match &resolved_args.repo {
@@ -404,7 +402,7 @@ fn fetch(
             }
         }
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(())
 }
 
 fn load_commits<F>(
@@ -430,11 +428,7 @@ where
     Ok(())
 }
 
-fn push(
-    push_args: &cli::Push,
-    processor: &mut MonoRepoProcessor,
-    logger: &Logger,
-) -> Result<ExitCode> {
+fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor, logger: &Logger) -> Result<()> {
     let repo = processor.gix_repo.to_thread_local();
     let base_url = match repo.try_find_remote(push_args.top_remote.as_bytes()) {
         Some(Ok(remote)) => remote
@@ -455,24 +449,22 @@ fn push(
     // TODO: This assumes a single ref in the refspec. What about patterns?
     let local_rev = local_ref;
 
-    processor
-        .push(
-            &base_url,
-            local_rev,
-            &FullName::try_from(remote_ref.clone())?,
-            push_args.dry_run,
-            logger,
-        )
-        .map(|_| ExitCode::SUCCESS)
+    processor.push(
+        &base_url,
+        local_rev,
+        &FullName::try_from(remote_ref.clone())?,
+        push_args.dry_run,
+        logger,
+    )
 }
 
-fn dump(dump_args: &cli::Dump) -> Result<ExitCode> {
+fn dump(dump_args: &cli::Dump) -> Result<()> {
     match dump_args {
         cli::Dump::ImportCache => dump_import_cache(),
     }
 }
 
-fn dump_import_cache() -> Result<ExitCode> {
+fn dump_import_cache() -> Result<()> {
     let toprepo = gix::open(PathBuf::from("."))
         .context(repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
 
@@ -482,7 +474,7 @@ fn dump_import_cache() -> Result<ExitCode> {
         git_toprepo::log::eprint_warning,
     )?;
     serde_repo_states.dump_as_json(std::io::stdout())?;
-    Ok(ExitCode::SUCCESS)
+    Ok(())
 }
 
 /// Print the version of the git-toprepo to stdout.
@@ -497,7 +489,7 @@ fn print_version() -> Result<()> {
     Ok(())
 }
 
-fn main_impl<I>(argv: I) -> Result<ExitCode>
+fn main_impl<I>(argv: I) -> Result<()>
 where
     I: IntoIterator<Item = std::ffi::OsString>,
 {
@@ -509,7 +501,7 @@ where
 
     // First run subcommands that can run with a mis- or unconfigured repo.
     match &args.command {
-        Commands::Init(init_args) => return init(init_args).map(|_| ExitCode::SUCCESS),
+        Commands::Init(init_args) => return init(init_args).map(|_path| ()),
         Commands::Clone(cli::Clone {
             init: init_args,
             minimal: _,
@@ -524,7 +516,7 @@ where
         }
         Commands::Config(config_args) => return config(config_args),
         Commands::Dump(dump_args) => return dump(dump_args),
-        Commands::Version => return print_version().map(|_| ExitCode::SUCCESS),
+        Commands::Version => return print_version(),
         _ => {
             if args.working_directory.is_none() {
                 let current_dir = std::env::current_dir()?;
@@ -572,7 +564,7 @@ fn main() -> ExitCode {
     }));
 
     match main_impl(std::env::args_os()) {
-        Ok(exit_code) => exit_code,
+        Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("{}: {:#}", "ERROR".red().bold(), err);
             ExitCode::FAILURE
