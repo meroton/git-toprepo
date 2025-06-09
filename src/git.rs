@@ -257,69 +257,6 @@ pub fn git_update_submodule_in_index(repo: &Path, path: &GitPath, commit: &Commi
         .map(|_| ())
 }
 
-/*
-#[derive(Debug)]
-pub struct PushSplitter<'a> {
-    repo: &'a Repo,
-}
-
-impl PushSplitter<'_> {
-    //TODO: verify
-    pub fn new(repo: &Repo) -> PushSplitter {
-        PushSplitter { repo }
-    }
-
-    pub fn _trim_push_commit_message(mono_message: &str) -> Result<&str> {
-        let mut trimmed_message = mono_message;
-
-        if let Some(i) = mono_message.rfind("\n^-- ") {
-            trimmed_message = &mono_message[..=i];
-        }
-
-        if trimmed_message.contains("\n^-- ") {
-            Err(anyhow!(
-                "'^-- ' was found in the following commit message. \
-                It looks like a commit that already exists upstream. {}",
-                mono_message
-            ))
-        } else {
-            Ok(trimmed_message)
-        }
-    }
-
-    #[allow(unused)]
-    pub fn get_top_commit_subrepos(
-        &self,
-        top_commit_hash: CommitHash,
-    ) -> HashMap<Vec<u8>, CommitHash> {
-        let top_commit_hash = ""; //TODO
-        let ls_tree_subrepo_stdout = Command::new("git")
-            .args(["-C", self.repo.path.to_str().unwrap()])
-            .args(["ls-tree", "-r", top_commit_hash, "--"])
-            .safe_output()
-            .unwrap()
-            .stdout;
-
-        let mut subrepo_map = HashMap::new();
-        for line in ls_tree_subrepo_stdout.lines() {
-            let line = line.unwrap();
-            let submodule_mode_and_type_prefix = "160000 commit ";
-
-            if line.starts_with(submodule_mode_and_type_prefix) {
-                let hash_and_path = &line[submodule_mode_and_type_prefix.len()..];
-                let (submod_hash, subdir) = hash_and_path.split_once("\t").unwrap();
-                subrepo_map.insert(
-                    subdir.bytes().collect_vec(),
-                    submod_hash.bytes().collect_vec().into(),
-                );
-            }
-        }
-
-        subrepo_map
-    }
-}
-*/
-
 /// Walks through the history from the tips until commits that are already
 /// exported are found. Those commits can be used as negative filter for
 /// which commits to export.

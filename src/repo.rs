@@ -583,7 +583,6 @@ impl MonoRepoProcessor {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn expand_submodule_ref_onto_head(
         &mut self,
         ref_to_inject: &FullNameRef,
@@ -677,8 +676,6 @@ impl MonoRepoProcessor {
         result
     }
 
-    #[allow(unused_variables)]
-    #[allow(clippy::too_many_arguments)]
     pub fn push(
         &mut self,
         top_push_url: &gix::Url,
