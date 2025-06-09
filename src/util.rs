@@ -159,7 +159,6 @@ where
 
 /// A wrapper around `HashSet<T>` that serializes the entries in sorted order.
 /// This is useful when comparing JSON serialized data.
-#[allow(unused)]
 pub(crate) struct OrderedHashSet<T> {
     phantom: std::marker::PhantomData<T>,
 }

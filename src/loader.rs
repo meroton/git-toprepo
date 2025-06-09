@@ -437,7 +437,12 @@ impl<'a> CommitLoader<'a> {
                 if self.fetch_missing_commits && !repo_fetcher.needed_commits.is_empty() {
                     if repo_fetcher.fetching_default_refspec_done() {
                         let missing_commits = std::mem::take(&mut repo_fetcher.needed_commits);
-                        Self::add_missing_commits(repo_name, missing_commits, repo_fetcher);
+                        Self::add_missing_commits(
+                            repo_name,
+                            missing_commits,
+                            &mut repo_fetcher.missing_commits,
+                            &self.logger,
+                        );
                     } else {
                         self.fetch_repo(repo_name.clone());
                     }
@@ -448,16 +453,16 @@ impl<'a> CommitLoader<'a> {
     }
 
     fn add_missing_commits(
-        _repo_name: &RepoName,
+        repo_name: &RepoName,
         missing_commits: HashSet<CommitId>,
-        repo_fetcher: &mut RepoFetcher,
+        all_missing_commits: &mut HashSet<CommitId>,
+        logger: &Logger,
     ) {
         // Already logged when loading the repositories.
-        // for commit_id in &missing_commits {
-        //     self.logger
-        //         .warning(format!("Missing commit in {repo_name}: {commit_id}"));
-        // }
-        repo_fetcher.missing_commits.extend(missing_commits);
+        for commit_id in &missing_commits {
+            logger.warning(format!("Missing commit in {repo_name}: {commit_id}"));
+        }
+        all_missing_commits.extend(missing_commits);
     }
 
     fn load_cached_commits(
@@ -534,10 +539,17 @@ impl<'a> CommitLoader<'a> {
                     if let ThinSubmodule::AddedOrModified(bump) = bump
                         && let Some(submod_repo_name) = &bump.repo_name
                     {
-                        needed_commits.push(NeededCommit {
-                            repo_name: submod_repo_name.clone(),
-                            commit_id: bump.commit_id,
-                        });
+                        let subconfig = self
+                            .config
+                            .subrepos
+                            .get(submod_repo_name)
+                            .expect("subrepo name exists");
+                        if !subconfig.skip_expanding.contains(&bump.commit_id) {
+                            needed_commits.push(NeededCommit {
+                                repo_name: submod_repo_name.clone(),
+                                commit_id: bump.commit_id,
+                            });
+                        }
                     }
                 }
                 // TODO: The without_committer_id for thin_commit might not be
@@ -693,9 +705,14 @@ impl<'a> CommitLoader<'a> {
         let repo_name: RepoName = RepoName::SubRepo(needed_commit.repo_name);
         let commit_id = needed_commit.commit_id;
         // Already loaded?
+        if !self.repos.contains_key(&repo_name) {
+            self.create_repo_fetcher(&repo_name)
+                .expect("repo_name has been found in the configuration");
+        }
         let repo_fetcher = self
-            .get_or_create_repo_fetcher(&repo_name)
-            .expect("repo_name has been found in the configuration");
+            .repos
+            .get_mut(&repo_name)
+            .expect("repo_fetch just inserted");
         if repo_fetcher.repo_data.thin_commits.contains_key(&commit_id)
             || repo_fetcher.missing_commits.contains(&commit_id)
         {
@@ -717,7 +734,12 @@ impl<'a> CommitLoader<'a> {
                 if repo_fetcher.fetching_default_refspec_done() {
                     let mut missing_commits = HashSet::new();
                     missing_commits.insert(commit_id);
-                    Self::add_missing_commits(&repo_name, missing_commits, repo_fetcher);
+                    Self::add_missing_commits(
+                        &repo_name,
+                        missing_commits,
+                        &mut repo_fetcher.missing_commits,
+                        &self.logger,
+                    );
                 } else {
                     repo_fetcher.needed_commits.insert(commit_id);
                     if self.fetch_missing_commits {

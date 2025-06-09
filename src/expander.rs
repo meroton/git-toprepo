@@ -287,28 +287,38 @@ impl TopRepoExpander<'_> {
                     let expanded_submod = if let Some(submod_repo_name) = &bump.repo_name {
                         let repo_name = RepoName::SubRepo(submod_repo_name.clone());
                         if self.config.is_enabled(&repo_name) {
-                            let submod_storage = self.storage.repos.get(&repo_name).unwrap();
-                            if let Some(submod_commit) =
-                                submod_storage.thin_commits.get(&bump.commit_id)
-                            {
-                                tree_updates.push((abs_sub_path.clone(), submod_commit.tree_id));
-                                self.get_recursive_submodule_bumps(
-                                    &abs_sub_path,
-                                    submod_commit,
-                                    submod_updates,
-                                    tree_updates,
-                                );
-                                // TODO: This might be a regression, but the caller
-                                // is not interested in that information anyway.
-                                ExpandedSubmodule::Expanded(SubmoduleContent {
-                                    repo_name: submod_repo_name.clone(),
-                                    orig_commit_id: bump.commit_id,
-                                })
+                            let subconfig = self
+                                .config
+                                .subrepos
+                                .get(submod_repo_name)
+                                .expect("submod name exists");
+                            if subconfig.skip_expanding.contains(&bump.commit_id) {
+                                ExpandedSubmodule::KeptAsSubmodule(bump.commit_id)
                             } else {
-                                ExpandedSubmodule::CommitMissingInSubRepo(SubmoduleContent {
-                                    repo_name: submod_repo_name.clone(),
-                                    orig_commit_id: bump.commit_id,
-                                })
+                                let submod_storage = self.storage.repos.get(&repo_name).unwrap();
+                                if let Some(submod_commit) =
+                                    submod_storage.thin_commits.get(&bump.commit_id)
+                                {
+                                    tree_updates
+                                        .push((abs_sub_path.clone(), submod_commit.tree_id));
+                                    self.get_recursive_submodule_bumps(
+                                        &abs_sub_path,
+                                        submod_commit,
+                                        submod_updates,
+                                        tree_updates,
+                                    );
+                                    // TODO: This might be a regression, but the caller
+                                    // is not interested in that information anyway.
+                                    ExpandedSubmodule::Expanded(SubmoduleContent {
+                                        repo_name: submod_repo_name.clone(),
+                                        orig_commit_id: bump.commit_id,
+                                    })
+                                } else {
+                                    ExpandedSubmodule::CommitMissingInSubRepo(SubmoduleContent {
+                                        repo_name: submod_repo_name.clone(),
+                                        orig_commit_id: bump.commit_id,
+                                    })
+                                }
                             }
                         } else {
                             // Repository disabled by config, keep the submodule.
