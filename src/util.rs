@@ -46,8 +46,7 @@ fn new_empty_gix_url() -> gix::Url {
     empty_url.scheme = gix::url::Scheme::File;
     empty_url = empty_url.serialize_alternate_form(true);
 
-    #[cfg(test)]
-    assert_eq!(empty_url.to_bstring(), b"");
+    debug_assert_eq!(empty_url.to_bstring(), b"");
 
     empty_url
 }
