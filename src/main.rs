@@ -424,9 +424,6 @@ where
     )?;
     commit_loader_setup(&mut commit_loader).with_context(|| "Failed to setup the commit loader")?;
     commit_loader.join();
-    /* Errors are counted independently as well.
-     * So this bail leads to an `n + 1` count of fetch errors.
-     */
     if processor.error_mode.should_interrupt() {
         anyhow::bail!(log::COULD_NOT_FETCH_ALL_REPOSITORIES);
     }
