@@ -132,7 +132,8 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
     )?;
     let mut config = GitTopRepoConfig::default();
 
-    let error_mode = git_toprepo::log::ErrorMode::from_keep_going_flag(true);
+    let error_observer =
+        git_toprepo::log::ErrorObserver::new(git_toprepo::log::ErrorMode::KeepGoing);
     let mut log_config = config.log.clone();
     let mut top_repo_cache = git_toprepo::repo::TopRepoCache::default();
 
@@ -140,7 +141,7 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
     let gix_repo = gix_repo.clone();
 
     git_toprepo::log::log_task_to_stderr(
-        error_mode.clone(),
+        error_observer.counter.clone(),
         &mut log_config,
         |logger, progress| {
             (|| -> Result<()> {
@@ -150,7 +151,7 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
                     &mut config,
                     progress.clone(),
                     logger.clone(),
-                    error_mode,
+                    error_observer,
                     threadpool::ThreadPool::new(1),
                 )?;
                 commit_loader.fetch_missing_commits = false;
@@ -283,6 +284,9 @@ fn refilter(
         processor,
         logger,
     )?;
+    if processor.error_observer.has_got_errors() {
+        return Ok(ExitCode::FAILURE);
+    }
     let top_refs = processor
         .gix_repo
         .to_thread_local()
@@ -362,7 +366,7 @@ fn fetch(
         processor,
         logger,
     )?;
-    if processor.error_mode.should_interrupt() {
+    if processor.error_observer.has_got_errors() {
         return Ok(ExitCode::FAILURE);
     }
 
@@ -379,7 +383,7 @@ fn fetch(
         }
         RepoName::SubRepo(sub_repo_name) => {
             for (_, mono_ref) in refspecs {
-                if processor.error_mode.should_interrupt() {
+                if processor.error_observer.should_interrupt() {
                     break;
                 }
                 let submod_ref = format!("{ref_prefix}{mono_ref}");
@@ -418,7 +422,7 @@ where
         &mut processor.config,
         processor.progress.clone(),
         logger.clone(),
-        processor.error_mode.clone(),
+        processor.error_observer.clone(),
         threadpool::ThreadPool::new(job_count.get()),
     )?;
     commit_loader_setup(&mut commit_loader).with_context(|| "Failed to setup the commit loader")?;
