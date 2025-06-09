@@ -353,20 +353,32 @@ impl<'a> FetchParamsResolver<'a> {
                 "Cannot use --path when specifying a worktree relative path (submodule path) as 'remote-ish'"
             );
         }
-        if let Ok(repo_rel_path) = repo_relative_path(&self.worktree, Path::new(&remote)) {
-            // The path is relative to the worktree.
-            let (submod_name, submod_url) = self
-                .get_submodule_from_path(&repo_rel_path)
-                .with_context(|| format!("Submodule {repo_rel_path} not found in config"))?;
-            let full_url = self.get_default_top_url()?.join(&submod_url);
-            return Ok(Some(ResolvedFetchParams {
-                repo: RepoName::from(submod_name),
-                path: repo_rel_path,
-                url: full_url,
-            }));
+        match repo_relative_path(&self.worktree, Path::new(&remote)) {
+            Ok(repo_rel_path) if repo_rel_path.is_empty() => {
+                // If the path is empty, then it is the top repository.
+                Ok(Some(ResolvedFetchParams {
+                    repo: RepoName::Top,
+                    path: GitPath::default(),
+                    url: self.get_default_top_url()?,
+                }))
+            }
+            Ok(repo_rel_path) => {
+                // The path is relative to the worktree.
+                let (submod_name, submod_url) = self
+                    .get_submodule_from_path(&repo_rel_path)
+                    .with_context(|| format!("Submodule {repo_rel_path} not found in config"))?;
+                let full_url = self.get_default_top_url()?.join(&submod_url);
+                Ok(Some(ResolvedFetchParams {
+                    repo: RepoName::from(submod_name),
+                    path: repo_rel_path,
+                    url: full_url,
+                }))
+            }
+            Err(_err) => {
+                // Not a worktree path, so must be a URL.
+                Ok(None)
+            }
         }
-        // Not a worktree path, so must be a URL.
-        Ok(None)
     }
 
     fn try_resolve_as_remote_url(
@@ -477,7 +489,8 @@ fn parse_refspec(refspec: &str) -> Result<(String, String), std::io::Error> {
         Ok((lhs.to_owned(), rhs))
     } else {
         // Automatically force override FETCH_HEAD when set by default.
-        Ok((format!("+{refspec}"), "FETCH_HEAD".to_owned()))
+        let remote_ref = refspec.strip_prefix('+').unwrap_or(refspec);
+        Ok((format!("+{remote_ref}"), "FETCH_HEAD".to_owned()))
     }
 }
 

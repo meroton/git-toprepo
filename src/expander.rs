@@ -35,7 +35,6 @@ use gix::refs::FullName;
 use gix::refs::FullNameRef;
 use itertools::Itertools as _;
 use lru::LruCache;
-use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::Hash;
@@ -56,14 +55,6 @@ pub struct TopRepoExpander<'a> {
 }
 
 impl TopRepoExpander<'_> {
-    /// Converts `refs/namespaces/top/refs/heads/branch` to
-    /// `refs/remotes/origin/branch`.
-    pub fn input_ref_to_output_ref(top_ref: &FullNameRef) -> Result<FullName> {
-        REF_NAME_CONVERTER
-            .map_top_ref_to_remote_origin(top_ref)
-            .with_context(|| format!("Only top refs are supported, got {}", top_ref.as_bstr()))
-    }
-
     /// Creates a list of not yet expanded top repo commits needed to expand the
     /// given tips. The returned list is sorted in the order to be expanded.
     pub fn get_toprepo_commits_to_expand(
@@ -103,9 +94,12 @@ impl TopRepoExpander<'_> {
         Ok(commits_to_expand)
     }
 
+    /// `top_refs_to_mono_ref` maps top refs like
+    /// `refs/namespaces/top/refs/heads/branch` to monorepo refs like
+    /// `refs/remotes/origin/branch`.
     pub fn expand_toprepo_commits(
         &mut self,
-        start_refs: Vec<gix::refs::FullName>,
+        top_refs: &[gix::refs::FullName],
         stop_commit_ids: Vec<CommitId>,
         c: usize,
     ) -> Result<()> {
@@ -125,6 +119,7 @@ impl TopRepoExpander<'_> {
                 .with_prefix("Expanding commits"),
         );
 
+        let start_refs = top_refs;
         let fast_exporter = crate::git_fast_export_import::FastExportRepo::load_from_path(
             self.gix_repo.git_dir(),
             Some(
@@ -143,6 +138,7 @@ impl TopRepoExpander<'_> {
         )?;
 
         (|| {
+            let top_ref_prefix = RepoName::Top.to_ref_prefix();
             for entry in fast_exporter {
                 let entry = entry?; // TODO: error handling
                 match entry {
@@ -150,10 +146,14 @@ impl TopRepoExpander<'_> {
                         let input_branch = commit.branch.as_ref().ok_or_else(|| {
                             anyhow::anyhow!("Top repo commit {} has no branch", commit.original_id)
                         })?;
-                        let output_branch = Self::input_ref_to_output_ref(input_branch.borrow())?;
+                        let output_branch = strip_ref_prefix(input_branch, top_ref_prefix.as_str()).with_context(|| {
+                            format!(
+                                "Bad git-fast-export branch {input_branch} which was not requested"
+                            )
+                        })?;
                         let commit_id = TopRepoCommitId::new(commit.original_id);
                         let now = std::time::Instant::now();
-                        self.expand_toprepo_commit(output_branch.borrow(), commit)?;
+                        self.expand_toprepo_commit(output_branch.as_ref(), commit)?;
                         let ms = now.elapsed().as_millis();
                         if ms > 100 {
                             // TODO: Remove this debug print.
@@ -162,7 +162,12 @@ impl TopRepoExpander<'_> {
                         pb.inc(1);
                     }
                     crate::git_fast_export_import::FastExportEntry::Reset(reset) => {
-                        let output_branch = Self::input_ref_to_output_ref(reset.branch.borrow())?;
+                        let input_branch = &reset.branch;
+                        let output_branch = strip_ref_prefix(input_branch, top_ref_prefix.as_str()).with_context(|| {
+                            format!(
+                                "Bad git-fast-export branch {input_branch} which was not requested"
+                            )
+                        })?;
                         let mono_commit = self
                             .storage
                             .top_to_mono_map
@@ -174,7 +179,7 @@ impl TopRepoExpander<'_> {
                                 )
                             })?;
                         self.fast_importer.write_reset(
-                            output_branch.borrow(),
+                            output_branch.as_ref(),
                             &self.get_import_commit_ref(mono_commit),
                         )?;
                     }
@@ -984,92 +989,6 @@ impl TopRepoExpander<'_> {
     }
 }
 
-pub struct RefNameConverter {
-    top_refs_heads_namespace_prefix: BString,
-    top_refs_tags_namespace_prefix: BString,
-    top_namespace_prefix: BString,
-}
-
-impl RefNameConverter {
-    /// Converts ref names from `refs/namespaces/top/*` into
-    /// `refs/remotes/origin/*` and `refs/tags/*`.
-    ///
-    /// # Examples
-    /// ```
-    /// use git_toprepo::expander::REF_NAME_CONVERTER;
-    /// use gix::refs::FullName;
-    /// use std::borrow::Borrow as _;
-    ///
-    /// fn make_ref(name: &str) -> FullName {
-    ///     FullName::try_from(name).unwrap()
-    /// }
-    ///
-    /// fn convert(name: &str) -> Option<FullName> {
-    ///     let name = make_ref(name);
-    ///     REF_NAME_CONVERTER.map_top_ref_to_remote_origin(name.borrow()).ok()
-    /// }
-    ///
-    /// assert_eq!(convert("refs/namespaces/top/refs/heads/foo"), Some(make_ref("refs/remotes/origin/foo")));
-    /// assert_eq!(convert("refs/namespaces/top/refs/heads/foo/bar"), Some(make_ref("refs/remotes/origin/foo/bar")));
-    /// assert_eq!(convert("refs/namespaces/top/refs/tags/foo"), Some(make_ref("refs/tags/foo")));
-    /// assert_eq!(convert("refs/namespaces/top/refs/tags/foo/bar"), Some(make_ref("refs/tags/foo/bar")));
-    /// assert_eq!(convert("refs/namespaces/top/HEAD"), Some(make_ref("refs/remotes/origin/HEAD")));
-    /// assert_eq!(convert("refs/namespaces/top/refs/foo"), Some(make_ref("refs/remotes/origin/refs/foo")));
-    ///
-    /// assert_eq!(convert("refs/namespaces/top"), None);
-    /// assert_eq!(convert("refs/namespaces/other/foo"), None);
-    /// assert_eq!(convert("refs/other"), None);
-    /// ```
-    pub fn map_top_ref_to_remote_origin(
-        &self,
-        top_namespace_ref: &FullNameRef,
-    ) -> Result<FullName> {
-        let top_namespace_ref = top_namespace_ref.as_bstr();
-        if let Some(branch) =
-            top_namespace_ref.strip_prefix(self.top_refs_heads_namespace_prefix.as_slice())
-        {
-            // Map refs/namespaces/top/refs/heads/* to refs/remotes/origin/*.
-            FullName::try_from(BString::new(bstr::concat([
-                b"refs/remotes/origin/",
-                branch,
-            ])))
-            .map_err(|err| anyhow::anyhow!("{err:#}"))
-        } else if let Some(tag_name) =
-            top_namespace_ref.strip_prefix(self.top_refs_tags_namespace_prefix.as_slice())
-        {
-            // Map refs/namespaces/top/refs/tags/* to refs/tags/*.
-            FullName::try_from(BString::new(bstr::concat([b"refs/tags/", tag_name])))
-                .map_err(|err| anyhow::anyhow!("{err:#}"))
-        } else if let Some(other_ref_name) =
-            top_namespace_ref.strip_prefix(self.top_namespace_prefix.as_slice())
-        {
-            let converted_name = if other_ref_name == b"FETCH_HEAD" {
-                // FETCH_HEAD is special.
-                other_ref_name.to_owned()
-            } else {
-                // Map other refs/namespaces/top/category/* to refs/remotes/origin/category/*.
-                bstr::concat([b"refs/remotes/origin/", other_ref_name])
-            };
-            FullName::try_from(BString::new(converted_name))
-                .map_err(|err| anyhow::anyhow!("{err:#}"))
-        } else {
-            anyhow::bail!("Bad top ref name {top_namespace_ref}")
-        }
-    }
-}
-
-lazy_static::lazy_static! {
-    /// A singleton instance of `RefNameConverter` for converting ref names.
-    ///
-    /// This is used to convert branch names from `refs/namespaces/top/*` into
-    /// `refs/remotes/origin/*` and `refs/tags/*`.
-    pub static ref REF_NAME_CONVERTER: RefNameConverter = RefNameConverter {
-        top_refs_heads_namespace_prefix: format!("{}refs/heads/", RepoName::Top.to_ref_prefix()).into(),
-        top_refs_tags_namespace_prefix: format!("{}refs/tags/", RepoName::Top.to_ref_prefix()).into(),
-        top_namespace_prefix: RepoName::Top.to_ref_prefix().into(),
-    };
-}
-
 pub struct BumpCache {
     submodules: LruCache<BumpCacheKey, Rc<ExpandedSubmodule>>,
     last_bumps: LruCache<BumpCacheKey, Vec<Rc<MonoRepoCommit>>>,
@@ -1534,4 +1453,51 @@ pub fn calculate_mono_commit_message(
         }
     }
     message
+}
+
+/// Removes a given prefix from a reference name. The prefix often ends with a
+/// slash.
+///
+/// # Examples
+/// ```
+/// # use git_toprepo::expander::strip_ref_prefix;
+/// use gix::refs::FullName;
+/// use std::borrow::Borrow as _;
+///
+/// fn make_ref(name: &str) -> FullName {
+///     FullName::try_from(name).unwrap()
+/// }
+///
+/// assert_eq!(
+///     strip_ref_prefix(&make_ref("refs/namespaces/top/refs/remotes/origin/foo"), "refs/namespaces/top/").unwrap(),
+///     make_ref("refs/remotes/origin/foo"),
+/// );
+/// assert_eq!(
+///     strip_ref_prefix(&make_ref("refs/namespaces/top/HEAD"), "refs/namespaces/top/").unwrap(),
+///     make_ref("HEAD"),
+/// );
+///
+/// assert_eq!(
+///     strip_ref_prefix(&make_ref("refs/namespaces/top/HEAD"), "refs/namespaces/top").unwrap_err().to_string(),
+///     "A reference must be a valid tag name as well",
+/// );
+/// assert_eq!(
+///     strip_ref_prefix(&make_ref("refs/namespaces/top/HEAD"), "refs/other").unwrap_err().to_string(),
+///     "Expected refs/namespaces/top/HEAD to start with refs/other",
+/// );
+/// ```
+///
+/// This function is public only to allow doc-testing and is not intended for
+/// general use.
+pub fn strip_ref_prefix<'a>(
+    ref_name: impl AsRef<FullNameRef>,
+    prefix: impl Into<&'a BStr>,
+) -> Result<FullName> {
+    let ref_name = ref_name.as_ref().as_bstr();
+    let prefix = prefix.into();
+    if let Some(new_ref_name) = ref_name.strip_prefix(prefix.as_bytes()) {
+        FullName::try_from(new_ref_name.as_bstr()).map_err(|err| anyhow::anyhow!("{err:#}"))
+    } else {
+        anyhow::bail!("Expected {ref_name} to start with {prefix}");
+    }
 }

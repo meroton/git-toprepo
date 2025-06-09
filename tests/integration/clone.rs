@@ -72,8 +72,8 @@ fn test_toprepo_clone() {
         .unwrap();
 
     let ref_pairs = vec![
-        ("HEAD", "refs/namespaces/top/HEAD"),
-        ("main", "refs/namespaces/top/refs/heads/main"),
+        ("HEAD", "refs/namespaces/top/refs/remotes/origin/HEAD"),
+        ("main", "refs/namespaces/top/refs/remotes/origin/main"),
         ("mytag", "refs/namespaces/top/refs/tags/mytag"),
     ];
     for (orig_ref, top_ref) in ref_pairs {
