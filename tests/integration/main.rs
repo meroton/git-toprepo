@@ -9,6 +9,8 @@ mod config;
 #[cfg(test)]
 mod dump;
 #[cfg(test)]
+mod fetch;
+#[cfg(test)]
 mod push;
 #[cfg(test)]
 mod refilter;

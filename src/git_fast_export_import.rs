@@ -594,6 +594,11 @@ impl FastImportRepo {
             out.write_all(b"\n")?;
         }
 
+        if !commit.branch.as_bstr().starts_with(b"refs/") {
+            // git 2.46.0 does not allow updating pseudo refs:
+            // https://github.com/git/git/commit/8e4f5c2dc26e8e88c8c4784f133d2b35a771d2ac
+            bail!("Branch name must start with refs/, got {:?}", commit.branch);
+        }
         out.write_all(b"commit ")?;
         out.write_all(commit.branch.as_bstr())?;
         out.write_all(b"\n")?;

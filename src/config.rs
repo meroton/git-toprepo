@@ -206,10 +206,10 @@ impl GitTopRepoConfig {
         }
         matching_names.sort();
         let repo_name = match matching_names.as_slice() {
-            [] => anyhow::bail!("No configured submodule matches {wanted_url_str}"),
+            [] => anyhow::bail!("No configured submodule URL matches {wanted_url_str:?}"),
             [repo_name] => repo_name.clone(),
             [_, ..] => anyhow::bail!(
-                "Multiple configured repos match: {}",
+                "URLs from multiple configured repos match: {}",
                 matching_names
                     .iter()
                     .map(|name| name.to_string())

@@ -176,6 +176,7 @@ impl RemoteFetcher {
                 self.remote.as_deref().unwrap_or("<default>")
             );
         }
+        self.remove_fetch_head()?;
         pb.set_message("git-fetch done");
         Ok(())
     }
@@ -193,6 +194,27 @@ impl RemoteFetcher {
                     self.remote.as_deref().unwrap_or("<default>")
                 )
             })?;
+        self.remove_fetch_head()?;
         Ok(())
+    }
+
+    /// Remove the FETCH_HEAD file if it exists because the content should not
+    /// be used without filtering into the monorepo.
+    fn remove_fetch_head(&self) -> Result<()> {
+        let fetch_head_path = self.git_dir.join("FETCH_HEAD");
+        match std::fs::remove_file(&fetch_head_path) {
+            Ok(_) => {
+                // Successfully removed FETCH_HEAD.
+                Ok(())
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                // FETCH_HEAD does not exist, which is fine.
+                Ok(())
+            }
+            Err(err) => {
+                // Some other error occurred while trying to remove FETCH_HEAD.
+                Err(err).with_context(|| format!("Failed to remove {fetch_head_path:?}"))
+            }
+        }
     }
 }
