@@ -12,6 +12,7 @@ use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::git::git_command;
+use git_toprepo::log;
 use git_toprepo::log::Logger;
 use git_toprepo::repo;
 use git_toprepo::repo::MonoRepoProcessor;
@@ -425,6 +426,9 @@ where
     )?;
     commit_loader_setup(&mut commit_loader).with_context(|| "Failed to setup the commit loader")?;
     commit_loader.join();
+    if processor.error_mode.should_interrupt() {
+        anyhow::bail!(log::COULD_NOT_FETCH_ALL_REPOSITORIES);
+    }
     Ok(())
 }
 

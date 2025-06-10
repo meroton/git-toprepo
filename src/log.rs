@@ -5,6 +5,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
+pub const COULD_NOT_FETCH_ALL_REPOSITORIES: &str = "Could not fetch all repositories";
+
 pub fn eprint_warning(msg: &str) {
     eprintln!("{}: {msg}", "WARNING".yellow().bold());
 }
@@ -40,7 +42,6 @@ where
     let log_result = log_receiver.join();
     log_config.reported_errors = log_result.reported_errors.clone();
     log_config.reported_warnings = log_result.reported_warnings.clone();
-    log_result.print_to_stderr();
     if !log_result.is_success() {
         bail!("Task failed");
     }
@@ -161,30 +162,6 @@ impl LogResult {
     /// Number of warnings reported.
     pub fn warning_count(&self) -> usize {
         self.reported_warnings.len()
-    }
-
-    /// Print the number of errors and warnings to `stderr`.
-    pub fn print_to_stderr(&self) {
-        let error_str = if self.error_count() == 1 {
-            "error"
-        } else {
-            "errors"
-        };
-        let warning_str = if self.warning_count() == 1 {
-            "warning"
-        } else {
-            "warnings"
-        };
-        match (self.error_count(), self.warning_count()) {
-            (0, 0) => (),
-            (0, wcnt) => eprintln!("{}", format!("Found {wcnt} {warning_str}").yellow()),
-            (ecnt, 0) => eprintln!("{}", format!("Failed due to {ecnt} {error_str}").red()),
-            (ecnt, wcnt) => eprintln!(
-                "{} and {}",
-                format!("Failed due to {ecnt} {error_str}").red(),
-                format!("{wcnt} {warning_str}").yellow()
-            ),
-        }
     }
 
     /// Checks that no errors have been reported.
