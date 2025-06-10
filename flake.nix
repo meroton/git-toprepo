@@ -68,8 +68,8 @@
                 program = "${git-toprepo}/bin/git-toprepo";
               };
             in {
-              inherit git-toprepo;
               default = git-toprepo-app;
+              git-toprepo = git-toprepo-app;
             };
         };
     };
