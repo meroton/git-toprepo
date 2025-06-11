@@ -1,39 +1,287 @@
+use anyhow::Context as _;
 use anyhow::Result;
 use anyhow::bail;
 use colored::Colorize as _;
+use log::Log as _;
 use std::cell::RefCell;
+use std::fmt;
+use std::io::Write as _;
+use std::ops::Deref;
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
+use tracing_log::LogTracer;
+use tracing_subscriber::layer::SubscriberExt as _;
 
-pub fn eprint_log(level: LogLevel, msg: &str) {
-    eprintln!("{}: {msg}", level.to_colored_str());
+/// Keeps the tracing framework configured to store both log and trace events.
+struct GlobalFileTraceLogger {
+    pub log_to_file: Mutex<DelayedWriter<std::fs::File>>,
+    pub log_to_tracing: LogTracer,
+    pub chrome_writer: ArcMutexWriter<std::io::BufWriter<std::fs::File>>,
+    chrome_guard: tracing_chrome::FlushGuard,
 }
 
-pub enum LogLevel {
-    Error,
-    Warning,
-    Info,
-    Trace,
+pub struct ArcMutexWriter<T>(std::sync::Arc<std::sync::Mutex<DelayedWriter<T>>>);
+
+impl<T> ArcMutexWriter<T> {
+    pub(crate) fn new(inner: DelayedWriter<T>) -> Self {
+        ArcMutexWriter(std::sync::Arc::new(std::sync::Mutex::new(inner)))
+    }
 }
 
-impl LogLevel {
-    pub fn as_str(&self) -> &str {
+impl<T> Clone for ArcMutexWriter<T> {
+    fn clone(&self) -> Self {
+        ArcMutexWriter(self.0.clone())
+    }
+}
+
+impl<T> Deref for ArcMutexWriter<T> {
+    type Target = std::sync::Mutex<DelayedWriter<T>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: std::io::Write> std::io::Write for ArcMutexWriter<T> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.lock().unwrap().flush()
+    }
+}
+
+pub enum DelayedWriter<T> {
+    /// Buffer in memory.
+    Buffered(Vec<u8>),
+    /// Output to a writer.
+    Writer(T),
+}
+
+impl<T: std::io::Write> DelayedWriter<T> {
+    /// Instead of buffering, write the buffered and future data to `writer`.
+    pub fn set_writer(&mut self, mut writer: T) -> Result<()> {
         match self {
-            LogLevel::Error => "ERROR",
-            LogLevel::Warning => "WARNING",
-            LogLevel::Info => "INFO",
-            LogLevel::Trace => "TRACE",
+            DelayedWriter::Buffered(buffer) => {
+                // Write the buffered log to the new writer.
+                writer.write_all(buffer)?;
+            }
+            DelayedWriter::Writer(old_writer) => {
+                old_writer.flush()?;
+            }
+        }
+        *self = DelayedWriter::Writer(writer);
+        Ok(())
+    }
+}
+
+impl<T: std::io::Write> std::io::Write for DelayedWriter<T> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            DelayedWriter::Buffered(buffer) => {
+                buffer.extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            DelayedWriter::Writer(writer) => writer.write(buf),
         }
     }
 
-    pub fn to_colored_str(&self) -> colored::ColoredString {
+    fn flush(&mut self) -> std::io::Result<()> {
         match self {
-            LogLevel::Error => self.as_str().red().bold(),
-            LogLevel::Warning => self.as_str().yellow().bold(),
-            LogLevel::Info => self.as_str().green(),
-            LogLevel::Trace => self.as_str().blue(),
+            DelayedWriter::Buffered(_) => Ok(()),
+            DelayedWriter::Writer(writer) => writer.flush(),
         }
+    }
+}
+
+static GLOBAL_LOGGER: std::sync::OnceLock<GlobalLogger> = std::sync::OnceLock::new();
+
+pub fn init() -> &'static GlobalLogger {
+    let global_logger = GlobalLogger {
+        log_to_stderr: Mutex::new(None),
+        log_to_file: Arc::new(Mutex::new(Some(GlobalFileTraceLogger::init_tracing()))),
+    };
+    if GLOBAL_LOGGER.set(global_logger).is_err() {
+        panic!("GLOBAL_LOGGER has already been initialized");
+    }
+    let global_logger = GLOBAL_LOGGER.get().unwrap();
+    log::set_logger(global_logger).expect("global logger not set yet");
+    // Include everything in the log file.
+    log::set_max_level(log::LevelFilter::Trace);
+    global_logger
+}
+
+pub fn get_global_logger() -> &'static GlobalLogger {
+    GLOBAL_LOGGER.get().unwrap()
+}
+
+pub type InternalLogger = dyn Fn(log::Level, &str) + Send;
+
+pub struct GlobalLogger {
+    /// The function that is called to log messages to `stderr`. If set to
+    /// `None`, the `eprintln!` macro is used to write straight to `stderr`.
+    ///
+    /// The implementation is simplified this way by assuming the stderr logging
+    /// only needs to be overridden by one interest at a time.
+    pub log_to_stderr: Mutex<Option<Box<InternalLogger>>>,
+    log_to_file: Arc<Mutex<Option<GlobalFileTraceLogger>>>,
+}
+
+impl GlobalLogger {
+    pub fn write_to_git_dir(&self, git_dir: &Path) -> Result<()> {
+        self.log_to_file
+            .lock()
+            .unwrap()
+            .as_mut()
+            .map_or(Ok(()), |logger| logger.write_to_git_dir(git_dir))
+    }
+
+    pub fn finalize(&self) {
+        if let Some(logger) = self.log_to_file.lock().unwrap().take() {
+            logger.finalize();
+        }
+    }
+}
+
+impl log::Log for GlobalLogger {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= log::max_level()
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(record.metadata()) {
+            // Let the log message include the context.
+            let msg = fmt::format(*record.args());
+            let context = CURRENT_LOG_SCOPE.with(|cell| {
+                cell.borrow()
+                    .as_ref()
+                    .map_or_else(String::new, |scope| scope.full_context())
+            });
+            let context_and_msg = if context.is_empty() {
+                msg
+            } else {
+                format!("{context}: {msg}")
+            };
+
+            if let Some(stderr_log_fn) = self.log_to_stderr.lock().unwrap().as_ref() {
+                stderr_log_fn(record.level(), &context_and_msg);
+            } else {
+                eprint_log(record.level(), &context_and_msg);
+            }
+            if let Some(logger) = self.log_to_file.lock().unwrap().as_ref() {
+                // Make a record that includes the context.
+                logger.log(
+                    &log::Record::builder()
+                        .metadata(record.metadata().clone())
+                        .args(format_args!("{context_and_msg}"))
+                        .module_path(record.module_path())
+                        .file(record.file())
+                        .line(record.line())
+                        .build(),
+                );
+            }
+        }
+    }
+
+    fn flush(&self) {
+        if let Some(logger) = self.log_to_file.lock().unwrap().as_ref() {
+            logger.flush();
+        }
+    }
+}
+
+impl GlobalFileTraceLogger {
+    pub fn init_tracing() -> Self {
+        let log_to_file = Mutex::new(DelayedWriter::<std::fs::File>::Buffered(Vec::new()));
+        // Convert log messages to tracing events, in case any dependency is
+        // using the log framework.
+        let log_to_tracing = tracing_log::LogTracer::new();
+
+        let chrome_writer = ArcMutexWriter::new(DelayedWriter::Buffered(Vec::new()));
+        let (chrome_layer, chrome_guard) = tracing_chrome::ChromeLayerBuilder::new()
+            .writer(chrome_writer.clone())
+            .include_args(true)
+            .include_locations(false)
+            .build();
+
+        let subscriber = tracing_subscriber::registry().with(chrome_layer);
+        tracing::subscriber::set_global_default(subscriber).expect("set global subscriber");
+
+        Self {
+            log_to_file,
+            log_to_tracing,
+            chrome_writer,
+            chrome_guard,
+        }
+    }
+
+    pub fn write_to_git_dir(&mut self, git_dir: &Path) -> Result<()> {
+        let toprepo_dir = git_dir.join("toprepo");
+        std::fs::create_dir_all(&toprepo_dir)?;
+        // Unbuffered writes to log file.
+        let log_path = toprepo_dir.join("log");
+        let log_file = std::fs::File::create(&log_path)?;
+        self.log_to_file
+            .lock()
+            .unwrap()
+            .set_writer(log_file)
+            .with_context(|| format!("Failed to set log writer to {}", log_path.display()))?;
+        // Buffered writes to Chrome trace file.
+        let chrome_path = toprepo_dir.join("trace.json");
+        let chrome_file = std::fs::File::create(&chrome_path)?;
+        let chrome_file = std::io::BufWriter::new(chrome_file);
+        self.chrome_writer
+            .lock()
+            .unwrap()
+            .set_writer(chrome_file)
+            .with_context(|| format!("Failed to set trace writer to {}", log_path.display()))?;
+        Ok(())
+    }
+
+    /// Prints the current in memory log to `stderr` or flushes it to the log file.
+    pub fn finalize(self) {
+        self.flush();
+        // Finalize and close the Chrome trace file.
+        std::mem::drop(self.chrome_guard);
+    }
+
+    pub fn log(&self, record: &log::Record<'_>) {
+        self.log_to_tracing.log(record);
+        let ts = chrono::Local::now().format("%+");
+        if let Err(err) = writeln!(
+            self.log_to_file.lock().unwrap(),
+            "{ts} {}: {}",
+            record.level().as_str(),
+            record.args()
+        ) {
+            eprintln!("Failed to write log message to file: {err}");
+        }
+    }
+
+    pub fn flush(&self) {
+        self.log_to_tracing.flush();
+        let _ignored = self.log_to_file.lock().unwrap().flush();
+    }
+}
+
+pub fn eprint_log(level: LogLevel, msg: &str) {
+    eprintln!("{}: {msg}", log_level_colored_str(level));
+}
+
+pub type LogLevel = log::Level;
+
+fn log_level_colored_str(level: log::Level) -> colored::ColoredString {
+    let s = level.as_str();
+    match level {
+        log::Level::Error => s.red().bold(),
+        log::Level::Warn => s.yellow().bold(),
+        log::Level::Info => s.green(),
+        log::Level::Debug => s.blue(),
+        log::Level::Trace => s.into(),
     }
 }
 
@@ -142,7 +390,9 @@ impl Logger {
     where
         F: FnOnce(Logger) -> Result<T>,
     {
-        let log_receiver = LogReceiver::new(eprint_log);
+        let log_receiver = LogReceiver::new(|level, msg| {
+            log::log!(level, "{msg}");
+        });
         let result = task(log_receiver.get_logger());
         log_receiver.join();
         result
@@ -191,7 +441,7 @@ impl Logger {
     }
 
     pub fn warning(&self, msg: String) {
-        self.log(LogLevel::Warning, msg);
+        self.log(LogLevel::Warn, msg);
     }
 
     pub fn info(&self, msg: String) {

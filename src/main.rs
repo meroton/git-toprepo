@@ -96,10 +96,7 @@ fn config(config_args: &cli::Config) -> Result<()> {
         cli::ConfigCommands::Location => {
             let location = config::GitTopRepoConfig::find_configuration_location(repo_dir)?;
             if let Err(err) = location.validate_existence(repo_dir) {
-                git_toprepo::log::eprint_log(
-                    git_toprepo::log::LogLevel::Warning,
-                    &format!("{err:#}"),
-                );
+                git_toprepo::log::eprint_log(git_toprepo::log::LogLevel::Warn, &format!("{err:#}"));
             }
             println!("{location}");
         }
@@ -662,7 +659,7 @@ fn print_version() -> Result<()> {
     Ok(())
 }
 
-fn main_impl<I>(argv: I) -> Result<()>
+fn main_impl<I>(argv: I, logger: Option<&git_toprepo::log::GlobalLogger>) -> Result<()>
 where
     I: IntoIterator<Item = std::ffi::OsString>,
 {
@@ -708,6 +705,12 @@ where
         Commands::Fetch(fetch_args) => fetch_args.keep_going,
         _ => false,
     });
+
+    // Now when the working directory is set, we can persist the tracing.
+    if let Some(logger) = logger {
+        logger.write_to_git_dir(gix::open(".")?.git_dir())?;
+    }
+
     git_toprepo::repo::MonoRepoProcessor::run(Path::new("."), error_mode, |processor, logger| {
         match args.command {
             Commands::Init(_) => unreachable!("init already processed"),
@@ -736,13 +739,18 @@ fn main() -> ExitCode {
         default_hook(panic);
     }));
 
-    match main_impl(std::env::args_os()) {
+    let global_logger = git_toprepo::log::init();
+
+    let exit_code = match main_impl(std::env::args_os(), Some(global_logger)) {
         Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("{}: {:#}", "ERROR".red().bold(), err);
+            log::error!("{err:#}");
             ExitCode::FAILURE
         }
-    }
+    };
+
+    global_logger.finalize();
+    exit_code
 }
 
 #[cfg(test)]
@@ -758,7 +766,7 @@ mod tests {
         let argv = vec!["git-toprepo", "-C", temp_dir_str, "config", "show"];
         let argv = argv.into_iter().map(|s| s.into());
         assert_eq!(
-            format!("{:#}", main_impl(argv).unwrap_err()),
+            format!("{:#}", main_impl(argv, None).unwrap_err()),
             "git-config 'toprepo.config' is missing. Is this an initialized git-toprepo?"
         );
     }
