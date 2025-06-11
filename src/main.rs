@@ -668,6 +668,46 @@ fn print_version() -> Result<()> {
     Ok(())
 }
 
+/// Executes `main_fn` with a signal handler that listens for termination
+/// signals. When `main_fn` returns or when a termination signal is received,
+/// the signal handler is stopped and `shutdown_fn` is called.
+fn with_termination_signal_handler<T>(
+    main_fn: impl FnOnce() -> Result<T>,
+    shutdown_fn: impl FnOnce() + Send,
+) -> Result<T> {
+    std::thread::scope(|s| {
+        let mut signals = signal_hook::iterator::Signals::new(signal_hook::consts::TERM_SIGNALS)
+            .context("Failed to register signal handlers")?;
+        let signal_handler = signals.handle();
+        let signal_handler_clone = signal_handler.clone();
+        let thread = std::thread::Builder::new()
+            .name("signal-handler".to_owned())
+            .spawn_scoped(s, move || {
+                let mut signal_iter = signals.forever().peekable();
+                if let Some(signal) = signal_iter.peek() {
+                    let signal_str = signal_hook::low_level::signal_name(*signal)
+                        .map(|name| name.to_owned())
+                        .unwrap_or_else(|| signal.to_string());
+                    tracing::info!("Received termination signal {signal_str}");
+                }
+                // Stop listening for signals and run the shutdown function.
+                signal_handler_clone.close();
+                shutdown_fn();
+                // Reraise all signals to ensure they are handled in the default manner.
+                for signal in signal_iter {
+                    signal_hook::low_level::emulate_default_handler(signal)
+                        .expect("emulate default signal handler in the signal handler thread");
+                }
+            })?;
+        // Run the main function.
+        let result = main_fn();
+        // Shutdown the signal handler.
+        signal_handler.close();
+        thread.join().unwrap();
+        result
+    })
+}
+
 fn main_impl<I>(
     argv: I,
     tracer: Arc<Mutex<Option<git_toprepo::log::GlobalTraceLogger>>>,
@@ -754,24 +794,31 @@ fn main() -> ExitCode {
     let tracer = Arc::new(Mutex::new(Some(
         git_toprepo::log::GlobalTraceLogger::init().expect("initialize global tracing logger"),
     )));
+    let tracer_clone = tracer.clone();
 
-    let result = match main_impl(std::env::args_os(), tracer.clone()) {
-        Ok(_) => ExitCode::SUCCESS,
-        Err(err) => {
-            tracing::error!("{err:#}");
-            ExitCode::FAILURE
-        }
-    };
-
-    if let Some(tracer) = tracer.lock().unwrap().take()
-        && let Err(err) = tracer.finalize()
-    {
-        eprintln!(
-            "{}: Failed to finalize logging and tracing: {err:#}",
-            "WARNING".yellow().bold()
-        );
-    };
-    result
+    with_termination_signal_handler(
+        || match main_impl(std::env::args_os(), tracer_clone) {
+            Ok(_) => Ok(ExitCode::SUCCESS),
+            Err(err) => {
+                tracing::error!("{err:#}");
+                Ok(ExitCode::FAILURE)
+            }
+        },
+        || {
+            if let Some(tracer) = tracer.lock().unwrap().take()
+                && let Err(err) = tracer.finalize()
+            {
+                eprintln!(
+                    "{}: Failed to finalize logging and tracing: {err:#}",
+                    "WARNING".yellow().bold()
+                );
+            };
+        },
+    )
+    .unwrap_or_else(|err| {
+        eprintln!("{}: {err:#}", "ERROR".red().bold());
+        ExitCode::FAILURE
+    })
 }
 
 #[cfg(test)]
