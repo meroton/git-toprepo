@@ -698,6 +698,7 @@ dependencies = [
  "serde_path_to_error",
  "serde_with",
  "sha2",
+ "signal-hook",
  "tempfile",
  "threadpool",
  "toml",
