@@ -27,6 +27,8 @@ use std::panic;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 fn init(init_args: &cli::Init) -> Result<PathBuf> {
     let mut url = gix::url::Url::from_bytes(init_args.repository.as_bytes().as_bstr())?;
@@ -666,7 +668,10 @@ fn print_version() -> Result<()> {
     Ok(())
 }
 
-fn main_impl<I>(argv: I) -> Result<()>
+fn main_impl<I>(
+    argv: I,
+    tracer: Arc<Mutex<Option<git_toprepo::log::GlobalTraceLogger>>>,
+) -> Result<()>
 where
     I: IntoIterator<Item = std::ffi::OsString>,
 {
@@ -712,6 +717,12 @@ where
         Commands::Fetch(fetch_args) => fetch_args.keep_going,
         _ => false,
     });
+
+    // Now when the working directory is set, we can persist the tracing.
+    if let Some(tracer) = tracer.lock().unwrap().as_mut() {
+        tracer.write_to_git_dir(gix::open(".")?.git_dir())?;
+    }
+
     git_toprepo::repo::MonoRepoProcessor::run(Path::new("."), error_mode, |processor, logger| {
         match args.command {
             Commands::Init(_) => unreachable!("init already processed"),
@@ -740,13 +751,27 @@ fn main() -> ExitCode {
         default_hook(panic);
     }));
 
-    match main_impl(std::env::args_os()) {
+    let tracer = Arc::new(Mutex::new(Some(
+        git_toprepo::log::GlobalTraceLogger::init().expect("initialize global tracing logger"),
+    )));
+
+    let result = match main_impl(std::env::args_os(), tracer.clone()) {
         Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("{}: {:#}", "ERROR".red().bold(), err);
+            tracing::error!("{err:#}");
             ExitCode::FAILURE
         }
-    }
+    };
+
+    if let Some(tracer) = tracer.lock().unwrap().take()
+        && let Err(err) = tracer.finalize()
+    {
+        eprintln!(
+            "{}: Failed to finalize logging and tracing: {err:#}",
+            "WARNING".yellow().bold()
+        );
+    };
+    result
 }
 
 #[cfg(test)]
@@ -762,7 +787,10 @@ mod tests {
         let argv = vec!["git-toprepo", "-C", temp_dir_str, "config", "show"];
         let argv = argv.into_iter().map(|s| s.into());
         assert_eq!(
-            format!("{:#}", main_impl(argv).unwrap_err()),
+            format!(
+                "{:#}",
+                main_impl(argv, Arc::new(Mutex::new(None))).unwrap_err()
+            ),
             "git-config 'toprepo.config' is missing. Is this an initialized git-toprepo?"
         );
     }

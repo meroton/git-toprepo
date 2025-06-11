@@ -1,9 +1,194 @@
+use anyhow::Context as _;
 use anyhow::Result;
 use anyhow::bail;
 use colored::Colorize as _;
 use std::collections::HashSet;
+use std::io::Write as _;
+use std::ops::Deref;
+use std::ops::DerefMut as _;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
+use tracing_subscriber::layer::SubscriberExt as _;
+
+/// Keeps the tracing framework configured to store both log and trace events.
+pub struct GlobalTraceLogger {
+    pub log_writer: ArcMutexWriter<std::fs::File>,
+    pub chrome_writer: ArcMutexWriter<std::io::BufWriter<std::fs::File>>,
+    chrome_guard: tracing_chrome::FlushGuard,
+}
+
+pub struct ArcMutexWriter<T>(std::sync::Arc<std::sync::Mutex<DelayedWriter<T>>>);
+
+impl<T> ArcMutexWriter<T> {
+    pub(crate) fn new(inner: DelayedWriter<T>) -> Self {
+        ArcMutexWriter(std::sync::Arc::new(std::sync::Mutex::new(inner)))
+    }
+}
+
+impl<T> Clone for ArcMutexWriter<T> {
+    fn clone(&self) -> Self {
+        ArcMutexWriter(self.0.clone())
+    }
+}
+
+impl<T> Deref for ArcMutexWriter<T> {
+    type Target = std::sync::Mutex<DelayedWriter<T>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: std::io::Write> std::io::Write for ArcMutexWriter<T> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.lock().unwrap().flush()
+    }
+}
+
+impl<'writer, T> tracing_subscriber::fmt::MakeWriter<'writer> for ArcMutexWriter<T>
+where
+    T: std::io::Write + 'writer,
+{
+    type Writer = tracing_subscriber::fmt::writer::MutexGuardWriter<'writer, DelayedWriter<T>>;
+
+    /// Creates a writer that has already locked the mutex and returns the
+    /// guard.
+    fn make_writer(&'writer self) -> Self::Writer {
+        self.0.deref().make_writer()
+    }
+}
+
+pub enum DelayedWriter<T> {
+    /// Buffer in memory.
+    Buffered(Vec<u8>),
+    /// Output to a writer.
+    Writer(T),
+}
+
+impl<T: std::io::Write> DelayedWriter<T> {
+    /// Instead of buffering, write the buffered and future data to `writer`.
+    pub fn set_writer(&mut self, mut writer: T) -> Result<()> {
+        match self {
+            DelayedWriter::Buffered(buffer) => {
+                // Write the buffered log to the new writer.
+                writer.write_all(buffer)?;
+            }
+            DelayedWriter::Writer(old_writer) => {
+                old_writer.flush()?;
+            }
+        }
+        *self = DelayedWriter::Writer(writer);
+        Ok(())
+    }
+}
+
+impl<T: std::io::Write> std::io::Write for DelayedWriter<T> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            DelayedWriter::Buffered(buffer) => {
+                buffer.extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            DelayedWriter::Writer(writer) => writer.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            DelayedWriter::Buffered(_) => Ok(()),
+            DelayedWriter::Writer(writer) => writer.flush(),
+        }
+    }
+}
+
+impl GlobalTraceLogger {
+    pub fn init() -> Result<Self> {
+        // Convert log messages to tracing events, in case any dependency is
+        // using the log framework.
+        tracing_log::LogTracer::init()?;
+
+        let log_writer = ArcMutexWriter::new(DelayedWriter::<std::fs::File>::Buffered(Vec::new()));
+        let log_layer = tracing_subscriber::fmt::layer()
+            .with_writer(log_writer.clone())
+            .with_file(false)
+            .with_line_number(false)
+            // Disable ANSI colors in the log file.
+            .with_ansi(false)
+            // The only target is "git_toprepo", so it is not useful.
+            .with_target(false);
+
+        let chrome_writer = ArcMutexWriter::new(DelayedWriter::Buffered(Vec::new()));
+        let (chrome_layer, chrome_guard) = tracing_chrome::ChromeLayerBuilder::new()
+            .writer(chrome_writer.clone())
+            .include_args(true)
+            .include_locations(false)
+            .build();
+
+        let stderr_layer = tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stderr)
+            .with_ansi(colored::control::ShouldColorize::from_env().should_colorize())
+            .with_file(false)
+            .with_line_number(false)
+            // The only target is "git_toprepo", so it is not useful.
+            .with_target(false);
+
+        let subscriber = tracing_subscriber::Registry::default()
+            .with(log_layer)
+            .with(chrome_layer)
+            .with(stderr_layer);
+        tracing::subscriber::set_global_default(subscriber).expect("set global subscriber");
+
+        Ok(Self {
+            log_writer,
+            chrome_writer,
+            chrome_guard,
+        })
+    }
+
+    pub fn write_to_git_dir(&mut self, git_dir: &Path) -> Result<()> {
+        let toprepo_dir = git_dir.join("toprepo");
+        std::fs::create_dir_all(&toprepo_dir)?;
+        // Unbuffered writes to log file.
+        let log_path = toprepo_dir.join("events.log");
+        let log_file = std::fs::File::create(&log_path)?;
+        self.log_writer
+            .lock()
+            .unwrap()
+            .set_writer(log_file)
+            .with_context(|| format!("Failed to set log writer to {}", log_path.display()))?;
+        // Buffered writes to Chrome trace file.
+        let chrome_path = toprepo_dir.join("trace.json");
+        let chrome_file = std::fs::File::create(&chrome_path)?;
+        let chrome_file = std::io::BufWriter::new(chrome_file);
+        self.chrome_writer
+            .lock()
+            .unwrap()
+            .set_writer(chrome_file)
+            .with_context(|| format!("Failed to set trace writer to {}", log_path.display()))?;
+        Ok(())
+    }
+
+    /// Prints the current in memory log to `stderr` or flushes it to the log file.
+    pub fn finalize(self) -> Result<()> {
+        match self.log_writer.lock().unwrap().deref_mut() {
+            DelayedWriter::Buffered(buffer) => {
+                // Print the buffered log to stderr.
+                eprint!("{}", String::from_utf8_lossy(buffer));
+            }
+            DelayedWriter::Writer(writer) => {
+                // Flush the file to ensure all events are written.
+                writer.flush()?;
+            }
+        }
+        self.chrome_guard.flush();
+        Ok(())
+    }
+}
 
 pub fn eprint_warning(msg: &str) {
     eprintln!("{}: {msg}", "WARNING".yellow().bold());
@@ -311,7 +496,6 @@ impl LogReceiver {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use std::ops::DerefMut as _;
     use std::sync::atomic::AtomicUsize;
 
     pub struct LogAccumulator {

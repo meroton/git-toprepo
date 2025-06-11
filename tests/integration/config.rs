@@ -57,7 +57,7 @@ fn test_validate_external_file_in_corrupt_repository() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(format!(
-            "ERROR: Parsing local:{invalid_toml}: Could not parse TOML string",
+            "ERROR Parsing local:{invalid_toml}: Could not parse TOML string",
         )));
 
     // TODO: Rephrase the namespace in the error message. It looks ugly.
@@ -72,7 +72,7 @@ fn test_validate_external_file_in_corrupt_repository() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(format!(
-            "ERROR: Loading config file {invalid_toml}: Could not parse TOML string",
+            "ERROR Loading config file {invalid_toml}: Could not parse TOML string",
         )))
         .stderr(predicate::str::contains("expected `.`, `=`"));
 
@@ -87,7 +87,7 @@ fn test_validate_external_file_in_corrupt_repository() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(format!(
-            "ERROR: Loading config file {incorrect_config}: Could not parse TOML string",
+            "ERROR Loading config file {incorrect_config}: Could not parse TOML string",
         )))
         .stderr(predicate::str::contains(
             "unknown field `Wrong`, expected `repo` or `log`",
