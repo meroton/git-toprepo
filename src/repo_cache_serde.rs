@@ -83,7 +83,7 @@ impl SerdeTopRepoCache {
             reader.read_exact(&mut version_prelude)?;
             if version_prelude != Self::CACHE_VERSION_PRELUDE.as_bytes() {
                 crate::log::eprint_log(
-                    crate::log::LogLevel::Warning,
+                    crate::log::LogLevel::Warn,
                     &format!(
                         "Discarding toprepo cache {} due to version mismatch, expected {:?}",
                         cache_path.display(),
@@ -111,7 +111,7 @@ impl SerdeTopRepoCache {
                 && loaded_cache.config_checksum != config_checksum
             {
                 crate::log::eprint_log(
-                    crate::log::LogLevel::Warning,
+                    crate::log::LogLevel::Warn,
                     "The git-toprepo configuration has changed, discarding the toprepo cache",
                 );
                 return Ok(Self::default());
