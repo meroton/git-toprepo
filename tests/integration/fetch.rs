@@ -43,7 +43,7 @@ fn test_fetch_only_needed_commits() {
         .assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            "WARNING: Missing commit in subx: {RANDOM_SHA1}\n"
+            "WARN: Missing commit in subx: {RANDOM_SHA1}\n"
         )));
 
     // Check the filter result.
