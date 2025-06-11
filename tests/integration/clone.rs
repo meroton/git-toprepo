@@ -9,15 +9,16 @@ use std::process::Command;
 
 #[test]
 fn test_toprepo_clone() {
-    let from_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-        "git_toprepo-test_toprepo_clone-from-",
+    let base_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
+        "git_toprepo-test_toprepo_clone",
     );
-    let from_path = from_dir.path();
+    let from_path = &base_dir.path().join("from");
+    std::fs::create_dir(from_path).unwrap();
+    let to_path = &base_dir.path().join("to");
+    std::fs::create_dir(to_path).unwrap();
 
-    let to_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-        "git_toprepo-test_toprepo_clone-to-",
-    );
-    let to_path = to_dir.path();
+    // TODO: Can this use the deterministic environment setup?
+    // Or are these particular values important?
     let env = HashMap::from([
         ("GIT_AUTHOR_NAME", "A Name"),
         ("GIT_AUTHOR_EMAIL", "a@no.domain"),
