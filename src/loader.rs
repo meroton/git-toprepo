@@ -30,6 +30,7 @@ use std::fmt::Debug;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
+use tracing::instrument;
 
 enum TaskResult {
     RepoFetchDone(RepoName, Result<()>),
@@ -349,8 +350,11 @@ impl<'a> CommitLoader<'a> {
         let pb_clone = pb_status.clone();
         let error_observer = self.error_observer.clone();
         let log_context = crate::log::current_scope();
+        let parent_span = tracing::Span::current();
         self.thread_pool.execute(move || {
             let _log_scope_guard = crate::log::scope(log_context);
+            let _span_guard =
+                tracing::info_span!(parent: parent_span, "Fetching", "repo" = %repo_name).entered();
             let result = fetcher
                 .fetch_with_progress_bar(&pb_clone)
                 .with_context(|| format!("Fetching {repo_name}"));
@@ -405,8 +409,11 @@ impl<'a> CommitLoader<'a> {
         let tx = self.tx.clone();
         let error_observer = self.error_observer.clone();
         let log_context = crate::log::current_scope();
+        let parent_span = tracing::Span::current();
         self.thread_pool.execute(move || {
             let _log_scope_guard = crate::log::scope(log_context);
+            let _span_guard =
+                tracing::info_span!(parent: parent_span, "Loading", "repo" = %repo_name).entered();
             let single_repo_loader = SingleRepoLoader {
                 toprepo: &toprepo,
                 repo_name: &repo_name,
@@ -1065,6 +1072,7 @@ trait SingleLoadRepoCallback {
 }
 
 impl SingleRepoLoader<'_> {
+    #[instrument(name = "load repo", skip_all,fields(repo_name = %self.repo_name))]
     pub fn load_repo(
         &self,
         existing_commits: &HashSet<CommitId>,
@@ -1106,13 +1114,16 @@ impl SingleRepoLoader<'_> {
     /// Creates ref listing arguments to give to git, on the form of
     /// `<start_rev> ^<stop_rev>`. An empty list means that there is nothing to
     /// load.
+    #[instrument(
+        name = "get refs to load",
+        skip_all,
+        fields(repo_name = %self.repo_name)
+    )]
     fn get_refs_to_load_arg(
         &self,
         existing_commits: &HashSet<CommitId>,
         cached_commits: &HashSet<CommitId>,
     ) -> Result<(Vec<String>, Vec<CommitId>, usize)> {
-        // TODO: self.pb.set_message("Listing refs");
-
         let ref_prefix = self.repo_name.to_ref_prefix();
         let mut unknown_tips: Vec<CommitId> = Vec::new();
         let mut visited_cached_commits = Vec::new();
@@ -1139,8 +1150,6 @@ impl SingleRepoLoader<'_> {
             return Ok((vec![], visited_cached_commits, 0));
         }
 
-        // TODO: self.pb.set_message("Walking the git history");
-
         let start_refs = unknown_tips
             .iter()
             .map(|id| id.to_hex().to_string())
@@ -1165,14 +1174,17 @@ impl SingleRepoLoader<'_> {
         Ok((refs_arg, visited_cached_commits, unknown_commit_count))
     }
 
+    #[instrument(
+        name = "load from refs",
+        skip_all,
+        fields(repo_name = %self.repo_name)
+    )]
     fn load_from_refs(
         &self,
         refs_arg: Vec<String>,
         _unknown_commit_count: usize, // TODO: Remove.
         callback: &impl SingleLoadRepoCallback,
     ) -> InterruptedResult<()> {
-        // TODO: self.pb.set_message(format!("Exporting commits"));
-
         // TODO: The super repository will get an empty URL, which is exactly
         // what is wanted. Does the rest of the code handle that?
         let toprepo_git_dir = self.toprepo.git_dir();

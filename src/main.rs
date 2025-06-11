@@ -27,6 +27,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+#[tracing::instrument]
 fn init(init_args: &cli::Init) -> Result<PathBuf> {
     let mut url = gix::url::Url::from_bytes(init_args.repository.as_bytes().as_bstr())?;
     // git-clone converts paths URLs to absolute paths.
@@ -49,6 +50,7 @@ fn init(init_args: &cli::Init) -> Result<PathBuf> {
     Ok(directory)
 }
 
+#[tracing::instrument(skip(processor))]
 fn clone_after_init(clone_args: &cli::Clone, processor: &mut MonoRepoProcessor) -> Result<()> {
     fetch(
         &cli::Fetch {
@@ -67,6 +69,7 @@ fn clone_after_init(clone_args: &cli::Clone, processor: &mut MonoRepoProcessor) 
     Ok(())
 }
 
+#[tracing::instrument]
 fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
     if file == PathBuf::from("-") {
         || -> Result<GitTopRepoConfig> {
@@ -84,6 +87,7 @@ fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
     }
 }
 
+#[tracing::instrument]
 fn config(config_args: &cli::Config) -> Result<()> {
     let repo_dir = Path::new("");
     match &config_args.config_command {
@@ -260,6 +264,7 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<()> {
 }
 */
 
+#[tracing::instrument(skip(processor))]
 fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) -> Result<()> {
     load_commits(
         refilter_args.jobs.into(),
@@ -272,6 +277,7 @@ fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) ->
     processor.refilter_all_top_refs()
 }
 
+#[tracing::instrument(skip(processor))]
 fn fetch(fetch_args: &cli::Fetch, processor: &mut MonoRepoProcessor) -> Result<()> {
     if let Some(refspecs) = &fetch_args.refspecs {
         let repo = processor.gix_repo.to_thread_local();
@@ -325,6 +331,7 @@ fn fetch(fetch_args: &cli::Fetch, processor: &mut MonoRepoProcessor) -> Result<(
     }
 }
 
+#[tracing::instrument(skip(processor))]
 fn fetch_with_default_refspecs(
     fetch_args: &cli::Fetch,
     processor: &mut MonoRepoProcessor,
@@ -443,6 +450,7 @@ fn detail_refspecs(
         .collect::<Result<Vec<_>>>()
 }
 
+#[tracing::instrument(skip(processor))]
 fn fetch_with_refspec(
     fetch_args: &cli::Fetch,
     resolved_args: cli::ResolvedFetchParams,
@@ -548,6 +556,7 @@ fn fetch_with_refspec(
     Ok(())
 }
 
+#[tracing::instrument(skip(commit_loader_setup, processor))]
 fn load_commits<F>(
     job_count: NonZeroUsize,
     commit_loader_setup: F,
@@ -572,6 +581,7 @@ where
     Ok(())
 }
 
+#[tracing::instrument(skip(processor))]
 fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> {
     let repo = processor.gix_repo.to_thread_local();
     let base_url = match repo.try_find_remote(push_args.top_remote.as_bytes()) {
@@ -601,6 +611,7 @@ fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> 
     )
 }
 
+#[tracing::instrument]
 fn dump(dump_args: &cli::Dump) -> Result<()> {
     match dump_args {
         cli::Dump::ImportCache => dump_import_cache(),
@@ -618,6 +629,7 @@ fn dump_import_cache() -> Result<()> {
     Ok(())
 }
 
+#[tracing::instrument]
 /// Print the version of the git-toprepo to stdout.
 fn print_version() -> Result<()> {
     println!(

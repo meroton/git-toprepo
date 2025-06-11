@@ -11,6 +11,7 @@ use std::ops::Deref;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use tracing::instrument;
 
 pub type CommitId = gix::ObjectId;
 pub type TreeId = gix::ObjectId;
@@ -260,6 +261,7 @@ pub fn git_update_submodule_in_index(repo: &Path, path: &GitPath, commit: &Commi
 /// Walks through the history from the tips until commits that are already
 /// exported are found. Those commits can be used as negative filter for
 /// which commits to export.
+#[instrument(name = "get first known commits", skip_all)]
 pub fn get_first_known_commits<F, I>(
     repo: &gix::Repository,
     start_commit_ids: I,
@@ -274,8 +276,6 @@ where
         // No commits to walk.
         return Ok((Vec::new(), 0));
     }
-
-    // TODO: pb.set_message("Looking for new commits to expand");
 
     let walk = repo.rev_walk(start_commit_ids);
     // TODO: The commit graph cannot be reused. Until fixed upstream,

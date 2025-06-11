@@ -250,6 +250,8 @@ impl Fetch {
             .resolve_remote_and_path(self.remote.as_deref(), self.path.as_deref())
     }
 }
+
+#[derive(Debug)]
 pub struct ResolvedFetchParams {
     /// The repository to fetch from.
     pub repo: RepoName,
