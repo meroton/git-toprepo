@@ -318,10 +318,10 @@ pub fn commit_env_for_testing() -> HashMap<String, String> {
     HashMap::from(
         [
             ("GIT_AUTHOR_NAME", "A Name"),
-            ("GIT_AUTHOR_EMAIL", "a@no.domain"),
+            ("GIT_AUTHOR_EMAIL", "a@no.example"),
             ("GIT_AUTHOR_DATE", "2023-01-02T03:04:05Z+01:00"),
             ("GIT_COMMITTER_NAME", "C Name"),
-            ("GIT_COMMITTER_EMAIL", "c@no.domain"),
+            ("GIT_COMMITTER_EMAIL", "c@no.example"),
             ("GIT_COMMITTER_DATE", "2023-06-07T08:09:10Z+01:00"),
         ]
         .map(|(k, v)| (k.to_string(), v.to_string())),

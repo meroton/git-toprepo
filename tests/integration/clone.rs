@@ -21,10 +21,10 @@ fn test_toprepo_clone() {
     // Or are these particular values important?
     let env = HashMap::from([
         ("GIT_AUTHOR_NAME", "A Name"),
-        ("GIT_AUTHOR_EMAIL", "a@no.domain"),
+        ("GIT_AUTHOR_EMAIL", "a@no.example"),
         ("GIT_AUTHOR_DATE", "2023-01-02T03:04:05Z+01:00"),
         ("GIT_COMMITTER_NAME", "C Name"),
-        ("GIT_COMMITTER_EMAIL", "c@no.domain"),
+        ("GIT_COMMITTER_EMAIL", "c@no.example"),
         ("GIT_COMMITTER_DATE", "2023-06-07T08:09:10Z+01:00"),
     ]);
 

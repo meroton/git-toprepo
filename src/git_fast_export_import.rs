@@ -64,7 +64,7 @@ impl FastExportCommit {
 
         // For the default (`raw`) date format, the second to last word of the commit command should always be the timestamp.
         // The last word (UTC offset) does not affect the timestamp.
-        // Example committer command: `committer C Name <c@no.domain> 1686121750 +0100`
+        // Example committer command: `committer C Name <c@no.example> 1686121750 +0100`
         // https://git-scm.com/docs/git-fast-import#Documentation/git-fast-import.txt-coderawcode
         let timestamp: i64 = substrings
             .get(substrings.len() - 2)
@@ -790,10 +790,10 @@ mod tests {
         HashMap::from(
             [
                 ("GIT_AUTHOR_NAME", "A Name"),
-                ("GIT_AUTHOR_EMAIL", "a@no.domain"),
+                ("GIT_AUTHOR_EMAIL", "a@no.example"),
                 ("GIT_AUTHOR_DATE", "2023-01-02T03:04:05Z+01:00"),
                 ("GIT_COMMITTER_NAME", "C Name"),
-                ("GIT_COMMITTER_EMAIL", "c@no.domain"),
+                ("GIT_COMMITTER_EMAIL", "c@no.example"),
                 ("GIT_COMMITTER_DATE", "2023-06-07T08:09:10Z+01:00"),
             ]
             .map(|(k, v)| (k.into(), v.into())),
@@ -878,6 +878,9 @@ mod tests {
             "git_toprepo_test_parse_fast_export_output",
         );
         let example_repo = setup_example_repo(&tmp_dir);
+        // TODO: If we find this test case to be cumbersome with changes to the
+        // hashes we could probably use a library for snapshot testing to make
+        // it easier to work with.
 
         let (log_accumulator, logger) = crate::log::tests::LogAccumulator::new();
         let mut repo =
@@ -898,18 +901,18 @@ mod tests {
         );
         assert_eq!(
             commit_a.author_info,
-            b"A Name <a@no.domain> 1672625045 +0100"
+            b"A Name <a@no.example> 1672625045 +0100"
         );
         assert_eq!(
             commit_a.committer_info,
-            b"C Name <c@no.domain> 1686121750 +0100"
+            b"C Name <c@no.example> 1686121750 +0100"
         );
         assert_eq!(commit_a.message, b"A\n");
         assert!(commit_a.file_changes.is_empty());
         assert!(commit_a.parents.is_empty());
         assert_eq!(
             commit_a.original_id.to_hex().to_string(),
-            "6fc12aa7d6d06400a70bb522244bb184e3678416",
+            "1229b22ea9f1c2676fc45afc862b7636d7c7e8d0",
         );
         assert_eq!(commit_a.encoding, None);
 
@@ -919,11 +922,11 @@ mod tests {
         );
         assert_eq!(
             commit_d.author_info,
-            b"A Name <a@no.domain> 1672625045 +0100"
+            b"A Name <a@no.example> 1672625045 +0100"
         );
         assert_eq!(
             commit_d.committer_info,
-            b"C Name <c@no.domain> 1686121750 +0100"
+            b"C Name <c@no.example> 1686121750 +0100"
         );
         assert_eq!(commit_d.message, b"D\n");
         assert_eq!(
@@ -934,17 +937,17 @@ mod tests {
                 path: BString::from(b"sub"),
                 change: FileChange::Modified {
                     mode: BString::from(b"160000"),
-                    hash: BString::from(b"eeb85c77b614a7ec060f6df5825c9a5c10414307"),
+                    hash: BString::from(b"d3598d6ae2988833b437d1f57ce75fdc38fd8d1b"),
                 }
             }
         );
         assert_eq!(
             commit_d.parents,
-            vec![gix::ObjectId::from_hex(b"ec67a8703750336a938bef740115009b6310892f").unwrap()]
+            vec![gix::ObjectId::from_hex(b"2f17fb2b56a72c73e0cfc0bc45f21e03fe675466").unwrap()]
         );
         assert_eq!(
             commit_d.original_id,
-            gix::ObjectId::from_hex(b"9f781a9707757573b16ee5946ab147e4e66857bc").unwrap(),
+            gix::ObjectId::from_hex(b"345fab2492c99865ba67457c6c47a76fedd5e75b").unwrap(),
         );
         assert_eq!(commit_d.encoding, None);
     }
