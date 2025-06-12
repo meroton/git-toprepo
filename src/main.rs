@@ -28,12 +28,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-fn open_toprepo() -> Result<gix::Repository>
-{
-    gix::open(PathBuf::from("."))
-        .context(repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)
-}
-
 fn init(init_args: &cli::Init) -> Result<PathBuf> {
     let mut url = gix::url::Url::from_bytes(init_args.repository.as_bytes().as_bstr())?;
     // git-clone converts paths URLs to absolute paths.
@@ -126,7 +120,9 @@ fn config(config_args: &cli::Config) -> Result<()> {
 }
 
 fn config_bootstrap() -> Result<GitTopRepoConfig> {
-    let gix_repo = gix::open(PathBuf::from("."))?;
+    let gix_repo = gix::open(PathBuf::from("."))
+        .context(repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
+
     let head_commit = gix_repo
         .find_reference(&FullName::try_from(RepoName::Top.to_ref_prefix() + "HEAD")?)?
         .peel_to_commit()?;
@@ -648,10 +644,10 @@ fn dump(dump_args: &cli::Dump) -> Result<()> {
 }
 
 fn dump_import_cache() -> Result<()> {
-    let toprepo = open_toprepo()?;
+    let toprepo = repo::TopRepo::open(&PathBuf::from("."))?;
 
     let serde_repo_states = git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
-        toprepo.git_dir(),
+        toprepo.gix_repo.git_dir(),
         None,
         git_toprepo::log::eprint_warning,
     )?;
