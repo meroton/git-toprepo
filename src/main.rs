@@ -28,6 +28,12 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+fn open_toprepo() -> Result<gix::Repository>
+{
+    gix::open(PathBuf::from("."))
+        .context(repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)
+}
+
 fn init(init_args: &cli::Init) -> Result<PathBuf> {
     let mut url = gix::url::Url::from_bytes(init_args.repository.as_bytes().as_bstr())?;
     // git-clone converts paths URLs to absolute paths.
@@ -642,8 +648,7 @@ fn dump(dump_args: &cli::Dump) -> Result<()> {
 }
 
 fn dump_import_cache() -> Result<()> {
-    let toprepo = gix::open(PathBuf::from("."))
-        .context(repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
+    let toprepo = open_toprepo()?;
 
     let serde_repo_states = git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
         toprepo.git_dir(),
