@@ -152,7 +152,7 @@ impl<'a> CommitLoader<'a> {
     #[tracing::instrument(name = "fetch", skip_all, fields(repo = %repo_name))]
     pub fn fetch_repo(&mut self, repo_name: RepoName) {
         if let Err(err) = self.fetch_repo_impl(repo_name) {
-            tracing::error!("{err:#}");
+            log::error!("Failed to fetch {repo_name}: {err:#}");
             self.logger.error(format!("{err:#}"));
         }
     }
@@ -160,7 +160,7 @@ impl<'a> CommitLoader<'a> {
     fn fetch_repo_impl(&mut self, repo_name: RepoName) -> Result<()> {
         let repo_fetcher = self.get_or_create_repo_fetcher(&repo_name)?;
         if !repo_fetcher.enabled {
-            tracing::warn!("Repo is disabled in the configuration, will not fetch");
+            log::warn!("Repo {repo_name} is disabled in the configuration, will not fetch");
             return Ok(());
         }
         if repo_fetcher.fetch_state == RepoFetcherState::Idle {
@@ -175,7 +175,7 @@ impl<'a> CommitLoader<'a> {
     pub fn load_repo(&mut self, repo_name: &RepoName) -> Result<()> {
         let repo_fetcher = self.get_or_create_repo_fetcher(repo_name)?;
         if !repo_fetcher.enabled {
-            tracing::warn!("Repo is disabled in the configuration, will not load commits");
+            log::warn!("Repo {repo_name} is disabled in the configuration, will not load commits");
             return Ok(());
         }
         match repo_fetcher.loading {
@@ -463,10 +463,8 @@ impl<'a> CommitLoader<'a> {
     ) {
         // Already logged when loading the repositories.
         for commit_id in &missing_commits {
-            tracing::warn!(
-                repo = repo_name.as_str(),
-                commit = commit_id.to_hex().to_string(),
-                "Missing commit"
+            log::warn!(
+                "Missing commit {} in {repo_name}",commit_id.to_hex()
             );
         }
         all_missing_commits.extend(missing_commits);
@@ -915,9 +913,8 @@ impl<'a> CommitLoader<'a> {
                         if mode != b"100644" && mode != b"100755" {
                             // Expecting regular file or executable file,
                             // not a symlink, directory, submodule, etc.
-                            tracing::warn!(
-                                mode = mode.to_str_lossy().as_ref(),
-                                "Bad object type for .gitmodules"
+                            log::warn!(
+                                "Bad object type {mode} for .gitmodules"
                             );
                             return Ok(GITMODULES_FILE_REMOVED);
                         }
@@ -959,9 +956,9 @@ impl<'a> CommitLoader<'a> {
         // Parse .gitmodules.
         let Some(dot_gitmodules) = dot_gitmodules else {
             if get_logger().is_some() {
-                tracing::warn!("Cannot resolve submodule, .gitmodules is missing");
+                log::warn!("Failed to resolve submodule {path} in commit FRME: .gitmodules is missing");
             } else {
-                tracing::trace!("Cannot resolve submodule, .gitmodules is missing");
+                log::trace!("Failed to resolve submodule {path} in commit FRME: .gitmodules is missing");
             };
             return None;
         };
@@ -969,9 +966,9 @@ impl<'a> CommitLoader<'a> {
             Ok(gitmodules_info) => gitmodules_info,
             Err(err) => {
                 if get_logger().is_some() {
-                    tracing::warn!("{err:#}");
+                    log::warn!("Failed to resolve submodule {path} in commit FRME: {err:#}");
                 } else {
-                    tracing::trace!("{err:#}");
+                    log::trace!("Failed to resolve submodule {path} in commit FRME: {err:#}");
                 };
                 return None;
             }
@@ -981,17 +978,17 @@ impl<'a> CommitLoader<'a> {
             Some(Ok(url)) => url,
             Some(Err(err)) => {
                 if get_logger().is_some() {
-                    tracing::warn!("{err:#}");
+                    log::warn!("Failed to resolve submodule {path} in commit FRME: {err:#}");
                 } else {
-                    tracing::trace!("{err:#}");
+                    log::trace!("Failed to resolve submodule {path} in commit FRME: {err:#}");
                 };
                 return None;
             }
             None => {
                 if get_logger().is_some() {
-                    tracing::warn!("Missing submodule path in .gitmodules");
+                    log::warn!("Failed to resolve submodule {path} in commit FRME: Missing in .gitmodules");
                 } else {
-                    tracing::trace!("Missing submodule path in .gitmodules");
+                    log::trace!("Failed to resolve submodule {path} in commit FRME: Missing in .gitmodules");
                 };
                 return None;
             }
@@ -1001,9 +998,9 @@ impl<'a> CommitLoader<'a> {
             .get_or_insert_from_url(&full_url)
             .map_err(|err| {
                 if get_logger().is_some() {
-                    tracing::error!("{err:#}");
+                    log::error!("Failed to resolve submodule {path} in commit FRME: {err:#}");
                 } else {
-                    tracing::trace!("{err:#}");
+                    log::trace!("Failed to resolve submodule {path} in commit FRME: {err:#}");
                 };
                 if let Some(logger) = get_logger() {
                     logger.error(format!("{err:#}"));
@@ -1014,14 +1011,12 @@ impl<'a> CommitLoader<'a> {
             crate::config::GetOrInsertOk::Found((name, _)) => name,
             crate::config::GetOrInsertOk::Missing(_) => {
                 if get_logger().is_some() {
-                    tracing::warn!(
-                        url = full_url.to_string(),
-                        "URL is missing in the git-toprepo configuration"
+                    log::warn!(
+                        "URL {full_url} is missing in the git-toprepo configuration"
                     );
                 } else {
-                    tracing::trace!(
-                        url = full_url.to_string(),
-                        "URL is missing in the git-toprepo configuration"
+                    log::trace!(
+                        "URL {full_url} is missing in the git-toprepo configuration"
                     );
                 };
                 return None;

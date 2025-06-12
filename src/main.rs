@@ -182,13 +182,13 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
                 })?;
             for submod_path in &*thin_head_commit.submodule_paths {
                 let Some(submod_url) = gitmod_infos.submodules.get(submod_path) else {
-                    tracing::warn!("Missing submodule {submod_path} in .gitmodules");
+                    log::warn!("Missing submodule {submod_path} in .gitmodules");
                     continue;
                 };
                 let submod_url = match submod_url {
                     Ok(submod_url) => submod_url,
                     Err(err) => {
-                        tracing::warn!("Invalid submodule URL for path {submod_path}: {err}");
+                        log::warn!("Invalid submodule URL for path {submod_path}: {err}");
                         continue;
                     }
                 };
@@ -208,7 +208,7 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
                     }
                     Ok(None) => unreachable!("Submodule {submod_path} should be in the config"),
                     Err(err) => {
-                        tracing::warn!("Failed to load submodule {submod_path}: {err}");
+                        log::warn!("Failed to load submodule {submod_path}: {err}");
                         continue;
                     }
                 }
@@ -698,7 +698,7 @@ fn with_termination_signal_handler<T>(
                     let signal_str = signal_hook::low_level::signal_name(*signal)
                         .map(|name| name.to_owned())
                         .unwrap_or_else(|| signal.to_string());
-                    tracing::info!("Received termination signal {signal_str}");
+                    log::info!("Received termination signal {signal_str}");
                 }
                 // Stop listening for signals and run the shutdown function.
                 signal_handler_clone.close();
@@ -810,7 +810,7 @@ fn main() -> ExitCode {
         || match main_impl(std::env::args_os(), tracer_clone) {
             Ok(_) => Ok(ExitCode::SUCCESS),
             Err(err) => {
-                tracing::error!("{err:#}");
+                log::error!("{err:#}");
                 Ok(ExitCode::FAILURE)
             }
         },

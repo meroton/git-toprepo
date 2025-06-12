@@ -10,11 +10,13 @@ bstr = { version = "1.11.0", features = ["serde"] }
 chrono = { version = "0.4.39", features = ["serde"] }
 clap = { version = "4.5.8", features = ["derive", "string"] }
 colored = "2.1.0"
+env_logger = "0.11.8"
 gix = { version = "0.72.1", features = ["serde"] }
 hex = "0.4.3"
 indicatif = "0.17.9"
 itertools = "0.13.0"
 lazy_static = "1.5.0"
+log = "0.4.27"
 lru = "0.13.0"
 oneshot = "0.1.11"
 regex = "1.10.5"

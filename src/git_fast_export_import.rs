@@ -175,7 +175,7 @@ impl FastExportRepo {
             .spawn(move || {
                 tracing::warn_span!(parent: &current_span, "stderr");
                 for line in crate::util::ReadLossyCrOrLfLines::new(&mut stderr_reader) {
-                    tracing::warn!("{}", line.trim_end());
+                    log::warn!("git-fast-export: {}", line.trim_end());
                     logger.warning(line.trim_end().to_owned());
                 }
             })
@@ -514,7 +514,7 @@ impl FastImportRepo {
             .spawn(move || {
                 tracing::warn_span!(parent: &current_span, "stderr");
                 for line in crate::util::ReadLossyCrOrLfLines::new(&mut stderr_reader) {
-                    tracing::warn!("{}", line.trim_end());
+                    log::warn!("git-fast-import: {}", line.trim_end());
                     logger.warning(line.trim_end().to_owned());
                 }
             })

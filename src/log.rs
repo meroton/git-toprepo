@@ -106,11 +106,48 @@ impl<T: std::io::Write> std::io::Write for DelayedWriter<T> {
     }
 }
 
+struct LogMultiplexer {
+    pub backends: Vec<Box<dyn log::Log>>,
+}
+
+impl log::Log for LogMultiplexer {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        self.backends
+            .iter()
+            .any(|backend| backend.enabled(metadata))
+    }
+
+    fn log(&self, record: &log::Record) {
+        for backend in &self.backends {
+            backend.log(record);
+        }
+    }
+
+    fn flush(&self) {
+        for backend in &self.backends {
+            backend.flush();
+        }
+    }
+}
+
 impl GlobalTraceLogger {
     pub fn init() -> Result<Self> {
         // Convert log messages to tracing events, in case any dependency is
         // using the log framework.
-        tracing_log::LogTracer::init()?;
+        let log_to_trace = tracing_log::LogTracer::new();
+        let log_to_stderr = env_logger::builder()
+            .parse_default_env()
+            .format_file(false)
+            .format_line_number(false)
+            .format_module_path(false)
+            .format_source_path(false)
+            .format_target(false)
+            .format_timestamp(None)
+            .build();
+        let multiplex_logger = LogMultiplexer {
+            backends: vec![Box::new(log_to_trace), Box::new(log_to_stderr)],
+        };
+        log::set_boxed_logger(Box::new(multiplex_logger))?;
 
         let log_writer = ArcMutexWriter::new(DelayedWriter::<std::fs::File>::Buffered(Vec::new()));
         let log_layer = tracing_subscriber::fmt::layer()
@@ -130,18 +167,9 @@ impl GlobalTraceLogger {
             .include_locations(false)
             .build();
 
-        let stderr_layer = tracing_subscriber::fmt::layer()
-            .with_writer(std::io::stderr)
-            .with_ansi(colored::control::ShouldColorize::from_env().should_colorize())
-            .with_file(false)
-            .with_line_number(false)
-            // The only target is "git_toprepo", so it is not useful.
-            .with_target(false);
-
         let subscriber = tracing_subscriber::Registry::default()
             .with(log_layer)
-            .with(chrome_layer)
-            .with(stderr_layer);
+            .with(chrome_layer);
         tracing::subscriber::set_global_default(subscriber).expect("set global subscriber");
 
         Ok(Self {
