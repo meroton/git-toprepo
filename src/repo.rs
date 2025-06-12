@@ -193,7 +193,8 @@ Initial empty git-toprepo configuration
     }
 
     pub fn open(directory: &Path) -> Result<TopRepo> {
-        let gix_repo = gix::open(directory)?;
+        let gix_repo =
+            gix::open(directory).context(COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
         Ok(TopRepo {
             gix_repo: gix_repo.into_sync(),
         })
@@ -223,7 +224,9 @@ impl MonoRepoProcessor {
     where
         F: FnOnce(&mut MonoRepoProcessor, &Logger) -> Result<T>,
     {
-        let gix_repo = gix::open(directory)?.into_sync();
+        let gix_repo = gix::open(directory)
+            .context("Could not open directory for MonoRepoProcessor")?
+            .into_sync();
         let config = crate::config::GitTopRepoConfig::load_config_from_repo(
             gix_repo.work_tree.as_deref().with_context(|| {
                 format!(

@@ -120,7 +120,9 @@ fn config(config_args: &cli::Config) -> Result<()> {
 }
 
 fn config_bootstrap() -> Result<GitTopRepoConfig> {
-    let gix_repo = gix::open(PathBuf::from("."))?;
+    let gix_repo = gix::open(PathBuf::from("."))
+        .context(repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
+
     let head_commit = gix_repo
         .find_reference(&FullName::try_from(RepoName::Top.to_ref_prefix() + "HEAD")?)?
         .peel_to_commit()?;
@@ -635,11 +637,10 @@ fn dump(dump_args: &cli::Dump) -> Result<()> {
 }
 
 fn dump_import_cache() -> Result<()> {
-    let toprepo = gix::open(PathBuf::from("."))
-        .context(repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
+    let toprepo = repo::TopRepo::open(&PathBuf::from("."))?;
 
     let serde_repo_states = git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
-        toprepo.git_dir(),
+        toprepo.gix_repo.git_dir(),
         None,
         git_toprepo::log::eprint_warning,
     )?;
