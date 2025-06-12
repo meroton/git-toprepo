@@ -15,7 +15,7 @@ use tracing_subscriber::layer::SubscriberExt as _;
 pub struct GlobalTraceLogger {
     pub log_writer: ArcMutexWriter<std::fs::File>,
     pub chrome_writer: ArcMutexWriter<std::io::BufWriter<std::fs::File>>,
-    chrome_guard: tracing_chrome::FlushGuard,
+    chrome_guard: crate::tracing_chrome::FlushGuard,
 }
 
 pub struct ArcMutexWriter<T>(std::sync::Arc<std::sync::Mutex<DelayedWriter<T>>>);
@@ -118,6 +118,7 @@ impl log::Log for LogMultiplexer {
     }
 
     fn log(&self, record: &log::Record) {
+        println!("FRME {}: {}", record.level(), record.args());
         for backend in &self.backends {
             backend.log(record);
         }
@@ -136,6 +137,7 @@ impl GlobalTraceLogger {
         // using the log framework.
         let log_to_trace = tracing_log::LogTracer::new();
         let log_to_stderr = env_logger::builder()
+            // .filter_level(log::LevelFilter::Info)
             .parse_default_env()
             .format_file(false)
             .format_line_number(false)
@@ -144,6 +146,7 @@ impl GlobalTraceLogger {
             .format_target(false)
             .format_timestamp(None)
             .build();
+        log::set_max_level(log::LevelFilter::Trace);
         let multiplex_logger = LogMultiplexer {
             backends: vec![Box::new(log_to_trace), Box::new(log_to_stderr)],
         };
@@ -161,7 +164,7 @@ impl GlobalTraceLogger {
             .with_target(false);
 
         let chrome_writer = ArcMutexWriter::new(DelayedWriter::Buffered(Vec::new()));
-        let (chrome_layer, chrome_guard) = tracing_chrome::ChromeLayerBuilder::new()
+        let (chrome_layer, chrome_guard) = crate::tracing_chrome::ChromeLayerBuilder::new()
             .writer(chrome_writer.clone())
             .include_args(true)
             .include_locations(false)

@@ -732,6 +732,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-chrome",
+ "tracing-core",
  "tracing-log",
  "tracing-subscriber",
  "url",

@@ -10,4 +10,5 @@ pub mod log;
 pub mod repo;
 pub mod repo_cache_serde;
 pub mod repo_name;
+pub mod tracing_chrome;
 pub mod util;

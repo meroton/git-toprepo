@@ -151,7 +151,7 @@ impl<'a> CommitLoader<'a> {
     /// refspec will fetch all heads and tags.
     #[tracing::instrument(name = "fetch", skip_all, fields(repo = %repo_name))]
     pub fn fetch_repo(&mut self, repo_name: RepoName) {
-        if let Err(err) = self.fetch_repo_impl(repo_name) {
+        if let Err(err) = self.fetch_repo_impl(repo_name.clone()) {
             log::error!("Failed to fetch {repo_name}: {err:#}");
             self.logger.error(format!("{err:#}"));
         }
@@ -624,6 +624,7 @@ impl<'a> CommitLoader<'a> {
         Ok(())
     }
 
+    #[instrument(name = "verify_cached_commit", skip_all, fields(commit = %exported_commit.original_id))]
     fn verify_cached_commit(
         repo_storage: &RepoData,
         commit: &ThinCommit,

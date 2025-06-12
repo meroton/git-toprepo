@@ -772,7 +772,7 @@ where
     if let Some(tracer) = tracer.lock().unwrap().as_mut() {
         tracer.write_to_git_dir(gix::open(".")?.git_dir())?;
     }
-
+    log::warn!("FRME testing logging");
     git_toprepo::repo::MonoRepoProcessor::run(Path::new("."), error_mode, |processor, logger| {
         match args.command {
             Commands::Init(_) => unreachable!("init already processed"),
