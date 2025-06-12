@@ -54,6 +54,10 @@ impl RepoName {
             RepoName::SubRepo(name) => name.deref(),
         }
     }
+
+    pub fn as_str(&self) -> &str {
+        self.name()
+    }
 }
 
 impl std::fmt::Display for RepoName {

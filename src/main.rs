@@ -182,15 +182,13 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
                 })?;
             for submod_path in &*thin_head_commit.submodule_paths {
                 let Some(submod_url) = gitmod_infos.submodules.get(submod_path) else {
-                    logger.warning(format!("Missing submodule {submod_path} in .gitmodules"));
+                    tracing::warn!("Missing submodule {submod_path} in .gitmodules");
                     continue;
                 };
                 let submod_url = match submod_url {
                     Ok(submod_url) => submod_url,
                     Err(err) => {
-                        logger.warning(format!(
-                            "Invalid submodule URL for path {submod_path}: {err}"
-                        ));
+                        tracing::warn!("Invalid submodule URL for path {submod_path}: {err}");
                         continue;
                     }
                 };
@@ -210,7 +208,7 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
                     }
                     Ok(None) => unreachable!("Submodule {submod_path} should be in the config"),
                     Err(err) => {
-                        logger.warning(format!("Failed to load submodule {submod_path}: {err}"));
+                        tracing::warn!("Failed to load submodule {submod_path}: {err}");
                         continue;
                     }
                 }
@@ -589,7 +587,7 @@ fn fetch_with_refspec(
     Ok(())
 }
 
-#[tracing::instrument(skip(commit_loader_setup, processor, logger))]
+#[tracing::instrument(skip_all)]
 fn load_commits<F>(
     job_count: NonZeroUsize,
     commit_loader_setup: F,

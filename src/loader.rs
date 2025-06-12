@@ -20,6 +20,7 @@ use crate::repo_name::SubRepoName;
 use anyhow::Context;
 use anyhow::Result;
 use bstr::BStr;
+use bstr::ByteSlice;
 use itertools::Itertools as _;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -29,6 +30,7 @@ use std::fmt::Debug;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
+use tracing::instrument;
 
 enum TaskResult {
     RepoFetchDone(RepoName),
@@ -147,8 +149,10 @@ impl<'a> CommitLoader<'a> {
 
     /// Enqueue fetching of a repo with specific refspecs. Using `None` as
     /// refspec will fetch all heads and tags.
+    #[tracing::instrument(name = "fetch", skip_all, fields(repo = %repo_name))]
     pub fn fetch_repo(&mut self, repo_name: RepoName) {
         if let Err(err) = self.fetch_repo_impl(repo_name) {
+            tracing::error!("{err:#}");
             self.logger.error(format!("{err:#}"));
         }
     }
@@ -156,9 +160,7 @@ impl<'a> CommitLoader<'a> {
     fn fetch_repo_impl(&mut self, repo_name: RepoName) -> Result<()> {
         let repo_fetcher = self.get_or_create_repo_fetcher(&repo_name)?;
         if !repo_fetcher.enabled {
-            self.logger.warning(format!(
-                "Repo {repo_name} is disabled in the configuration, will not fetch"
-            ));
+            tracing::warn!("Repo is disabled in the configuration, will not fetch");
             return Ok(());
         }
         if repo_fetcher.fetch_state == RepoFetcherState::Idle {
@@ -169,12 +171,11 @@ impl<'a> CommitLoader<'a> {
     }
 
     /// Enqueue loading commits from a repo.
+    #[tracing::instrument(name = "load", skip_all, fields(repo = %repo_name))]
     pub fn load_repo(&mut self, repo_name: &RepoName) -> Result<()> {
         let repo_fetcher = self.get_or_create_repo_fetcher(repo_name)?;
         if !repo_fetcher.enabled {
-            self.logger.warning(format!(
-                "Repo {repo_name} is disabled in the configuration, will not load commits"
-            ));
+            tracing::warn!("Repo is disabled in the configuration, will not load commits");
             return Ok(());
         }
         match repo_fetcher.loading {
@@ -319,6 +320,7 @@ impl<'a> CommitLoader<'a> {
         let tx = self.tx.clone();
         let pb_clone = pb_status.clone();
         self.thread_pool.execute(move || {
+            let _span = tracing::info_span!("Fetching", repo = repo_name.as_str()).entered();
             if let Err(err) = fetcher.fetch_with_progress_bar(&pb_clone) {
                 logger.error(format!("{err:#}"));
             }
@@ -368,6 +370,7 @@ impl<'a> CommitLoader<'a> {
         let tx = self.tx.clone();
         let error_observer = self.error_observer.clone();
         self.thread_pool.execute(move || {
+            let _span = tracing::info_span!("load_repo", repo = repo_name.as_str()).entered();
             let single_repo_loader = SingleRepoLoader {
                 toprepo: &toprepo,
                 repo_name: &repo_name,
@@ -460,7 +463,11 @@ impl<'a> CommitLoader<'a> {
     ) {
         // Already logged when loading the repositories.
         for commit_id in &missing_commits {
-            logger.warning(format!("Missing commit in {repo_name}: {commit_id}"));
+            tracing::warn!(
+                repo = repo_name.as_str(),
+                commit = commit_id.to_hex().to_string(),
+                "Missing commit"
+            );
         }
         all_missing_commits.extend(missing_commits);
     }
@@ -583,6 +590,11 @@ impl<'a> CommitLoader<'a> {
         exported_commit: FastExportCommit,
         tree_id: TreeId,
     ) -> Result<()> {
+        let _span = tracing::info_span!(
+            "import_commit",
+            repo = repo_name.as_str(),
+            commit = %exported_commit.original_id
+        ).entered();
         let context = format!("Repo {} commit {}", repo_name, exported_commit.original_id);
         let hash_without_committer = exported_commit.hash_without_committer()?;
         let repo_data = &mut self.repos.get_mut(repo_name).unwrap().repo_data;
@@ -751,6 +763,7 @@ impl<'a> CommitLoader<'a> {
     }
 
     /// Converts a `FastExportCommit` to a `ThinCommit`.
+    #[instrument(name = "parsing", skip_all, fields(commit = %exported_commit.original_id))]
     fn export_thin_commit(
         repo_storage: &RepoData,
         exported_commit: FastExportCommit,
@@ -902,7 +915,10 @@ impl<'a> CommitLoader<'a> {
                         if mode != b"100644" && mode != b"100755" {
                             // Expecting regular file or executable file,
                             // not a symlink, directory, submodule, etc.
-                            logger.warning(format!("Bad mode {mode} for .gitmodules"));
+                            tracing::warn!(
+                                mode = mode.to_str_lossy().as_ref(),
+                                "Bad object type for .gitmodules"
+                            );
                             return Ok(GITMODULES_FILE_REMOVED);
                         }
                         return Ok(Some(Some(dot_gitmodules)));
@@ -918,6 +934,7 @@ impl<'a> CommitLoader<'a> {
     }
 
     /// Finds the `SubRepoName` for a submodule and logs warnings for potential problems.
+    #[instrument(name = "resolve_submodule", skip_all, fields(path = %path))]
     fn get_submod_repo_name(
         dot_gitmodules: Option<gix::ObjectId>,
         first_parent: Option<&Rc<ThinCommit>>,
@@ -941,19 +958,21 @@ impl<'a> CommitLoader<'a> {
 
         // Parse .gitmodules.
         let Some(dot_gitmodules) = dot_gitmodules else {
-            if let Some(logger) = get_logger() {
-                logger.warning(format!(
-                    "Cannot resolve submodule {path}, .gitmodules is missing"
-                ));
-            }
+            if get_logger().is_some() {
+                tracing::warn!("Cannot resolve submodule, .gitmodules is missing");
+            } else {
+                tracing::trace!("Cannot resolve submodule, .gitmodules is missing");
+            };
             return None;
         };
         let gitmodules_info = match dot_gitmodules_cache.get_from_blob_id(dot_gitmodules) {
             Ok(gitmodules_info) => gitmodules_info,
             Err(err) => {
-                if let Some(logger) = get_logger() {
-                    logger.warning(format!("{err:#}"));
-                }
+                if get_logger().is_some() {
+                    tracing::warn!("{err:#}");
+                } else {
+                    tracing::trace!("{err:#}");
+                };
                 return None;
             }
         };
@@ -961,15 +980,19 @@ impl<'a> CommitLoader<'a> {
         let submod_url = match gitmodules_info.submodules.get(path) {
             Some(Ok(url)) => url,
             Some(Err(err)) => {
-                if let Some(logger) = get_logger() {
-                    logger.warning(format!("{err:#}"));
-                }
+                if get_logger().is_some() {
+                    tracing::warn!("{err:#}");
+                } else {
+                    tracing::trace!("{err:#}");
+                };
                 return None;
             }
             None => {
-                if let Some(logger) = get_logger() {
-                    logger.warning(format!("Missing {path} in .gitmodules"));
-                }
+                if get_logger().is_some() {
+                    tracing::warn!("Missing submodule path in .gitmodules");
+                } else {
+                    tracing::trace!("Missing submodule path in .gitmodules");
+                };
                 return None;
             }
         };
@@ -977,6 +1000,11 @@ impl<'a> CommitLoader<'a> {
         let name = match config
             .get_or_insert_from_url(&full_url)
             .map_err(|err| {
+                if get_logger().is_some() {
+                    tracing::error!("{err:#}");
+                } else {
+                    tracing::trace!("{err:#}");
+                };
                 if let Some(logger) = get_logger() {
                     logger.error(format!("{err:#}"));
                 }
@@ -985,11 +1013,17 @@ impl<'a> CommitLoader<'a> {
         {
             crate::config::GetOrInsertOk::Found((name, _)) => name,
             crate::config::GetOrInsertOk::Missing(_) => {
-                if let Some(logger) = get_logger() {
-                    logger.warning(format!(
-                        "URL {full_url} is missing in the git-toprepo configuration"
-                    ));
-                }
+                if get_logger().is_some() {
+                    tracing::warn!(
+                        url = full_url.to_string(),
+                        "URL is missing in the git-toprepo configuration"
+                    );
+                } else {
+                    tracing::trace!(
+                        url = full_url.to_string(),
+                        "URL is missing in the git-toprepo configuration"
+                    );
+                };
                 return None;
             }
             crate::config::GetOrInsertOk::MissingAgain(_) => return None,

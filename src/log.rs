@@ -117,6 +117,7 @@ impl GlobalTraceLogger {
             .with_writer(log_writer.clone())
             .with_file(false)
             .with_line_number(false)
+            .without_time()
             // Disable ANSI colors in the log file.
             .with_ansi(false)
             // The only target is "git_toprepo", so it is not useful.
@@ -458,7 +459,7 @@ impl LogReceiver {
                 });
                 result
             })
-            .expect("failed to spawn thread");
+            .expect("spawn thread");
         let logger = Logger::new(tx);
         LogReceiver {
             logger_thread,

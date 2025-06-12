@@ -129,6 +129,7 @@ impl FastExportRepo {
         Self::load_from_path(repo_dir, Option::<Vec<&str>>::None, logger)
     }
 
+    #[tracing::instrument(name = "git-fast-export", skip_all)]
     pub fn load_from_path<I, S>(
         repo_dir: &Path,
         refs: Option<I>,
@@ -168,14 +169,17 @@ impl FastExportRepo {
         let stdout = process.stdout.take().context("Could not capture stdout")?;
         let mut stderr_reader =
             BufReader::new(process.stderr.take().context("Could not capture stderr")?);
+        let current_span = tracing::Span::current();
         std::thread::Builder::new()
             .name("git-fast-export-stderr".into())
             .spawn(move || {
+                tracing::warn_span!(parent: &current_span, "stderr");
                 for line in crate::util::ReadLossyCrOrLfLines::new(&mut stderr_reader) {
+                    tracing::warn!("{}", line.trim_end());
                     logger.warning(line.trim_end().to_owned());
                 }
             })
-            .expect("failed to spawn thread");
+            .expect("spawn thread");
 
         Ok(FastExportRepo {
             mark_oid_map: HashMap::new(),
@@ -481,6 +485,7 @@ pub struct FastImportRepo {
 }
 
 impl FastImportRepo {
+    #[tracing::instrument(name = "git-fast-import", skip_all)]
     pub fn new(repo_dir: &Path, logger: crate::log::Logger) -> Result<Self> {
         let logger = logger.with_context("git-fast-import");
         // If the upstream repository has been force updated, then this import
@@ -503,14 +508,17 @@ impl FastImportRepo {
             BufReader::new(process.stdout.take().context("Could not capture stdout")?);
         let mut stderr_reader =
             BufReader::new(process.stderr.take().context("Could not capture stderr")?);
+        let current_span = tracing::Span::current();
         std::thread::Builder::new()
             .name("git-fast-import-stderr".into())
             .spawn(move || {
+                tracing::warn_span!(parent: &current_span, "stderr");
                 for line in crate::util::ReadLossyCrOrLfLines::new(&mut stderr_reader) {
+                    tracing::warn!("{}", line.trim_end());
                     logger.warning(line.trim_end().to_owned());
                 }
             })
-            .expect("failed to spawn thread");
+            .expect("spawn thread");
         stdin_writer.write_all(b"feature done\n")?;
         Ok(FastImportRepo {
             process,

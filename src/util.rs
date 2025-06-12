@@ -484,7 +484,7 @@ impl<R: std::io::BufRead> Iterator for ReadLossyCrOrLfLines<R> {
 }
 
 /// Reads for example the stderr of a process and sends each line to a callback,
-/// with CR or LF stripped. All test after the last CR will be returned.
+/// with CR or LF stripped. All text after the last CR will be returned.
 pub fn read_stderr_progress_status<R, F>(input: R, status_callback: F) -> String
 where
     R: std::io::Read,
