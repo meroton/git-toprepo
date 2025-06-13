@@ -370,7 +370,7 @@ impl<'a> CommitLoader<'a> {
         let tx = self.tx.clone();
         let error_observer = self.error_observer.clone();
         self.thread_pool.execute(move || {
-            let _span = tracing::info_span!("load_repo", repo = repo_name.as_str()).entered();
+            let _span = tracing::info_span!("load ", name_suffix = repo_name.as_str(), repo = repo_name.as_str()).entered();
             let single_repo_loader = SingleRepoLoader {
                 toprepo: &toprepo,
                 repo_name: &repo_name,
@@ -475,6 +475,13 @@ impl<'a> CommitLoader<'a> {
         repo_name: &RepoName,
         cached_tips_to_load: Vec<CommitId>,
     ) -> Result<()> {
+        let _span = tracing::info_span!(
+            "load_cached ",
+            name_suffix = %repo_name.as_str(),
+            repo = %repo_name.as_str(),
+            num_cached_tips = cached_tips_to_load.len()
+        ).entered();
+
         // Load from cache, should be quick.
         let Some(cached_repo) = self.cached_repo_states.remove(repo_name) else {
             return Ok(());
@@ -589,9 +596,10 @@ impl<'a> CommitLoader<'a> {
         tree_id: TreeId,
     ) -> Result<()> {
         let _span = tracing::info_span!(
-            "import_commit",
-            repo = repo_name.as_str(),
-            commit = %exported_commit.original_id
+            "import ",
+            name_suffix = %format!("{repo_name} {}", exported_commit.original_id.to_hex()),
+            repo = %repo_name.as_str(),
+            commit = %exported_commit.original_id,
         ).entered();
         let context = format!("Repo {} commit {}", repo_name, exported_commit.original_id);
         let hash_without_committer = exported_commit.hash_without_committer()?;
@@ -624,7 +632,7 @@ impl<'a> CommitLoader<'a> {
         Ok(())
     }
 
-    #[instrument(name = "verify_cached_commit", skip_all, fields(commit = %commit.commit_id))]
+    // #[instrument(name = "verify_cached_commit", skip_all, fields(commit = %commit.commit_id))]
     fn verify_cached_commit(
         repo_storage: &RepoData,
         commit: &ThinCommit,
@@ -762,7 +770,6 @@ impl<'a> CommitLoader<'a> {
     }
 
     /// Converts a `FastExportCommit` to a `ThinCommit`.
-    #[instrument(name = "parsing", skip_all, fields(commit = %exported_commit.original_id))]
     fn export_thin_commit(
         repo_storage: &RepoData,
         exported_commit: FastExportCommit,
@@ -959,7 +966,7 @@ impl<'a> CommitLoader<'a> {
             if get_logger().is_some() {
                 log::warn!("Failed to resolve submodule {path} in commit FRME: .gitmodules is missing");
             } else {
-                log::trace!("Failed to resolve submodule {path} in commit FRME: .gitmodules is missing");
+                //log::trace!("Failed to resolve submodule {path} in commit FRME: .gitmodules is missing");
             };
             return None;
         };
@@ -969,7 +976,7 @@ impl<'a> CommitLoader<'a> {
                 if get_logger().is_some() {
                     log::warn!("Failed to resolve submodule {path} in commit FRME: {err:#}");
                 } else {
-                    log::trace!("Failed to resolve submodule {path} in commit FRME: {err:#}");
+                    //log::trace!("Failed to resolve submodule {path} in commit FRME: {err:#}");
                 };
                 return None;
             }
@@ -981,7 +988,7 @@ impl<'a> CommitLoader<'a> {
                 if get_logger().is_some() {
                     log::warn!("Failed to resolve submodule {path} in commit FRME: {err:#}");
                 } else {
-                    log::trace!("Failed to resolve submodule {path} in commit FRME: {err:#}");
+                    //log::trace!("Failed to resolve submodule {path} in commit FRME: {err:#}");
                 };
                 return None;
             }
@@ -989,7 +996,7 @@ impl<'a> CommitLoader<'a> {
                 if get_logger().is_some() {
                     log::warn!("Failed to resolve submodule {path} in commit FRME: Missing in .gitmodules");
                 } else {
-                    log::trace!("Failed to resolve submodule {path} in commit FRME: Missing in .gitmodules");
+                    //log::trace!("Failed to resolve submodule {path} in commit FRME: Missing in .gitmodules");
                 };
                 return None;
             }
@@ -1001,7 +1008,7 @@ impl<'a> CommitLoader<'a> {
                 if get_logger().is_some() {
                     log::error!("Failed to resolve submodule {path} in commit FRME: {err:#}");
                 } else {
-                    log::trace!("Failed to resolve submodule {path} in commit FRME: {err:#}");
+                    //log::trace!("Failed to resolve submodule {path} in commit FRME: {err:#}");
                 };
                 if let Some(logger) = get_logger() {
                     logger.error(format!("{err:#}"));
@@ -1016,9 +1023,9 @@ impl<'a> CommitLoader<'a> {
                         "URL {full_url} is missing in the git-toprepo configuration"
                     );
                 } else {
-                    log::trace!(
-                        "URL {full_url} is missing in the git-toprepo configuration"
-                    );
+                    //log::trace!(
+                    //    "URL {full_url} is missing in the git-toprepo configuration"
+                    //);
                 };
                 return None;
             }

@@ -404,8 +404,7 @@ impl ContextStack {
         }
         ret.push(Rc::new(event_entry));
         ret.sort_by_key(|entry| entry.id);
-        ret
-            .into_iter()
+        ret.into_iter()
             .map(|entry| {
                 (
                     entry.ph.clone(),
@@ -465,8 +464,7 @@ impl ContextStack {
             }
         }
         ret.sort_by_key(|entry| entry.id);
-        ret
-            .into_iter()
+        ret.into_iter()
             .map(|entry| {
                 (
                     entry.ph.clone(),
@@ -571,10 +569,22 @@ where
                         entry["tid"] = (*tid).into();
                         entry["args"] = json!({ "name": name });
                     } else {
+                        if let Some(callsite) = &callsite {
+                            println!("FRME {:?}", callsite.args);
+                        }
                         let ts = ts.unwrap();
                         let callsite = callsite.unwrap();
+                        let name_suffix = callsite
+                            .args
+                            .as_ref()
+                            .map_or(None, |call_args| {
+                                call_args.get("name_suffix").map(|v| {
+                                    v.as_str().map_or_else(|| v.to_string(), |s| s.to_owned())
+                                })
+                            })
+                            .unwrap_or_default();
                         entry["ts"] = ts.into();
-                        entry["name"] = callsite.name.clone().into();
+                        entry["name"] = format!("{}{name_suffix}", callsite.name).into();
                         entry["cat"] = callsite.target.clone().into();
                         entry["tid"] = callsite.tid.into();
 
@@ -592,8 +602,10 @@ where
                         }
 
                         if let Some(call_args) = &callsite.args {
+                            let mut call_args = (**call_args).clone();
+                            call_args.remove("name_suffix");
                             if !call_args.is_empty() {
-                                entry["args"] = (**call_args).clone().into();
+                                entry["args"] = call_args.into();
                             }
                         }
                     }
