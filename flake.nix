@@ -7,7 +7,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
-  outputs = {flake-parts, ... }@inputs:
+  outputs = {self, flake-parts, ... }@inputs:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = [
         "x86_64-linux"
@@ -27,6 +27,7 @@
             rustc = toolchain;
         };
         git-toprepo = let
+          
           fs = inputs.nixpkgs.lib.fileset;
           src = fs.toSource {
             root = ./.;
@@ -37,21 +38,41 @@
               ./Cargo.toml
             ];
           };
-        in rustPlatform.buildRustPackage {
-          inherit src;
-          name = "git-toprepo";
-          BUILD_SCM_TAG = "nix";
-          # Follows nix timestamp reproducibility by setting it to unix 1:
-          # https://nix.dev/manual/nix/2.22/language/derivations
-          BUILD_SCM_TIMESTAMP = "1";
-          # Hash the source outPath to make our version only depend on
-          # the input files for the build.
-          BUILD_SCM_REVISION = builtins.hashString "sha256" src.outPath;
-          nativeBuildInputs = with pkgs; [
-              git
-          ];
-          cargoLock.lockFile = "${src}/Cargo.lock";
-        };
+        # Use a fixed sha1 and timestamp to make the build cacheable.
+        # invalid timestamp that we assumen won't be present in the binary
+        # unless it's set by the `BUILD_SCM_TIMESTAMP`
+        fakeTimestamp = "19691332246060";
+        # sha1 generated with 'printf "git-toprepo" | sha1sum'
+        fakeRev = "a47761350505d860d99bac0bed8e02303874b689";
+        git-toprepo-cargo-bin = rustPlatform.buildRustPackage {
+            inherit src;
+            name = "git-toprepo";
+            BUILD_SCM_TAG = "nix";
+            BUILD_SCM_TIMESTAMP = fakeTimestamp;
+            BUILD_SCM_REVISION = fakeRev;
+            nativeBuildInputs = with pkgs; [
+                git
+            ];
+            cargoLock.lockFile = "${src}/Cargo.lock";
+          };
+        git-toprepo-patched = let
+            revision = if (self ? rev) then self.rev else self.dirtyRev;
+            timestamp = self.lastModifiedDate;
+          in pkgs.runCommand "git-toprepo-patched" {
+                PATH = pkgs.lib.strings.makeSearchPath "bin" [
+                  pkgs.gnused
+                ];
+              } ''
+            mkdir -p $out/bin
+            newRev="$(printf "${revision}" | sed 's/^\(.\{34\}\).*-dirty$/\1-dirty/')"
+            sed \
+              -e "s/${fakeRev}/$newRev/" \
+              -e "s/${fakeTimestamp}/${timestamp}/" \
+            ${git-toprepo-cargo-bin}/bin/git-toprepo \
+            > $out/bin/git-toprepo
+            chmod +x $out/bin/git-toprepo
+          '';
+        in git-toprepo-patched;
         in {
           packages = {
             inherit git-toprepo;
