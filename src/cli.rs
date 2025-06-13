@@ -134,7 +134,10 @@ pub struct ConfigValidate {
     pub file: PathBuf,
 }
 
-/// Dump internal states to stdout.
+/// Experimental feature: dump internal states to stdout.
+/// Do not script against these.
+// If you want to use these in your own tools and pipeline please file a feature
+// request issue so we can guarantee a stable API for your usecase.
 #[derive(Subcommand, Debug)]
 pub enum Dump {
     /// Dump the repository import cache as JSON to stdout.
