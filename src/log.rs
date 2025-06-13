@@ -2,6 +2,7 @@ use anyhow::Context as _;
 use anyhow::Result;
 use anyhow::bail;
 use colored::Colorize as _;
+use tracing_subscriber::Layer;
 use std::collections::HashSet;
 use std::io::Write as _;
 use std::ops::Deref;
@@ -171,8 +172,12 @@ impl GlobalTraceLogger {
             .build();
 
         let subscriber = tracing_subscriber::Registry::default()
-            .with(log_layer)
-            .with(chrome_layer);
+            .with(log_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| {
+                metadata.level() >= &tracing::Level::INFO
+            })))
+            .with(chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| {
+                metadata.level() >= &tracing::Level::INFO
+            })));
         tracing::subscriber::set_global_default(subscriber).expect("set global subscriber");
 
         Ok(Self {

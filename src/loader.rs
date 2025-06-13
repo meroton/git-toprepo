@@ -624,7 +624,7 @@ impl<'a> CommitLoader<'a> {
         Ok(())
     }
 
-    #[instrument(name = "verify_cached_commit", skip_all, fields(commit = %exported_commit.original_id))]
+    #[instrument(name = "verify_cached_commit", skip_all, fields(commit = %commit.commit_id))]
     fn verify_cached_commit(
         repo_storage: &RepoData,
         commit: &ThinCommit,
