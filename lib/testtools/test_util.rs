@@ -74,7 +74,7 @@ pub(crate) fn maybe_keep_tempdir_impl(
     keep_var: Option<OsString>,
 ) -> MaybePermanentTempDir {
     if keep_var == Some("1".into()) {
-        let tempdir = tempdir.into_path();
+        let tempdir = tempdir.keep();
         eprintln!("Keeping temporary directory: {}", tempdir.display());
         MaybePermanentTempDir::Keep(tempdir)
     } else {
