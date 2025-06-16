@@ -685,6 +685,7 @@ dependencies = [
  "chrono",
  "clap",
  "colored",
+ "git-toprepo-testtools",
  "gix",
  "gix-testtools",
  "hex",
@@ -705,6 +706,14 @@ dependencies = [
  "threadpool",
  "toml",
  "url",
+]
+
+[[package]]
+name = "git-toprepo-testtools"
+version = "0.0.0"
+dependencies = [
+ "rstest",
+ "tempfile",
 ]
 
 [[package]]

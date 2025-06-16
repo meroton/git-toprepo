@@ -30,6 +30,7 @@
           src = fs.toSource {
             root = ./.;
             fileset = fs.unions [
+              ./lib
               ./src
               ./tests
               ./Cargo.lock

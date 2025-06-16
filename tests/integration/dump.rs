@@ -10,17 +10,15 @@ const GENERIC_CONFIG: &str = r#"
 
 #[test]
 fn test_dump_outside_git_repo() {
-    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-dump-").unwrap();
-    // Debug with &temp_dir.into_path() to persist the path.
-    // TODO: Parameterize all integrations tests to keep their temporary files.
-    // Possibly with an environment variable?
-    let temp_dir = temp_dir.path();
+    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
+        "git_toprepo-test_dump_outside_git_repo-",
+    );
 
     std::fs::write(temp_dir.join(".gittoprepo.toml"), GENERIC_CONFIG).unwrap();
 
     Command::cargo_bin("git-toprepo")
         .unwrap()
-        .current_dir(temp_dir)
+        .current_dir(&temp_dir)
         // An arbitrary subcommand that requires it to be initialized
         .arg("dump")
         .arg("import-cache")

@@ -20,16 +20,17 @@ use std::path::Path;
 /// # Examples
 ///
 /// ```rust
+/// // See [`git_toprepo_testtools::test_util::maybe_keep_tempdir`] how to set
+/// // the environment variable to persist the temporary directory.
 /// let tmp_path = readme_example_tempdir();
-/// // To persistent the directory, use:
-/// // let tmp_path = &tmp_dir.into_path();
-/// let tmp_path = tmp_dir.path();
 /// let top_repo_path = tmp_path.join("top");
 /// assert!(!top_repo_path.exists());
 /// ```
-pub fn readme_example_tempdir() -> tempfile::TempDir {
-    gix_testtools::scripted_fixture_writable("../integration/fixtures/make_readme_example.sh")
-        .unwrap()
+pub fn readme_example_tempdir() -> git_toprepo_testtools::test_util::MaybePermanentTempDir {
+    git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable("../integration/fixtures/make_readme_example.sh")
+            .unwrap(),
+    )
 }
 
 pub fn clone(toprepo: &Path, monorepo: &Path) {

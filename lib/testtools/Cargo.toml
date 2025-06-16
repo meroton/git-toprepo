@@ -1,0 +1,14 @@
+[package]
+name = "git-toprepo-testtools"
+version = "0.0.0"
+description = "Test utilities for git-toprepo."
+license = "MIT OR Apache-2.0"
+edition = "2024"
+
+[lib]
+name = "git_toprepo_testtools"
+path = "lib.rs"
+
+[dependencies]
+rstest = "0.25.0"
+tempfile = "3.13.0"
