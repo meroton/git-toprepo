@@ -9,6 +9,8 @@ use crate::git_fast_export_import::FastExportEntry;
 use crate::git_fast_export_import::FastExportRepo;
 use crate::git_fast_export_import::FileChange;
 use crate::gitmodules::SubmoduleUrlExt as _;
+use crate::log::InterruptedError;
+use crate::log::InterruptedResult;
 use crate::log::Logger;
 use crate::repo::RepoData;
 use crate::repo::RepoStates;
@@ -31,10 +33,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 enum TaskResult {
-    RepoFetchDone(RepoName),
+    RepoFetchDone(RepoName, Result<()>),
     LoadCachedCommits(RepoName, Vec<CommitId>, oneshot::Sender<Result<()>>),
     ImportCommit(Arc<RepoName>, FastExportCommit, TreeId),
-    LoadRepoDone(RepoName),
+    LoadRepoDone(RepoName, InterruptedResult<()>),
 }
 
 #[derive(Debug)]
@@ -147,10 +149,9 @@ impl<'a> CommitLoader<'a> {
 
     /// Enqueue fetching of a repo with specific refspecs. Using `None` as
     /// refspec will fetch all heads and tags.
-    pub fn fetch_repo(&mut self, repo_name: RepoName) {
-        if let Err(err) = self.fetch_repo_impl(repo_name) {
-            self.logger.error(format!("{err:#}"));
-        }
+    pub fn fetch_repo(&mut self, repo_name: RepoName) -> Result<()> {
+        let result = self.fetch_repo_impl(repo_name);
+        self.error_observer.maybe_consume(&self.logger, result)
     }
 
     fn fetch_repo_impl(&mut self, repo_name: RepoName) -> Result<()> {
@@ -194,12 +195,15 @@ impl<'a> CommitLoader<'a> {
     }
 
     /// Waits for all ongoing tasks to finish.
-    pub fn join(mut self) {
-        while !self.error_observer.should_interrupt() {
-            if !self.process_one_event() {
-                break;
+    pub fn join(mut self) -> Result<()> {
+        let result = (|| {
+            while !self.error_observer.should_interrupt() {
+                if !self.process_one_event()? {
+                    return Ok(());
+                }
             }
-        }
+            Ok(())
+        })();
         self.thread_pool.join();
         self.cached_repo_states.clear();
         self.cached_repo_states.extend(
@@ -207,11 +211,12 @@ impl<'a> CommitLoader<'a> {
                 .into_iter()
                 .map(|(repo_name, repo_fetcher)| (repo_name, repo_fetcher.repo_data)),
         );
+        result
     }
 
     /// Receives one event and processes it. Returns true if there are more
     /// events to be expected.
-    pub fn process_one_event(&mut self) -> bool {
+    pub fn process_one_event(&mut self) -> Result<bool> {
         self.fetch_progress
             .set_queue_size(self.repos_to_fetch.len());
         self.load_progress.set_queue_size(self.repos_to_load.len());
@@ -224,19 +229,18 @@ impl<'a> CommitLoader<'a> {
                         self.ongoing_jobs_in_threads += 1;
                         self.fetch_progress.start(repo_name.to_string(), pbs);
                     }
-                    Err(err) => self.logger.error(format!("{err:#}")),
+                    Err(err) => {
+                        // Fail unless keep-going.
+                        self.error_observer.maybe_consume(&self.logger, Err(err))?;
+                    }
                 }
-                return true;
+                return Ok(true);
             }
             if let Some(repo_name) = self.repos_to_load.pop_front() {
-                match self.start_load_repo_job(repo_name.clone()) {
-                    Ok(()) => {
-                        self.ongoing_jobs_in_threads += 1;
-                        self.load_progress.start(repo_name.to_string(), Vec::new());
-                    }
-                    Err(err) => self.logger.error(format!("{err:#}")),
-                }
-                return true;
+                self.start_load_repo_job(repo_name.clone());
+                self.ongoing_jobs_in_threads += 1;
+                self.load_progress.start(repo_name.to_string(), Vec::new());
+                return Ok(true);
             }
         }
 
@@ -249,7 +253,7 @@ impl<'a> CommitLoader<'a> {
             None => {
                 if self.ongoing_jobs_in_threads == 0 {
                     // No more work to do and no more messages. Shutdown.
-                    return false;
+                    return Ok(false);
                 }
                 // Blocking message fetching.
                 match self.rx.recv() {
@@ -264,30 +268,61 @@ impl<'a> CommitLoader<'a> {
 
         // Process one messages.
         match msg {
-            TaskResult::RepoFetchDone(repo_name) => {
-                self.finish_fetch_repo_job(&repo_name);
+            TaskResult::RepoFetchDone(repo_name, result) => {
                 self.ongoing_jobs_in_threads -= 1;
                 self.fetch_progress.finish(&repo_name.to_string());
+                match result {
+                    Ok(()) => {
+                        self.finish_fetch_repo_job(&repo_name);
+                    }
+                    Err(err) => {
+                        self.error_observer.maybe_consume(&self.logger, Err(err))?;
+                    }
+                }
             }
             TaskResult::LoadCachedCommits(repo_name, cached_tips_to_load, result_channel) => {
-                let result = self.load_cached_commits(&repo_name, cached_tips_to_load);
+                let result = match self.load_cached_commits(&repo_name, cached_tips_to_load) {
+                    Ok(()) => Ok(()),
+                    Err(InterruptedError::Interrupted) => {
+                        // The caller can continue processing if they want.
+                        return Ok(true);
+                    }
+                    Err(InterruptedError::Normal(err)) => Err(err),
+                };
                 result_channel
                     .send(result)
                     .expect("result from loading cached commits has not been set yet");
             }
             TaskResult::ImportCommit(repo_name, commit, tree_id) => {
-                if let Err(err) = self.import_commit(&repo_name, commit, tree_id) {
-                    self.logger.error(format!("{err:#}"));
+                match self.import_commit(&repo_name, commit, tree_id) {
+                    Ok(()) => self.import_progress.inc(1),
+                    Err(InterruptedError::Interrupted) => {
+                        // The caller can continue processing if they want.
+                        return Ok(true);
+                    }
+                    Err(InterruptedError::Normal(err)) => {
+                        self.error_observer.maybe_consume(&self.logger, Err(err))?;
+                    }
                 }
-                self.import_progress.inc(1);
             }
-            TaskResult::LoadRepoDone(repo_name) => {
-                self.finish_load_repo_job(&repo_name);
+            TaskResult::LoadRepoDone(repo_name, result) => {
                 self.ongoing_jobs_in_threads -= 1;
                 self.load_progress.finish(&repo_name.to_string());
+                match result {
+                    Ok(()) => {
+                        let result = self.finish_load_repo_job(&repo_name);
+                        self.error_observer.maybe_consume(&self.logger, result)?;
+                    }
+                    Err(InterruptedError::Interrupted) => {
+                        // This doesn't mean there are no more events to process.
+                    }
+                    Err(InterruptedError::Normal(err)) => {
+                        self.error_observer.maybe_consume(&self.logger, Err(err))?;
+                    }
+                }
             }
         }
-        true
+        Ok(true)
     }
 
     fn start_fetch_repo_job(&mut self, repo_name: RepoName) -> Result<Vec<indicatif::ProgressBar>> {
@@ -315,15 +350,14 @@ impl<'a> CommitLoader<'a> {
         // before it is added as multiple ProgressBars will trash eachother.
         pb_status.enable_steady_tick(std::time::Duration::from_millis(1000));
 
-        let logger = self.logger.with_context(&format!("Fetching {repo_name}"));
         let tx = self.tx.clone();
         let pb_clone = pb_status.clone();
         self.thread_pool.execute(move || {
-            if let Err(err) = fetcher.fetch_with_progress_bar(&pb_clone) {
-                logger.error(format!("{err:#}"));
-            }
-            tx.send(TaskResult::RepoFetchDone(repo_name))
-                .expect("receiver never close");
+            let result = fetcher
+                .fetch_with_progress_bar(&pb_clone)
+                .with_context(|| format!("Fetching {repo_name}"));
+            // Sending might fail on interrupt.
+            let _ = tx.send(TaskResult::RepoFetchDone(repo_name, result));
         });
         Ok(vec![pb_url, pb_status])
     }
@@ -344,7 +378,7 @@ impl<'a> CommitLoader<'a> {
     /// reachable commits, from `refs/namespaces/{repo_name}/*`, and their
     /// referenced submodules and stores them in `storage`. Commits that are
     /// already in `storage` are skipped.
-    fn start_load_repo_job(&self, repo_name: RepoName) -> Result<()> {
+    fn start_load_repo_job(&self, repo_name: RepoName) {
         let context = format!("Loading commits in {repo_name}");
         let logger = self.logger.with_context(&context);
 
@@ -380,7 +414,10 @@ impl<'a> CommitLoader<'a> {
                 repo_name: Arc<RepoName>,
             }
             impl SingleLoadRepoCallback for LoadRepoCallback {
-                fn load_cached_commits(&self, cached_tips_to_load: Vec<CommitId>) -> Result<()> {
+                fn load_cached_commits(
+                    &self,
+                    cached_tips_to_load: Vec<CommitId>,
+                ) -> InterruptedResult<()> {
                     let (result_tx, result_rx) = oneshot::channel();
                     self.tx
                         .send(TaskResult::LoadCachedCommits(
@@ -388,18 +425,28 @@ impl<'a> CommitLoader<'a> {
                             cached_tips_to_load,
                             result_tx,
                         ))
-                        .expect("receiver never close");
-                    result_rx.recv().expect("result channel never closed")
+                        // The receiver only closes to fail fast.
+                        .map_err(|_| InterruptedError::Interrupted)?;
+                    result_rx
+                        .recv()
+                        // The sender only closes to fail fast.
+                        .map_err(|_| InterruptedError::Interrupted)?
+                        .map_err(InterruptedError::Normal)
                 }
 
-                fn import_commit(&self, commit: FastExportCommit, tree_id: TreeId) -> Result<()> {
+                fn import_commit(
+                    &self,
+                    commit: FastExportCommit,
+                    tree_id: TreeId,
+                ) -> InterruptedResult<()> {
                     self.tx
                         .send(TaskResult::ImportCommit(
                             self.repo_name.clone(),
                             commit,
                             tree_id,
                         ))
-                        .expect("receiver never close");
+                        // The receiver only closes to fail fast.
+                        .map_err(|_| InterruptedError::Interrupted)?;
                     Ok(())
                 }
             }
@@ -408,18 +455,14 @@ impl<'a> CommitLoader<'a> {
                 repo_name: Arc::new(repo_name.clone()),
             };
 
-            if let Err(err) =
-                single_repo_loader.load_repo(&existing_commits, &cached_commits, &callback)
-            {
-                logger.error(format!("{err:#}"));
-            }
-            tx.send(TaskResult::LoadRepoDone(repo_name))
-                .expect("receiver never close");
+            let result =
+                single_repo_loader.load_repo(&existing_commits, &cached_commits, &callback);
+            // Send only fails if the receiver has been interrupted.
+            let _ = tx.send(TaskResult::LoadRepoDone(repo_name, result));
         });
-        Ok(())
     }
 
-    fn finish_load_repo_job(&mut self, repo_name: &RepoName) {
+    fn finish_load_repo_job(&mut self, repo_name: &RepoName) -> Result<()> {
         let repo_fetcher = self.repos.get_mut(repo_name).unwrap();
         // Load again?
         match repo_fetcher.loading {
@@ -444,12 +487,13 @@ impl<'a> CommitLoader<'a> {
                             &self.logger,
                         );
                     } else {
-                        self.fetch_repo(repo_name.clone());
+                        self.fetch_repo(repo_name.clone())?;
                     }
                 }
             }
             LoadRepoState::Done => unreachable!(),
         }
+        Ok(())
     }
 
     fn add_missing_commits(
@@ -469,7 +513,7 @@ impl<'a> CommitLoader<'a> {
         &mut self,
         repo_name: &RepoName,
         cached_tips_to_load: Vec<CommitId>,
-    ) -> Result<()> {
+    ) -> InterruptedResult<()> {
         // Load from cache, should be quick.
         let Some(cached_repo) = self.cached_repo_states.remove(repo_name) else {
             return Ok(());
@@ -479,11 +523,12 @@ impl<'a> CommitLoader<'a> {
             .get_mut(repo_name)
             .expect("repo_fetcher already exists");
         if repo_fetcher.repo_data.url != cached_repo.url {
-            anyhow::bail!(
+            return Err(anyhow::anyhow!(
                 "Cached URL was {} instead of {}",
                 cached_repo.url,
                 repo_fetcher.repo_data.url,
-            );
+            )
+            .into());
         }
         let reverse_dedup_cache = cached_repo
             .dedup_cache
@@ -569,12 +614,14 @@ impl<'a> CommitLoader<'a> {
             }
             Ok(())
         })();
+        self.load_progress.inc_num_cached_done();
+        self.error_observer.maybe_consume(&self.logger, result)?;
         // Load all submodule commits that are needed so far.
         for needed_commit in needed_commits {
-            self.ensure_commit_available(needed_commit);
+            let result = self.ensure_commit_available(needed_commit);
+            self.error_observer.maybe_consume(&self.logger, result)?;
         }
-        self.load_progress.inc_num_cached_done();
-        result
+        Ok(())
     }
 
     fn import_commit(
@@ -582,7 +629,7 @@ impl<'a> CommitLoader<'a> {
         repo_name: &RepoName,
         exported_commit: FastExportCommit,
         tree_id: TreeId,
-    ) -> Result<()> {
+    ) -> InterruptedResult<()> {
         let context = format!("Repo {} commit {}", repo_name, exported_commit.original_id);
         let hash_without_committer = exported_commit.hash_without_committer()?;
         let repo_data = &mut self.repos.get_mut(repo_name).unwrap().repo_data;
@@ -594,7 +641,8 @@ impl<'a> CommitLoader<'a> {
             &mut self.dot_gitmodules_cache,
             &self.logger.with_context(&context),
         )
-        .context(context)?;
+        .context(context)
+        .map_err(InterruptedError::Normal)?;
         // Always overwrite the cache entry with the newest commit with
         // the same key. It makes most sense to reuse the newest commit
         // available.
@@ -609,7 +657,8 @@ impl<'a> CommitLoader<'a> {
 
         // Any of the submodule updates that need to be fetched?
         for needed_commit in updated_submodule_commits {
-            self.ensure_commit_available(needed_commit);
+            let result = self.ensure_commit_available(needed_commit);
+            self.error_observer.maybe_consume(&self.logger, result)?;
         }
         Ok(())
     }
@@ -701,7 +750,7 @@ impl<'a> CommitLoader<'a> {
         Ok(())
     }
 
-    fn ensure_commit_available(&mut self, needed_commit: NeededCommit) {
+    fn ensure_commit_available(&mut self, needed_commit: NeededCommit) -> Result<()> {
         let repo_name: RepoName = RepoName::SubRepo(needed_commit.repo_name);
         let commit_id = needed_commit.commit_id;
         // Already loaded?
@@ -716,10 +765,10 @@ impl<'a> CommitLoader<'a> {
         if repo_fetcher.repo_data.thin_commits.contains_key(&commit_id)
             || repo_fetcher.missing_commits.contains(&commit_id)
         {
-            return;
+            return Ok(());
         }
         if !repo_fetcher.enabled {
-            return;
+            return Ok(());
         }
         match repo_fetcher.loading {
             LoadRepoState::NotLoadedYet => {
@@ -743,11 +792,12 @@ impl<'a> CommitLoader<'a> {
                 } else {
                     repo_fetcher.needed_commits.insert(commit_id);
                     if self.fetch_missing_commits {
-                        self.fetch_repo(repo_name);
+                        self.fetch_repo(repo_name)?;
                     }
                 }
             }
         }
+        Ok(())
     }
 
     /// Converts a `FastExportCommit` to a `ThinCommit`.
@@ -1006,9 +1056,13 @@ struct SingleRepoLoader<'a> {
 }
 
 trait SingleLoadRepoCallback {
-    fn load_cached_commits(&self, cached_tips_to_load: Vec<CommitId>) -> Result<()>;
+    fn load_cached_commits(&self, cached_tips_to_load: Vec<CommitId>) -> InterruptedResult<()>;
 
-    fn import_commit(&self, exported_commit: FastExportCommit, tree_id: TreeId) -> Result<()>;
+    fn import_commit(
+        &self,
+        exported_commit: FastExportCommit,
+        tree_id: TreeId,
+    ) -> InterruptedResult<()>;
 }
 
 impl SingleRepoLoader<'_> {
@@ -1017,13 +1071,17 @@ impl SingleRepoLoader<'_> {
         existing_commits: &HashSet<CommitId>,
         cached_commits: &HashSet<CommitId>,
         callback: &impl SingleLoadRepoCallback,
-    ) -> Result<()> {
+    ) -> InterruptedResult<()> {
         let (mut refs_arg, mut cached_tips_to_load, mut unknown_commit_count) = self
             .get_refs_to_load_arg(existing_commits, cached_commits)
             .context("Failed to find refs to load")?;
         if !cached_tips_to_load.is_empty()
             && let Err(err) = callback.load_cached_commits(cached_tips_to_load)
         {
+            let err = match err {
+                InterruptedError::Interrupted => return Err(InterruptedError::Interrupted),
+                InterruptedError::Normal(err) => err,
+            };
             // Loading the cache failed, try again without the cache. Some of
             // the commits might have been loaded, but this kind of failure
             // should be rare so it is not worth updating existing_commits.
@@ -1031,12 +1089,18 @@ impl SingleRepoLoader<'_> {
                 .warning(format!("Discarding cache for {}: {err:#}", self.repo_name));
             (refs_arg, cached_tips_to_load, unknown_commit_count) = self
                 .get_refs_to_load_arg(existing_commits, &HashSet::new())
-                .context("Failed to find refs to load")?;
+                .context("Failed to find refs to load")
+                .map_err(InterruptedError::Normal)?;
             assert!(cached_tips_to_load.is_empty());
         }
         if !refs_arg.is_empty() {
-            self.load_from_refs(refs_arg, unknown_commit_count, callback)
-                .context("Failed to load commits")?;
+            match self.load_from_refs(refs_arg, unknown_commit_count, callback) {
+                Ok(()) => Ok(()),
+                Err(InterruptedError::Interrupted) => Err(InterruptedError::Interrupted),
+                Err(InterruptedError::Normal(err)) => {
+                    Err(err.context("Failed to load commits").into())
+                }
+            }?
         }
         Ok(())
     }
@@ -1108,7 +1172,7 @@ impl SingleRepoLoader<'_> {
         refs_arg: Vec<String>,
         _unknown_commit_count: usize, // TODO: Remove.
         callback: &impl SingleLoadRepoCallback,
-    ) -> Result<()> {
+    ) -> InterruptedResult<()> {
         // TODO: self.pb.set_message(format!("Exporting commits"));
 
         // TODO: The super repository will get an empty URL, which is exactly

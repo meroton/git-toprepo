@@ -784,8 +784,6 @@ mod tests {
     use std::borrow::Borrow as _;
     use std::path::Path;
     use std::path::PathBuf;
-    use std::sync::Arc;
-    use std::sync::atomic::AtomicUsize;
 
     /// Copied from `tests/fixtures/toprepo.rs`.
     fn commit_env() -> HashMap<String, String> {
@@ -880,8 +878,7 @@ mod tests {
         // Debug with tmp_dir.into_path() which persists the directory.
         let example_repo = setup_example_repo(tmp_dir.path());
 
-        let (log_accumulator, logger) =
-            crate::log::tests::LogAccumulator::new(Arc::new(AtomicUsize::new(0)));
+        let (log_accumulator, logger) = crate::log::tests::LogAccumulator::new();
         let mut repo =
             FastExportRepo::load_from_path_all_refs(example_repo.as_path(), logger).unwrap();
         let commit_a = match repo.next().unwrap().unwrap() {
@@ -892,7 +889,7 @@ mod tests {
             FastExportEntry::Commit(c) => c,
             _ => panic!("Expected FastExportCommit"),
         };
-        log_accumulator.join_no_warnings().unwrap();
+        log_accumulator.join_nothing_logged().unwrap();
 
         assert_eq!(
             commit_a.branch,
@@ -972,8 +969,7 @@ mod tests {
             .check_success_with_stderr()
             .unwrap();
 
-        let (log_accumulator, logger) =
-            crate::log::tests::LogAccumulator::new(Arc::new(AtomicUsize::new(0)));
+        let (log_accumulator, logger) = crate::log::tests::LogAccumulator::new();
 
         let fast_export_repo =
             FastExportRepo::load_from_path_all_refs(from_repo_path.as_path(), logger.clone())
@@ -1012,7 +1008,7 @@ mod tests {
         }
         fast_import_repo.wait().unwrap();
 
-        log_accumulator.join_no_warnings().unwrap();
+        log_accumulator.join_nothing_logged().unwrap();
 
         let from_ref = git_command(&from_repo_path)
             .args(["rev-parse", "refs/heads/main"])
