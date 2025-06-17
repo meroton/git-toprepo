@@ -166,42 +166,6 @@ impl From<anyhow::Error> for InterruptedError {
 
 pub type InterruptedResult<T> = Result<T, InterruptedError>;
 
-pub enum KeepGoingError {
-    Normal(anyhow::Error),
-    KeepGoing,
-}
-
-impl KeepGoingError {
-    pub fn wrap(err: anyhow::Error) -> Self {
-        KeepGoingError::Normal(err)
-    }
-
-    pub fn map_keep_going<T, F>(self, f: F) -> Result<T>
-    where
-        F: FnOnce() -> Result<T>,
-    {
-        match self {
-            KeepGoingError::Normal(err) => Err(err),
-            KeepGoingError::KeepGoing => f(),
-        }
-    }
-
-    pub fn keep_going_ok(self) -> Result<()> {
-        match self {
-            KeepGoingError::KeepGoing => Ok(()),
-            KeepGoingError::Normal(err) => Err(err),
-        }
-    }
-}
-
-impl From<anyhow::Error> for KeepGoingError {
-    fn from(err: anyhow::Error) -> Self {
-        KeepGoingError::Normal(err)
-    }
-}
-
-pub type KeepGoingResult<T> = Result<T, KeepGoingError>;
-
 #[derive(Clone)]
 pub struct ErrorObserver {
     /// Number of errors reported.
@@ -279,25 +243,6 @@ impl ErrorObserver {
                         Ok(())
                     }
                     ErrorMode::FailFast => Err(err),
-                }
-            }
-        }
-    }
-
-    /// Write the error to the logger if in keep-going mode and return the
-    /// result. Return the error in fail-fast mode.
-    pub fn log_and_error<T>(&self, logger: &Logger, result: Result<T>) -> KeepGoingResult<T> {
-        match result {
-            Ok(value) => Ok(value),
-            Err(err) => {
-                self.counter
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                match self.strategy {
-                    ErrorMode::KeepGoing => {
-                        logger.error(format!("{err:#}"));
-                        Err(KeepGoingError::KeepGoing)
-                    }
-                    ErrorMode::FailFast => Err(KeepGoingError::Normal(err)),
                 }
             }
         }
