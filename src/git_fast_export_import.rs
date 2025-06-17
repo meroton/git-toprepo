@@ -138,7 +138,7 @@ impl FastExportRepo {
         I: IntoIterator<Item = S>,
         S: AsRef<std::ffi::OsStr>,
     {
-        let logger = logger.with_context("git-fast-export");
+        let _log_scope_guard = crate::log::scope("git-fast-export");
         let mut cmd = git_command(repo_dir);
         cmd.args([
             "fast-export",
@@ -482,7 +482,7 @@ pub struct FastImportRepo {
 
 impl FastImportRepo {
     pub fn new(repo_dir: &Path, logger: crate::log::Logger) -> Result<Self> {
-        let logger = logger.with_context("git-fast-import");
+        let _log_scope_guard = crate::log::scope("git-fast-import");
         // If the upstream repository has been force updated, then this import
         // should also force update.
         //

@@ -1,6 +1,8 @@
 use anyhow::Result;
 use anyhow::bail;
 use colored::Colorize as _;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
@@ -35,21 +37,104 @@ impl LogLevel {
     }
 }
 
+thread_local! {
+    pub static CURRENT_LOG_SCOPE: RefCell<Option<Rc<LogScopeContext>>> = const { RefCell::new(None) };
+}
+
+struct LogScopeContext {
+    /// Parent scope.
+    parent: Option<Rc<LogScopeContext>>,
+    /// Previous context in this thread.
+    previous: Option<Rc<LogScopeContext>>,
+    context: String,
+}
+
+impl LogScopeContext {
+    /// Creates a full context string that includes the parent scopes.
+    pub fn full_context(&self) -> String {
+        if let Some(parent) = &self.parent {
+            let parent_full_context = parent.full_context();
+            if !parent_full_context.is_empty() {
+                return format!("{parent_full_context}: {}", self.context);
+            }
+        }
+        self.context.clone()
+    }
+}
+
+pub fn current_scope() -> String {
+    CURRENT_LOG_SCOPE.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map_or_else(String::new, |scope| scope.full_context())
+    })
+}
+
+/// A scope for logging that has been entered.
+pub struct LogScope {
+    inner: Rc<LogScopeContext>,
+}
+
+impl LogScope {
+    pub fn new(context: String) -> Self {
+        let parent = CURRENT_LOG_SCOPE.with(|cell| cell.borrow().clone());
+        Self::new_and_enter(context, parent)
+    }
+
+    /// Creates a new logging scope with the given context and enters it. The
+    /// `parent` can refer to a scope from a different thread.
+    pub fn with_parent(context: String, parent: &LogScope) -> Self {
+        Self::new_and_enter(context, Some(parent.inner.clone()))
+    }
+
+    fn new_and_enter(context: String, parent: Option<Rc<LogScopeContext>>) -> Self {
+        let inner = CURRENT_LOG_SCOPE.with(|cell| {
+            cell.replace_with(|previous| {
+                Some(Rc::new(LogScopeContext {
+                    parent: parent.clone(),
+                    previous: previous.take(),
+                    context,
+                }))
+            });
+            cell.borrow().clone().unwrap()
+        });
+        LogScope { inner }
+    }
+
+    /// Creates a full context string that includes the parent scopes.
+    pub fn full_context(&self) -> String {
+        self.inner.full_context()
+    }
+}
+
+impl Drop for LogScope {
+    fn drop(&mut self) {
+        let active_scope = CURRENT_LOG_SCOPE
+            .with(|cell| cell.replace(self.inner.previous.clone()))
+            .expect("LogScope exists in thread");
+        debug_assert!(
+            Rc::ptr_eq(&active_scope, &self.inner),
+            "LogScope was not dropped in the correct order"
+        );
+    }
+}
+
+/// Creates a new logging scope with the given context and enters it.
+pub fn scope(context: impl Into<String>) -> LogScope {
+    LogScope::new(context.into())
+}
+
 /// Because we cannot change the git history, bad data need to be gracefully
 /// handled as warnings. These kind of problems are reported through this
 /// logger.
 #[derive(Clone)]
 pub struct Logger {
-    context: String,
     sender: std::sync::mpsc::Sender<LogTask>,
 }
 
 impl Logger {
     fn new(sender: std::sync::mpsc::Sender<LogTask>) -> Self {
-        Logger {
-            context: String::new(),
-            sender,
-        }
+        Logger { sender }
     }
 
     /// Creates a new logger that prints to stderr.
@@ -90,19 +175,12 @@ impl Logger {
         result
     }
 
-    pub fn with_context(&self, context: &str) -> Self {
-        let full_context = format!("{}: {context}", self.context);
-        Logger {
-            context: full_context,
-            sender: self.sender.clone(),
-        }
-    }
-
     pub fn log(&self, level: LogLevel, msg: String) {
+        let context = current_scope();
         self.sender
             .send(LogTask {
                 level,
-                context: self.context.clone(),
+                context,
                 message: msg,
             })
             .expect("receiver never closed");
