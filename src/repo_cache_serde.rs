@@ -60,17 +60,12 @@ impl SerdeTopRepoCache {
     pub fn load_from_repo(
         toprepo: &gix::Repository,
         config_checksum: Option<&str>,
-        warning_callback: impl Fn(&str),
     ) -> Result<Self> {
-        Self::load_from_git_dir(toprepo.git_dir(), config_checksum, warning_callback)
+        Self::load_from_git_dir(toprepo.git_dir(), config_checksum)
     }
 
     /// Load parsed git repository information from `.git/toprepo/`.
-    pub fn load_from_git_dir(
-        git_dir: &Path,
-        config_checksum: Option<&str>,
-        warning_callback: impl Fn(&str),
-    ) -> Result<Self> {
+    pub fn load_from_git_dir(git_dir: &Path, config_checksum: Option<&str>) -> Result<Self> {
         let cache_path = Self::get_cache_path(git_dir);
         (|| -> anyhow::Result<_> {
             let now = std::time::Instant::now();
@@ -87,11 +82,14 @@ impl SerdeTopRepoCache {
             let mut version_prelude = [0; Self::CACHE_VERSION_PRELUDE.len()];
             reader.read_exact(&mut version_prelude)?;
             if version_prelude != Self::CACHE_VERSION_PRELUDE.as_bytes() {
-                warning_callback(&format!(
-                    "Discarding toprepo cache {} due to version mismatch, expected {:?}",
-                    cache_path.display(),
-                    Self::CACHE_VERSION_PRELUDE
-                ));
+                crate::log::eprint_log(
+                    crate::log::LogLevel::Warning,
+                    &format!(
+                        "Discarding toprepo cache {} due to version mismatch, expected {:?}",
+                        cache_path.display(),
+                        Self::CACHE_VERSION_PRELUDE
+                    ),
+                );
                 return Ok(Self::default());
             }
 
@@ -112,7 +110,8 @@ impl SerdeTopRepoCache {
             if let Some(config_checksum) = config_checksum
                 && loaded_cache.config_checksum != config_checksum
             {
-                warning_callback(
+                crate::log::eprint_log(
+                    crate::log::LogLevel::Warning,
                     "The git-toprepo configuration has changed, discarding the toprepo cache",
                 );
                 return Ok(Self::default());

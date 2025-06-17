@@ -96,7 +96,10 @@ fn config(config_args: &cli::Config) -> Result<()> {
         cli::ConfigCommands::Location => {
             let location = config::GitTopRepoConfig::find_configuration_location(repo_dir)?;
             if let Err(err) = location.validate_existence(repo_dir) {
-                git_toprepo::log::eprint_warning(&format!("{err:#}"));
+                git_toprepo::log::eprint_log(
+                    git_toprepo::log::LogLevel::Warning,
+                    &format!("{err:#}"),
+                );
             }
             println!("{location}");
         }
@@ -642,7 +645,6 @@ fn dump_import_cache() -> Result<()> {
     let serde_repo_states = git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
         toprepo.gix_repo.git_dir(),
         None,
-        git_toprepo::log::eprint_warning,
     )?;
     serde_repo_states.dump_as_json(std::io::stdout())?;
     Ok(())

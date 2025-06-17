@@ -238,7 +238,6 @@ impl MonoRepoProcessor {
         let top_repo_cache = crate::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
             gix_repo.git_dir(),
             Some(&config.checksum),
-            crate::log::eprint_warning,
         )
         .with_context(|| format!("Loading cache from {}", gix_repo.git_dir().display()))?
         .unpack()?;
@@ -756,7 +755,7 @@ impl MonoRepoProcessor {
         });
         to_push_metadata.reverse();
         if to_push_metadata.is_empty() {
-            eprintln!("Nothing to push");
+            logger.info("Nothing to push".to_owned());
             return Ok(());
         }
 
@@ -767,13 +766,11 @@ impl MonoRepoProcessor {
                 Some(topic) => format!(" -o topic={topic}"),
                 None => String::new(),
             };
-            self.progress.suspend(|| {
-                eprintln!(
-                    "{info_label}: git push {}{topic_arg} {}:{remote_ref}",
-                    push_info.push_url,
-                    push_info.commit_id.to_hex()
-                )
-            });
+            logger.info(format!(
+                "{info_label}: git push {}{topic_arg} {}:{remote_ref}",
+                push_info.push_url,
+                push_info.commit_id.to_hex()
+            ));
             if dry_run {
                 continue;
             }
