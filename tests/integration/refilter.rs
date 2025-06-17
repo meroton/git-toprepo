@@ -9,7 +9,6 @@ fn test_init_and_refilter_example() {
     let temp_dir =
         gix_testtools::scripted_fixture_writable("../integration/fixtures/make_readme_example.sh")
             .unwrap();
-    // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -109,7 +108,6 @@ fn test_refilter_merge_with_one_submodule_a() {
         "../integration/fixtures/make_merge_with_one_submodule_a.sh",
     )
     .unwrap();
-    // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -153,7 +151,6 @@ fn test_refilter_merge_with_one_submodule_b() {
         "../integration/fixtures/make_merge_with_one_submodule_b.sh",
     )
     .unwrap();
-    // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -211,7 +208,6 @@ fn test_refilter_merge_with_two_submodules() {
         "../integration/fixtures/make_merge_with_two_submodules.sh",
     )
     .unwrap();
-    // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -269,7 +265,6 @@ fn test_refilter_submodule_removal() {
         "../integration/fixtures/make_submodule_removal.sh",
     )
     .unwrap();
-    // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -311,7 +306,6 @@ fn test_refilter_moved_submodule() {
     let temp_dir =
         gix_testtools::scripted_fixture_writable("../integration/fixtures/make_moved_submodule.sh")
             .unwrap();
-    // Debug with &temp_dir.into_path() to persist the path.
     let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
