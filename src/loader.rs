@@ -386,7 +386,8 @@ impl<'a> CommitLoader<'a> {
     /// already in `storage` are skipped.
     fn start_load_repo_job(&self, repo_name: RepoName) {
         let context = format!("Loading commits in {repo_name}");
-        let logger = self.logger.with_context(&context);
+        let _log_scope_guard = crate::log::scope(context.clone());
+        let logger = self.logger.clone();
 
         // Use the main thread when getting the refs to make use of the gix cached
         let existing_commits: HashSet<_> = self
@@ -642,6 +643,7 @@ impl<'a> CommitLoader<'a> {
         tree_id: TreeId,
     ) -> InterruptedResult<()> {
         let context = format!("Repo {} commit {}", repo_name, exported_commit.original_id);
+        let _log_scope_guard = crate::log::scope(context.clone());
         let hash_without_committer = exported_commit.hash_without_committer()?;
         let repo_data = &mut self.repos.get_mut(repo_name).unwrap().repo_data;
         let (thin_commit, updated_submodule_commits) = Self::export_thin_commit(
@@ -650,7 +652,7 @@ impl<'a> CommitLoader<'a> {
             tree_id,
             self.config,
             &mut self.dot_gitmodules_cache,
-            &self.logger.with_context(&context),
+            &self.logger,
         )
         .context(context)
         .map_err(InterruptedError::Normal)?;
