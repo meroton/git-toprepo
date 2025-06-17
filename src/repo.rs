@@ -294,7 +294,7 @@ impl MonoRepoProcessor {
 
     /// Reads the monorepo refs that was the result of the last refiltering.
     fn read_monorepo_refs_log(repo: &gix::Repository) -> Result<Vec<FullName>> {
-        let refs_path = repo.git_dir().join("toprepo/mono-refs");
+        let refs_path = repo.git_dir().join("toprepo/mono-refs-ok-to-remove");
         if !refs_path.exists() {
             return Ok(Vec::new());
         }
@@ -315,7 +315,7 @@ impl MonoRepoProcessor {
 
     /// Writes the monorepo refs that have resulted from a refilter.
     fn write_monorepo_refs_log(repo: &gix::Repository, monorepo_refs: &[FullName]) -> Result<()> {
-        let refs_path = repo.git_dir().join("toprepo/mono-refs");
+        let refs_path = repo.git_dir().join("toprepo/mono-refs-ok-to-remove");
         if let Some(parent) = refs_path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create {}", parent.display()))?;
@@ -375,8 +375,7 @@ impl MonoRepoProcessor {
 
         let mut monorepo_symbolic_tips = Vec::new();
         let mut monorepo_object_tips = Vec::new();
-        let mut unknown_toprepo_tip_names = Vec::new();
-        let mut unknown_toprepo_tip_commit_ids = Vec::new();
+        let mut todo_toprepo_object_tips = Vec::new();
         for r in top_refs {
             let r_target = r.clone().follow_to_object().with_context(|| {
                 format!("Failed to resolve symbolic ref {}", r.name().as_bstr())
@@ -426,8 +425,7 @@ impl MonoRepoProcessor {
                     {
                         monorepo_object_tips.push((monorepo_ref_name, mono_commit_id.clone()));
                     } else {
-                        unknown_toprepo_tip_names.push(r.name);
-                        unknown_toprepo_tip_commit_ids.push(commit_id.into_inner());
+                        todo_toprepo_object_tips.push((monorepo_ref_name, r.name, commit_id));
                     }
                 }
             }
@@ -447,7 +445,7 @@ impl MonoRepoProcessor {
             .cloned()
             .sorted();
         Self::write_monorepo_refs_log(&repo, old_and_new_monorefs.as_slice())?;
-        if !unknown_toprepo_tip_names.is_empty() {
+        if !todo_toprepo_object_tips.is_empty() {
             let progress = self.progress.clone();
             let pb = progress.add(
                 indicatif::ProgressBar::no_length()
@@ -460,7 +458,9 @@ impl MonoRepoProcessor {
             );
             let (stop_commits, num_commits_to_export) = crate::git::get_first_known_commits(
                 &repo,
-                unknown_toprepo_tip_commit_ids.into_iter(),
+                todo_toprepo_object_tips
+                    .iter()
+                    .map(|(_, _, top_commit_id)| *top_commit_id.deref()),
                 |commit_id| {
                     self.top_repo_cache
                         .top_to_mono_map
@@ -486,12 +486,31 @@ impl MonoRepoProcessor {
                 inject_at_oldest_super_commit: false,
             };
             expander.expand_toprepo_commits(
-                &unknown_toprepo_tip_names,
+                &todo_toprepo_object_tips
+                    .iter()
+                    .map(|(_, toprepo_name, _)| toprepo_name.clone())
+                    .collect_vec(),
                 stop_commits,
                 num_commits_to_export,
             )?;
             expander.wait()?;
+            // Collect all new monorepo commits.
+            for (monorepo_ref_name, _, top_commit_id) in todo_toprepo_object_tips {
+                let mono_commit = self
+                    .top_repo_cache
+                    .top_to_mono_map
+                    .get(&top_commit_id)
+                    .expect("just filtered mono commit must exist");
+                let mono_commit_id = self
+                    .top_repo_cache
+                    .monorepo_commit_ids
+                    .get(&RcKey::new(mono_commit))
+                    .expect("just filtered mono commit id must exist");
+                monorepo_object_tips.push((monorepo_ref_name, mono_commit_id.clone()));
+            }
         }
+        // TODO: Don't update refs unless needed.
+        // Refs just filtered should not need this update.
         Self::update_refs(
             &repo,
             logger,
