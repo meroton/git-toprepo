@@ -134,32 +134,29 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
     )?;
     let mut config = GitTopRepoConfig::default();
 
-    let error_observer =
-        git_toprepo::log::ErrorObserver::new(git_toprepo::log::ErrorMode::KeepGoing);
-    let mut log_config = config.log.clone();
     let mut top_repo_cache = git_toprepo::repo::TopRepoCache::default();
 
     // Resolve borrowing issues.
     let gix_repo = gix_repo.clone();
 
-    git_toprepo::log::log_task_to_stderr(
-        error_observer.counter.clone(),
-        &mut log_config,
-        |logger, progress| {
+    git_toprepo::log::Logger::new_to_stderr(|logger| {
+        logger.with_progress(|logger, progress| {
             (|| -> Result<()> {
+                let error_observer =
+                    git_toprepo::log::ErrorObserver::new(git_toprepo::log::ErrorMode::KeepGoing);
                 let mut commit_loader = git_toprepo::loader::CommitLoader::new(
                     gix_repo,
                     &mut top_repo_cache.repos,
                     &mut config,
                     progress.clone(),
                     logger.clone(),
-                    error_observer,
+                    error_observer.clone(),
                     threadpool::ThreadPool::new(1),
                 )?;
                 commit_loader.fetch_missing_commits = false;
                 commit_loader.load_repo(&git_toprepo::repo_name::RepoName::Top)?;
-                commit_loader.join();
-                Ok(())
+                commit_loader.join()?;
+                error_observer.get_result(())
             })()
             .context("Failed to load the top repo")?;
 
@@ -210,8 +207,8 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
                 }
             }
             Ok(())
-        },
-    )?;
+        })
+    })?;
     // Skip printing the warnings in the initial configuration.
     // config.log = log_config;
     Ok(config)
@@ -598,11 +595,7 @@ where
         threadpool::ThreadPool::new(job_count.get()),
     )?;
     commit_loader_setup(&mut commit_loader).with_context(|| "Failed to setup the commit loader")?;
-    commit_loader.join();
-    if processor.error_observer.has_got_errors() {
-        anyhow::bail!("Failed to load commits, see previous errors");
-    }
-    Ok(())
+    commit_loader.join()
 }
 
 fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor, logger: &Logger) -> Result<()> {

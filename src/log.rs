@@ -1,7 +1,6 @@
 use anyhow::Result;
 use anyhow::bail;
 use colored::Colorize as _;
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
@@ -9,48 +8,35 @@ pub fn eprint_warning(msg: &str) {
     eprintln!("{}: {msg}", "WARNING".yellow().bold());
 }
 
-pub fn log_task_to_stderr<F, T>(
-    error_counter: Arc<AtomicUsize>,
-    log_config: &mut crate::config::LogConfig,
-    task: F,
-) -> Result<T>
-where
-    F: FnOnce(Logger, indicatif::MultiProgress) -> Result<T>,
-{
-    let progress = indicatif::MultiProgress::new();
-    // TODO: 2025-02-27 The rate limiter seems to be a bit broken. 1 Hz is
-    // not smooth, default 20 Hz hogs the CPU, 2 Hz is a good compromise as
-    // the result is actually much higher anyway.
-    progress.set_draw_target(indicatif::ProgressDrawTarget::stderr_with_hz(2));
-
-    let progress_clone = progress.clone();
-    let ignore_warnings = log_config
-        .ignore_warnings
-        .iter()
-        .cloned()
-        .collect::<HashSet<_>>();
-    let log_receiver = LogReceiver::new(error_counter, ignore_warnings, move |msg| {
-        progress_clone.suspend(|| eprintln!("{msg}"));
-    });
-    let result = task(log_receiver.get_logger(), progress.clone());
-    if let Err(err) = &result {
-        log_receiver.get_logger().error(format!("{err:#}"));
-    }
-
-    let log_result = log_receiver.join();
-    log_config.reported_errors = log_result.reported_errors.clone();
-    log_config.reported_warnings = log_result.reported_warnings.clone();
-    log_result.print_to_stderr();
-    if !log_result.is_success() {
-        bail!("Task failed");
-    }
-    progress.clear()?;
-    Ok(result.unwrap())
+pub fn eprint_log(level: LogLevel, msg: &str) {
+    eprintln!("{}: {msg}", level.to_colored_str());
 }
 
 pub enum LogLevel {
     Error,
     Warning,
+    Info,
+    Trace,
+}
+
+impl LogLevel {
+    pub fn as_str(&self) -> &str {
+        match self {
+            LogLevel::Error => "ERROR",
+            LogLevel::Warning => "WARNING",
+            LogLevel::Info => "INFO",
+            LogLevel::Trace => "TRACE",
+        }
+    }
+
+    pub fn to_colored_str(&self) -> colored::ColoredString {
+        match self {
+            LogLevel::Error => self.as_str().red().bold(),
+            LogLevel::Warning => self.as_str().yellow().bold(),
+            LogLevel::Info => self.as_str().green(),
+            LogLevel::Trace => self.as_str().blue(),
+        }
+    }
 }
 
 /// Because we cannot change the git history, bad data need to be gracefully
@@ -70,6 +56,44 @@ impl Logger {
         }
     }
 
+    /// Creates a new logger that prints to stderr.
+    pub fn new_to_stderr<F, T>(task: F) -> Result<T>
+    where
+        F: FnOnce(Logger) -> Result<T>,
+    {
+        let log_receiver = LogReceiver::new(eprint_log);
+        let result = task(log_receiver.get_logger());
+        log_receiver.join();
+        result
+    }
+
+    /// Wraps the current logger with an `indicatif::MultiProgress` instance
+    /// and makes sure the progress bar does not interfere with the
+    /// logging output.
+    ///
+    /// TODO: This implementation creates an extra thread for logging,
+    /// which is not ideal.
+    pub fn with_progress<F, T>(&self, task: F) -> Result<T>
+    where
+        F: FnOnce(Logger, indicatif::MultiProgress) -> Result<T>,
+    {
+        let progress = indicatif::MultiProgress::new();
+        // TODO: 2025-02-27 The rate limiter seems to be a bit broken. 1 Hz is
+        // not smooth, default 20 Hz hogs the CPU, 2 Hz is a good compromise as
+        // the result is actually much higher anyway.
+        progress.set_draw_target(indicatif::ProgressDrawTarget::stderr_with_hz(2));
+
+        let progress_clone = progress.clone();
+        let self_clone = self.clone();
+        let log_receiver = LogReceiver::new(move |level, msg| {
+            progress_clone.suspend(|| self_clone.log(level, msg.to_owned()));
+        });
+        let result = task(log_receiver.get_logger(), progress.clone());
+        log_receiver.join();
+        progress.clear()?;
+        result
+    }
+
     pub fn with_context(&self, context: &str) -> Self {
         let full_context = format!("{}: {context}", self.context);
         Logger {
@@ -78,9 +102,9 @@ impl Logger {
         }
     }
 
-    fn log(&self, level: LogLevel, msg: String) {
+    pub fn log(&self, level: LogLevel, msg: String) {
         self.sender
-            .send(LogTask::Log {
+            .send(LogTask {
                 level,
                 context: self.context.clone(),
                 message: msg,
@@ -88,12 +112,20 @@ impl Logger {
             .expect("receiver never closed");
     }
 
+    pub fn error(&self, msg: String) {
+        self.log(LogLevel::Error, msg);
+    }
+
     pub fn warning(&self, msg: String) {
         self.log(LogLevel::Warning, msg);
     }
 
-    pub fn error(&self, msg: String) {
-        self.log(LogLevel::Error, msg);
+    pub fn info(&self, msg: String) {
+        self.log(LogLevel::Info, msg);
+    }
+
+    pub fn trace(&self, msg: String) {
+        self.log(LogLevel::Trace, msg);
     }
 }
 
@@ -115,6 +147,64 @@ impl ErrorMode {
         }
     }
 }
+
+pub enum InterruptedError {
+    Normal(anyhow::Error),
+    Interrupted,
+}
+
+impl InterruptedError {
+    pub fn get_normal(self) -> InterruptedResult<anyhow::Error> {
+        match self {
+            InterruptedError::Normal(err) => Ok(err),
+            InterruptedError::Interrupted => Err(InterruptedError::Interrupted),
+        }
+    }
+}
+
+impl From<anyhow::Error> for InterruptedError {
+    fn from(err: anyhow::Error) -> Self {
+        InterruptedError::Normal(err)
+    }
+}
+
+pub type InterruptedResult<T> = Result<T, InterruptedError>;
+
+pub enum KeepGoingError {
+    Normal(anyhow::Error),
+    KeepGoing,
+}
+
+impl KeepGoingError {
+    pub fn wrap(err: anyhow::Error) -> Self {
+        KeepGoingError::Normal(err)
+    }
+
+    pub fn map_keep_going<T, F>(self, f: F) -> Result<T>
+    where
+        F: FnOnce() -> Result<T>,
+    {
+        match self {
+            KeepGoingError::Normal(err) => Err(err),
+            KeepGoingError::KeepGoing => f(),
+        }
+    }
+
+    pub fn keep_going_ok(self) -> Result<()> {
+        match self {
+            KeepGoingError::KeepGoing => Ok(()),
+            KeepGoingError::Normal(err) => Err(err),
+        }
+    }
+}
+
+impl From<anyhow::Error> for KeepGoingError {
+    fn from(err: anyhow::Error) -> Self {
+        KeepGoingError::Normal(err)
+    }
+}
+
+pub type KeepGoingResult<T> = Result<T, KeepGoingError>;
 
 #[derive(Clone)]
 pub struct ErrorObserver {
@@ -144,134 +234,104 @@ impl ErrorObserver {
     pub fn has_got_errors(&self) -> bool {
         self.counter.load(std::sync::atomic::Ordering::Relaxed) > 0
     }
-}
 
-#[derive(Clone, Debug)]
-pub struct LogResult {
-    pub reported_errors: Vec<String>,
-    pub reported_warnings: Vec<String>,
-}
-
-impl LogResult {
-    /// Number of errors reported.
-    pub fn error_count(&self) -> usize {
-        self.reported_errors.len()
-    }
-
-    /// Number of warnings reported.
-    pub fn warning_count(&self) -> usize {
-        self.reported_warnings.len()
-    }
-
-    /// Print the number of errors and warnings to `stderr`.
-    pub fn print_to_stderr(&self) {
-        let error_str = if self.error_count() == 1 {
-            "error"
-        } else {
-            "errors"
-        };
-        let warning_str = if self.warning_count() == 1 {
-            "warning"
-        } else {
-            "warnings"
-        };
-        match (self.error_count(), self.warning_count()) {
-            (0, 0) => (),
-            (0, wcnt) => eprintln!("{}", format!("Found {wcnt} {warning_str}").yellow()),
-            (ecnt, 0) => eprintln!("{}", format!("Failed due to {ecnt} {error_str}").red()),
-            (ecnt, wcnt) => eprintln!(
-                "{} and {}",
-                format!("Failed due to {ecnt} {error_str}").red(),
-                format!("{wcnt} {warning_str}").yellow()
-            ),
+    /// Returns an error if at least one error has occurred.
+    pub fn get_result<T>(&self, default: T) -> Result<T> {
+        let error_count = self.counter.load(std::sync::atomic::Ordering::Relaxed);
+        match error_count {
+            0 => Ok(default),
+            1 => bail!("1 error reported"),
+            n => bail!("{n} errors reported"),
         }
     }
 
-    /// Checks that no errors have been reported.
-    pub fn is_success(&self) -> bool {
-        self.reported_errors.is_empty()
+    /// Write the error to the logger.
+    pub fn consume_interrupted(&self, logger: &Logger, result: InterruptedResult<()>) {
+        match result {
+            Ok(_) => {}
+            Err(InterruptedError::Interrupted) => {}
+            Err(InterruptedError::Normal(err)) => {
+                self.counter
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                logger.error(format!("{err:#}"));
+            }
+        }
     }
 
-    /// Returns an error if at least one error has been reported.
-    pub fn check(&self) -> Result<()> {
-        if !self.is_success() {
-            anyhow::bail!(
-                "{} errors and {} warnings",
-                self.error_count(),
-                self.warning_count()
-            );
+    /// Write the error to the logger.
+    pub fn consume<T>(&self, logger: &Logger, result: Result<T>) -> Option<T> {
+        result
+            .inspect_err(|err| {
+                self.counter
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                logger.error(format!("{err:#}"));
+            })
+            .ok()
+    }
+
+    /// Write the error to the logger if in keep-going mode and return the
+    /// result. Return the error in fail-fast mode.
+    pub fn maybe_consume(&self, logger: &Logger, result: Result<()>) -> Result<()> {
+        match result {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                self.counter
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                match self.strategy {
+                    ErrorMode::KeepGoing => {
+                        logger.error(format!("{err:#}"));
+                        Ok(())
+                    }
+                    ErrorMode::FailFast => Err(err),
+                }
+            }
         }
-        Ok(())
+    }
+
+    /// Write the error to the logger if in keep-going mode and return the
+    /// result. Return the error in fail-fast mode.
+    pub fn log_and_error<T>(&self, logger: &Logger, result: Result<T>) -> KeepGoingResult<T> {
+        match result {
+            Ok(value) => Ok(value),
+            Err(err) => {
+                self.counter
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                match self.strategy {
+                    ErrorMode::KeepGoing => {
+                        logger.error(format!("{err:#}"));
+                        Err(KeepGoingError::KeepGoing)
+                    }
+                    ErrorMode::FailFast => Err(KeepGoingError::Normal(err)),
+                }
+            }
+        }
     }
 }
 
-enum LogTask {
-    /// Log a message.
-    Log {
-        level: LogLevel,
-        context: String,
-        message: String,
-    },
-    /// Return a copy of the current result into the `tx` channel.
-    PeekResult { tx: oneshot::Sender<LogResult> },
+struct LogTask {
+    level: LogLevel,
+    context: String,
+    message: String,
 }
 
 pub struct LogReceiver {
-    logger_thread: std::thread::JoinHandle<LogResult>,
+    logger_thread: std::thread::JoinHandle<()>,
     logger: Logger,
 }
 
 impl LogReceiver {
-    pub fn new<F>(
-        error_counter: Arc<AtomicUsize>,
-        ignore_warnings: HashSet<String>,
-        draw_callback: F,
-    ) -> Self
+    pub fn new<F>(draw_callback: F) -> Self
     where
-        F: Fn(&str) + Send + 'static,
+        F: Fn(LogLevel, &str) + Send + 'static,
     {
-        let mut seen_warnings: HashSet<String> =
-            HashSet::from_iter(ignore_warnings.iter().cloned());
         let (tx, rx) = std::sync::mpsc::channel::<LogTask>();
         let logger_thread = std::thread::Builder::new()
             .name("logger".into())
             .spawn(move || {
-                let mut seen_errors = HashSet::new();
-                let mut result = LogResult {
-                    reported_errors: Vec::new(),
-                    reported_warnings: Vec::new(),
-                };
-                rx.iter().for_each(|log_task| match log_task {
-                    LogTask::Log {
-                        level,
-                        context,
-                        message,
-                    } => {
-                        let context_and_msg = &format!("{context}: {message}")[2..];
-                        let level_str = match level {
-                            LogLevel::Error => {
-                                if !seen_errors.insert(context_and_msg.to_string()) {
-                                    return;
-                                }
-                                result.reported_errors.push(context_and_msg.to_string());
-                                error_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                "ERROR:".red()
-                            }
-                            LogLevel::Warning => {
-                                if !seen_warnings.insert(context_and_msg.to_string()) {
-                                    return;
-                                }
-                                result.reported_warnings.push(context_and_msg.to_string());
-                                "WARNING:".yellow()
-                            }
-                        };
-                        draw_callback(&format!("{level_str} {context_and_msg}"));
-                    }
-                    LogTask::PeekResult { tx } => {
-                        let _ignore_error = tx.send(result.clone());
-                    }
+                rx.iter().for_each(|task| {
+                    let context_and_msg = &format!("{}: {}", task.context, task.message)[2..];
+                    draw_callback(task.level, context_and_msg);
                 });
-                result
             })
             .expect("failed to spawn thread");
         let logger = Logger::new(tx);
@@ -281,23 +341,11 @@ impl LogReceiver {
         }
     }
 
-    /// Get the current result of the logger thread after pending log tasks have
-    /// been processed.
-    pub fn peek_result(&self) -> LogResult {
-        let (tx, rx) = oneshot::channel();
-        self.logger
-            .sender
-            .send(LogTask::PeekResult { tx })
-            .expect("logger thread never panics, so receiver never closes");
-        rx.recv()
-            .expect("logger thread never panics and join cannot run concurrently")
-    }
-
     pub fn get_logger(&self) -> Logger {
         self.logger.clone()
     }
 
-    pub fn join(self) -> LogResult {
+    pub fn join(self) {
         drop(self.logger);
         // When all the loggers have been dropped, the channel will be closed
         // and the receiver exit when the channel is exhausted.
@@ -311,20 +359,23 @@ impl LogReceiver {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use itertools::Itertools as _;
     use std::ops::DerefMut as _;
-    use std::sync::atomic::AtomicUsize;
 
     pub struct LogAccumulator {
         log_receiver: LogReceiver,
-        pub all_messages: Arc<std::sync::Mutex<Vec<String>>>,
+        pub all_messages: Arc<std::sync::Mutex<Vec<(LogLevel, String)>>>,
     }
 
     impl LogAccumulator {
-        pub fn new(error_counter: Arc<AtomicUsize>) -> (Self, Logger) {
+        pub fn new() -> (Self, Logger) {
             let all_messages = Arc::new(std::sync::Mutex::new(Vec::new()));
             let all_messages_clone = all_messages.clone();
-            let log_receiver = LogReceiver::new(error_counter, HashSet::new(), move |msg| {
-                all_messages_clone.lock().unwrap().push(msg.to_string());
+            let log_receiver = LogReceiver::new(move |level, msg| {
+                all_messages_clone
+                    .lock()
+                    .unwrap()
+                    .push((level, msg.to_string()));
             });
             let logger = log_receiver.get_logger();
             let ret = LogAccumulator {
@@ -334,16 +385,22 @@ pub(crate) mod tests {
             (ret, logger)
         }
 
-        pub fn join_no_warnings(self) -> Result<()> {
-            let log_result = self.log_receiver.join();
-            let all_messages = std::mem::take(self.all_messages.lock().unwrap().deref_mut());
-            if log_result.error_count() != 0 || log_result.warning_count() != 0 {
-                let messages = all_messages.join("\n");
+        pub fn join(self) -> Vec<(LogLevel, String)> {
+            self.log_receiver.join();
+            std::mem::take(self.all_messages.lock().unwrap().deref_mut())
+        }
+
+        pub fn join_nothing_logged(self) -> Result<()> {
+            let all_messages = self.join();
+            if !all_messages.is_empty() {
+                let concatenated_messages = all_messages
+                    .iter()
+                    .map(|(level, msg)| format!("{}: {msg}", level.as_str()))
+                    .join("\n");
                 anyhow::bail!(
-                    "{} errors and {} warnings:\n{}",
-                    log_result.error_count(),
-                    log_result.warning_count(),
-                    messages
+                    "{} log messages:\n{}",
+                    all_messages.len(),
+                    concatenated_messages,
                 );
             }
             Ok(())

@@ -239,9 +239,7 @@ impl MonoRepoProcessor {
         )
         .with_context(|| format!("Loading cache from {}", gix_repo.git_dir().display()))?
         .unpack()?;
-        let mut log_config = config.log.clone();
         let error_observer = crate::log::ErrorObserver::new(error_mode);
-        let error_counter = error_observer.counter.clone();
         let mut processor = MonoRepoProcessor {
             gix_repo,
             config,
@@ -249,13 +247,14 @@ impl MonoRepoProcessor {
             error_observer,
             progress: indicatif::MultiProgress::new(),
         };
-        let mut result =
-            crate::log::log_task_to_stderr(error_counter, &mut log_config, |logger, progress| {
+        let mut result = crate::log::Logger::new_to_stderr(|logger| {
+            logger.with_progress(|logger, progress| {
                 let old_progress = std::mem::replace(&mut processor.progress, progress);
                 let result = f(&mut processor, &logger);
                 processor.progress = old_progress;
                 result
-            });
+            })
+        });
         // Store some result files.
         if let Err(err) = crate::repo_cache_serde::SerdeTopRepoCache::pack(
             &processor.top_repo_cache,
@@ -267,7 +266,6 @@ impl MonoRepoProcessor {
             result = Err(err);
         }
         const EFFECTIVE_TOPREPO_CONFIG: &str = "toprepo/last-effective-git-toprepo.toml";
-        processor.config.log = log_config;
         let config_path = processor.gix_repo.git_dir().join(EFFECTIVE_TOPREPO_CONFIG);
         if let Err(err) = processor.config.save(&config_path)
             && result.is_ok()
