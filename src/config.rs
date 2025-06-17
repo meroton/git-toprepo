@@ -563,23 +563,24 @@ mod tests {
 
     #[test]
     fn test_create_config_from_invalid_ref() {
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let tmp_path = tmp_dir.path();
+        let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
+            "git_toprepo-test_create_config_from_invalid_ref-",
+        );
         let env = commit_env_for_testing();
 
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args(["init"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args(["config", GIT_CONFIG_KEY, "local:foobar.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        let err: anyhow::Error = GitTopRepoConfig::load_config_from_repo(tmp_path).unwrap_err();
+        let err: anyhow::Error = GitTopRepoConfig::load_config_from_repo(&tmp_path).unwrap_err();
         assert_eq!(
             format!("{err:#}"),
             "Loading local:foobar.toml: Reading config file: No such file or directory (os error 2)"
@@ -590,11 +591,12 @@ mod tests {
     fn test_create_config_from_worktree() {
         use std::io::Write;
 
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let tmp_path = tmp_dir.path();
+        let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
+            "git_toprepo-test_create_config_from_worktree-",
+        );
         let env = commit_env_for_testing();
 
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args(["init"])
             .envs(&env)
             .check_success_with_stderr()
@@ -604,19 +606,19 @@ mod tests {
 
         writeln!(tmp_file, "{BAR_BAZ}").unwrap();
 
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args(["add", "foobar.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args(["config", GIT_CONFIG_KEY, "local:foobar.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        let config = GitTopRepoConfig::load_config_from_repo(tmp_path).unwrap();
+        let config = GitTopRepoConfig::load_config_from_repo(&tmp_path).unwrap();
 
         let foo_name = SubRepoName::new("foo".to_owned());
         assert!(config.subrepos.contains_key(&foo_name));
@@ -642,30 +644,31 @@ mod tests {
 
     #[test]
     fn test_missing_config() {
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let tmp_path = tmp_dir.path();
+        let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
+            "git_toprepo-test_missing_config-",
+        );
         let env = commit_env_for_testing();
 
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args(["init"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args(["commit", "--allow-empty", "-m", "Initial commit"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args(["update-ref", "refs/namespaces/top/HEAD", "HEAD"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
         // Try a path in the repository.
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args(["config", GIT_CONFIG_KEY, "repo:HEAD:.gittoprepo.toml"])
             .check_success_with_stderr()
             .unwrap();
@@ -673,18 +676,18 @@ mod tests {
         assert_eq!(
             format!(
                 "{:#}",
-                GitTopRepoConfig::load_config_from_repo(tmp_path).unwrap_err()
+                GitTopRepoConfig::load_config_from_repo(&tmp_path).unwrap_err()
             ),
             "Loading repo:HEAD:.gittoprepo.toml: exit status: 128:\n\
             fatal: path '.gittoprepo.toml' does not exist in 'HEAD'\n"
         );
 
         // Try the worktree.
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args(["config", GIT_CONFIG_KEY, "local:nonexisting.toml"])
             .check_success_with_stderr()
             .unwrap();
-        let err = GitTopRepoConfig::load_config_from_repo(tmp_path).unwrap_err();
+        let err = GitTopRepoConfig::load_config_from_repo(&tmp_path).unwrap_err();
         assert_eq!(
             format!("{err:#}"),
             "Loading local:nonexisting.toml: Reading config file: No such file or directory (os error 2)"
@@ -722,11 +725,12 @@ mod tests {
         // TODO: Move to integration tests.
         use std::io::Write;
 
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let tmp_path = tmp_dir.path();
+        let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
+            "git_toprepo-test_create_config_from_head-",
+        );
         let env = commit_env_for_testing();
 
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args(["init"])
             .envs(&env)
             .check_success_with_stderr()
@@ -735,37 +739,37 @@ mod tests {
         let mut tmp_file = std::fs::File::create(tmp_path.join(".gittoprepo.toml")).unwrap();
         writeln!(tmp_file, "{BAR_BAZ}").unwrap();
 
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args(["add", ".gittoprepo.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args(["commit", "-m", "Initial commit"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args(["update-ref", "refs/namespaces/top/HEAD", "HEAD"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args(["rm", ".gittoprepo.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args(["commit", "-m", "Remove .gittoprepo.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(tmp_path)
+        git_command(&tmp_path)
             .args([
                 "config",
                 GIT_CONFIG_KEY,
@@ -774,7 +778,7 @@ mod tests {
             .check_success_with_stderr()
             .unwrap();
 
-        let config = GitTopRepoConfig::load_config_from_repo(tmp_path).unwrap();
+        let config = GitTopRepoConfig::load_config_from_repo(&tmp_path).unwrap();
 
         let foo_name = SubRepoName::new("foo".to_owned());
         assert!(config.subrepos.contains_key(&foo_name));

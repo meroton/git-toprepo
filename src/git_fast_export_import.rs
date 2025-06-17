@@ -876,9 +876,10 @@ mod tests {
 
     #[test]
     fn test_parse_fast_export_output() {
-        let tmp_dir = tempfile::tempdir().unwrap();
-        // Debug with tmp_dir.into_path() which persists the directory.
-        let example_repo = setup_example_repo(tmp_dir.path());
+        let tmp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
+            "git_toprepo_test_parse_fast_export_output",
+        );
+        let example_repo = setup_example_repo(&tmp_dir);
 
         let (log_accumulator, logger) =
             crate::log::tests::LogAccumulator::new(Arc::new(AtomicUsize::new(0)));
@@ -953,10 +954,12 @@ mod tests {
 
     #[test]
     fn test_fast_import() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
+            "git_toprepo-test_fast_import-",
+        );
         let from_repo_path = setup_example_repo(&temp_dir.path().join("from"));
 
-        let to_repo_path = temp_dir.path().join("to");
+        let to_repo_path = temp_dir.join("to");
         std::fs::create_dir(&to_repo_path).unwrap();
         git_command(&to_repo_path)
             .args(["init"])

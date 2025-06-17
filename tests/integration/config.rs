@@ -15,9 +15,9 @@ const GENERIC_CONFIG: &str = r#"
 
 #[test]
 fn test_validate_external_file_in_corrupt_repository() {
-    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
-    // Debug with &temp_dir.into_path() to persist the path.
-    let temp_dir = temp_dir.path();
+    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
+        "git_toprepo-test_validate_external_file_in_corrupt_repository-",
+    );
 
     // TODO: Set NO_COLOR here.
     let deterministic = commit_env_for_testing();
@@ -35,13 +35,13 @@ fn test_validate_external_file_in_corrupt_repository() {
     let okay_config = "okay.toml";
     std::fs::write(temp_dir.join(okay_config), GENERIC_CONFIG).unwrap();
 
-    git_command(temp_dir)
+    git_command(&temp_dir)
         .args(["init"])
         .envs(&deterministic)
         .check_success_with_stderr()
         .unwrap();
 
-    git_command(temp_dir)
+    git_command(&temp_dir)
         .args(["config", GIT_CONFIG_KEY, &format!("local:{invalid_toml}")])
         .envs(&deterministic)
         .check_success_with_stderr()
@@ -51,7 +51,7 @@ fn test_validate_external_file_in_corrupt_repository() {
 
     Command::cargo_bin("git-toprepo")
         .unwrap()
-        .current_dir(temp_dir)
+        .current_dir(&temp_dir)
         .arg("config")
         .arg("show")
         .assert()
@@ -65,7 +65,7 @@ fn test_validate_external_file_in_corrupt_repository() {
 
     Command::cargo_bin("git-toprepo")
         .unwrap()
-        .current_dir(temp_dir)
+        .current_dir(&temp_dir)
         .arg("config")
         .arg("validate")
         .arg(invalid_toml)
@@ -80,7 +80,7 @@ fn test_validate_external_file_in_corrupt_repository() {
 
     Command::cargo_bin("git-toprepo")
         .unwrap()
-        .current_dir(temp_dir)
+        .current_dir(&temp_dir)
         .arg("config")
         .arg("validate")
         .arg(incorrect_config)
@@ -95,7 +95,7 @@ fn test_validate_external_file_in_corrupt_repository() {
 
     Command::cargo_bin("git-toprepo")
         .unwrap()
-        .current_dir(temp_dir)
+        .current_dir(&temp_dir)
         .arg("config")
         .arg("validate")
         .arg(okay_config)
@@ -105,16 +105,16 @@ fn test_validate_external_file_in_corrupt_repository() {
 
 #[test]
 fn test_config_commands_use_correct_working_directory() {
-    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
-    // Debug with &temp_dir.into_path() to persist the path.
-    let temp_dir = temp_dir.path();
+    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
+        "git_toprepo-test_config_commands_use_correct_working_directory-",
+    );
 
     let okay_config = "okay.toml";
     std::fs::write(temp_dir.join(okay_config), GENERIC_CONFIG).unwrap();
 
     Command::cargo_bin("git-toprepo")
         .unwrap()
-        .current_dir(temp_dir)
+        .current_dir(&temp_dir)
         .arg("config")
         .arg("validate")
         .arg(okay_config)
@@ -124,7 +124,7 @@ fn test_config_commands_use_correct_working_directory() {
     Command::cargo_bin("git-toprepo")
         .unwrap()
         .arg("-C")
-        .arg(temp_dir)
+        .arg(&temp_dir)
         .arg("config")
         .arg("validate")
         .arg(okay_config)
@@ -133,7 +133,7 @@ fn test_config_commands_use_correct_working_directory() {
 
     // Try to run from a subdirectory inside a git repo.
     Command::new("git")
-        .current_dir(temp_dir)
+        .current_dir(&temp_dir)
         .arg("init")
         .assert()
         .success();

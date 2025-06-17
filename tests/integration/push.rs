@@ -6,7 +6,6 @@ use std::process::Command;
 #[test]
 fn test_push_empty_commit_should_fail() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
-    let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
@@ -35,7 +34,6 @@ fn test_push_empty_commit_should_fail() {
 #[test]
 fn test_push_top() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
-    let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
@@ -76,7 +74,6 @@ fn test_push_top() {
 #[test]
 fn test_push_submodule() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
-    let temp_dir = &temp_dir.into_path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
@@ -117,7 +114,6 @@ fn test_push_submodule() {
 #[test]
 fn test_push_revision() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
-    let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
@@ -161,7 +157,6 @@ fn test_push_revision() {
 #[test]
 fn test_push_from_sub_directory() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
-    let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);

@@ -114,26 +114,28 @@ fn test_fetch_only_needed_commits() {
         );
 }
 
+// TODO: Using #[allow(unused)] because the members will probably be used in the
+// near future.
 struct RepoWithTwoSubmodules {
-    // TODO: Using #[allow(unused)] because the members will probably be used in
-    // the near future.
-    #[allow(unused)]
-    temp_dir: tempfile::TempDir,
     pub toprepo: std::path::PathBuf,
     pub monorepo: std::path::PathBuf,
     #[allow(unused)]
     pub subx_repo: std::path::PathBuf,
     #[allow(unused)]
     pub suby_repo: std::path::PathBuf,
+
+    #[allow(unused)]
+    temp_dir: git_toprepo_testtools::test_util::MaybePermanentTempDir,
 }
 
 impl RepoWithTwoSubmodules {
     pub fn new_minimal_with_two_submodules() -> Self {
-        let temp_dir_guard = gix_testtools::scripted_fixture_writable(
-            "../integration/fixtures/make_minimal_with_two_submodules.sh",
-        )
-        .unwrap();
-        let temp_dir = temp_dir_guard.path().to_owned();
+        let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+            gix_testtools::scripted_fixture_writable(
+                "../integration/fixtures/make_minimal_with_two_submodules.sh",
+            )
+            .unwrap(),
+        );
         let toprepo = temp_dir.join("top");
         let monorepo = temp_dir.join("mono");
         crate::fixtures::toprepo::clone(&toprepo, &monorepo);
@@ -156,11 +158,11 @@ impl RepoWithTwoSubmodules {
         std::fs::remove_dir_all(&suby_repo).unwrap();
 
         Self {
-            temp_dir: temp_dir_guard,
             toprepo,
             monorepo,
             subx_repo: temp_dir.join("subx"),
             suby_repo: temp_dir.join("suby"),
+            temp_dir,
         }
     }
 }

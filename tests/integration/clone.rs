@@ -9,10 +9,14 @@ use std::process::Command;
 
 #[test]
 fn test_toprepo_clone() {
-    let from_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
+    let from_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
+        "git_toprepo-test_toprepo_clone-from-",
+    );
     let from_path = from_dir.path();
 
-    let to_dir = tempfile::TempDir::with_prefix("git-toprepo-").unwrap();
+    let to_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
+        "git_toprepo-test_toprepo_clone-to-",
+    );
     let to_path = to_dir.path();
     let env = HashMap::from([
         ("GIT_AUTHOR_NAME", "A Name"),
