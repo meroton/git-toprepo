@@ -13,7 +13,7 @@ impl MaybePermanentTempDir {
     ///
     /// See also [`maybe_keep_tempdir`].
     pub fn new_with_prefix(prefix: &str) -> Self {
-        let tempdir = tempfile::TempDir::with_prefix(prefix)
+        let tempdir = tempfile::TempDir::with_prefix(format!("{prefix}-"))
             .expect("successful temporary directory creation");
         maybe_keep_tempdir(tempdir)
     }

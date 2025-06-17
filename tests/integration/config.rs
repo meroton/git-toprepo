@@ -16,7 +16,7 @@ const GENERIC_CONFIG: &str = r#"
 #[test]
 fn test_validate_external_file_in_corrupt_repository() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-        "git_toprepo-test_validate_external_file_in_corrupt_repository-",
+        "git_toprepo-test_validate_external_file_in_corrupt_repository",
     );
 
     // TODO: Set NO_COLOR here.
@@ -106,7 +106,7 @@ fn test_validate_external_file_in_corrupt_repository() {
 #[test]
 fn test_config_commands_use_correct_working_directory() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-        "git_toprepo-test_config_commands_use_correct_working_directory-",
+        "git_toprepo-test_config_commands_use_correct_working_directory",
     );
 
     let okay_config = "okay.toml";

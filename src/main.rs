@@ -749,7 +749,7 @@ mod tests {
     #[test]
     fn test_main_outside_git_toprepo() {
         let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-test_main_outside_git_toprepo-",
+            "git_toprepo-test_main_outside_git_toprepo",
         );
         let temp_dir_str = temp_dir.to_str().unwrap();
         let argv = vec!["git-toprepo", "-C", temp_dir_str, "config", "show"];
