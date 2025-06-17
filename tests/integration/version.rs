@@ -4,7 +4,7 @@ use std::process::Command;
 
 #[test]
 fn test_toprepo_version() {
-    let validate_stdout = predicate::str::is_match("^git_toprepo .*~.*-.*\n$").unwrap();
+    let validate_stdout = predicate::str::is_match("^git-toprepo .*~.*-.*\n$").unwrap();
     Command::cargo_bin("git-toprepo")
         .unwrap()
         .arg("version")
@@ -16,7 +16,7 @@ fn test_toprepo_version() {
 
 #[test]
 fn test_toprepo_dash_dash_version() {
-    let validate_stdout = predicate::str::is_match("^git_toprepo .*~.*-.*\n$").unwrap();
+    let validate_stdout = predicate::str::is_match("^git-toprepo .*~.*-.*\n$").unwrap();
     Command::cargo_bin("git-toprepo")
         .unwrap()
         .arg("--version")
@@ -28,7 +28,7 @@ fn test_toprepo_dash_dash_version() {
 
 #[test]
 fn test_toprepo_short_flag_version() {
-    let validate_stdout = predicate::str::is_match("^git_toprepo .*~.*-.*\n$").unwrap();
+    let validate_stdout = predicate::str::is_match("^git-toprepo .*~.*-.*\n$").unwrap();
     Command::cargo_bin("git-toprepo")
         .unwrap()
         .arg("-V")
