@@ -273,6 +273,71 @@ fn test_fetch_to_fetch_head_fail(#[case] remote: &str) {
         ));
 }
 
+/// This regression test ensures that fetching twice does not remove the refs.
+#[test]
+fn test_fetch_twice_should_keep_refs() {
+    let expected_show_ref_output = predicate::str::is_match(
+        [
+            ".* refs/namespaces/subx/refs/heads/main\n",
+            ".* refs/namespaces/suby/refs/heads/main\n",
+            ".* refs/namespaces/top/refs/remotes/origin/HEAD\n",
+            ".* refs/namespaces/top/refs/remotes/origin/foo\n",
+            ".* refs/namespaces/top/refs/remotes/origin/main\n",
+            ".* refs/remotes/origin/HEAD\n",
+            ".* refs/remotes/origin/foo\n",
+            ".* refs/remotes/origin/main\n",
+        ]
+        .join(""),
+    )
+    .unwrap();
+
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&repo.monorepo)
+        .args(["fetch"])
+        .assert()
+        .success();
+    Command::new("git")
+        .current_dir(&repo.monorepo)
+        .args(["show-ref"])
+        .assert()
+        .success()
+        .stdout(expected_show_ref_output.clone());
+
+    // Update main branch in the top repo.
+    Command::new("git")
+        .current_dir(&repo.toprepo)
+        .args(["checkout", "main"])
+        .assert()
+        .success();
+    Command::new("git")
+        .current_dir(&repo.toprepo)
+        .envs(commit_env_for_testing())
+        .args([
+            "commit",
+            "--allow-empty",
+            "-m",
+            "Emptry commit on main branch",
+        ])
+        .assert()
+        .success();
+
+    // Fetch again, should not remove refs/remotes/origin/main.
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&repo.monorepo)
+        .args(["fetch"])
+        .assert()
+        .success();
+    Command::new("git")
+        .current_dir(&repo.monorepo)
+        .args(["show-ref"])
+        .assert()
+        .success()
+        .stdout(expected_show_ref_output);
+}
+
 #[rstest]
 #[case::origin("origin")]
 #[case::local_root_dir(".")]
