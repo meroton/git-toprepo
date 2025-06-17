@@ -2,7 +2,6 @@ use anyhow::Context as _;
 use assert_cmd::prelude::*;
 use bstr::ByteSlice as _;
 use git_toprepo::git::git_command;
-use git_toprepo::util::CommandExtension as _;
 use predicates::prelude::*;
 use std::collections::HashMap;
 use std::process::Command;
@@ -84,22 +83,18 @@ fn test_toprepo_clone() {
     for (orig_ref, top_ref) in ref_pairs {
         let orig_rev = git_command(from_path)
             .args(["rev-parse", "--verify", orig_ref])
-            .output_stdout_only()
-            .unwrap()
-            .check_success_with_stderr()
-            .with_context(|| format!("orig {orig_ref}"))
-            .unwrap()
+            .assert()
+            .success()
+            .get_output()
             .stdout
-            .to_owned();
+            .clone();
         let top_rev = git_command(to_gix_repo.git_dir())
             .args(["rev-parse", "--verify", top_ref])
-            .output_stdout_only()
-            .unwrap()
-            .check_success_with_stderr()
-            .with_context(|| format!("top {top_ref}"))
-            .unwrap()
+            .assert()
+            .success()
+            .get_output()
             .stdout
-            .to_owned();
+            .clone();
         assert_eq!(
             orig_rev.to_str().unwrap(),
             top_rev.to_str().unwrap(),

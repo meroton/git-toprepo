@@ -318,10 +318,8 @@ pub fn normalize(p: &str) -> String {
 }
 
 pub trait CommandExtension {
-    fn log_cmdline(&mut self) -> &mut Self;
     fn safe_output(&mut self) -> std::io::Result<SafeOutput>;
     fn safe_status(&mut self) -> std::io::Result<SafeExitStatus>;
-    fn output_stdout_only(&mut self) -> std::io::Result<SafeOutput>;
 
     fn check_success_with_stderr(&mut self) -> anyhow::Result<SafeOutput> {
         let ret = self.safe_output()?;
@@ -331,16 +329,6 @@ pub trait CommandExtension {
 }
 
 impl CommandExtension for Command {
-    fn log_cmdline(&mut self) -> &mut Self {
-        // TODO: Escape and quote! String representations are always annoying.
-        let args: Vec<&std::ffi::OsStr> = self.get_args().collect();
-        let joined = args.into_iter().map(|s| s.to_str().unwrap()).join(" ");
-        let display = format!("{} {}", self.get_program().to_str().unwrap(), joined);
-
-        eprintln!("Running   {display}");
-        self
-    }
-
     fn safe_output(&mut self) -> std::io::Result<SafeOutput> {
         self.output().map(|output| {
             let status = SafeExitStatus::new(output.status);
@@ -350,10 +338,6 @@ impl CommandExtension for Command {
 
     fn safe_status(&mut self) -> std::io::Result<SafeExitStatus> {
         self.status().map(SafeExitStatus::new)
-    }
-
-    fn output_stdout_only(&mut self) -> std::io::Result<SafeOutput> {
-        self.stderr(std::process::Stdio::inherit()).safe_output()
     }
 }
 
