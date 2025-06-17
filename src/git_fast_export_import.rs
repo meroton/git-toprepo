@@ -952,7 +952,7 @@ mod tests {
     #[test]
     fn test_fast_import() {
         let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-test_fast_import-",
+            "git_toprepo-test_fast_import",
         );
         let from_repo_path = setup_example_repo(&temp_dir.path().join("from"));
 

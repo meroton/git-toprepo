@@ -11,7 +11,7 @@ const GENERIC_CONFIG: &str = r#"
 #[test]
 fn test_dump_outside_git_repo() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-        "git_toprepo-test_dump_outside_git_repo-",
+        "git_toprepo-test_dump_outside_git_repo",
     );
 
     std::fs::write(temp_dir.join(".gittoprepo.toml"), GENERIC_CONFIG).unwrap();

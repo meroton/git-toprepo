@@ -564,7 +564,7 @@ mod tests {
     #[test]
     fn test_create_config_from_invalid_ref() {
         let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-test_create_config_from_invalid_ref-",
+            "git_toprepo-test_create_config_from_invalid_ref",
         );
         let env = commit_env_for_testing();
 
@@ -592,7 +592,7 @@ mod tests {
         use std::io::Write;
 
         let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-test_create_config_from_worktree-",
+            "git_toprepo-test_create_config_from_worktree",
         );
         let env = commit_env_for_testing();
 
@@ -645,7 +645,7 @@ mod tests {
     #[test]
     fn test_missing_config() {
         let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-test_missing_config-",
+            "git_toprepo-test_missing_config",
         );
         let env = commit_env_for_testing();
 
@@ -726,7 +726,7 @@ mod tests {
         use std::io::Write;
 
         let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-test_create_config_from_head-",
+            "git_toprepo-test_create_config_from_head",
         );
         let env = commit_env_for_testing();
 
