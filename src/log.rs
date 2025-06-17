@@ -4,10 +4,6 @@ use colored::Colorize as _;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
-pub fn eprint_warning(msg: &str) {
-    eprintln!("{}: {msg}", "WARNING".yellow().bold());
-}
-
 pub fn eprint_log(level: LogLevel, msg: &str) {
     eprintln!("{}: {msg}", level.to_colored_str());
 }
