@@ -11,7 +11,6 @@ use crate::git_fast_export_import::FileChange;
 use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::log::InterruptedError;
 use crate::log::InterruptedResult;
-use crate::log::Logger;
 use crate::repo::RepoData;
 use crate::repo::RepoStates;
 use crate::repo::ThinCommit;
@@ -60,7 +59,6 @@ pub struct CommitLoader<'a> {
     import_progress: indicatif::ProgressBar,
     load_progress: ProgressStatus,
     fetch_progress: ProgressStatus,
-    logger: Logger,
     /// Signal to not start new work but to fail as fast as possible.
     error_observer: crate::log::ErrorObserver,
 
@@ -85,7 +83,6 @@ impl<'a> CommitLoader<'a> {
         cached_repo_states: &'a mut RepoStates,
         config: &'a mut GitTopRepoConfig,
         progress: indicatif::MultiProgress,
-        logger: Logger,
         error_observer: crate::log::ErrorObserver,
         thread_pool: threadpool::ThreadPool,
     ) -> Result<Self> {
@@ -132,7 +129,6 @@ impl<'a> CommitLoader<'a> {
             import_progress,
             load_progress,
             fetch_progress,
-            logger,
             error_observer,
             thread_pool,
             ongoing_jobs_in_threads: 0,
@@ -151,15 +147,13 @@ impl<'a> CommitLoader<'a> {
     /// refspec will fetch all heads and tags.
     pub fn fetch_repo(&mut self, repo_name: RepoName) -> Result<()> {
         let result = self.fetch_repo_impl(repo_name);
-        self.error_observer.maybe_consume(&self.logger, result)
+        self.error_observer.maybe_consume(result)
     }
 
     fn fetch_repo_impl(&mut self, repo_name: RepoName) -> Result<()> {
         let repo_fetcher = self.get_or_create_repo_fetcher(&repo_name)?;
         if !repo_fetcher.enabled {
-            self.logger.warning(format!(
-                "Repo {repo_name} is disabled in the configuration, will not fetch"
-            ));
+            log::warn!("Repo {repo_name} is disabled in the configuration, will not fetch");
             return Ok(());
         }
         if repo_fetcher.fetch_state == RepoFetcherState::Idle {
@@ -173,9 +167,7 @@ impl<'a> CommitLoader<'a> {
     pub fn load_repo(&mut self, repo_name: &RepoName) -> Result<()> {
         let repo_fetcher = self.get_or_create_repo_fetcher(repo_name)?;
         if !repo_fetcher.enabled {
-            self.logger.warning(format!(
-                "Repo {repo_name} is disabled in the configuration, will not load commits"
-            ));
+            log::warn!("Repo {repo_name} is disabled in the configuration, will not load commits");
             return Ok(());
         }
         match repo_fetcher.loading {
@@ -231,7 +223,7 @@ impl<'a> CommitLoader<'a> {
                     }
                     Err(err) => {
                         // Fail unless keep-going.
-                        self.error_observer.maybe_consume(&self.logger, Err(err))?;
+                        self.error_observer.maybe_consume(Err(err))?;
                     }
                 }
                 return Ok(true);
@@ -276,7 +268,7 @@ impl<'a> CommitLoader<'a> {
                         self.finish_fetch_repo_job(&repo_name);
                     }
                     Err(err) => {
-                        self.error_observer.maybe_consume(&self.logger, Err(err))?;
+                        self.error_observer.maybe_consume(Err(err))?;
                     }
                 }
             }
@@ -301,7 +293,7 @@ impl<'a> CommitLoader<'a> {
                         return Ok(true);
                     }
                     Err(InterruptedError::Normal(err)) => {
-                        self.error_observer.maybe_consume(&self.logger, Err(err))?;
+                        self.error_observer.maybe_consume(Err(err))?;
                     }
                 }
             }
@@ -311,13 +303,13 @@ impl<'a> CommitLoader<'a> {
                 match result {
                     Ok(()) => {
                         let result = self.finish_load_repo_job(&repo_name);
-                        self.error_observer.maybe_consume(&self.logger, result)?;
+                        self.error_observer.maybe_consume(result)?;
                     }
                     Err(InterruptedError::Interrupted) => {
                         // This doesn't mean there are no more events to process.
                     }
                     Err(InterruptedError::Normal(err)) => {
-                        self.error_observer.maybe_consume(&self.logger, Err(err))?;
+                        self.error_observer.maybe_consume(Err(err))?;
                     }
                 }
             }
@@ -326,6 +318,9 @@ impl<'a> CommitLoader<'a> {
     }
 
     fn start_fetch_repo_job(&mut self, repo_name: RepoName) -> Result<Vec<indicatif::ProgressBar>> {
+        let context = format!("Fetching {repo_name}");
+        let _log_scope_guard = crate::log::scope(context.clone());
+
         let repo_fetcher = self.repos.get_mut(&repo_name).unwrap();
         assert_eq!(repo_fetcher.fetch_state, RepoFetcherState::Queued);
         repo_fetcher.fetch_state = RepoFetcherState::InProgress;
@@ -353,7 +348,9 @@ impl<'a> CommitLoader<'a> {
         let tx = self.tx.clone();
         let pb_clone = pb_status.clone();
         let error_observer = self.error_observer.clone();
+        let log_context = crate::log::current_scope();
         self.thread_pool.execute(move || {
+            let _log_scope_guard = crate::log::scope(log_context);
             let result = fetcher
                 .fetch_with_progress_bar(&pb_clone)
                 .with_context(|| format!("Fetching {repo_name}"));
@@ -387,7 +384,6 @@ impl<'a> CommitLoader<'a> {
     fn start_load_repo_job(&self, repo_name: RepoName) {
         let context = format!("Loading commits in {repo_name}");
         let _log_scope_guard = crate::log::scope(context.clone());
-        let logger = self.logger.clone();
 
         // Use the main thread when getting the refs to make use of the gix cached
         let existing_commits: HashSet<_> = self
@@ -408,11 +404,12 @@ impl<'a> CommitLoader<'a> {
         let toprepo = self.toprepo.clone();
         let tx = self.tx.clone();
         let error_observer = self.error_observer.clone();
+        let log_context = crate::log::current_scope();
         self.thread_pool.execute(move || {
+            let _log_scope_guard = crate::log::scope(log_context);
             let single_repo_loader = SingleRepoLoader {
                 toprepo: &toprepo,
                 repo_name: &repo_name,
-                logger: &logger,
                 error_observer: &error_observer,
             };
 
@@ -496,7 +493,6 @@ impl<'a> CommitLoader<'a> {
                             repo_name,
                             missing_commits,
                             &mut repo_fetcher.missing_commits,
-                            &self.logger,
                         );
                     } else {
                         self.fetch_repo(repo_name.clone())?;
@@ -512,11 +508,10 @@ impl<'a> CommitLoader<'a> {
         repo_name: &RepoName,
         missing_commits: HashSet<CommitId>,
         all_missing_commits: &mut HashSet<CommitId>,
-        logger: &Logger,
     ) {
         // Already logged when loading the repositories.
         for commit_id in &missing_commits {
-            logger.warning(format!("Missing commit in {repo_name}: {commit_id}"));
+            log::warn!("Missing commit in {repo_name}: {commit_id}");
         }
         all_missing_commits.extend(missing_commits);
     }
@@ -627,11 +622,11 @@ impl<'a> CommitLoader<'a> {
             Ok(())
         })();
         self.load_progress.inc_num_cached_done();
-        self.error_observer.maybe_consume(&self.logger, result)?;
+        self.error_observer.maybe_consume(result)?;
         // Load all submodule commits that are needed so far.
         for needed_commit in needed_commits {
             let result = self.ensure_commit_available(needed_commit);
-            self.error_observer.maybe_consume(&self.logger, result)?;
+            self.error_observer.maybe_consume(result)?;
         }
         Ok(())
     }
@@ -652,7 +647,6 @@ impl<'a> CommitLoader<'a> {
             tree_id,
             self.config,
             &mut self.dot_gitmodules_cache,
-            &self.logger,
         )
         .context(context)
         .map_err(InterruptedError::Normal)?;
@@ -671,7 +665,7 @@ impl<'a> CommitLoader<'a> {
         // Any of the submodule updates that need to be fetched?
         for needed_commit in updated_submodule_commits {
             let result = self.ensure_commit_available(needed_commit);
-            self.error_observer.maybe_consume(&self.logger, result)?;
+            self.error_observer.maybe_consume(result)?;
         }
         Ok(())
     }
@@ -713,7 +707,7 @@ impl<'a> CommitLoader<'a> {
                         &repo_storage.url,
                         config,
                         dot_gitmodules_cache,
-                        None,
+                        false,
                     );
                     if submod_repo_name != cached_thin_submod.repo_name {
                         anyhow::bail!(
@@ -800,7 +794,6 @@ impl<'a> CommitLoader<'a> {
                         &repo_name,
                         missing_commits,
                         &mut repo_fetcher.missing_commits,
-                        &self.logger,
                     );
                 } else {
                     repo_fetcher.needed_commits.insert(commit_id);
@@ -820,7 +813,6 @@ impl<'a> CommitLoader<'a> {
         tree_id: TreeId,
         config: &mut GitTopRepoConfig,
         dot_gitmodules_cache: &mut DotGitModulesCache,
-        logger: &Logger,
     ) -> Result<(Rc<ThinCommit>, Vec<NeededCommit>)> {
         let commit_id: CommitId = exported_commit.original_id;
         let thin_parents = exported_commit
@@ -842,8 +834,8 @@ impl<'a> CommitLoader<'a> {
         let old_dot_gitmodules = thin_parents
             .first()
             .and_then(|first_parent| first_parent.dot_gitmodules);
-        let dot_gitmodules = Self::get_dot_gitmodules_update(&exported_commit, logger)?
-            .unwrap_or(old_dot_gitmodules); // None means no update of .gitmodules.
+        let dot_gitmodules =
+            Self::get_dot_gitmodules_update(&exported_commit)?.unwrap_or(old_dot_gitmodules); // None means no update of .gitmodules.
 
         // Look for submodule updates.
         let parent_submodule_paths = match thin_parents.first() {
@@ -867,7 +859,7 @@ impl<'a> CommitLoader<'a> {
                             &repo_storage.url,
                             config,
                             dot_gitmodules_cache,
-                            Some(logger),
+                            true,
                         );
                         if let Some(submod_repo_name) = &submod_repo_name {
                             new_submodule_commits.push(NeededCommit {
@@ -925,7 +917,7 @@ impl<'a> CommitLoader<'a> {
                             &repo_storage.url,
                             config,
                             dot_gitmodules_cache,
-                            Some(logger),
+                            true,
                         );
                         if new_repo_name != thin_submod.repo_name {
                             // Insert an entry that this submodule has been updated.
@@ -952,7 +944,6 @@ impl<'a> CommitLoader<'a> {
     /// Returns `Ok(Some(...))` if a `.gitmodules` update was found.
     fn get_dot_gitmodules_update(
         exported_commit: &FastExportCommit,
-        logger: &Logger,
     ) -> Result<Option<Option<gix::ObjectId>>> {
         // Assume just a single entry for .gitmodules.
         const GITMODULES_FILE_REMOVED: Option<Option<gix::ObjectId>> = Some(None);
@@ -965,7 +956,7 @@ impl<'a> CommitLoader<'a> {
                         if mode != b"100644" && mode != b"100755" {
                             // Expecting regular file or executable file,
                             // not a symlink, directory, submodule, etc.
-                            logger.warning(format!("Bad mode {mode} for .gitmodules"));
+                            log::warn!("Bad mode {mode} for .gitmodules");
                             return Ok(GITMODULES_FILE_REMOVED);
                         }
                         return Ok(Some(Some(dot_gitmodules)));
@@ -988,10 +979,10 @@ impl<'a> CommitLoader<'a> {
         base_url: &gix::Url,
         config: &mut GitTopRepoConfig,
         dot_gitmodules_cache: &mut DotGitModulesCache,
-        logger: Option<&Logger>,
+        do_log: bool,
     ) -> Option<SubRepoName> {
-        let get_logger = || {
-            logger.filter(|_| {
+        let do_log = || {
+            do_log && {
                 // Only log if .gitmodules has changed or the submodule was just added.
                 let submodule_just_added = first_parent
                     .is_none_or(|first_parent| !first_parent.submodule_paths.contains(path));
@@ -999,23 +990,21 @@ impl<'a> CommitLoader<'a> {
                 let dot_gitmodules_updated = first_parent
                     .is_none_or(|first_parent| dot_gitmodules != first_parent.dot_gitmodules);
                 dot_gitmodules_updated || submodule_just_added
-            })
+            }
         };
 
         // Parse .gitmodules.
         let Some(dot_gitmodules) = dot_gitmodules else {
-            if let Some(logger) = get_logger() {
-                logger.warning(format!(
-                    "Cannot resolve submodule {path}, .gitmodules is missing"
-                ));
+            if do_log() {
+                log::warn!("Cannot resolve submodule {path}, .gitmodules is missing");
             }
             return None;
         };
         let gitmodules_info = match dot_gitmodules_cache.get_from_blob_id(dot_gitmodules) {
             Ok(gitmodules_info) => gitmodules_info,
             Err(err) => {
-                if let Some(logger) = get_logger() {
-                    logger.warning(format!("{err:#}"));
+                if do_log() {
+                    log::warn!("{err:#}");
                 }
                 return None;
             }
@@ -1024,14 +1013,14 @@ impl<'a> CommitLoader<'a> {
         let submod_url = match gitmodules_info.submodules.get(path) {
             Some(Ok(url)) => url,
             Some(Err(err)) => {
-                if let Some(logger) = get_logger() {
-                    logger.warning(format!("{err:#}"));
+                if do_log() {
+                    log::warn!("{err:#}");
                 }
                 return None;
             }
             None => {
-                if let Some(logger) = get_logger() {
-                    logger.warning(format!("Missing {path} in .gitmodules"));
+                if do_log() {
+                    log::warn!("Missing {path} in .gitmodules");
                 }
                 return None;
             }
@@ -1040,18 +1029,16 @@ impl<'a> CommitLoader<'a> {
         let name = match config
             .get_or_insert_from_url(&full_url)
             .map_err(|err| {
-                if let Some(logger) = get_logger() {
-                    logger.error(format!("{err:#}"));
+                if do_log() {
+                    log::error!("{err:#}");
                 }
             })
             .ok()?
         {
             crate::config::GetOrInsertOk::Found((name, _)) => name,
             crate::config::GetOrInsertOk::Missing(_) => {
-                if let Some(logger) = get_logger() {
-                    logger.warning(format!(
-                        "URL {full_url} is missing in the git-toprepo configuration"
-                    ));
+                if do_log() {
+                    log::warn!("URL {full_url} is missing in the git-toprepo configuration");
                 }
                 return None;
             }
@@ -1064,7 +1051,6 @@ impl<'a> CommitLoader<'a> {
 struct SingleRepoLoader<'a> {
     toprepo: &'a gix::Repository,
     repo_name: &'a RepoName,
-    logger: &'a Logger,
     error_observer: &'a crate::log::ErrorObserver,
 }
 
@@ -1098,8 +1084,7 @@ impl SingleRepoLoader<'_> {
             // Loading the cache failed, try again without the cache. Some of
             // the commits might have been loaded, but this kind of failure
             // should be rare so it is not worth updating existing_commits.
-            self.logger
-                .warning(format!("Discarding cache for {}: {err:#}", self.repo_name));
+            log::warn!("Discarding cache for {}: {err:#}", self.repo_name);
             (refs_arg, cached_tips_to_load, unknown_commit_count) = self
                 .get_refs_to_load_arg(existing_commits, &HashSet::new())
                 .context("Failed to find refs to load")
@@ -1191,9 +1176,7 @@ impl SingleRepoLoader<'_> {
         // TODO: The super repository will get an empty URL, which is exactly
         // what is wanted. Does the rest of the code handle that?
         let toprepo_git_dir = self.toprepo.git_dir();
-        for export_entry in
-            FastExportRepo::load_from_path(toprepo_git_dir, Some(refs_arg), self.logger.clone())?
-        {
+        for export_entry in FastExportRepo::load_from_path(toprepo_git_dir, Some(refs_arg))? {
             if self.error_observer.should_interrupt() {
                 break;
             }

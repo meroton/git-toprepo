@@ -13,7 +13,6 @@ use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::git::git_command;
-use git_toprepo::log::Logger;
 use git_toprepo::repo;
 use git_toprepo::repo::MonoRepoProcessor;
 use git_toprepo::repo_name::RepoName;
@@ -50,11 +49,7 @@ fn init(init_args: &cli::Init) -> Result<PathBuf> {
     Ok(directory)
 }
 
-fn clone_after_init(
-    clone_args: &cli::Clone,
-    processor: &mut MonoRepoProcessor,
-    logger: &Logger,
-) -> Result<()> {
+fn clone_after_init(clone_args: &cli::Clone, processor: &mut MonoRepoProcessor) -> Result<()> {
     fetch(
         &cli::Fetch {
             keep_going: false,
@@ -65,7 +60,6 @@ fn clone_after_init(
             refspecs: None,
         },
         processor,
-        logger,
     )?;
     git_command(Path::new("."))
         .args(["checkout", "refs/remotes/origin/HEAD", "--"])
@@ -96,7 +90,7 @@ fn config(config_args: &cli::Config) -> Result<()> {
         cli::ConfigCommands::Location => {
             let location = config::GitTopRepoConfig::find_configuration_location(repo_dir)?;
             if let Err(err) = location.validate_existence(repo_dir) {
-                git_toprepo::log::eprint_log(git_toprepo::log::LogLevel::Warn, &format!("{err:#}"));
+                log::warn!("{err:#}");
             }
             println!("{location}");
         }
@@ -141,75 +135,70 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
     // Resolve borrowing issues.
     let gix_repo = gix_repo.clone();
 
-    git_toprepo::log::Logger::new_to_stderr(|logger| {
-        logger.with_progress(|logger, progress| {
-            (|| -> Result<()> {
-                let error_observer =
-                    git_toprepo::log::ErrorObserver::new(git_toprepo::log::ErrorMode::KeepGoing);
-                let mut commit_loader = git_toprepo::loader::CommitLoader::new(
-                    gix_repo,
-                    &mut top_repo_cache.repos,
-                    &mut config,
-                    progress.clone(),
-                    logger.clone(),
-                    error_observer.clone(),
-                    threadpool::ThreadPool::new(1),
-                )?;
-                commit_loader.fetch_missing_commits = false;
-                commit_loader.load_repo(&git_toprepo::repo_name::RepoName::Top)?;
-                commit_loader.join()?;
-                error_observer.get_result(())
-            })()
-            .context("Failed to load the top repo")?;
+    git_toprepo::log::get_global_logger().with_progress(|progress| {
+        (|| -> Result<()> {
+            let error_observer =
+                git_toprepo::log::ErrorObserver::new(git_toprepo::log::ErrorMode::KeepGoing);
+            let mut commit_loader = git_toprepo::loader::CommitLoader::new(
+                gix_repo,
+                &mut top_repo_cache.repos,
+                &mut config,
+                progress.clone(),
+                error_observer.clone(),
+                threadpool::ThreadPool::new(1),
+            )?;
+            commit_loader.fetch_missing_commits = false;
+            commit_loader.load_repo(&git_toprepo::repo_name::RepoName::Top)?;
+            commit_loader.join()?;
+            error_observer.get_result(())
+        })()
+        .context("Failed to load the top repo")?;
 
-            // Go through submodules at HEAD and enable them in the config.
-            let top_repo_data = top_repo_cache
-                .repos
-                .get(&RepoName::Top)
-                .expect("top repo has been loaded");
-            let thin_head_commit = top_repo_data
-                .thin_commits
-                .get(&head_commit.id)
-                .with_context(|| {
-                    format!("Missing the HEAD commit {} in the top repo", head_commit.id)
-                })?;
-            for submod_path in &*thin_head_commit.submodule_paths {
-                let Some(submod_url) = gitmod_infos.submodules.get(submod_path) else {
-                    logger.warning(format!("Missing submodule {submod_path} in .gitmodules"));
+        // Go through submodules at HEAD and enable them in the config.
+        let top_repo_data = top_repo_cache
+            .repos
+            .get(&RepoName::Top)
+            .expect("top repo has been loaded");
+        let thin_head_commit = top_repo_data
+            .thin_commits
+            .get(&head_commit.id)
+            .with_context(|| {
+                format!("Missing the HEAD commit {} in the top repo", head_commit.id)
+            })?;
+        for submod_path in &*thin_head_commit.submodule_paths {
+            let Some(submod_url) = gitmod_infos.submodules.get(submod_path) else {
+                log::warn!("Missing submodule {submod_path} in .gitmodules");
+                continue;
+            };
+            let submod_url = match submod_url {
+                Ok(submod_url) => submod_url,
+                Err(err) => {
+                    log::warn!("Invalid submodule URL for path {submod_path}: {err}");
                     continue;
-                };
-                let submod_url = match submod_url {
-                    Ok(submod_url) => submod_url,
-                    Err(err) => {
-                        logger.warning(format!(
-                            "Invalid submodule URL for path {submod_path}: {err}"
-                        ));
-                        continue;
-                    }
-                };
-                // TODO: Refactor to not use missing_subrepos.clear() for
-                // accessing the submodule configs.
-                config.missing_subrepos.clear();
-                match config
-                    .get_name_from_url(submod_url)
-                    .with_context(|| format!("Submodule {submod_path}"))
-                {
-                    Ok(Some(name)) => {
-                        config
-                            .subrepos
-                            .get_mut(&name)
-                            .expect("valid subrepo name")
-                            .enabled = true
-                    }
-                    Ok(None) => unreachable!("Submodule {submod_path} should be in the config"),
-                    Err(err) => {
-                        logger.warning(format!("Failed to load submodule {submod_path}: {err}"));
-                        continue;
-                    }
+                }
+            };
+            // TODO: Refactor to not use missing_subrepos.clear() for
+            // accessing the submodule configs.
+            config.missing_subrepos.clear();
+            match config
+                .get_name_from_url(submod_url)
+                .with_context(|| format!("Submodule {submod_path}"))
+            {
+                Ok(Some(name)) => {
+                    config
+                        .subrepos
+                        .get_mut(&name)
+                        .expect("valid subrepo name")
+                        .enabled = true
+                }
+                Ok(None) => unreachable!("Submodule {submod_path} should be in the config"),
+                Err(err) => {
+                    log::warn!("Failed to load submodule {submod_path}: {err}");
+                    continue;
                 }
             }
-            Ok(())
-        })
+        }
+        Ok(())
     })?;
     // Skip printing the warnings in the initial configuration.
     // config.log = log_config;
@@ -271,11 +260,7 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<()> {
 }
 */
 
-fn refilter(
-    refilter_args: &cli::Refilter,
-    processor: &mut MonoRepoProcessor,
-    logger: &Logger,
-) -> Result<()> {
+fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) -> Result<()> {
     load_commits(
         refilter_args.jobs.into(),
         |commit_loader| {
@@ -283,27 +268,17 @@ fn refilter(
             commit_loader.load_repo(&git_toprepo::repo_name::RepoName::Top)
         },
         processor,
-        logger,
     )?;
-    processor.refilter_all_top_refs(logger)
+    processor.refilter_all_top_refs()
 }
 
-fn fetch(
-    fetch_args: &cli::Fetch,
-    processor: &mut MonoRepoProcessor,
-    logger: &Logger,
-) -> Result<()> {
+fn fetch(fetch_args: &cli::Fetch, processor: &mut MonoRepoProcessor) -> Result<()> {
     if let Some(refspecs) = &fetch_args.refspecs {
         let repo = processor.gix_repo.to_thread_local();
         let resolved_args = fetch_args.resolve_remote_and_path(&repo, &processor.config)?;
         let detailed_refspecs = detail_refspecs(refspecs, &resolved_args.repo, &resolved_args.url)?;
-        let mut result = fetch_with_refspec(
-            fetch_args,
-            resolved_args,
-            &detailed_refspecs,
-            processor,
-            logger,
-        );
+        let mut result =
+            fetch_with_refspec(fetch_args, resolved_args, &detailed_refspecs, processor);
         // Delete temporary refs.
         let mut ref_edits = Vec::new();
         for refspec in detailed_refspecs {
@@ -346,14 +321,13 @@ fn fetch(
         }
         result
     } else {
-        fetch_with_default_refspecs(fetch_args, processor, logger)
+        fetch_with_default_refspecs(fetch_args, processor)
     }
 }
 
 fn fetch_with_default_refspecs(
     fetch_args: &cli::Fetch,
     processor: &mut MonoRepoProcessor,
-    logger: &Logger,
 ) -> Result<()> {
     let repo = processor.gix_repo.to_thread_local();
     let mut fetcher = git_toprepo::fetch::RemoteFetcher::new(&repo);
@@ -388,7 +362,6 @@ fn fetch_with_default_refspecs(
                 no_fetch: false,
             },
             processor,
-            logger,
         )?;
     }
     Ok(())
@@ -475,7 +448,6 @@ fn fetch_with_refspec(
     resolved_args: cli::ResolvedFetchParams,
     detailed_refspecs: &Vec<DetailedFetchRefspec>,
     processor: &mut MonoRepoProcessor,
-    logger: &Logger,
 ) -> Result<()> {
     let repo = processor.gix_repo.to_thread_local();
     let mut fetcher = git_toprepo::fetch::RemoteFetcher::new(&repo);
@@ -504,7 +476,6 @@ fn fetch_with_refspec(
         fetch_args.jobs.into(),
         |commit_loader| commit_loader.load_repo(&resolved_args.repo),
         processor,
-        logger,
     )?;
 
     match &resolved_args.repo {
@@ -512,7 +483,7 @@ fn fetch_with_refspec(
             let top_refs = detailed_refspecs
                 .iter()
                 .map(|refspec| &refspec.unfiltered_ref);
-            processor.refilter_some_top_refspecs(top_refs, logger)?;
+            processor.refilter_some_top_refspecs(top_refs)?;
         }
         RepoName::SubRepo(sub_repo_name) => {
             for refspec in detailed_refspecs {
@@ -526,9 +497,8 @@ fn fetch_with_refspec(
                     sub_repo_name,
                     &resolved_args.path,
                     dest_ref,
-                    logger,
                 ) {
-                    logger.error(format!("Failed to expand {}: {err:#}", refspec.remote_ref));
+                    log::error!("Failed to expand {}: {err:#}", refspec.remote_ref);
                 }
             }
         }
@@ -582,7 +552,6 @@ fn load_commits<F>(
     job_count: NonZeroUsize,
     commit_loader_setup: F,
     processor: &mut MonoRepoProcessor,
-    logger: &Logger,
 ) -> Result<()>
 where
     F: FnOnce(&mut git_toprepo::loader::CommitLoader) -> Result<()>,
@@ -592,7 +561,6 @@ where
         &mut processor.top_repo_cache.repos,
         &mut processor.config,
         processor.progress.clone(),
-        logger.clone(),
         processor.error_observer.clone(),
         threadpool::ThreadPool::new(job_count.get()),
     )?;
@@ -600,7 +568,7 @@ where
     commit_loader.join()
 }
 
-fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor, logger: &Logger) -> Result<()> {
+fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> {
     let repo = processor.gix_repo.to_thread_local();
     let base_url = match repo.try_find_remote(push_args.top_remote.as_bytes()) {
         Some(Ok(remote)) => remote
@@ -626,7 +594,6 @@ fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor, logger: &Logge
         local_rev,
         &FullName::try_from(remote_ref.clone())?,
         push_args.dry_run,
-        logger,
     )
 }
 
@@ -711,14 +678,14 @@ where
         logger.write_to_git_dir(gix::open(".")?.git_dir())?;
     }
 
-    git_toprepo::repo::MonoRepoProcessor::run(Path::new("."), error_mode, |processor, logger| {
+    git_toprepo::repo::MonoRepoProcessor::run(Path::new("."), error_mode, |processor| {
         match args.command {
             Commands::Init(_) => unreachable!("init already processed"),
-            Commands::Clone(clone_args) => clone_after_init(&clone_args, processor, logger),
+            Commands::Clone(clone_args) => clone_after_init(&clone_args, processor),
             Commands::Config(_) => unreachable!("config already processed"),
-            Commands::Refilter(refilter_args) => refilter(&refilter_args, processor, logger),
-            Commands::Fetch(fetch_args) => fetch(&fetch_args, processor, logger),
-            Commands::Push(push_args) => push(&push_args, processor, logger),
+            Commands::Refilter(refilter_args) => refilter(&refilter_args, processor),
+            Commands::Fetch(fetch_args) => fetch(&fetch_args, processor),
+            Commands::Push(push_args) => push(&push_args, processor),
             Commands::Dump(_) => unreachable!("dump already processed"),
             Commands::Replace(_replace_args) => todo!(), //replace(&args, replace_args)?,
             Commands::Version => unreachable!("version already processed"),
