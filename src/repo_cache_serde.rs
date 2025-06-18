@@ -82,13 +82,10 @@ impl SerdeTopRepoCache {
             let mut version_prelude = [0; Self::CACHE_VERSION_PRELUDE.len()];
             reader.read_exact(&mut version_prelude)?;
             if version_prelude != Self::CACHE_VERSION_PRELUDE.as_bytes() {
-                crate::log::eprint_log(
-                    crate::log::LogLevel::Warn,
-                    &format!(
-                        "Discarding toprepo cache {} due to version mismatch, expected {:?}",
-                        cache_path.display(),
-                        Self::CACHE_VERSION_PRELUDE
-                    ),
+                log::warn!(
+                    "Discarding toprepo cache {} due to version mismatch, expected {:?}",
+                    cache_path.display(),
+                    Self::CACHE_VERSION_PRELUDE
                 );
                 return Ok(Self::default());
             }
@@ -101,8 +98,8 @@ impl SerdeTopRepoCache {
             }
             let file = reader.into_inner();
             drop(file);
-            eprintln!(
-                "DEBUG: Deserialized toprepo cache from {} in {:.2?}",
+            log::debug!(
+                "Deserialized toprepo cache from {} in {:.2?}",
                 &cache_path.display(),
                 now.elapsed()
             );
@@ -110,8 +107,7 @@ impl SerdeTopRepoCache {
             if let Some(config_checksum) = config_checksum
                 && loaded_cache.config_checksum != config_checksum
             {
-                crate::log::eprint_log(
-                    crate::log::LogLevel::Warn,
+                log::warn!(
                     "The git-toprepo configuration has changed, discarding the toprepo cache",
                 );
                 return Ok(Self::default());
@@ -162,8 +158,8 @@ impl SerdeTopRepoCache {
             .context("Failed to flush buffered writer")?;
         drop(file);
         std::fs::rename(cache_path_tmp, cache_path)?;
-        eprintln!(
-            "DEBUG: Serialized repo states to {} in {:.2?}",
+        log::debug!(
+            "Serialized repo states to {} in {:.2?}",
             cache_path.display(),
             now.elapsed()
         );
@@ -203,7 +199,7 @@ impl SerdeTopRepoCache {
             })
             .collect::<Result<HashMap<_, _>>>()?;
 
-        eprintln!("DEBUG: Unpacked toprepo cache in {:.2?}", now.elapsed());
+        log::debug!("Unpacked toprepo cache in {:.2?}", now.elapsed());
         Ok(TopRepoCache {
             repos,
             monorepo_commits,
@@ -236,8 +232,8 @@ impl SerdeTopRepoCache {
                 )
             })
             .collect();
-        eprintln!(
-            "DEBUG: Packed toprepo cache for serialization in {:.2?}",
+        log::debug!(
+            "Packed toprepo cache for serialization in {:.2?}",
             now.elapsed()
         );
         Self {

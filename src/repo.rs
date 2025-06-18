@@ -14,7 +14,6 @@ use crate::git_fast_export_import::ImportCommitRef;
 use crate::git_fast_export_import::WithoutCommitterId;
 use crate::git_fast_export_import_dedup::GitFastExportImportDedupCache;
 use crate::gitmodules::SubmoduleUrlExt as _;
-use crate::log::Logger;
 use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::util::CommandExtension as _;
@@ -222,7 +221,7 @@ pub struct MonoRepoProcessor {
 impl MonoRepoProcessor {
     pub fn run<T, F>(directory: &Path, error_mode: crate::log::ErrorMode, f: F) -> Result<T>
     where
-        F: FnOnce(&mut MonoRepoProcessor, &Logger) -> Result<T>,
+        F: FnOnce(&mut MonoRepoProcessor) -> Result<T>,
     {
         let gix_repo = gix::open(directory)
             .context("Could not open directory for MonoRepoProcessor")?
@@ -249,13 +248,11 @@ impl MonoRepoProcessor {
             error_observer,
             progress: indicatif::MultiProgress::new(),
         };
-        let mut result = crate::log::Logger::new_to_stderr(|logger| {
-            logger.with_progress(|logger, progress| {
-                let old_progress = std::mem::replace(&mut processor.progress, progress);
-                let result = f(&mut processor, &logger);
-                processor.progress = old_progress;
-                result
-            })
+        let mut result = crate::log::get_global_logger().with_progress(|progress| {
+            let old_progress = std::mem::replace(&mut processor.progress, progress);
+            let result = f(&mut processor);
+            processor.progress = old_progress;
+            result
         });
         // Store some result files.
         if let Err(err) = crate::repo_cache_serde::SerdeTopRepoCache::pack(
@@ -338,7 +335,7 @@ impl MonoRepoProcessor {
         Ok(())
     }
 
-    pub fn refilter_all_top_refs(&mut self, logger: &Logger) -> Result<()> {
+    pub fn refilter_all_top_refs(&mut self) -> Result<()> {
         let repo = self.gix_repo.to_thread_local();
         let top_ref_prefix = format!("{}refs/", RepoName::Top.to_ref_prefix());
 
@@ -348,13 +345,12 @@ impl MonoRepoProcessor {
             let r = r.map_err(|err| anyhow::anyhow!("Failed while iterating refs: {err:#}"))?;
             refs.push(r);
         }
-        self.refilter(refs, true, logger)
+        self.refilter(refs, true)
     }
 
     pub fn refilter_some_top_refspecs(
         &mut self,
         top_ref_names: impl IntoIterator<Item = impl AsRef<FullNameRef>>,
-        logger: &Logger,
     ) -> Result<()> {
         let repo = self.gix_repo.to_thread_local();
 
@@ -363,15 +359,10 @@ impl MonoRepoProcessor {
             let r = repo.find_reference(top_ref.as_ref())?;
             refs.push(r);
         }
-        self.refilter(refs, false, logger)
+        self.refilter(refs, false)
     }
 
-    fn refilter(
-        &mut self,
-        top_refs: Vec<gix::Reference<'_>>,
-        remove_refs: bool,
-        logger: &Logger,
-    ) -> Result<()> {
+    fn refilter(&mut self, top_refs: Vec<gix::Reference<'_>>, remove_refs: bool) -> Result<()> {
         let repo = self.gix_repo.to_thread_local();
         let old_monorepo_refs = Self::read_monorepo_refs_log(&repo)?;
 
@@ -388,17 +379,11 @@ impl MonoRepoProcessor {
                 gix::object::Kind::Commit => {}
                 gix::object::Kind::Tag => {}
                 gix::object::Kind::Tree => {
-                    logger.warning(format!(
-                        "Skipping ref {} that points to a tree",
-                        r.name().as_bstr()
-                    ));
+                    log::warn!("Skipping ref {} that points to a tree", r.name().as_bstr());
                     continue;
                 }
                 gix::object::Kind::Blob => {
-                    logger.warning(format!(
-                        "Skipping ref {} that points to a blob",
-                        r.name().as_bstr()
-                    ));
+                    log::warn!("Skipping ref {} that points to a blob", r.name().as_bstr());
                     continue;
                 }
             }
@@ -411,10 +396,10 @@ impl MonoRepoProcessor {
                     let Ok(monorepo_target_name) =
                         strip_ref_prefix(&target_name, BStr::new(&top_ref_prefix))
                     else {
-                        logger.warning(format!(
+                        log::warn!(
                             "Skipping symbolic ref {} that points outside the top repo, to {target_name}.",
                             r.name,
-                        ));
+                        );
                         continue;
                     };
                     monorepo_symbolic_tips.push((monorepo_link_name, monorepo_target_name));
@@ -480,16 +465,13 @@ impl MonoRepoProcessor {
             drop(pb);
 
             println!("Found {num_commits_to_export} commits to expand");
-            let fast_importer = crate::git_fast_export_import::FastImportRepo::new(
-                self.gix_repo.git_dir(),
-                logger.clone(),
-            )?;
+            let fast_importer =
+                crate::git_fast_export_import::FastImportRepo::new(self.gix_repo.git_dir())?;
             let mut expander = TopRepoExpander {
                 gix_repo: &repo,
                 storage: &mut self.top_repo_cache,
                 config: &self.config,
                 progress,
-                logger: logger.clone(),
                 fast_importer,
                 imported_commits: HashMap::new(),
                 bumps: crate::expander::BumpCache::default(),
@@ -524,7 +506,6 @@ impl MonoRepoProcessor {
         // by git-toprepo.
         Self::update_refs(
             &repo,
-            logger,
             if remove_refs {
                 old_monorepo_refs
             } else {
@@ -542,7 +523,6 @@ impl MonoRepoProcessor {
 
     fn update_refs(
         repo: &gix::Repository,
-        logger: &Logger,
         old_refs: Vec<FullName>,
         object_tips: Vec<(FullName, MonoRepoCommitId)>,
         symbolic_tips: Vec<(FullName, FullName)>,
@@ -591,7 +571,7 @@ impl MonoRepoProcessor {
             if all_new_tips.contains(&old_ref) {
                 continue;
             }
-            logger.warning(format!("Deleting now removed ref {old_ref}",));
+            log::warn!("Deleting now removed ref {old_ref}",);
             ref_edits.push(gix::refs::transaction::RefEdit {
                 change: gix::refs::transaction::Change::Delete {
                     // TODO: Is MustExistAndMatch possible? Should the previous
@@ -622,7 +602,6 @@ impl MonoRepoProcessor {
         sub_repo_name: &SubRepoName,
         abs_sub_path: &GitPath,
         dest_ref: &FullNameRef,
-        logger: &Logger,
     ) -> Result<Rc<MonoRepoCommit>> {
         let repo = self.gix_repo.to_thread_local();
 
@@ -668,16 +647,13 @@ impl MonoRepoProcessor {
             })?;
         drop(pb);
 
-        let fast_importer = crate::git_fast_export_import::FastImportRepo::new(
-            self.gix_repo.git_dir(),
-            logger.clone(),
-        )?;
+        let fast_importer =
+            crate::git_fast_export_import::FastImportRepo::new(self.gix_repo.git_dir())?;
         let mut expander = TopRepoExpander {
             gix_repo: &repo,
             storage: &mut self.top_repo_cache,
             config: &mut self.config,
             progress: self.progress.clone(),
-            logger: logger.clone(),
             fast_importer,
             imported_commits: HashMap::new(),
             bumps: crate::expander::BumpCache::default(),
@@ -710,7 +686,6 @@ impl MonoRepoProcessor {
         local_rev: &String,
         remote_ref: &FullName,
         dry_run: bool,
-        logger: &Logger,
     ) -> Result<()> {
         if self.top_repo_cache.monorepo_commits.is_empty() {
             anyhow::bail!(
@@ -740,14 +715,11 @@ impl MonoRepoProcessor {
 
         let mut dedup_cache = std::mem::take(&mut self.top_repo_cache.dedup);
         let mut fast_importer = crate::git_fast_export_import_dedup::FastImportRepoDedup::new(
-            crate::git_fast_export_import::FastImportRepo::new(
-                self.gix_repo.git_dir(),
-                logger.clone(),
-            )?,
+            crate::git_fast_export_import::FastImportRepo::new(self.gix_repo.git_dir())?,
             &mut dedup_cache,
         );
         let to_push_metadata =
-            self.split_for_push(&mut fast_importer, top_push_url, &export_refs_args, logger);
+            self.split_for_push(&mut fast_importer, top_push_url, &export_refs_args);
         // Make sure to gracefully shutdown the fast-importer before returning.
         fast_importer.wait()?;
         self.top_repo_cache.dedup = dedup_cache;
@@ -774,7 +746,7 @@ impl MonoRepoProcessor {
         });
         to_push_metadata.reverse();
         if to_push_metadata.is_empty() {
-            logger.info("Nothing to push".to_owned());
+            log::info!("Nothing to push");
             return Ok(());
         }
 
@@ -785,11 +757,11 @@ impl MonoRepoProcessor {
                 Some(topic) => format!(" -o topic={topic}"),
                 None => String::new(),
             };
-            logger.info(format!(
+            log::info!(
                 "{info_label}: git push {}{topic_arg} {}:{remote_ref}",
                 push_info.push_url,
                 push_info.commit_id.to_hex()
-            ));
+            );
             if dry_run {
                 continue;
             }
@@ -802,10 +774,11 @@ impl MonoRepoProcessor {
             }
             cmd.arg(format!("{}:{remote_ref}", push_info.commit_id));
             if let Err(err) = cmd.safe_status()?.check_success() {
-                logger.error(format!(
+                log::info!(
                     "Failed to git push {} {}:{remote_ref}: {err:#}",
-                    push_info.push_url, push_info.commit_id
-                ));
+                    push_info.push_url,
+                    push_info.commit_id
+                );
                 failed_pushes += 1;
             }
         }
@@ -900,7 +873,6 @@ impl MonoRepoProcessor {
         fast_importer: &mut crate::git_fast_export_import_dedup::FastImportRepoDedup<'_>,
         top_push_url: &gix::Url,
         export_refs_args: &[std::ffi::OsString],
-        logger: &Logger,
     ) -> Result<Vec<PushMetadata>> {
         let monorepo_commits = &self.top_repo_cache.monorepo_commits;
         let repo = self.gix_repo.to_thread_local();
@@ -917,7 +889,6 @@ impl MonoRepoProcessor {
         let fast_exporter = crate::git_fast_export_import::FastExportRepo::load_from_path(
             self.gix_repo.git_dir(),
             Some(export_refs_args),
-            logger.clone(),
         )?;
 
         let mut to_push_metadata = Vec::new();
@@ -1068,10 +1039,11 @@ impl MonoRepoProcessor {
                     pb.inc(1);
                 }
                 crate::git_fast_export_import::FastExportEntry::Reset(reset) => {
-                    logger.warning(format!(
+                    log::warn!(
                         "Resetting {} to {} is unimplemented",
-                        reset.branch, reset.from
-                    ));
+                        reset.branch,
+                        reset.from
+                    );
                 }
             };
         }

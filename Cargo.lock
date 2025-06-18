@@ -712,6 +712,7 @@ dependencies = [
 name = "git-toprepo-testtools"
 version = "0.0.0"
 dependencies = [
+ "log",
  "rstest",
  "tempfile",
 ]
