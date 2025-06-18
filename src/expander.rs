@@ -101,8 +101,7 @@ impl TopRepoExpander<'_> {
         stop_commit_ids: Vec<CommitId>,
         c: usize,
     ) -> Result<()> {
-        self.progress
-            .suspend(|| eprintln!("Expanding the toprepo to a monorepo..."));
+        log::info!("Expanding the toprepo to a monorepo...");
         self.progress
             .set_draw_target(indicatif::ProgressDrawTarget::stderr_with_hz(10));
         let pb = self.progress.add(
@@ -134,56 +133,57 @@ impl TopRepoExpander<'_> {
             ),
         )?;
 
-        (|| {
-            let top_ref_prefix = RepoName::Top.to_ref_prefix();
-            for entry in fast_exporter {
-                let entry = entry?; // TODO: error handling
-                match entry {
-                    crate::git_fast_export_import::FastExportEntry::Commit(commit) => {
-                        let input_branch = commit.branch.as_ref().ok_or_else(|| {
-                            anyhow::anyhow!("Top repo commit {} has no branch", commit.original_id)
-                        })?;
-                        let output_branch = strip_ref_prefix(input_branch, top_ref_prefix.as_str()).with_context(|| {
+        let top_ref_prefix = RepoName::Top.to_ref_prefix();
+        for entry in fast_exporter {
+            let entry = entry?; // TODO: error handling
+            match entry {
+                crate::git_fast_export_import::FastExportEntry::Commit(commit) => {
+                    let input_branch = commit.branch.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!("Top repo commit {} has no branch", commit.original_id)
+                    })?;
+                    let output_branch = strip_ref_prefix(input_branch, top_ref_prefix.as_str())
+                        .with_context(|| {
                             format!(
                                 "Bad git-fast-export branch {input_branch} which was not requested"
                             )
                         })?;
-                        let commit_id = TopRepoCommitId::new(commit.original_id);
-                        let now = std::time::Instant::now();
-                        self.expand_toprepo_commit(output_branch.as_ref(), commit)?;
-                        let ms = now.elapsed().as_millis();
-                        if ms > 100 {
-                            // TODO: Remove this debug print.
-                            log::debug!("Commit {commit_id} took {ms} ms");
-                        }
-                        pb.inc(1);
+                    let commit_id = TopRepoCommitId::new(commit.original_id);
+                    let now = std::time::Instant::now();
+                    self.expand_toprepo_commit(output_branch.as_ref(), commit)?;
+                    let ms = now.elapsed().as_millis();
+                    if ms > 100 {
+                        // TODO: Remove this debug print.
+                        log::debug!("Commit {commit_id} took {ms} ms");
                     }
-                    crate::git_fast_export_import::FastExportEntry::Reset(reset) => {
-                        let input_branch = &reset.branch;
-                        let output_branch = strip_ref_prefix(input_branch, top_ref_prefix.as_str()).with_context(|| {
+                    pb.inc(1);
+                }
+                crate::git_fast_export_import::FastExportEntry::Reset(reset) => {
+                    let input_branch = &reset.branch;
+                    let output_branch = strip_ref_prefix(input_branch, top_ref_prefix.as_str())
+                        .with_context(|| {
                             format!(
                                 "Bad git-fast-export branch {input_branch} which was not requested"
                             )
                         })?;
-                        let mono_commit = self
-                            .storage
-                            .top_to_mono_map
-                            .get(&TopRepoCommitId::new(reset.from))
-                            .with_context(|| {
-                                format!(
-                                    "Failed to reset {} to not yet expanded toprepo revision {}",
-                                    reset.branch, reset.from
-                                )
-                            })?;
-                        self.fast_importer.write_reset(
-                            output_branch.as_ref(),
-                            &self.get_import_commit_ref(mono_commit),
-                        )?;
-                    }
+                    let mono_commit = self
+                        .storage
+                        .top_to_mono_map
+                        .get(&TopRepoCommitId::new(reset.from))
+                        .with_context(|| {
+                            format!(
+                                "Failed to reset {} to not yet expanded toprepo revision {}",
+                                reset.branch, reset.from
+                            )
+                        })?;
+                    self.fast_importer.write_reset(
+                        output_branch.as_ref(),
+                        &self.get_import_commit_ref(mono_commit),
+                    )?;
                 }
             }
-            Ok(())
-        })()
+        }
+        log::info!("Finished expanding commits in {:.2?}", pb.elapsed());
+        Ok(())
     }
 
     pub fn wait(self) -> Result<()> {

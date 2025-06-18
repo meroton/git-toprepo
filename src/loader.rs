@@ -203,6 +203,10 @@ impl<'a> CommitLoader<'a> {
                 .into_iter()
                 .map(|(repo_name, repo_fetcher)| (repo_name, repo_fetcher.repo_data)),
         );
+        log::info!(
+            "Finished importing commits in {:.2?}",
+            self.import_progress.elapsed()
+        );
         result
     }
 
