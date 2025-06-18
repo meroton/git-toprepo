@@ -125,14 +125,25 @@ pub struct FastExportRepo {
 }
 
 impl FastExportRepo {
-    pub fn load_from_path_all_refs(repo_dir: &Path, logger: crate::log::Logger) -> Result<Self> {
-        Self::load_from_path(repo_dir, Option::<Vec<&str>>::None, logger)
+    pub fn load_from_path_all_refs(
+        repo_dir: &Path,
+        logger: impl log::Log + 'static,
+    ) -> Result<Self> {
+        Self::load_from_path_with_logger(repo_dir, Option::<Vec<&str>>::None, logger)
     }
 
-    pub fn load_from_path<I, S>(
+    pub fn load_from_path<I, S>(repo_dir: &Path, refs: Option<I>) -> Result<Self>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<std::ffi::OsStr>,
+    {
+        Self::load_from_path_with_logger(repo_dir, refs, log::logger())
+    }
+
+    pub(crate) fn load_from_path_with_logger<I, S>(
         repo_dir: &Path,
         refs: Option<I>,
-        logger: crate::log::Logger,
+        logger: impl log::Log + 'static,
     ) -> Result<Self>
     where
         I: IntoIterator<Item = S>,
@@ -172,7 +183,7 @@ impl FastExportRepo {
             .name("git-fast-export-stderr".into())
             .spawn(move || {
                 for line in crate::util::ReadLossyCrOrLfLines::new(&mut stderr_reader) {
-                    logger.warning(line.trim_end().to_owned());
+                    log::warn!(logger: logger, "{}", line.trim_end());
                 }
             })
             .expect("failed to spawn thread");
@@ -481,7 +492,14 @@ pub struct FastImportRepo {
 }
 
 impl FastImportRepo {
-    pub fn new(repo_dir: &Path, logger: crate::log::Logger) -> Result<Self> {
+    pub fn new(repo_dir: &Path) -> Result<Self> {
+        Self::new_with_logger(repo_dir, log::logger())
+    }
+
+    pub(crate) fn new_with_logger(
+        repo_dir: &Path,
+        logger: impl log::Log + 'static,
+    ) -> Result<Self> {
         let _log_scope_guard = crate::log::scope("git-fast-import");
         // If the upstream repository has been force updated, then this import
         // should also force update.
@@ -507,7 +525,7 @@ impl FastImportRepo {
             .name("git-fast-import-stderr".into())
             .spawn(move || {
                 for line in crate::util::ReadLossyCrOrLfLines::new(&mut stderr_reader) {
-                    logger.warning(line.trim_end().to_owned());
+                    log::warn!(logger: logger, "{}", line.trim_end());
                 }
             })
             .expect("failed to spawn thread");
@@ -784,6 +802,7 @@ mod tests {
     use std::borrow::Borrow as _;
     use std::path::Path;
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     /// Copied from `tests/fixtures/toprepo.rs`.
     fn commit_env() -> HashMap<String, String> {
@@ -882,9 +901,10 @@ mod tests {
         // hashes we could probably use a library for snapshot testing to make
         // it easier to work with.
 
-        let (log_accumulator, logger) = crate::log::tests::LogAccumulator::new();
+        let logger = Arc::new(git_toprepo_testtools::log::LogAccumulator::default());
         let mut repo =
-            FastExportRepo::load_from_path_all_refs(example_repo.as_path(), logger).unwrap();
+            FastExportRepo::load_from_path_all_refs(example_repo.as_path(), logger.clone())
+                .unwrap();
         let commit_a = match repo.next().unwrap().unwrap() {
             FastExportEntry::Commit(c) => c,
             _ => panic!("Expected FastExportCommit"),
@@ -893,7 +913,8 @@ mod tests {
             FastExportEntry::Commit(c) => c,
             _ => panic!("Expected FastExportCommit"),
         };
-        log_accumulator.join_nothing_logged().unwrap();
+        drop(repo);
+        assert!(logger.records.lock().unwrap().is_empty());
 
         assert_eq!(
             commit_a.branch,
@@ -975,13 +996,13 @@ mod tests {
             .check_success_with_stderr()
             .unwrap();
 
-        let (log_accumulator, logger) = crate::log::tests::LogAccumulator::new();
-
+        let logger = Arc::new(git_toprepo_testtools::log::LogAccumulator::default());
         let fast_export_repo =
             FastExportRepo::load_from_path_all_refs(from_repo_path.as_path(), logger.clone())
                 .unwrap();
 
-        let mut fast_import_repo = FastImportRepo::new(to_repo_path.as_path(), logger).unwrap();
+        let mut fast_import_repo =
+            FastImportRepo::new_with_logger(to_repo_path.as_path(), logger.clone()).unwrap();
         for export_entry in fast_export_repo {
             let export_entry = export_entry.unwrap();
             match export_entry {
@@ -1013,8 +1034,7 @@ mod tests {
             }
         }
         fast_import_repo.wait().unwrap();
-
-        log_accumulator.join_nothing_logged().unwrap();
+        assert!(logger.records.lock().unwrap().is_empty());
 
         let from_ref = git_command(&from_repo_path)
             .args(["rev-parse", "refs/heads/main"])
