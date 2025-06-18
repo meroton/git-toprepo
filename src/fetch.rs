@@ -155,8 +155,7 @@ impl RemoteFetcher {
         let mut cmd = self.create_command();
         pb.set_prefix(self.remote.as_deref().unwrap_or_default().to_owned());
         pb.set_message("Starting git-fetch");
-        // TODO (avass): This should go to a debuglog
-        //pb.suspend(|| eprintln!("Running: {cmd:#?}"));
+        log::debug!("Running: {cmd:#?}");
         let mut proc = cmd
             // TODO: Collect stdout (use a thread to avoid backpressure deadlock).
             .stdout(std::process::Stdio::null())
@@ -183,8 +182,7 @@ impl RemoteFetcher {
 
     pub fn fetch_on_terminal(self) -> Result<()> {
         let mut cmd = self.create_command();
-        // TODO (avass): This should go to a debug log
-        //eprintln!("Running: {cmd:?}");
+        log::debug!("Running: {cmd:?}");
         cmd.safe_output()
             .with_context(|| "Failed to spawn git-fetch".to_string())?
             .check_success_with_stderr()

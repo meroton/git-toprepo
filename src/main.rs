@@ -45,7 +45,7 @@ fn init(init_args: &cli::Init) -> Result<PathBuf> {
     };
 
     git_toprepo::repo::TopRepo::create(&directory, url)?;
-    eprintln!("Initialized git-toprepo in {}", directory.display());
+    log::info!("Initialized git-toprepo in {}", directory.display());
     Ok(directory)
 }
 

@@ -464,7 +464,7 @@ impl MonoRepoProcessor {
             )?;
             drop(pb);
 
-            println!("Found {num_commits_to_export} commits to expand");
+            log::info!("Found {num_commits_to_export} commits to expand");
             let fast_importer =
                 crate::git_fast_export_import::FastImportRepo::new(self.gix_repo.git_dir())?;
             let mut expander = TopRepoExpander {
