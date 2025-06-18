@@ -352,12 +352,18 @@ impl<'a> CommitLoader<'a> {
 
         let tx = self.tx.clone();
         let pb_clone = pb_status.clone();
+        let error_observer = self.error_observer.clone();
         self.thread_pool.execute(move || {
             let result = fetcher
                 .fetch_with_progress_bar(&pb_clone)
                 .with_context(|| format!("Fetching {repo_name}"));
             // Sending might fail on interrupt.
-            let _ = tx.send(TaskResult::RepoFetchDone(repo_name, result));
+            if let Err(err) = tx.send(TaskResult::RepoFetchDone(repo_name, result)) {
+                assert!(
+                    error_observer.should_interrupt(),
+                    "The receiver should only close early when interrupted: {err:?}"
+                );
+            }
         });
         Ok(vec![pb_url, pb_status])
     }
@@ -458,7 +464,12 @@ impl<'a> CommitLoader<'a> {
             let result =
                 single_repo_loader.load_repo(&existing_commits, &cached_commits, &callback);
             // Send only fails if the receiver has been interrupted.
-            let _ = tx.send(TaskResult::LoadRepoDone(repo_name, result));
+            if let Err(err) = tx.send(TaskResult::LoadRepoDone(repo_name, result)) {
+                assert!(
+                    error_observer.should_interrupt(),
+                    "The receiver should only close early when interrupted: {err:?}"
+                );
+            }
         });
     }
 
