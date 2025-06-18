@@ -348,7 +348,7 @@ impl MonoRepoProcessor {
             let r = r.map_err(|err| anyhow::anyhow!("Failed while iterating refs: {err:#}"))?;
             refs.push(r);
         }
-        self.refilter(refs, logger)
+        self.refilter(refs, true, logger)
     }
 
     pub fn refilter_some_top_refspecs(
@@ -363,10 +363,15 @@ impl MonoRepoProcessor {
             let r = repo.find_reference(top_ref.as_ref())?;
             refs.push(r);
         }
-        self.refilter(refs, logger)
+        self.refilter(refs, false, logger)
     }
 
-    pub fn refilter(&mut self, top_refs: Vec<gix::Reference<'_>>, logger: &Logger) -> Result<()> {
+    fn refilter(
+        &mut self,
+        top_refs: Vec<gix::Reference<'_>>,
+        remove_refs: bool,
+        logger: &Logger,
+    ) -> Result<()> {
         let repo = self.gix_repo.to_thread_local();
         let old_monorepo_refs = Self::read_monorepo_refs_log(&repo)?;
 
@@ -432,6 +437,11 @@ impl MonoRepoProcessor {
         let mut final_monorefs = monorepo_object_tips
             .iter()
             .map(|(name, _)| name.clone())
+            .chain(
+                todo_toprepo_object_tips
+                    .iter()
+                    .map(|(mono_name, _, _)| mono_name.clone()),
+            )
             .collect_vec();
         final_monorefs.sort();
         // Mark all the old refs (already marked) and all the new refs (the user
@@ -442,6 +452,7 @@ impl MonoRepoProcessor {
             .chain(&final_monorefs)
             .unique()
             .cloned()
+            .unique()
             .sorted();
         Self::write_monorepo_refs_log(&repo, old_and_new_monorefs.as_slice())?;
         if !todo_toprepo_object_tips.is_empty() {
@@ -508,16 +519,24 @@ impl MonoRepoProcessor {
                 monorepo_object_tips.push((monorepo_ref_name, mono_commit_id.clone()));
             }
         }
-        // TODO: Don't update refs unless needed.
-        // Refs just filtered should not need this update.
+        // TODO: Update all refs here and not while running git-fast-import. By
+        // updating them here, we can avoid updating refs that are not "owned"
+        // by git-toprepo.
         Self::update_refs(
             &repo,
             logger,
-            old_monorepo_refs,
+            if remove_refs {
+                old_monorepo_refs
+            } else {
+                Vec::new()
+            },
             monorepo_object_tips,
             monorepo_symbolic_tips,
         )?;
-        Self::write_monorepo_refs_log(&repo, final_monorefs.as_slice())?;
+        if remove_refs {
+            // No refs were removed, so nothing to clean up in the log file.
+            Self::write_monorepo_refs_log(&repo, final_monorefs.as_slice())?;
+        }
         Ok(())
     }
 

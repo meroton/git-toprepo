@@ -314,12 +314,7 @@ fn test_fetch_twice_should_keep_refs() {
     Command::new("git")
         .current_dir(&repo.toprepo)
         .envs(commit_env_for_testing())
-        .args([
-            "commit",
-            "--allow-empty",
-            "-m",
-            "Emptry commit on main branch",
-        ])
+        .args(["commit", "--allow-empty", "-m", "Commit A main branch"])
         .assert()
         .success();
 
@@ -328,6 +323,28 @@ fn test_fetch_twice_should_keep_refs() {
         .unwrap()
         .current_dir(&repo.monorepo)
         .args(["fetch"])
+        .assert()
+        .success();
+    Command::new("git")
+        .current_dir(&repo.monorepo)
+        .args(["show-ref"])
+        .assert()
+        .success()
+        .stdout(expected_show_ref_output.clone());
+
+    // Update main branch in the top repo.
+    Command::new("git")
+        .current_dir(&repo.toprepo)
+        .envs(commit_env_for_testing())
+        .args(["commit", "--allow-empty", "-m", "Commit B main branch"])
+        .assert()
+        .success();
+
+    // Fetch again, but with a refspec.
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&repo.monorepo)
+        .args(["fetch", "origin", "refs/heads/main"])
         .assert()
         .success();
     Command::new("git")
