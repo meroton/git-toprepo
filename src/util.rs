@@ -446,22 +446,22 @@ impl<R: std::io::BufRead> Iterator for ReadLossyCrOrLfLines<R> {
         while let Ok(bytes) = self.reader.fill_buf() {
             if bytes.is_empty() {
                 // End of file.
-                let line_str = self.buf.to_str_lossy().to_string();
-                if line_str.is_empty() {
+                if self.buf.is_empty() {
                     return None;
                 }
-                self.buf.clear();
-                return Some(line_str);
+            } else if let Some(idx) = bytes.find_byteset(b"\r\n") {
+                self.buf.push_str(bytes[..idx + 1].as_bstr());
+                self.reader.consume(idx + 1);
+            } else {
+                self.buf.push_str(bytes.as_bstr());
+                let bytes_len = bytes.len();
+                self.reader.consume(bytes_len);
+                // No CR or LF found, get some more bytes.
+                continue;
             }
-            let idx = bytes.find_byteset(b"\r\n").unwrap_or(bytes.len() - 1);
-            self.buf.push_str(bytes[..idx + 1].as_bstr());
-            self.reader.consume(idx + 1);
             let line_str = self.buf.to_str_lossy().to_string();
-            // Check what codepoints are terminating the line.
-            if line_str.ends_with('\r') || line_str.ends_with('\n') {
-                self.buf.clear();
-                return Some(line_str);
-            }
+            self.buf.clear();
+            return Some(line_str);
         }
         None
     }
