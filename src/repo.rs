@@ -274,6 +274,9 @@ impl MonoRepoProcessor {
         {
             result = Err(err);
         }
+        if result.is_ok() && processor.error_observer.has_got_errors() {
+            anyhow::bail!("Processing failed, see previous errors");
+        }
         result
     }
 

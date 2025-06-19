@@ -574,7 +574,11 @@ where
         threadpool::ThreadPool::new(job_count.get()),
     )?;
     commit_loader_setup(&mut commit_loader).with_context(|| "Failed to setup the commit loader")?;
-    commit_loader.join()
+    commit_loader.join()?;
+    if processor.error_observer.has_got_errors() {
+        anyhow::bail!("Failed to load commits, see previous errors");
+    }
+    Ok(())
 }
 
 #[tracing::instrument(skip(processor))]
