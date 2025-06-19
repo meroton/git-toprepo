@@ -175,7 +175,6 @@ impl RemoteFetcher {
             );
         }
         self.remove_fetch_head()?;
-        pb.set_message("git-fetch done");
         Ok(())
     }
 
