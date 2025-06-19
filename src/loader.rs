@@ -55,7 +55,6 @@ pub struct CommitLoader<'a> {
     rx: std::sync::mpsc::Receiver<TaskResult>,
     event_queue: VecDeque<TaskResult>,
 
-    pub progress: indicatif::MultiProgress,
     import_progress: indicatif::ProgressBar,
     load_progress: ProgressStatus,
     fetch_progress: ProgressStatus,
@@ -99,11 +98,12 @@ impl<'a> CommitLoader<'a> {
         import_progress.enable_steady_tick(std::time::Duration::from_millis(1000));
 
         let style = indicatif::ProgressStyle::with_template(
-            "     {prefix:.cyan} [{bar:24}] {pos}/{len}{msg!}",
+            "     {prefix:.cyan} [{bar:24}] {pos}/{len}{wide_msg}",
         )
         .unwrap()
         .progress_chars("=> ");
         let load_progress = ProgressStatus::new(
+            progress.clone(),
             progress.add(
                 indicatif::ProgressBar::no_length()
                     .with_style(style.clone())
@@ -111,6 +111,7 @@ impl<'a> CommitLoader<'a> {
             ),
         );
         let fetch_progress = ProgressStatus::new(
+            progress.clone(),
             progress.add(
                 indicatif::ProgressBar::no_length()
                     .with_style(style)
@@ -125,7 +126,6 @@ impl<'a> CommitLoader<'a> {
             tx,
             rx,
             event_queue: VecDeque::new(),
-            progress,
             import_progress,
             load_progress,
             fetch_progress,
@@ -332,19 +332,15 @@ impl<'a> CommitLoader<'a> {
         let mut fetcher = crate::fetch::RemoteFetcher::new(&self.toprepo);
         fetcher.set_remote_from_repo_name(&self.toprepo, &repo_name, self.config)?;
 
-        let pb_url = self.progress.add(
-            indicatif::ProgressBar::no_length()
-                .with_style(
-                    indicatif::ProgressStyle::with_template("{elapsed:>4} {prefix:.cyan} {msg}")
-                        .unwrap(),
-                )
-                .with_prefix("git fetch")
-                .with_message(fetcher.remote.clone().unwrap_or_else(|| "<top>".to_owned())),
-        );
-        let pb_status = self.progress.add(
-            indicatif::ProgressBar::no_length()
-                .with_style(indicatif::ProgressStyle::with_template("     {wide_msg}").unwrap()),
-        );
+        let pb_url = indicatif::ProgressBar::hidden()
+            .with_style(
+                indicatif::ProgressStyle::with_template("{elapsed:>4} {prefix:.cyan} {msg}")
+                    .unwrap(),
+            )
+            .with_prefix("git fetch")
+            .with_message(fetcher.remote.clone().unwrap_or_else(|| "<top>".to_owned()));
+        let pb_status = indicatif::ProgressBar::hidden()
+            .with_style(indicatif::ProgressStyle::with_template("     {msg}").unwrap());
         // Now when it is added, we can start calling tick to print. Don't print
         // before it is added as multiple ProgressBars will trash eachother.
         pb_status.enable_steady_tick(std::time::Duration::from_millis(1000));
@@ -1307,6 +1303,7 @@ impl DotGitModulesCache {
 }
 
 struct ProgressStatus {
+    multi_progress: indicatif::MultiProgress,
     pb: indicatif::ProgressBar,
     queue_size: usize,
     active: Vec<(String, Vec<indicatif::ProgressBar>)>,
@@ -1315,8 +1312,9 @@ struct ProgressStatus {
 }
 
 impl ProgressStatus {
-    fn new(pb: indicatif::ProgressBar) -> Self {
+    fn new(multi_progress: indicatif::MultiProgress, pb: indicatif::ProgressBar) -> Self {
         let ret = Self {
+            multi_progress,
             pb,
             queue_size: 0,
             active: Vec::new(),
@@ -1327,11 +1325,13 @@ impl ProgressStatus {
         ret
     }
 
-    pub fn start(&mut self, name: String, pbs: Vec<indicatif::ProgressBar>) {
-        if !self.active.is_empty() {
-            for pb in &pbs {
-                pb.set_draw_target(indicatif::ProgressDrawTarget::hidden());
-            }
+    pub fn start(&mut self, name: String, mut pbs: Vec<indicatif::ProgressBar>) {
+        if self.active.is_empty() {
+            // Nothing is drawn, add this item.
+            pbs = pbs
+                .into_iter()
+                .map(|pb| self.multi_progress.add(pb))
+                .collect();
         }
         self.active.push((name, pbs));
         self.draw();
@@ -1346,12 +1346,14 @@ impl ProgressStatus {
         // Remove the first occurrence of the name, in case of duplicates.
         self.active.remove(idx);
         if idx == 0
-            && let Some((_name, item_pbs)) = self.active.first()
+            && let Some((_name, item_pbs)) = self.active.first_mut()
         {
             // Show the first active item, the oldest one.
-            for item_pb in item_pbs {
-                item_pb.set_draw_target(indicatif::ProgressDrawTarget::stderr());
-            }
+            let hidden_item_pbs = std::mem::take(item_pbs);
+            *item_pbs = hidden_item_pbs
+                .into_iter()
+                .map(|pb| self.multi_progress.add(pb))
+                .collect();
         }
         self.num_done += 1;
         self.pb.inc(1);
