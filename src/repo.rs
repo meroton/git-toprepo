@@ -248,6 +248,9 @@ impl MonoRepoProcessor {
             error_observer,
             progress: indicatif::MultiProgress::new(),
         };
+        processor
+            .progress
+            .set_draw_target(indicatif::ProgressDrawTarget::hidden());
         let mut result = crate::log::get_global_logger().with_progress(|progress| {
             let old_progress = std::mem::replace(&mut processor.progress, progress);
             let result = f(&mut processor);
