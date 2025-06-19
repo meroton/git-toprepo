@@ -705,7 +705,6 @@ dependencies = [
  "tracing-chrome",
  "tracing-log",
  "tracing-subscriber",
- "url",
 ]
 
 [[package]]
