@@ -110,7 +110,7 @@ pub fn init() -> &'static GlobalLogger {
     }
     let global_logger = GLOBAL_LOGGER.get().unwrap();
     log::set_logger(global_logger).expect("global logger not set yet");
-    log::set_max_level(log::LevelFilter::Trace);
+    log::set_max_level(log::LevelFilter::Info);
     global_logger
 }
 
