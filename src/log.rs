@@ -102,7 +102,7 @@ static GLOBAL_LOGGER: std::sync::OnceLock<GlobalLogger> = std::sync::OnceLock::n
 
 pub fn init() -> &'static GlobalLogger {
     let global_logger = GlobalLogger {
-        log_to_stderr: Mutex::new(None),
+        log_to_stderr: Mutex::new(StderrLogger::new()),
         log_to_file: Arc::new(Mutex::new(Some(GlobalFileTraceLogger::init_tracing()))),
     };
     if GLOBAL_LOGGER.set(global_logger).is_err() {
@@ -121,17 +121,46 @@ pub fn get_global_logger() -> &'static GlobalLogger {
 
 pub type InternalLogger = dyn Fn(log::Level, &str) + Send;
 
-pub struct GlobalLogger {
+struct StderrLogger {
     /// The function that is called to log messages to `stderr`. If set to
     /// `None`, the `eprintln!` macro is used to write straight to `stderr`.
     ///
     /// The implementation is simplified this way by assuming the stderr logging
     /// only needs to be overridden by one interest at a time.
-    pub log_to_stderr: Mutex<Option<Box<InternalLogger>>>,
+    pub log_fn: Option<Box<InternalLogger>>,
+    /// The log level for the stderr logger.
+    pub level: log::LevelFilter,
+}
+
+impl StderrLogger {
+    pub fn new() -> Self {
+        StderrLogger {
+            log_fn: None,
+            level: log::LevelFilter::Info,
+        }
+    }
+
+    pub fn log(&self, record: &log::Record<'_>, context_and_msg: &str) {
+        if record.level() <= self.level {
+            if let Some(log_fn) = &self.log_fn {
+                log_fn(record.level(), context_and_msg);
+            } else {
+                eprint_log(record.level(), context_and_msg);
+            }
+        }
+    }
+}
+
+pub struct GlobalLogger {
+    log_to_stderr: Mutex<StderrLogger>,
     log_to_file: Arc<Mutex<Option<GlobalFileTraceLogger>>>,
 }
 
 impl GlobalLogger {
+    pub fn set_stderr_log_level(&self, level: log::LevelFilter) {
+        self.log_to_stderr.lock().unwrap().level = level;
+    }
+
     pub fn write_to_git_dir(&self, git_dir: &Path) -> Result<()> {
         self.log_to_file
             .lock()
@@ -163,20 +192,21 @@ impl GlobalLogger {
         progress.set_draw_target(indicatif::ProgressDrawTarget::stderr_with_hz(2));
 
         let progress_clone = progress.clone();
-        let old_stderr_logger =
+        let old_stderr_log_fn =
             self.log_to_stderr
                 .lock()
                 .unwrap()
+                .log_fn
                 .replace(Box::new(move |level, msg| {
                     progress_clone.suspend(|| eprint_log(level, msg));
                 }));
         assert!(
-            old_stderr_logger.is_none(),
+            old_stderr_log_fn.is_none(),
             "only one progress logger at a time"
         );
         let result = task(progress.clone());
         // Restore to default stderr logging.
-        self.log_to_stderr.lock().unwrap().take();
+        self.log_to_stderr.lock().unwrap().log_fn.take();
         progress.clear()?;
         result
     }
@@ -202,11 +232,12 @@ impl log::Log for GlobalLogger {
                 format!("{context}: {msg}")
             };
 
-            if let Some(stderr_log_fn) = self.log_to_stderr.lock().unwrap().as_ref() {
-                stderr_log_fn(record.level(), &context_and_msg);
-            } else {
-                eprint_log(record.level(), &context_and_msg);
-            }
+            // Log to stderr.
+            self.log_to_stderr
+                .lock()
+                .unwrap()
+                .log(record, &context_and_msg);
+            // Log to file.
             if let Some(logger) = self.log_to_file.lock().unwrap().as_ref() {
                 // Make a record that includes the context.
                 logger.log(

@@ -17,6 +17,7 @@ use git_toprepo::gitmodules::SubmoduleUrlExt as _;
 use git_toprepo::repo_name::RepoName;
 use git_toprepo::repo_name::SubRepoName;
 use git_toprepo::util::UniqueContainer;
+use itertools::Itertools;
 use std::ops::Deref as _;
 use std::path::Path;
 use std::path::PathBuf;
@@ -33,6 +34,9 @@ pub struct Cli {
     #[arg(name = "path", short = 'C')]
     pub working_directory: Option<PathBuf>,
 
+    #[clap(flatten)]
+    pub log_level: LogLevelArg,
+
     /// Optional "git" word to simplify pasting copied commands, for example:
     /// `git-toprepo git fetch ...`.
     #[arg(name = "git")]
@@ -40,6 +44,49 @@ pub struct Cli {
 
     #[command(subcommand)]
     pub command: Commands,
+}
+
+const DEFAULT_LOG_LEVEL: log::LevelFilter = log::LevelFilter::Info;
+
+#[derive(Args, Debug)]
+#[group(multiple = false)]
+pub struct LogLevelArg {
+    /// Use `-v` for debug or `-vv` for trace log messages.
+    #[arg(long, short = 'v', global=true, default_value = "0", action = clap::ArgAction::Count)]
+    verbose: u8,
+
+    /// Use `-q` to hide info, `-qq` to hide warnings or `-qqq` to also hide errors messages.
+    #[arg(long, short = 'q', global=true, default_value = "0", action = clap::ArgAction::Count)]
+    quiet: u8,
+}
+
+impl LogLevelArg {
+    /// Get the log level based on the verbosity and quietness.
+    pub fn value(&self) -> Result<log::LevelFilter> {
+        let levels = log::LevelFilter::iter().collect_vec();
+        let mut level_i16 = levels
+            .iter()
+            .find_position(|level| *level == &DEFAULT_LOG_LEVEL)
+            .expect("Default log level must be valid")
+            .0 as i16;
+        level_i16 += self.verbose as i16;
+        level_i16 -= self.quiet as i16;
+        if level_i16 < 0 {
+            anyhow::bail!(
+                "Too quiet log level, {} below {}",
+                -level_i16,
+                levels.first().unwrap().as_str()
+            );
+        } else if level_i16 as usize >= levels.len() {
+            anyhow::bail!(
+                "Too verbose log level, {} above {}",
+                level_i16 as usize - levels.len() + 1,
+                levels.last().unwrap().as_str()
+            );
+        } else {
+            Ok(levels[level_i16 as usize])
+        }
+    }
 }
 
 #[derive(clap::ValueEnum, Clone, Debug)]

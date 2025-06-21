@@ -675,6 +675,18 @@ where
     I: IntoIterator<Item = std::ffi::OsString>,
 {
     let args = Cli::parse_from(argv);
+
+    if let Some(logger) = logger {
+        match args.log_level.value() {
+            Ok(level) => logger.set_stderr_log_level(level),
+            Err(err) => {
+                log::error!("{err:#}");
+                let usage_exit_code = 2;
+                std::process::exit(usage_exit_code);
+            }
+        }
+    }
+
     if let Some(path) = &args.working_directory {
         std::env::set_current_dir(path)
             .with_context(|| format!("Failed to change working directory to {}", path.display()))?;
