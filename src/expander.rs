@@ -40,6 +40,7 @@ use std::hash::Hash;
 use std::io::Write;
 use std::ops::Deref;
 use std::rc::Rc;
+use tracing::instrument;
 
 pub struct TopRepoExpander<'a> {
     pub gix_repo: &'a gix::Repository,
@@ -55,6 +56,13 @@ pub struct TopRepoExpander<'a> {
 impl TopRepoExpander<'_> {
     /// Creates a list of not yet expanded top repo commits needed to expand the
     /// given tips. The returned list is sorted in the order to be expanded.
+    #[instrument(
+        name = "get_commits_to_expand",
+        skip_all,
+        fields(
+            top_tip_count = toprepo_tips.len(),
+        )
+    )]
     pub fn get_toprepo_commits_to_expand(
         &self,
         toprepo_tips: Vec<gix::ObjectId>,
@@ -95,6 +103,15 @@ impl TopRepoExpander<'_> {
     /// `top_refs_to_mono_ref` maps top refs like
     /// `refs/namespaces/top/refs/heads/branch` to monorepo refs like
     /// `refs/remotes/origin/branch`.
+    #[instrument(
+        name = "expand_commits",
+        skip_all,
+        fields(
+            top_ref_count = top_refs.len(),
+            stop_commit_count = stop_commit_ids.len(),
+            count = c,
+        )
+    )]
     pub fn expand_toprepo_commits(
         &mut self,
         top_refs: &[gix::refs::FullName],
@@ -186,6 +203,7 @@ impl TopRepoExpander<'_> {
         Ok(())
     }
 
+    #[instrument(name = "final_wait", skip_all)]
     pub fn wait(self) -> Result<()> {
         // Record the new mono commit ids.
         let commit_ids = self.fast_importer.wait()?;

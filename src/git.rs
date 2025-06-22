@@ -1,3 +1,4 @@
+use crate::log::CommandSpanExt as _;
 use crate::util::CommandExtension as _;
 use crate::util::trim_newline_suffix;
 use anyhow::Context;
@@ -234,7 +235,10 @@ pub fn git_command(repo: &Path) -> Command {
 /// Returns the value of a single entry git configuration key
 /// or `None` if the key is not set.
 pub fn git_config_get(repo: &Path, key: &str) -> anyhow::Result<Option<String>> {
-    let output = git_command(repo).args(["config", key]).safe_output()?;
+    let output = git_command(repo)
+        .args(["config", key])
+        .trace_command(crate::command_span!("git config"))
+        .safe_output()?;
     if output.status.code() == Some(1) {
         Ok(None)
     } else {
@@ -253,6 +257,7 @@ pub fn git_update_submodule_in_index(repo: &Path, path: &GitPath, commit: &Commi
             "--cacheinfo",
             &format!("160000,{commit},{path}"),
         ])
+        .trace_command(crate::command_span!("git update-index"))
         .check_success_with_stderr()
         .with_context(|| format!("Failed to set submodule {path}={commit} in {repo:?}"))
         .map(|_| ())
@@ -261,7 +266,7 @@ pub fn git_update_submodule_in_index(repo: &Path, path: &GitPath, commit: &Commi
 /// Walks through the history from the tips until commits that are already
 /// exported are found. Those commits can be used as negative filter for
 /// which commits to export.
-#[instrument(name = "get first known commits", skip_all)]
+#[instrument(skip_all)]
 pub fn get_first_known_commits<F, I>(
     repo: &gix::Repository,
     start_commit_ids: I,

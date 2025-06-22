@@ -1072,7 +1072,7 @@ trait SingleLoadRepoCallback {
 }
 
 impl SingleRepoLoader<'_> {
-    #[instrument(name = "load repo", skip_all,fields(repo_name = %self.repo_name))]
+    #[instrument(skip_all, fields(repo_name = %self.repo_name))]
     pub fn load_repo(
         &self,
         existing_commits: &HashSet<CommitId>,
@@ -1115,7 +1115,7 @@ impl SingleRepoLoader<'_> {
     /// `<start_rev> ^<stop_rev>`. An empty list means that there is nothing to
     /// load.
     #[instrument(
-        name = "get refs to load",
+        name = "get_refs_to_load",
         skip_all,
         fields(repo_name = %self.repo_name)
     )]
@@ -1175,7 +1175,6 @@ impl SingleRepoLoader<'_> {
     }
 
     #[instrument(
-        name = "load from refs",
         skip_all,
         fields(repo_name = %self.repo_name)
     )]
