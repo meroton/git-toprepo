@@ -1,4 +1,5 @@
 use crate::git::git_command;
+use crate::log::CommandSpanExt as _;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
@@ -119,6 +120,10 @@ pub enum FileChange {
 
 #[derive(Debug)]
 pub struct FastExportRepo {
+    /// Holds the tracing span open while FastExportRepo is in use.
+    #[allow(unused)]
+    span_guard: tracing::span::EnteredSpan,
+
     mark_oid_map: HashMap<BString, gix::ObjectId>,
     reader: BufReader<std::process::ChildStdout>,
     current_line: BString,
@@ -149,7 +154,6 @@ impl FastExportRepo {
         I: IntoIterator<Item = S>,
         S: AsRef<std::ffi::OsStr>,
     {
-        let _log_scope_guard = crate::log::scope("git-fast-export");
         let mut cmd = git_command(repo_dir);
         cmd.args([
             "fast-export",
@@ -169,19 +173,23 @@ impl FastExportRepo {
                 cmd.arg("--all").arg("--");
             }
         }
-        let mut process = cmd
+        let (mut process, span_guard) = cmd
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            .trace_command(crate::command_span!("git fast-export"))
             .spawn()?;
         // Just release the process. git-fast-export will terminate when
         // stdout is closed.
         let stdout = process.stdout.take().context("Could not capture stdout")?;
         let mut stderr_reader =
             BufReader::new(process.stderr.take().context("Could not capture stderr")?);
+        let parent_span = tracing::Span::current();
         std::thread::Builder::new()
             .name("git-fast-export-stderr".into())
             .spawn(move || {
+                let _span = tracing::debug_span!(parent: parent_span, "stderr",).entered();
+                let _log_scope_guard = crate::log::scope("git-fast-export");
                 for line in crate::util::ReadLossyCrOrLfLines::new(&mut stderr_reader) {
                     log::warn!(logger: logger, "{}", line.trim_end());
                 }
@@ -189,6 +197,7 @@ impl FastExportRepo {
             .expect("failed to spawn thread");
 
         Ok(FastExportRepo {
+            span_guard,
             mark_oid_map: HashMap::new(),
             reader: BufReader::new(stdout),
             current_line: BString::new(vec![]),
@@ -479,6 +488,7 @@ impl Iterator for FastExportRepo {
 }
 
 pub struct FastImportRepo {
+    span_guard: tracing::span::EnteredSpan,
     process: std::process::Child,
     stdin_writer: Option<BufWriter<std::process::ChildStdin>>,
     stdout_reader: BufReader<std::process::ChildStdout>,
@@ -500,16 +510,16 @@ impl FastImportRepo {
         repo_dir: &Path,
         logger: impl log::Log + 'static,
     ) -> Result<Self> {
-        let _log_scope_guard = crate::log::scope("git-fast-import");
         // If the upstream repository has been force updated, then this import
         // should also force update.
         //
         // TODO: Add --force and --quiet as parameters?
-        let mut process = git_command(repo_dir)
+        let (mut process, span_guard) = git_command(repo_dir)
             .args(["fast-import", "--done", "--force", "--quiet"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            .trace_command(crate::command_span!("git fast-import"))
             .spawn()?;
         let mut stdin_writer = BufWriter::new(
             process
@@ -521,9 +531,12 @@ impl FastImportRepo {
             BufReader::new(process.stdout.take().context("Could not capture stdout")?);
         let mut stderr_reader =
             BufReader::new(process.stderr.take().context("Could not capture stderr")?);
+        let parent_span = tracing::Span::current();
         std::thread::Builder::new()
             .name("git-fast-import-stderr".into())
             .spawn(move || {
+                let _span = tracing::debug_span!(parent: parent_span, "stderr",).entered();
+                let _log_scope_guard = crate::log::scope("git-fast-import");
                 for line in crate::util::ReadLossyCrOrLfLines::new(&mut stderr_reader) {
                     log::warn!(logger: logger, "{}", line.trim_end());
                 }
@@ -531,6 +544,7 @@ impl FastImportRepo {
             .expect("failed to spawn thread");
         stdin_writer.write_all(b"feature done\n")?;
         Ok(FastImportRepo {
+            span_guard,
             process,
             stdin_writer: Some(stdin_writer),
             stdout_reader,
@@ -550,6 +564,7 @@ impl FastImportRepo {
         }
         drop(self.stdout_reader);
         self.process.wait()?;
+        drop(self.span_guard);
         Ok(self.marks)
     }
 

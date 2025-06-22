@@ -7,6 +7,7 @@ use std::cell::RefCell;
 use std::fmt;
 use std::io::Write as _;
 use std::ops::Deref;
+use std::ops::DerefMut;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -559,5 +560,103 @@ impl ErrorObserver {
                 }
             }
         }
+    }
+}
+
+/// Macro version of `pub fn command_span<T>(name: &'static str, cmd: &mut std::process::Command) -> &mut std::process::Command`
+/// to allow for constant name.
+// TODO: What module?
+#[macro_export]
+macro_rules! command_span {
+    ($span_name: expr) => {
+        |cmd: &std::process::Command| -> tracing::Span {
+            tracing::info_span!(
+                $span_name,
+                args = ?cmd.get_args().map(|arg| arg.to_string_lossy()).collect::<Vec<_>>(),
+                cwd = cmd.get_current_dir().map_or(".".to_owned(),|p| p.to_string_lossy().to_string()),
+                envs = ?cmd.get_envs().map(|(key, value)| match value {
+                        Some(value) => format!("{}={}", key.to_string_lossy(), value.to_string_lossy()),
+                        None => key.to_string_lossy().to_string(),
+                    }).collect::<Vec<_>>(),
+                prog = ?cmd.get_program().to_string_lossy(),
+            )
+        }
+    };
+}
+
+pub struct CommandSpanScope<'a> {
+    command: &'a mut std::process::Command,
+    entered_span: Option<tracing::span::EnteredSpan>,
+}
+
+impl<'a> CommandSpanScope<'a> {
+    /// Creates a new command span scope.
+    pub fn new(command: &'a mut std::process::Command, span: tracing::Span) -> Self {
+        let cmd_string = format!("{command:?}");
+        let shorter_cmd_string = cmd_string.chars().take(100).collect::<String>();
+        if shorter_cmd_string.len() < cmd_string.len() {
+            log::debug!("Running: {shorter_cmd_string} ... (truncated)",);
+            log::trace!("Full command: {cmd_string}");
+        } else {
+            log::debug!("Running: {cmd_string}");
+        }
+        CommandSpanScope {
+            command,
+            entered_span: Some(span.entered()),
+        }
+    }
+
+    pub fn spawn(mut self) -> std::io::Result<(std::process::Child, tracing::span::EnteredSpan)> {
+        let entered_span = self.entered_span.take().unwrap();
+        match self.command.spawn() {
+            Ok(child) => Ok((child, entered_span)),
+            Err(err) => {
+                if let Some(metadata) = entered_span.metadata() {
+                    log::error!("Failed to start command: {}: {}", metadata.name(), err);
+                }
+                Err(err)
+            }
+        }
+    }
+}
+
+impl Deref for CommandSpanScope<'_> {
+    type Target = std::process::Command;
+
+    fn deref(&self) -> &Self::Target {
+        self.command
+    }
+}
+
+impl DerefMut for CommandSpanScope<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.command
+    }
+}
+
+impl Drop for CommandSpanScope<'_> {
+    fn drop(&mut self) {
+        if let Some(entered_span) = &self.entered_span
+            && let Some(metadata) = entered_span.metadata()
+        {
+            log::trace!("Command finished: {}", metadata.name());
+        }
+    }
+}
+
+pub trait CommandSpanExt {
+    fn trace_command(
+        &mut self,
+        span_fn: impl FnOnce(&std::process::Command) -> tracing::Span,
+    ) -> CommandSpanScope<'_>;
+}
+
+impl CommandSpanExt for std::process::Command {
+    fn trace_command(
+        &mut self,
+        span_fn: impl FnOnce(&std::process::Command) -> tracing::Span,
+    ) -> CommandSpanScope<'_> {
+        let span = span_fn(self);
+        CommandSpanScope::new(self, span)
     }
 }

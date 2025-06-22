@@ -2,6 +2,7 @@ use crate::git::CommitId;
 use crate::git::git_command;
 use crate::git::git_config_get;
 use crate::gitmodules::SubmoduleUrlExt as _;
+use crate::log::CommandSpanExt as _;
 use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::util::CommandExtension as _;
@@ -76,6 +77,7 @@ impl ConfigLocation {
                 // Check for existence.
                 git_command(repo_dir)
                     .args(["cat-file", "-e", &location])
+                    .trace_command(crate::command_span!("git cat-file"))
                     .safe_output()?
                     .check_success_with_stderr()
                     .with_context(|| {
@@ -304,6 +306,7 @@ impl GitTopRepoConfig {
             match location {
                 ConfigLocation::RepoBlob { gitref, path } => Ok(git_command(repo_dir)
                     .args(["show", &format!("{gitref}:{}", path.display())])
+                    .trace_command(crate::command_span!("git show"))
                     .check_success_with_stderr()?
                     .stdout
                     .to_str()?

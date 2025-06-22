@@ -13,6 +13,7 @@ use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::git::git_command;
+use git_toprepo::log::CommandSpanExt as _;
 use git_toprepo::repo;
 use git_toprepo::repo::MonoRepoProcessor;
 use git_toprepo::repo_name::RepoName;
@@ -65,6 +66,7 @@ fn clone_after_init(clone_args: &cli::Clone, processor: &mut MonoRepoProcessor) 
     )?;
     git_command(Path::new("."))
         .args(["checkout", "refs/remotes/origin/HEAD", "--"])
+        .trace_command(git_toprepo::command_span!("git checkout"))
         .check_success_with_stderr()?;
     Ok(())
 }
@@ -654,9 +656,11 @@ fn with_termination_signal_handler<T>(
             .context("Failed to register signal handlers")?;
         let signal_handler = signals.handle();
         let signal_handler_clone = signal_handler.clone();
+        let parent_span = tracing::Span::current();
         let thread = std::thread::Builder::new()
             .name("signal-handler".to_owned())
             .spawn_scoped(s, move || {
+                let _span = tracing::debug_span!(parent: parent_span, "signal_handler").entered();
                 let mut signal_iter = signals.forever().peekable();
                 if let Some(signal) = signal_iter.peek() {
                     let signal_str = signal_hook::low_level::signal_name(*signal)

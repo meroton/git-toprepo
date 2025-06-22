@@ -2,6 +2,7 @@ use crate::config::GitTopRepoConfig;
 use crate::config::SubRepoConfig;
 use crate::git::git_command;
 use crate::gitmodules::SubmoduleUrlExt as _;
+use crate::log::CommandSpanExt as _;
 use crate::repo_name::RepoName;
 use crate::util::CommandExtension;
 use crate::util::SafeExitStatus;
@@ -152,13 +153,13 @@ impl RemoteFetcher {
     }
 
     pub fn fetch_with_progress_bar(self, pb: &indicatif::ProgressBar) -> Result<()> {
-        let mut cmd = self.create_command();
         pb.set_prefix(self.remote.as_deref().unwrap_or_default().to_owned());
-        log::debug!("Running: {cmd:?}");
-        let mut proc = cmd
+        let (mut proc, _span_guard) = self
+            .create_command()
             // TODO: Collect stdout (use a thread to avoid backpressure deadlock).
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::piped())
+            .trace_command(crate::command_span!("git fetch"))
             .spawn()
             .with_context(|| "Failed to spawn git-fetch".to_string())?;
 
@@ -179,9 +180,9 @@ impl RemoteFetcher {
     }
 
     pub fn fetch_on_terminal(self) -> Result<()> {
-        let mut cmd = self.create_command();
-        log::debug!("Running: {cmd:?}");
-        cmd.safe_output()
+        self.create_command()
+            .trace_command(crate::command_span!("git fetch"))
+            .safe_output()
             .with_context(|| "Failed to spawn git-fetch".to_string())?
             .check_success_with_stderr()
             .with_context(|| {
@@ -189,7 +190,8 @@ impl RemoteFetcher {
                     "git fetch {} failed",
                     self.remote.as_deref().unwrap_or("<default>")
                 )
-            })?;
+            })
+            .map(|_| ())?;
         self.remove_fetch_head()?;
         Ok(())
     }

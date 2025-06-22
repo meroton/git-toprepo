@@ -14,6 +14,7 @@ use crate::git_fast_export_import::ImportCommitRef;
 use crate::git_fast_export_import::WithoutCommitterId;
 use crate::git_fast_export_import_dedup::GitFastExportImportDedupCache;
 use crate::gitmodules::SubmoduleUrlExt as _;
+use crate::log::CommandSpanExt as _;
 use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::util::CommandExtension as _;
@@ -52,6 +53,7 @@ impl TopRepo {
             .arg("init")
             .arg("--quiet")
             .arg(directory.as_os_str())
+            .trace_command(crate::command_span!("git init"))
             .safe_status()?
             .check_success()
             .context("Failed to initialize git repository")?;
@@ -61,11 +63,13 @@ impl TopRepo {
                 "remote.origin.pushUrl",
                 "https://ERROR.invalid/Please use 'git toprepo push ...' instead",
             ])
+            .trace_command(crate::command_span!("git config"))
             .safe_status()?
             .check_success()
             .context("Failed to set git-config remote.origin.pushUrl")?;
         git_command(directory)
             .args(["config", "remote.origin.url", &url.to_string()])
+            .trace_command(crate::command_span!("git config"))
             .safe_status()?
             .check_success()
             .context("Failed to set git-config remote.origin.url")?;
@@ -77,6 +81,7 @@ impl TopRepo {
                 "remote.origin.fetch",
                 &format!("+refs/heads/*:{toprepo_ref_prefix}refs/remotes/origin/*"),
             ])
+            .trace_command(crate::command_span!("git config"))
             .safe_status()?
             .check_success()
             .context("Failed to set git-config remote.origin.fetch (heads)")?;
@@ -87,6 +92,7 @@ impl TopRepo {
                 "remote.origin.fetch",
                 &format!("+refs/tags/*:{toprepo_ref_prefix}refs/tags/*"),
             ])
+            .trace_command(crate::command_span!("git config"))
             .safe_status()?
             .check_success()
             .context("Failed to set git-config remote.origin.fetch (tags)")?;
@@ -99,11 +105,13 @@ impl TopRepo {
                 "remote.origin.fetch",
                 &format!("+HEAD:{toprepo_ref_prefix}refs/remotes/origin/HEAD"),
             ])
+            .trace_command(crate::command_span!("git config"))
             .safe_status()?
             .check_success()
             .context("Failed to set git-config remote.origin.fetch (HEAD)")?;
         git_command(directory)
             .args(["config", "remote.origin.tagOpt", "--no-tags"])
+            .trace_command(crate::command_span!("git config"))
             .safe_status()?
             .check_success()
             .context("Failed to set git-config remote.origin.tagOpt")?;
@@ -113,16 +121,20 @@ impl TopRepo {
                 "toprepo.config",
                 &format!("repo:{toprepo_ref_prefix}refs/remotes/origin/HEAD:.gittoprepo.toml"),
             ])
+            .trace_command(crate::command_span!("git config"))
             .safe_status()?
             .check_success()
             .context("Failed to set git-config toprepo.config")?;
 
-        let process = git_command(directory)
-            .args(["hash-object", "-t", "blob", "-w", "--stdin"])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()?;
-        let result = process.wait_with_output()?;
+        let result = {
+            let (process, _span_guard) = git_command(directory)
+                .args(["hash-object", "-t", "blob", "-w", "--stdin"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .trace_command(crate::command_span!("git hash-object"))
+                .spawn()?;
+            process.wait_with_output()
+        }?;
         if !result.status.success() {
             anyhow::bail!(
                 "Failed to create tree for empty .gittoprepo.toml: {}",
@@ -131,17 +143,20 @@ impl TopRepo {
         }
         let gittoprepotoml_blob_hash = crate::util::trim_newline_suffix(result.stdout.to_str()?);
 
-        let mut process = git_command(directory)
-            .arg("mktree")
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()?;
-        let mut stdin = process.stdin.take().expect("stdin is piped");
-        stdin.write_all(
-            format!("100644 blob {gittoprepotoml_blob_hash}\t.gittoprepo.toml\n").as_bytes(),
-        )?;
-        drop(stdin);
-        let result = process.wait_with_output()?;
+        let result = {
+            let (mut process, _span_guard) = git_command(directory)
+                .arg("mktree")
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .trace_command(crate::command_span!("git mktree"))
+                .spawn()?;
+            let mut stdin = process.stdin.take().expect("stdin is piped");
+            stdin.write_all(
+                format!("100644 blob {gittoprepotoml_blob_hash}\t.gittoprepo.toml\n").as_bytes(),
+            )?;
+            drop(stdin);
+            process.wait_with_output()
+        }?;
         if !result.status.success() {
             anyhow::bail!(
                 "Failed to create tree for empty .gittoprepo.toml: {}",
@@ -151,26 +166,29 @@ impl TopRepo {
         let gittoprepotoml_tree_hash =
             bstr::BStr::new(crate::util::trim_bytes_newline_suffix(&result.stdout));
 
-        let mut process = git_command(directory)
-            .args(["hash-object", "-t", "commit", "-w", "--stdin"])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()?;
-        let mut stdin = process.stdin.take().expect("stdin is piped");
-        stdin.write_all(
-            format!(
-                "\
+        let result = {
+            let (mut process, _span_guard) = git_command(directory)
+                .args(["hash-object", "-t", "commit", "-w", "--stdin"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .trace_command(crate::command_span!("git hash-object"))
+                .spawn()?;
+            let mut stdin = process.stdin.take().expect("stdin is piped");
+            stdin.write_all(
+                format!(
+                    "\
 tree {gittoprepotoml_tree_hash}
 author Git Toprepo <noname@example.com> 946684800 +0000
 committer Git Toprepo <noname@example.com> 946684800 +0000
 
 Initial empty git-toprepo configuration
 "
-            )
-            .as_bytes(),
-        )?;
-        drop(stdin);
-        let result = process.wait_with_output()?;
+                )
+                .as_bytes(),
+            )?;
+            drop(stdin);
+            process.wait_with_output()
+        }?;
         if !result.status.success() {
             anyhow::bail!(
                 "Failed to create tree for empty .gittoprepo.toml: {}",
@@ -185,6 +203,7 @@ Initial empty git-toprepo configuration
             .arg("update-ref")
             .arg(&first_time_config_ref)
             .arg(gittoprepotoml_commit_hash.to_os_str()?)
+            .trace_command(crate::command_span!("git update-ref"))
             .safe_status()?
             .check_success()
             .with_context(|| format!("Failed to reset {first_time_config_ref}"))?;
@@ -779,7 +798,11 @@ impl MonoRepoProcessor {
                 cmd.arg("-o").arg(format!("topic={topic}"));
             }
             cmd.arg(format!("{}:{remote_ref}", push_info.commit_id));
-            if let Err(err) = cmd.safe_status()?.check_success() {
+            if let Err(err) = cmd
+                .trace_command(crate::command_span!("git push"))
+                .safe_status()?
+                .check_success()
+            {
                 log::info!(
                     "Failed to git push {} {}:{remote_ref}: {err:#}",
                     push_info.push_url,

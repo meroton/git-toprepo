@@ -29,6 +29,7 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
+use tracing::instrument;
 
 /// Serializeable version of `crate::repo::TopRepoCache`.
 #[serde_as]
@@ -67,6 +68,11 @@ impl SerdeTopRepoCache {
     /// Load parsed git repository information from `.git/toprepo/`.
     pub fn load_from_git_dir(git_dir: &Path, config_checksum: Option<&str>) -> Result<Self> {
         let cache_path = Self::get_cache_path(git_dir);
+        let _span_guard = tracing::info_span!(
+            "load_cache",
+            pach = %cache_path.display()
+        )
+        .entered();
         (|| -> anyhow::Result<_> {
             let now = std::time::Instant::now();
             let reader = match std::fs::File::open(&cache_path) {
@@ -123,6 +129,7 @@ impl SerdeTopRepoCache {
     }
 
     /// Write parsed git repository information as JSON.
+    #[tracing::instrument(name = "dump_as_json", skip_all)]
     pub fn dump_as_json<W>(self, writer: W) -> Result<()>
     where
         W: Write,
@@ -142,6 +149,11 @@ impl SerdeTopRepoCache {
             .with_context(|| format!("Failed to store repo cache to {}", cache_path.display()))
     }
 
+    #[tracing::instrument(
+        name = "store_cache",
+        skip_all,
+        fields(path = %cache_path.display())
+    )]
     fn store_impl(&self, cache_path: &Path) -> Result<()> {
         let now = std::time::Instant::now();
         let cache_path_tmp = cache_path.with_extension(".tmp");
@@ -166,6 +178,7 @@ impl SerdeTopRepoCache {
         Ok(())
     }
 
+    #[instrument(name = "unpack_cache", skip_all)]
     pub fn unpack(self) -> Result<TopRepoCache> {
         let now = std::time::Instant::now();
 
@@ -209,6 +222,7 @@ impl SerdeTopRepoCache {
         })
     }
 
+    #[instrument(name = "pack_cache", skip_all, fields(checksum = %config_checksum))]
     pub fn pack(cache: &TopRepoCache, config_checksum: String) -> Self {
         let now = std::time::Instant::now();
         let repos = Self::pack_repo_states(&cache.repos);
