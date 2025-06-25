@@ -6,9 +6,13 @@ use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 use bstr::BStr;
+use anyhow::anyhow;
 use bstr::ByteSlice as _;
 use clap::Parser;
 use colored::Colorize;
+use git_gr_lib::gerrit::HTTPPasswordPolicy;
+use git_gr_lib::git::Git;
+use git_gr_lib::query::QueryOptions;
 use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::GitModulesInfo;
@@ -217,6 +221,66 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
     Ok(config)
 }
 
+/// Checkout topics from Gerrit.
+fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
+    let git = Git::new();
+    let parsed_remote = git_gr_lib::gerrit_project::parse_remote_url(&checkout.remote).unwrap();
+    let gerrit = git.gerrit(
+        None,
+        parsed_remote.username,
+        None,
+        HTTPPasswordPolicy::Netrc,
+        /* cache: */ true,
+        /* persist ssh: */ false,
+    );
+    // TODO: Is this a full conversion to anyhow errors?
+    // It seems that we lose some of the miette context.
+    // Notably, where is the inner error?:
+    //     Err(  × Override: None
+    //     ╰─▶ Could not determine git remote username
+    //     )
+    //
+    // If this fails without the required override we just see:
+    //     called `Result::unwrap()` on an `Err` value: Failed to parse Gerrit configuration from Git remotes. Tried to parse these remotes:
+    //     • file:///dev/null
+    //     • ssh://csp-gerrit-ssh.volvocars.net/csp/hp/super
+    // which to its credit shows the remotes it tried
+    // but not the inner error.
+    let gerrit = match gerrit {
+        Ok(g) => g,
+        Err(error) => {
+            let box_dyn = Box::<dyn std::error::Error + Send + Sync>::from(error);
+            return Err(anyhow!(box_dyn.to_string()));
+        }
+    };
+
+    // refs/changes/32/261932/5
+    // 1    2       3  ^^^^^^ 5
+    let change = match checkout.change.split("/").collect::<Vec<&str>>()[..] {
+        [_, _, _, c, _] => c.to_owned(),
+        _ => {
+            return Err(anyhow!(
+                "Could not parse change {:?} for its change number",
+                checkout.change
+            ));
+        }
+    };
+
+    let res = gerrit.query(QueryOptions::new(change).current_patch_set().dependencies());
+    let res = match res {
+        Ok(r) => r,
+        Err(error) => {
+            let box_dyn = Box::<dyn std::error::Error + Send + Sync>::from(error);
+            return Err(anyhow!(box_dyn.to_string()));
+        }
+    };
+    println!("{:?}", checkout);
+    println!("{:?}", gerrit);
+    println!("{:?}", res);
+
+    todo!();
+}
+
 fn dump_modules() -> Result<()> {
     /// The main repo is not technically a submodule.
     /// But it is very convenient to have transparent handling of the main
@@ -246,7 +310,8 @@ fn dump_modules() -> Result<()> {
     for module in modules {
         println!("{} {}", module.project, module.path);
     }
-    return Ok(())
+
+    return Ok(());
 }
 
 #[tracing::instrument(skip(processor))]
@@ -728,6 +793,7 @@ where
             }
         }
     }
+
     let error_mode = git_toprepo::log::ErrorMode::from_keep_going_flag(match &args.command {
         Commands::Refilter(refilter_args) => refilter_args.keep_going,
         Commands::Fetch(fetch_args) => fetch_args.keep_going,
@@ -749,6 +815,9 @@ where
             Commands::Push(push_args) => push(&push_args, processor),
             Commands::Dump(_) => unreachable!("dump is already processed."),
             Commands::Version => unreachable!("version is already processed."),
+
+            // Experimental and scaffolding commands.
+            Commands::Checkout(ref checkout_args) => checkout(&args, checkout_args),
         }
     })
 }
