@@ -109,6 +109,10 @@ pub enum Commands {
     #[command(subcommand)]
     Dump(Dump),
 
+    /// Print the version of the git-toprepo tool.
+    #[clap(aliases = ["-V", "--version"])]
+    Version,
+
     /// Scaffolding code to start writing `.gitmodule` mapping code.
     /// This replaces the first field of every line on standard in
     /// with the submodule path.
@@ -121,9 +125,6 @@ pub enum Commands {
     /// checkouts. For a git-toprepo super repo purposeful checkout must be
     /// implemented.
     Replace(Replace),
-    /// Print the version of the git-toprepo tool.
-    #[clap(aliases = ["-V", "--version"])]
-    Version,
 }
 
 #[derive(Args, Debug)]
