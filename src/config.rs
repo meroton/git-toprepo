@@ -686,12 +686,6 @@ mod tests {
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(&tmp_path)
-            .args(["update-ref", "refs/namespaces/top/HEAD", "HEAD"])
-            .envs(&env)
-            .check_success_with_stderr()
-            .unwrap();
-
         // Try a path in the repository.
         git_command(&tmp_path)
             .args(["config", GIT_CONFIG_KEY, "repo:HEAD:.gittoprepo.toml"])
@@ -777,7 +771,11 @@ mod tests {
             .unwrap();
 
         git_command(&tmp_path)
-            .args(["update-ref", "refs/namespaces/top/HEAD", "HEAD"])
+            .args([
+                "update-ref",
+                "refs/namespaces/top/refs/remotes/origin/HEAD",
+                "HEAD",
+            ])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
@@ -798,7 +796,7 @@ mod tests {
             .args([
                 "config",
                 GIT_CONFIG_KEY,
-                "repo:refs/namespaces/top/HEAD:.gittoprepo.toml",
+                "repo:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml",
             ])
             .check_success_with_stderr()
             .unwrap();
