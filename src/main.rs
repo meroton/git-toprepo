@@ -24,6 +24,9 @@ use itertools::Itertools as _;
 use std::io::Read;
 use std::num::NonZeroUsize;
 use std::panic;
+use std::panic::AssertUnwindSafe;
+use std::panic::catch_unwind;
+use std::panic::resume_unwind;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -678,9 +681,14 @@ fn with_termination_signal_handler<T>(
                 }
             })?;
         // Run the main function.
-        let result = main_fn();
+        let result_or_panic = catch_unwind(AssertUnwindSafe(main_fn));
         // Shutdown the signal handler.
         signal_handler.close();
+        // Now it is safe to join the thread or panic.
+        let result = match result_or_panic {
+            Ok(result) => result,
+            Err(e) => resume_unwind(e),
+        };
         thread.join().unwrap();
         result
     })
