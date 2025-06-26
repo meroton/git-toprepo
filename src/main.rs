@@ -128,10 +128,14 @@ fn config(config_args: &cli::Config) -> Result<()> {
 fn config_bootstrap() -> Result<GitTopRepoConfig> {
     let gix_repo = gix::open(PathBuf::from("."))
         .context(repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
-
-    let head_commit = gix_repo
-        .find_reference(&FullName::try_from(RepoName::Top.to_ref_prefix() + "HEAD")?)?
-        .peel_to_commit()?;
+    let default_remote_name = gix_repo
+        .remote_default_name(gix::remote::Direction::Fetch)
+        .with_context(|| "Failed to get the default remote name")?;
+    let bootstrap_ref = FullName::try_from(format!(
+        "{}refs/remotes/{default_remote_name}/HEAD",
+        RepoName::Top.to_ref_prefix()
+    ))?;
+    let head_commit = gix_repo.find_reference(&bootstrap_ref)?.peel_to_commit()?;
     let dot_gitmodules_bytes = match head_commit.tree()?.find_entry(".gitmodules") {
         Some(entry) => &entry.object()?.data,
         None => &Vec::new(),
