@@ -34,3 +34,23 @@ fn test_dump_outside_git_repo() {
             git_toprepo::repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY,
         ));
 }
+
+#[test]
+fn test_dump_git_modules() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_merge_with_one_submodule_a.sh",
+        )
+        .unwrap()
+    );
+    let temp_dir = temp_dir.path().join("top");
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&temp_dir)
+        // An arbitrary subcommand that requires it to be initialized
+        .arg("dump")
+        .arg("git-modules")
+        .assert()
+        .success()
+        ;
+}
