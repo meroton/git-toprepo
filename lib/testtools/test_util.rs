@@ -65,6 +65,9 @@ impl From<tempfile::TempDir> for MaybePermanentTempDir {
 /// # Examples
 ///
 /// See the unit tests.
+// TODO: Maybe we should also require a name.
+// When reusing fixtures between multiple integration tests we don't have a good
+// way to see which is which on the filesystem.
 pub fn maybe_keep_tempdir(tempdir: tempfile::TempDir) -> MaybePermanentTempDir {
     MaybePermanentTempDir::from(tempdir)
 }

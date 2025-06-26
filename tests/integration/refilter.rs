@@ -6,9 +6,10 @@ use std::path::Path;
 
 #[test]
 fn test_init_and_refilter_example() {
-    let temp_dir =
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable("../integration/fixtures/make_readme_example.sh")
-            .unwrap();
+            .unwrap(),
+    );
     let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -104,10 +105,12 @@ fn test_init_and_refilter_example() {
 
 #[test]
 fn test_refilter_merge_with_one_submodule_a() {
-    let temp_dir = gix_testtools::scripted_fixture_writable(
-        "../integration/fixtures/make_merge_with_one_submodule_a.sh",
-    )
-    .unwrap();
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_merge_with_one_submodule_a.sh",
+        )
+        .unwrap(),
+    );
     let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -147,10 +150,12 @@ fn test_refilter_merge_with_one_submodule_a() {
 
 #[test]
 fn test_refilter_merge_with_one_submodule_b() {
-    let temp_dir = gix_testtools::scripted_fixture_writable(
-        "../integration/fixtures/make_merge_with_one_submodule_b.sh",
-    )
-    .unwrap();
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_merge_with_one_submodule_b.sh",
+        )
+        .unwrap(),
+    );
     let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -204,10 +209,12 @@ fn test_refilter_merge_with_one_submodule_b() {
 
 #[test]
 fn test_refilter_merge_with_two_submodules() {
-    let temp_dir = gix_testtools::scripted_fixture_writable(
-        "../integration/fixtures/make_merge_with_two_submodules.sh",
-    )
-    .unwrap();
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_merge_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
     let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -261,10 +268,12 @@ fn test_refilter_merge_with_two_submodules() {
 
 #[test]
 fn test_refilter_submodule_removal() {
-    let temp_dir = gix_testtools::scripted_fixture_writable(
-        "../integration/fixtures/make_submodule_removal.sh",
-    )
-    .unwrap();
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_submodule_removal.sh",
+        )
+        .unwrap(),
+    );
     let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -303,9 +312,10 @@ fn test_refilter_submodule_removal() {
 
 #[test]
 fn test_refilter_moved_submodule() {
-    let temp_dir =
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable("../integration/fixtures/make_moved_submodule.sh")
-            .unwrap();
+            .unwrap(),
+    );
     let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
