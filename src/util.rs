@@ -41,6 +41,24 @@ pub fn find_working_directory(relative_to: &Path) -> Result<PathBuf> {
     Ok(path)
 }
 
+pub fn find_common_git_worktree(relative_to: &Path) -> Result<PathBuf> {
+    let dotgit = upwards(relative_to)?
+        .0
+        .into_repository_and_work_tree_directories()
+        .0
+        .to_path_buf();
+    let dotgit_parent = dotgit
+        .parent()
+        .ok_or(anyhow::anyhow!("Git repository has no worktree"))?;
+    let common_git_worktree = upwards(dotgit_parent)?
+        .0
+        .into_repository_and_work_tree_directories()
+        .1
+        .ok_or(anyhow::anyhow!("Git repository has no worktree"))?
+        .to_path_buf();
+    Ok(common_git_worktree)
+}
+
 /// Creates a `gix::Url` that serializes to an empty string.
 fn new_empty_gix_url() -> gix::Url {
     let mut empty_url: gix::Url = Default::default();

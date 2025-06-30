@@ -21,6 +21,7 @@ use git_toprepo::util::CommandExtension as _;
 use gix::refs::FullName;
 use gix::refs::FullNameRef;
 use itertools::Itertools as _;
+use std::env;
 use std::io::Read;
 use std::num::NonZeroUsize;
 use std::panic;
@@ -94,17 +95,19 @@ fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
 
 #[tracing::instrument]
 fn config(config_args: &cli::Config) -> Result<()> {
-    let repo_dir = Path::new("");
+    let repo_dir = env::current_dir()?;
     match &config_args.config_command {
         cli::ConfigCommands::Location => {
-            let location = config::GitTopRepoConfig::find_configuration_location(repo_dir)?;
-            if let Err(err) = location.validate_existence(repo_dir) {
+            let repo_dir = git_toprepo::util::find_common_git_worktree(&repo_dir)?;
+            let location = config::GitTopRepoConfig::find_configuration_location(&repo_dir)?;
+            if let Err(err) = location.validate_existence(&repo_dir) {
                 log::warn!("{err:#}");
             }
             println!("{location}");
         }
         cli::ConfigCommands::Show => {
-            let config = config::GitTopRepoConfig::load_config_from_repo(repo_dir)?;
+            let repo_dir = git_toprepo::util::find_common_git_worktree(&repo_dir)?;
+            let config = config::GitTopRepoConfig::load_config_from_repo(&repo_dir)?;
             print!("{}", toml::to_string(&config)?);
         }
         cli::ConfigCommands::Bootstrap => {
@@ -818,7 +821,10 @@ mod tests {
         let argv = argv.into_iter().map(|s| s.into());
         assert_eq!(
             format!("{:#}", main_impl(argv, None).unwrap_err()),
-            "git-config 'toprepo.config' is missing. Is this an initialized git-toprepo?"
+            format!(
+                "Could not find a git repository in '{}' or in any of its parents",
+                temp_dir_str
+            )
         );
     }
 }
