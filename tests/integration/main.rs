@@ -18,3 +18,6 @@ mod refilter;
 mod version;
 #[cfg(test)]
 mod workspace;
+
+#[cfg(test)]
+mod worktree;

@@ -5,6 +5,7 @@ use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::log::CommandSpanExt as _;
 use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
+use crate::util::find_common_git_worktree;
 use crate::util::CommandExtension as _;
 use crate::util::OrderedHashSet;
 use crate::util::is_default;
@@ -65,7 +66,7 @@ pub enum ConfigLocation {
     /// Load a blob from the repo.
     RepoBlob { gitref: String, path: PathBuf },
     /// Load from the path relative to the repository root.
-    Worktree { path: PathBuf },
+    Local { path: PathBuf },
 }
 
 impl ConfigLocation {
@@ -84,7 +85,7 @@ impl ConfigLocation {
                         format!("Config file {} does not exist in {gitref}", path.display())
                     })?;
             }
-            ConfigLocation::Worktree { path } => {
+            ConfigLocation::Local { path } => {
                 // Check if the file exists in the worktree.
                 if !repo_dir.join(path).exists() {
                     bail!("Config file {path:?} does not exist in the worktree")
@@ -101,7 +102,7 @@ impl Display for ConfigLocation {
             ConfigLocation::RepoBlob { gitref, path } => {
                 write!(f, "repo:{gitref}:{}", path.display())
             }
-            ConfigLocation::Worktree { path } => write!(f, "local:{}", path.display()),
+            ConfigLocation::Local { path } => write!(f, "local:{}", path.display()),
         }
     }
 }
@@ -121,7 +122,7 @@ impl FromStr for ConfigLocation {
                 path: PathBuf::from(path),
             }
         } else if let Some(path) = s.strip_prefix("local:") {
-            ConfigLocation::Worktree {
+            ConfigLocation::Local {
                 path: PathBuf::from(path),
             }
         } else {
@@ -311,8 +312,9 @@ impl GitTopRepoConfig {
                     .stdout
                     .to_str()?
                     .to_owned()),
-                ConfigLocation::Worktree { path } => {
-                    std::fs::read_to_string(repo_dir.join(path)).context("Reading config file")
+                ConfigLocation::Local { path } => {
+                    let common_git_worktree_root = find_common_git_worktree(&repo_dir)?;
+                    std::fs::read_to_string(common_git_worktree_root.join(path)).context("Reading config file")
                 }
             }
         }()
