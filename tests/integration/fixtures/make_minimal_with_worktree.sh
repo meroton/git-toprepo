@@ -8,6 +8,6 @@ git -C from commit --allow-empty -m "init"
 git clone from top
 cat <<EOF > top/.gittoprepo.toml
 EOF
-git -C top config --local toprepo.config local:.gittoprepo.toml
+git -C top config --local toprepo.config main-worktree:.gittoprepo.toml
 
 git -C top worktree add ../worktree

@@ -98,7 +98,7 @@ fn config(config_args: &cli::Config) -> Result<()> {
     let repo_dir = env::current_dir()?;
     match &config_args.config_command {
         cli::ConfigCommands::Location => {
-            let repo_dir = git_toprepo::util::find_common_git_worktree(&repo_dir)?;
+            let repo_dir = git_toprepo::util::find_current_worktree(&repo_dir)?;
             let location = config::GitTopRepoConfig::find_configuration_location(&repo_dir)?;
             if let Err(err) = location.validate_existence(&repo_dir) {
                 log::warn!("{err:#}");
@@ -106,7 +106,7 @@ fn config(config_args: &cli::Config) -> Result<()> {
             println!("{location}");
         }
         cli::ConfigCommands::Show => {
-            let repo_dir = git_toprepo::util::find_common_git_worktree(&repo_dir)?;
+            let repo_dir = git_toprepo::util::find_current_worktree(&repo_dir)?;
             let config = config::GitTopRepoConfig::load_config_from_repo(&repo_dir)?;
             print!("{}", toml::to_string(&config)?);
         }
@@ -740,7 +740,7 @@ where
         _ => {
             if args.working_directory.is_none() {
                 let current_dir = std::env::current_dir()?;
-                let working_directory = git_toprepo::util::find_working_directory(&current_dir)?;
+                let working_directory = git_toprepo::util::find_current_worktree(&current_dir)?;
                 std::env::set_current_dir(&working_directory).with_context(|| {
                     format!(
                         "Failed to change working directory to {}",
