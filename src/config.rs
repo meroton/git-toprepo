@@ -299,9 +299,9 @@ impl GitTopRepoConfig {
     /// . This is initialized with `git-toprepo init` to
     /// `ref:refs/remotes/origin/HEAD:.gittoprepo.toml`, which is managed for
     /// the entire project by the maintainers.
-    /// A developer can choose their own config file with a `local:` reference
+    /// A developer can choose their own config file with a `worktree:` reference
     /// to a file on disk.
-    ///    `local:.gittoprepo.user.toml`,
+    ///    `worktree:.gittoprepo.user.toml`,
     ///
     /// Overriding the location is not recommended.
     ///
