@@ -827,4 +827,20 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn test_main_in_uninitialized_git_toprepo() {
+        let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
+            "git_toprepo-test_main_outside_git_toprepo",
+        );
+        let temp_dir_str = temp_dir.to_str().unwrap();
+        let mut init_cmd = git_command(&temp_dir.to_path_buf().to_owned());
+        let _ = init_cmd.arg("init").output();
+        let argv = vec!["git-toprepo", "-C", temp_dir_str, "config", "show"];
+        let argv = argv.into_iter().map(|s| s.into());
+        assert_eq!(
+            format!("{:#}", main_impl(argv, None).unwrap_err()),
+            "git-config 'toprepo.config' is missing. Is this an initialized git-toprepo?",
+        );
+    }
 }
