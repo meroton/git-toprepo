@@ -42,7 +42,11 @@ fn test_validate_external_file_in_corrupt_repository() {
         .unwrap();
 
     git_command(&temp_dir)
-        .args(["config", GIT_CONFIG_KEY, &format!("local:{invalid_toml}")])
+        .args([
+            "config",
+            GIT_CONFIG_KEY,
+            &format!("worktree:{invalid_toml}"),
+        ])
         .envs(&deterministic)
         .check_success_with_stderr()
         .unwrap();
@@ -57,7 +61,7 @@ fn test_validate_external_file_in_corrupt_repository() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(format!(
-            "ERROR: Parsing local:{invalid_toml}: Could not parse TOML string",
+            "ERROR: Parsing worktree:{invalid_toml}: Could not parse TOML string",
         )));
 
     // TODO: Rephrase the namespace in the error message. It looks ugly.

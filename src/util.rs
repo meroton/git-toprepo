@@ -28,7 +28,7 @@ lazy_static::lazy_static! {
     pub static ref EMPTY_GIX_URL: gix::Url = new_empty_gix_url();
 }
 
-pub fn find_working_directory(relative_to: &Path) -> Result<PathBuf> {
+pub fn find_current_worktree(relative_to: &Path) -> Result<PathBuf> {
     let path = upwards(relative_to)?
         .0
         .into_repository_and_work_tree_directories()
@@ -39,6 +39,24 @@ pub fn find_working_directory(relative_to: &Path) -> Result<PathBuf> {
         ))?
         .to_owned();
     Ok(path)
+}
+
+pub fn find_main_worktree(relative_to: &Path) -> Result<PathBuf> {
+    let dotgit = upwards(relative_to)?
+        .0
+        .into_repository_and_work_tree_directories()
+        .0
+        .to_path_buf();
+    let dotgit_parent = dotgit
+        .parent()
+        .ok_or(anyhow::anyhow!("Git repository has no worktree"))?;
+    let main_worktree = upwards(dotgit_parent)?
+        .0
+        .into_repository_and_work_tree_directories()
+        .1
+        .ok_or(anyhow::anyhow!("Git repository has no worktree"))?
+        .to_path_buf();
+    Ok(main_worktree)
 }
 
 /// Creates a `gix::Url` that serializes to an empty string.
