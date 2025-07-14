@@ -67,7 +67,7 @@ pub enum ConfigLocation {
     /// Load a blob from the repo.
     RepoBlob { gitref: String, path: PathBuf },
     /// Load from the path relative to the main worktree root.
-    MainWorktree { path: PathBuf },
+    Local { path: PathBuf },
     /// Load from the path relative to the current worktree root.
     Worktree { path: PathBuf },
 }
@@ -88,7 +88,7 @@ impl ConfigLocation {
                         format!("Config file {} does not exist in {gitref}", path.display())
                     })?;
             }
-            ConfigLocation::MainWorktree { path } => {
+            ConfigLocation::Local { path } => {
                 // Check if the file exists in the main worktree.
                 let main_worktree = find_main_worktree(repo_dir)?;
                 if !main_worktree.join(path).exists() {
@@ -112,7 +112,7 @@ impl Display for ConfigLocation {
             ConfigLocation::RepoBlob { gitref, path } => {
                 write!(f, "repo:{gitref}:{}", path.display())
             }
-            ConfigLocation::MainWorktree { path } => write!(f, "main-worktree:{}", path.display()),
+            ConfigLocation::Local { path } => write!(f, "local:{}", path.display()),
             ConfigLocation::Worktree { path } => write!(f, "worktree:{}", path.display()),
         }
     }
@@ -132,8 +132,8 @@ impl FromStr for ConfigLocation {
                 gitref: gitref.to_owned(),
                 path: PathBuf::from(path),
             }
-        } else if let Some(path) = s.strip_prefix("main-worktree:") {
-            ConfigLocation::MainWorktree {
+        } else if let Some(path) = s.strip_prefix("local:") {
+            ConfigLocation::Local {
                 path: PathBuf::from(path),
             }
         } else if let Some(path) = s.strip_prefix("worktree:") {
@@ -141,7 +141,7 @@ impl FromStr for ConfigLocation {
                 path: PathBuf::from(path),
             }
         } else {
-            bail!("Invalid config location {s:?}, expected '(ref|worktree|main-worktree):...'");
+            bail!("Invalid config location {s:?}, expected '(ref|local|worktree):...'");
         };
         Ok(ret)
     }
@@ -327,7 +327,7 @@ impl GitTopRepoConfig {
                     .stdout
                     .to_str()?
                     .to_owned()),
-                ConfigLocation::MainWorktree { path } => {
+                ConfigLocation::Local { path } => {
                     let main_worktree = find_main_worktree(repo_dir)?;
                     std::fs::read_to_string(main_worktree.join(path)).context("Reading config file")
                 }
