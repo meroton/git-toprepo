@@ -7,6 +7,8 @@ use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::util::CommandExtension as _;
 use crate::util::OrderedHashSet;
+use crate::util::find_current_worktree;
+use crate::util::find_main_worktree;
 use crate::util::is_default;
 use anyhow::Context;
 use anyhow::Result;
@@ -64,7 +66,9 @@ pub struct LogConfig {
 pub enum ConfigLocation {
     /// Load a blob from the repo.
     RepoBlob { gitref: String, path: PathBuf },
-    /// Load from the path relative to the repository root.
+    /// Load from the path relative to the main worktree root.
+    Local { path: PathBuf },
+    /// Load from the path relative to the current worktree root.
     Worktree { path: PathBuf },
 }
 
@@ -84,8 +88,15 @@ impl ConfigLocation {
                         format!("Config file {} does not exist in {gitref}", path.display())
                     })?;
             }
+            ConfigLocation::Local { path } => {
+                // Check if the file exists in the main worktree.
+                let main_worktree = find_main_worktree(repo_dir)?;
+                if !main_worktree.join(path).exists() {
+                    bail!("Config file {path:?} does not exist in the worktree")
+                }
+            }
             ConfigLocation::Worktree { path } => {
-                // Check if the file exists in the worktree.
+                // Check if the file exists in the current worktree.
                 if !repo_dir.join(path).exists() {
                     bail!("Config file {path:?} does not exist in the worktree")
                 }
@@ -101,7 +112,8 @@ impl Display for ConfigLocation {
             ConfigLocation::RepoBlob { gitref, path } => {
                 write!(f, "repo:{gitref}:{}", path.display())
             }
-            ConfigLocation::Worktree { path } => write!(f, "local:{}", path.display()),
+            ConfigLocation::Local { path } => write!(f, "local:{}", path.display()),
+            ConfigLocation::Worktree { path } => write!(f, "worktree:{}", path.display()),
         }
     }
 }
@@ -121,11 +133,15 @@ impl FromStr for ConfigLocation {
                 path: PathBuf::from(path),
             }
         } else if let Some(path) = s.strip_prefix("local:") {
+            ConfigLocation::Local {
+                path: PathBuf::from(path),
+            }
+        } else if let Some(path) = s.strip_prefix("worktree:") {
             ConfigLocation::Worktree {
                 path: PathBuf::from(path),
             }
         } else {
-            bail!("Invalid config location {s:?}, expected '(ref|local):...'");
+            bail!("Invalid config location {s:?}, expected '(ref|local|worktree):...'");
         };
         Ok(ret)
     }
@@ -283,9 +299,9 @@ impl GitTopRepoConfig {
     /// . This is initialized with `git-toprepo init` to
     /// `ref:refs/remotes/origin/HEAD:.gittoprepo.toml`, which is managed for
     /// the entire project by the maintainers.
-    /// A developer can choose their own config file with a `local:` reference
+    /// A developer can choose their own config file with a `worktree:` reference
     /// to a file on disk.
-    ///    `local:.gittoprepo.user.toml`,
+    ///    `worktree:.gittoprepo.user.toml`,
     ///
     /// Overriding the location is not recommended.
     ///
@@ -311,8 +327,14 @@ impl GitTopRepoConfig {
                     .stdout
                     .to_str()?
                     .to_owned()),
+                ConfigLocation::Local { path } => {
+                    let main_worktree = find_main_worktree(repo_dir)?;
+                    std::fs::read_to_string(main_worktree.join(path)).context("Reading config file")
+                }
                 ConfigLocation::Worktree { path } => {
-                    std::fs::read_to_string(repo_dir.join(path)).context("Reading config file")
+                    let current_worktree = find_current_worktree(repo_dir)?;
+                    std::fs::read_to_string(current_worktree.join(path))
+                        .context("Reading config file")
                 }
             }
         }()
@@ -578,7 +600,7 @@ mod tests {
             .unwrap();
 
         git_command(&tmp_path)
-            .args(["config", GIT_CONFIG_KEY, "local:foobar.toml"])
+            .args(["config", GIT_CONFIG_KEY, "worktree:foobar.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
@@ -586,7 +608,7 @@ mod tests {
         let err: anyhow::Error = GitTopRepoConfig::load_config_from_repo(&tmp_path).unwrap_err();
         assert_eq!(
             format!("{err:#}"),
-            "Loading local:foobar.toml: Reading config file: No such file or directory (os error 2)"
+            "Loading worktree:foobar.toml: Reading config file: No such file or directory (os error 2)"
         );
     }
 
@@ -616,7 +638,7 @@ mod tests {
             .unwrap();
 
         git_command(&tmp_path)
-            .args(["config", GIT_CONFIG_KEY, "local:foobar.toml"])
+            .args(["config", GIT_CONFIG_KEY, "worktree:foobar.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
@@ -687,13 +709,13 @@ mod tests {
 
         // Try the worktree.
         git_command(&tmp_path)
-            .args(["config", GIT_CONFIG_KEY, "local:nonexisting.toml"])
+            .args(["config", GIT_CONFIG_KEY, "worktree:nonexisting.toml"])
             .check_success_with_stderr()
             .unwrap();
         let err = GitTopRepoConfig::load_config_from_repo(&tmp_path).unwrap_err();
         assert_eq!(
             format!("{err:#}"),
-            "Loading local:nonexisting.toml: Reading config file: No such file or directory (os error 2)"
+            "Loading worktree:nonexisting.toml: Reading config file: No such file or directory (os error 2)"
         );
     }
 
