@@ -131,12 +131,13 @@ fn test_push_revision() {
         .assert()
         .success();
 
-    let out = Command::new("git")
+    let cmd = Command::new("git")
         .current_dir(&monorepo)
         .args(["rev-parse", "HEAD"])
-        .output()
-        .unwrap();
-    let revision = String::from(std::str::from_utf8(&out.stdout).unwrap());
+        .assert()
+        .success();
+    let out = cmd.get_output();
+    let revision = String::from_utf8(out.to_owned().stdout).unwrap();
     let revision = git_toprepo::util::trim_newline_suffix(&revision);
 
     Command::cargo_bin("git-toprepo")
@@ -215,13 +216,14 @@ fn test_push_shortrev() {
         .assert()
         .success();
 
-    let output = Command::new("git")
+    let cmd = Command::new("git")
         .current_dir(&monorepo)
         .args(["rev-parse", "--short", "HEAD"])
         .envs(commit_env_for_testing())
-        .output()
-        .unwrap();
-    let rev = String::from_utf8(output.stdout).unwrap();
+        .assert()
+        .success();
+    let output = cmd.get_output();
+    let rev = String::from_utf8(output.to_owned().stdout).unwrap();
     let rev = rev.trim();
 
     Command::cargo_bin("git-toprepo")
