@@ -40,7 +40,7 @@
           # Use a fixed fake sha1 and timestamp to make the build cacheable.
           fakeTimestamp = "-NO_TIMESTAMP-";
           fakeRev =   "---------------NO_VERSION---------------";
-          git-toprepo-unpatched = rustPlatform.buildRustPackage {
+          git-toprepo = rustPlatform.buildRustPackage {
               inherit src;
               name = "git-toprepo";
               BUILD_SCM_TAG = "nix";
@@ -55,8 +55,8 @@
                 rev = if (self ? rev) then self.rev else self.dirtyRev;
               };
             };
-          git-toprepo-patched = let
-              inherit (git-toprepo-unpatched.passthru) rev lastModifiedDate;
+          git-toprepo-stamped = let
+              inherit (git-toprepo.passthru) rev lastModifiedDate;
             in pkgs.runCommand "git-toprepo-patched" {
                   PATH = pkgs.lib.strings.makeSearchPath "bin" [
                     pkgs.gnused
@@ -67,15 +67,14 @@
               sed \
                 -e "s/${fakeRev}/$newRev/" \
                 -e "s/${fakeTimestamp}/${lastModifiedDate}/" \
-              ${git-toprepo-unpatched}/bin/git-toprepo \
+              ${git-toprepo}/bin/git-toprepo \
               > $out/bin/git-toprepo
               chmod +x $out/bin/git-toprepo
             '';
         in {
           packages = {
-            inherit git-toprepo-unpatched;
-            git-toprepo = git-toprepo-patched;
-            default =  git-toprepo-patched;
+            inherit git-toprepo-stamped git-toprepo;
+            default =  git-toprepo-stamped;
           };
           devShells.default = pkgs.mkShell {
             buildInputs = [
@@ -85,7 +84,7 @@
           apps = let
               git-toprepo-app = {
                 type = "app";
-                program = "${git-toprepo-patched}/bin/git-toprepo";
+                program = "${git-toprepo-stamped}/bin/git-toprepo";
               };
             in {
               default = git-toprepo-app;
