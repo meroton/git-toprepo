@@ -708,7 +708,7 @@ impl MonoRepoProcessor {
     pub fn push(
         &mut self,
         top_push_url: &gix::Url,
-        local_rev: &String,
+        local_rev_or_ref: &String,
         remote_ref: &FullName,
         dry_run: bool,
     ) -> Result<()> {
@@ -719,7 +719,8 @@ impl MonoRepoProcessor {
         }
         let repo = self.gix_repo.to_thread_local();
 
-        let local_rev_arg: std::ffi::OsString = local_rev.into();
+        let local_rev = repo.rev_parse_single(local_rev_or_ref.as_bytes())?;
+        let local_rev_arg: std::ffi::OsString = local_rev.to_hex().to_string().into();
         let export_refs_args: Vec<std::ffi::OsString> = repo
             .references()?
             .prefixed(b"refs/remotes/origin/".as_bstr())?

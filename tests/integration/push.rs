@@ -194,3 +194,52 @@ fn test_push_from_sub_directory() {
         .success()
         .stdout("text\n");
 }
+
+#[test]
+fn test_push_shortrev() {
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+
+    std::fs::write(monorepo.join("file.txt"), "text\n").unwrap();
+    Command::new("git")
+        .current_dir(&monorepo)
+        .args(["add", "file.txt"])
+        .assert()
+        .success();
+    Command::new("git")
+        .current_dir(&monorepo)
+        .args(["commit", "-m", "Add file"])
+        .envs(commit_env_for_testing())
+        .assert()
+        .success();
+
+    let output = Command::new("git")
+        .current_dir(&monorepo)
+        .args(["rev-parse", "--short", "HEAD"])
+        .envs(commit_env_for_testing())
+        .output()
+        .unwrap();
+    let rev = String::from_utf8(output.stdout).unwrap();
+    let rev = rev.trim();
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&monorepo)
+        .args(["push", "origin", format!("{rev}:refs/heads/foo").as_str()])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(format!(
+            "To {}\n",
+            toprepo.canonicalize().unwrap().display()
+        )))
+        .stderr(predicate::str::is_match(r"\n \* \[new branch\]\s+[0-9a-f]+ -> foo\n").unwrap());
+
+    Command::new("git")
+        .current_dir(&toprepo)
+        .args(["show", "refs/heads/foo:file.txt"])
+        .assert()
+        .success()
+        .stdout("text\n");
+}
