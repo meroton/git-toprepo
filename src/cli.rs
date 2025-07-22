@@ -515,6 +515,10 @@ pub struct Push {
     #[arg(long)]
     pub fail_fast: bool,
 
+    /// Number of concurrent threads to load the repository.
+    #[arg(long, default_value = "7")]
+    pub jobs: std::num::NonZero<u16>,
+
     /// A configured git remote in the mono repository or a URL of the top
     /// repository to push to. Submodules are calculated relative this remote.
     #[arg(name = "top-remote", verbatim_doc_comment)]

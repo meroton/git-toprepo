@@ -21,6 +21,30 @@ mkdir top
 mkdir sub
 git -C top init -q --initial-branch main
 git -C sub init -q --initial-branch main
+# Accept push options and set a pre-receive hook.
+git -C top config receive.advertisePushOptions true
+git -C sub config receive.advertisePushOptions true
+top_prereceive_hook_path="$(git -C top rev-parse --path-format=absolute --git-path hooks)/pre-receive"
+sub_prereceive_hook_path="$(git -C sub rev-parse --path-format=absolute --git-path hooks)/pre-receive"
+cat > "$top_prereceive_hook_path" <<"EOF"
+#!/bin/sh
+if test -n "$GIT_PUSH_OPTION_COUNT"
+then
+	i=0
+	while test "$i" -lt "$GIT_PUSH_OPTION_COUNT"; do
+		eval "value=\$GIT_PUSH_OPTION_$i"
+        echo "GIT_PUSH_OPTION_$i=$value"
+		i=$((i + 1))
+	done
+fi
+# Allow observing interleaved output.
+echo "prereceive hook sleeping"
+sleep 1
+echo "prereceive hook continues"
+EOF
+chmod +x "$top_prereceive_hook_path"
+cp "$top_prereceive_hook_path" "$sub_prereceive_hook_path"
+
 cat <<EOF > top/.gittoprepo.toml
 [repo.sub]
 urls = ["../sub/"]

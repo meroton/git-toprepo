@@ -609,14 +609,19 @@ fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> 
         unimplemented!("Handle multiple refspecs");
     };
     // TODO: This assumes a single ref in the refspec. What about patterns?
+    let remote_ref = FullName::try_from(remote_ref.as_bytes().as_bstr())
+        .with_context(|| format!("Bad remote ref {remote_ref}"))?;
     let local_rev = local_ref;
 
-    processor.push(
-        &base_url,
-        local_rev,
-        &FullName::try_from(remote_ref.clone())?,
-        push_args.dry_run,
-    )
+    let push_metadatas = git_toprepo::push::split_for_push(processor, &base_url, local_rev)?;
+
+    let commit_pusher = git_toprepo::push::CommitPusher::new(
+        processor.gix_repo.clone(),
+        processor.progress.clone(),
+        processor.error_observer.clone(),
+        push_args.jobs.into(),
+    );
+    commit_pusher.push(push_metadatas, &remote_ref, push_args.dry_run)
 }
 
 #[tracing::instrument]
