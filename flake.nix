@@ -9,6 +9,9 @@
   };
   outputs = {self, flake-parts, ... }@inputs:
     flake-parts.lib.mkFlake { inherit inputs; } {
+      imports = [
+        inputs.flake-parts.flakeModules.easyOverlay
+      ];
       systems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -72,6 +75,9 @@
               chmod +x $out/bin/git-toprepo
             '';
         in {
+          overlayAttrs = {
+            inherit (config.packages) git-toprepo-stamped git-toprepo;
+          };
           packages = {
             inherit git-toprepo-stamped git-toprepo;
             default =  git-toprepo-stamped;
