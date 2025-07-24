@@ -60,7 +60,7 @@
             };
           git-toprepo-stamped = let
               inherit (git-toprepo.passthru) rev lastModifiedDate;
-            in pkgs.runCommand "git-toprepo-patched" {
+            in pkgs.runCommand "git-toprepo-stamped" {
                   PATH = pkgs.lib.strings.makeSearchPath "bin" [
                     pkgs.gnused
                   ];
