@@ -1373,6 +1373,7 @@ impl ProgressStatus {
 
     pub fn set_queue_size(&mut self, queue_size: usize) {
         if queue_size != self.queue_size {
+            self.queue_size = queue_size;
             self.draw();
         }
     }
