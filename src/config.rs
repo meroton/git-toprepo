@@ -67,8 +67,12 @@ pub enum ConfigLocation {
     /// Load a blob from the repo.
     RepoBlob { gitref: String, path: PathBuf },
     /// Load from the path relative to the main worktree root.
+    // (The primary repository checkout).
     Local { path: PathBuf },
     /// Load from the path relative to the current worktree root.
+    // A worktree links to the main worktree (repository) ,
+    // but can be located anywhere on the filesystem.
+    // https://git-scm.com/docs/git-worktree
     Worktree { path: PathBuf },
 }
 
@@ -299,8 +303,9 @@ impl GitTopRepoConfig {
     /// . This is initialized with `git-toprepo init` to
     /// `ref:refs/remotes/origin/HEAD:.gittoprepo.toml`, which is managed for
     /// the entire project by the maintainers.
+    ///
     /// A developer can choose their own config file with a `worktree:` reference
-    /// to a file on disk.
+    /// to a file relative to the current worktree.
     ///    `worktree:.gittoprepo.user.toml`,
     ///
     /// Overriding the location is not recommended.

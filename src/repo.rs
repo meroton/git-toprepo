@@ -218,7 +218,9 @@ Initial empty git-toprepo configuration
         })
     }
 
-    /// Get the main work tree path of the repository.
+    /// Get the main worktree path of the repository.
+    /// If the user has multiple worktree this will not be the current working
+    /// directory.
     pub fn work_tree(&self) -> Result<&Path> {
         self.gix_repo.work_dir().with_context(|| {
             format!(
