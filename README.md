@@ -110,3 +110,102 @@ ignored_warnings = [
     "This warning will not be displayed",
 ]
 ```
+
+## Concepts
+
+### Commits, Topics and Supercommits
+
+XXX This continues to illustrate the individual parts 
+
+### Gerrit the review system
+
+Git-toprepo is primarily developed to work with the [Gerrit] review system
+as that is the authors' preferred review tool.
+It is currently the only backend, so to speak,
+that we have implemented but git-toprepo is meant to later work with multiple backends.
+It should also be possible to have some subprojects managed by different review systems.
+
+However, the terminology used here often borrows from [Gerrit] and [Zuul] and other [OpenInfra]
+projects for code validation and verification.
+
+### Subprojects and Submodules
+We prefer to talk about the repositories in Gerrit as projects,
+as that does not denote whether they are filtered into the monorepo history
+or are tracked as regular git-submodules.
+It is common for a monorepo to eschew filtering some subprojects into the shared history,
+if they are very large and not actively developed for instance.
+
+#### Commits
+Git's basic concept.
+These are created in the individual _subprojects_ or _submodules_
+but multiple commits across different subprojects can form one coherent
+_supercommit_.
+To form these is git-toprepo's core purpose.
+So cross-cutting changes across subprojects can be handled as individual commits
+during development and in the filtered history.
+
+#### Supercommits
+Supercommits may contain multiple commits from different subprojects.
+A supercommit is originally created in two ways:
+
+1) by filtering the history of a regular repo with submodules into an emulated monorepo.
+2) by committing code inside such a repository.
+   Note, regular git workflows do not create supercommits.
+
+1. Is always done on code that has been reviewed verified and merged,
+then we use the review system's canonical history.
+
+2. Is performed by developers on new code
+and the code is split into supercommits by the developer
+according to her wishes.
+
+Another developer will always get the same supercommits for 1 by filtering the history
+to find all merged code.
+Unmerged code however, can easily be transferred but we do *re*create the supercommits.
+To do so there is a simple strategy:
+
+    Commits within the same _topic_ with the same _changeid_ form a supercommit.
+
+From Gerrit's constraint on _changeids_ two important points follow:
+a supercommit can only have one commit in a given subproject.
+If a topic contains multiple commits in a given subproject
+
+Note that the review system may squash multiple commits from point 2
+so that the code that is merged and follows from point 1 may differ.
+See [Merged or unmerged] for more details.
+In short: One open Gerrit _topic_ may contain multiple supercommits during development
+but when submitted those will be squashed into a single supercommit for the entire _topic_.
+
+##### Merged or unmerged
+We make a distinction between merged and unmerged supercommits
+with slightly different behaviors.
+The merged history is the simplest:
+whatever was submitted together is one supercommit,
+the review system owns the canonical history
+and git-toprepo the tool has no discretion.
+For [Gerrit] this means that a _[topic]_ is often the supercommit,
+or a single commit if it was submitted independently,
+though with [manual submission] there are [rare exceptions].
+
+[manual submission]: TODO
+[rare exceptions]: TODO
+
+So the split of one topic into multiple supercommits is not performed
+in the filtered history.
+Ongoing work, however, has a second distinction,
+if the original author uses git-toprepo
+it is possible to recreate her working state
+(except for ordering between repositories, see [partial commit ordering])
+[partial commit ordering]: TODO
+with git-toprepo.
+
+#### Topic
+We use the [topic concept] from the [Gerrit] review platform,
+which is our preferred review system and the only platform that has custom integration in `git-toprepo`.
+For other review platforms and how to work with one or more of them see [TODO](TODO).
+
+The topic is a way to indicate that many (super)commits should be _merged_ together.
+That means that all of the commits in a topic should be submitted as one atomic unit
+to the history.
+As the review platform is the canonical history
+one merged topic will create one supercommit in the filtered history of the super repository.
