@@ -29,7 +29,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-pub const GIT_CONFIG_KEY: &str = "toprepo.config";
+pub const TOPREPO_CONFIG_FILE_KEY: &str = "toprepo.config";
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
@@ -309,8 +309,8 @@ impl GitTopRepoConfig {
     pub fn find_configuration_location(repo_dir: &Path) -> Result<ConfigLocation> {
         // Load config file location.
 
-        let location = git_config_get(repo_dir, GIT_CONFIG_KEY)?.with_context(|| {
-            format!("git-config '{GIT_CONFIG_KEY}' is missing. Is this an initialized git-toprepo?")
+        let location = git_config_get(repo_dir, TOPREPO_CONFIG_FILE_KEY)?.with_context(|| {
+            format!("git-config '{TOPREPO_CONFIG_FILE_KEY}' is missing. Is this an initialized git-toprepo?")
         })?;
 
         ConfigLocation::from_str(&location)
@@ -600,7 +600,7 @@ mod tests {
             .unwrap();
 
         git_command(&tmp_path)
-            .args(["config", GIT_CONFIG_KEY, "worktree:foobar.toml"])
+            .args(["config", TOPREPO_CONFIG_FILE_KEY, "worktree:foobar.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
@@ -638,7 +638,7 @@ mod tests {
             .unwrap();
 
         git_command(&tmp_path)
-            .args(["config", GIT_CONFIG_KEY, "worktree:foobar.toml"])
+            .args(["config", TOPREPO_CONFIG_FILE_KEY, "worktree:foobar.toml"])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
@@ -694,7 +694,11 @@ mod tests {
 
         // Try a path in the repository.
         git_command(&tmp_path)
-            .args(["config", GIT_CONFIG_KEY, "repo:HEAD:.gittoprepo.toml"])
+            .args([
+                "config",
+                TOPREPO_CONFIG_FILE_KEY,
+                "repo:HEAD:.gittoprepo.toml",
+            ])
             .check_success_with_stderr()
             .unwrap();
 
@@ -709,7 +713,11 @@ mod tests {
 
         // Try the worktree.
         git_command(&tmp_path)
-            .args(["config", GIT_CONFIG_KEY, "worktree:nonexisting.toml"])
+            .args([
+                "config",
+                TOPREPO_CONFIG_FILE_KEY,
+                "worktree:nonexisting.toml",
+            ])
             .check_success_with_stderr()
             .unwrap();
         let err = GitTopRepoConfig::load_config_from_repo(&tmp_path).unwrap_err();
@@ -797,7 +805,7 @@ mod tests {
         git_command(&tmp_path)
             .args([
                 "config",
-                GIT_CONFIG_KEY,
+                TOPREPO_CONFIG_FILE_KEY,
                 "repo:refs/namespaces/top/HEAD:.gittoprepo.toml",
             ])
             .check_success_with_stderr()
