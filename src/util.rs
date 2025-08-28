@@ -486,27 +486,32 @@ impl<R: std::io::BufRead> Iterator for ReadLossyCrOrLfLines<R> {
 }
 
 /// Reads for example the stderr of a process and sends each line to a callback,
-/// with CR or LF stripped. All test after the last CR will be returned.
+/// with CR or LF stripped. All text that was not erased with CR will be
+/// returned.
 pub fn read_stderr_progress_status<R, F>(input: R, status_callback: F) -> String
 where
     R: std::io::Read,
     F: Fn(String),
 {
     let stderr_reader = std::io::BufReader::new(input);
-    let mut last_paragraph = String::new();
+    let mut permanent_text = String::new();
     for mut line in crate::util::ReadLossyCrOrLfLines::new(stderr_reader) {
         if line.ends_with('\r') {
-            last_paragraph.clear();
+            if let Some(eol_idx) = permanent_text.rfind('\n') {
+                permanent_text.truncate(eol_idx + 1);
+            } else {
+                permanent_text.clear();
+            }
             line.pop();
         } else {
-            last_paragraph += &line;
+            permanent_text += &line;
             if line.ends_with('\n') {
                 line.pop();
             }
         }
         status_callback(line);
     }
-    last_paragraph
+    permanent_text
 }
 
 /// Returns true if the given value is the default value for the type.

@@ -163,15 +163,19 @@ impl RemoteFetcher {
             .spawn()
             .context("Failed to spawn git-fetch")?;
 
-        let last_paragraph = crate::util::read_stderr_progress_status(
+        let permanent_stderr = crate::util::read_stderr_progress_status(
             proc.stderr.take().expect("piping stderr"),
             |line| pb.set_message(line),
         );
         let exit_status = SafeExitStatus::new(proc.wait().context("Failed to wait for git-fetch")?);
         if let Err(err) = exit_status.check_success() {
-            let maybe_newline = if last_paragraph.is_empty() { "" } else { "\n" };
+            let maybe_newline = if permanent_stderr.is_empty() {
+                ""
+            } else {
+                "\n"
+            };
             bail!(
-                "git fetch {} failed: {err:#}{maybe_newline}{last_paragraph}",
+                "git fetch {} failed: {err:#}{maybe_newline}{permanent_stderr}",
                 self.remote.as_deref().unwrap_or("<default>")
             );
         }
