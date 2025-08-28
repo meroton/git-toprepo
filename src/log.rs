@@ -595,10 +595,10 @@ impl<'a> CommandSpanScope<'a> {
         let cmd_string = format!("{command:?}");
         let shorter_cmd_string = cmd_string.chars().take(100).collect::<String>();
         if shorter_cmd_string.len() < cmd_string.len() {
-            log::debug!("Running: {shorter_cmd_string} ... (truncated)",);
+            log::debug!("Running {shorter_cmd_string} ... (truncated)",);
             log::trace!("Full command: {cmd_string}");
         } else {
-            log::debug!("Running: {cmd_string}");
+            log::debug!("Running {cmd_string}");
         }
         CommandSpanScope {
             command,
@@ -612,7 +612,7 @@ impl<'a> CommandSpanScope<'a> {
             Ok(child) => Ok((child, entered_span)),
             Err(err) => {
                 if let Some(metadata) = entered_span.metadata() {
-                    log::error!("Failed to start command: {}: {}", metadata.name(), err);
+                    log::error!("Failed to start command {}: {}", metadata.name(), err);
                 }
                 Err(err)
             }

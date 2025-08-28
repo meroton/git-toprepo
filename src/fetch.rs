@@ -161,7 +161,7 @@ impl RemoteFetcher {
             .stderr(std::process::Stdio::piped())
             .trace_command(crate::command_span!("git fetch"))
             .spawn()
-            .with_context(|| "Failed to spawn git-fetch".to_string())?;
+            .context("Failed to spawn git-fetch")?;
 
         let last_paragraph = crate::util::read_stderr_progress_status(
             proc.stderr.take().expect("piping stderr"),
@@ -183,7 +183,7 @@ impl RemoteFetcher {
         self.create_command()
             .trace_command(crate::command_span!("git fetch"))
             .safe_output()
-            .with_context(|| "Failed to spawn git-fetch".to_string())?
+            .context("Failed to spawn git-fetch")?
             .check_success_with_stderr()
             .with_context(|| {
                 format!(
