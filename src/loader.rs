@@ -19,6 +19,7 @@ use crate::repo::ThinSubmoduleContent;
 use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::ui::ProgressStatus;
+use crate::ui::ProgressTaskHandle;
 use anyhow::Context;
 use anyhow::Result;
 use bstr::BStr;
@@ -34,10 +35,18 @@ use std::sync::Arc;
 use tracing::instrument;
 
 enum TaskResult {
-    RepoFetchDone(RepoName, Result<()>),
+    RepoFetchDone {
+        repo_name: RepoName,
+        progress_task: ProgressTaskHandle,
+        result: Result<()>,
+    },
     LoadCachedCommits(RepoName, Vec<CommitId>, oneshot::Sender<Result<()>>),
     ImportCommit(Arc<RepoName>, FastExportCommit, TreeId),
-    LoadRepoDone(RepoName, InterruptedResult<()>),
+    LoadRepoDone {
+        repo_name: RepoName,
+        progress_task: ProgressTaskHandle,
+        result: InterruptedResult<()>,
+    },
 }
 
 #[derive(Debug)]
@@ -223,9 +232,8 @@ impl<'a> CommitLoader<'a> {
         if self.ongoing_jobs_in_threads < self.thread_pool.max_count() {
             if let Some(repo_name) = self.repos_to_fetch.pop_front() {
                 match self.start_fetch_repo_job(repo_name.clone()) {
-                    Ok(pbs) => {
+                    Ok(()) => {
                         self.ongoing_jobs_in_threads += 1;
-                        self.fetch_progress.start(repo_name.to_string(), pbs);
                     }
                     Err(err) => {
                         // Fail unless keep-going.
@@ -237,7 +245,6 @@ impl<'a> CommitLoader<'a> {
             if let Some(repo_name) = self.repos_to_load.pop_front() {
                 self.start_load_repo_job(repo_name.clone());
                 self.ongoing_jobs_in_threads += 1;
-                self.load_progress.start(repo_name.to_string(), Vec::new());
                 return Ok(true);
             }
         }
@@ -266,9 +273,13 @@ impl<'a> CommitLoader<'a> {
 
         // Process one messages.
         match msg {
-            TaskResult::RepoFetchDone(repo_name, result) => {
+            TaskResult::RepoFetchDone {
+                repo_name,
+                progress_task,
+                result,
+            } => {
                 self.ongoing_jobs_in_threads -= 1;
-                self.fetch_progress.finish(&repo_name.to_string());
+                drop(progress_task); // Remove the progress bar from the UI.
                 match result {
                     Ok(()) => {
                         self.finish_fetch_repo_job(&repo_name);
@@ -303,9 +314,13 @@ impl<'a> CommitLoader<'a> {
                     }
                 }
             }
-            TaskResult::LoadRepoDone(repo_name, result) => {
+            TaskResult::LoadRepoDone {
+                repo_name,
+                progress_task,
+                result,
+            } => {
                 self.ongoing_jobs_in_threads -= 1;
-                self.load_progress.finish(&repo_name.to_string());
+                drop(progress_task); // Remove the progress bar from the UI.
                 match result {
                     Ok(()) => {
                         let result = self.finish_load_repo_job(&repo_name);
@@ -323,7 +338,7 @@ impl<'a> CommitLoader<'a> {
         Ok(true)
     }
 
-    fn start_fetch_repo_job(&mut self, repo_name: RepoName) -> Result<Vec<indicatif::ProgressBar>> {
+    fn start_fetch_repo_job(&mut self, repo_name: RepoName) -> Result<()> {
         let context = format!("Fetching {repo_name}");
         let _log_scope_guard = crate::log::scope(context.clone());
 
@@ -345,10 +360,13 @@ impl<'a> CommitLoader<'a> {
             .with_style(indicatif::ProgressStyle::with_template("     {msg}").unwrap());
         // Now when it is added, we can start calling tick to print. Don't print
         // before it is added as multiple ProgressBars will trash eachother.
-        pb_status.enable_steady_tick(std::time::Duration::from_millis(1000));
+        pb_url.enable_steady_tick(std::time::Duration::from_millis(1000));
+
+        let progress_task = self
+            .fetch_progress
+            .start(repo_name.to_string(), vec![pb_url, pb_status.clone()]);
 
         let tx = self.tx.clone();
-        let pb_clone = pb_status.clone();
         let error_observer = self.error_observer.clone();
         let log_context = crate::log::current_scope();
         let parent_span = tracing::Span::current();
@@ -357,17 +375,21 @@ impl<'a> CommitLoader<'a> {
             let _span_guard =
                 tracing::info_span!(parent: parent_span, "Fetching", "repo" = %repo_name).entered();
             let result = fetcher
-                .fetch_with_progress_bar(&pb_clone)
+                .fetch_with_progress_bar(&pb_status)
                 .with_context(|| format!("Fetching {repo_name}"));
             // Sending might fail on interrupt.
-            if let Err(err) = tx.send(TaskResult::RepoFetchDone(repo_name, result)) {
+            if let Err(err) = tx.send(TaskResult::RepoFetchDone {
+                repo_name,
+                progress_task,
+                result,
+            }) {
                 assert!(
                     error_observer.should_interrupt(),
                     "The receiver should only close early when interrupted: {err:?}"
                 );
             }
         });
-        Ok(vec![pb_url, pb_status])
+        Ok(())
     }
 
     fn finish_fetch_repo_job(&mut self, repo_name: &RepoName) {
@@ -405,6 +427,8 @@ impl<'a> CommitLoader<'a> {
             .get(&repo_name)
             .map(|repo_data| repo_data.thin_commits.keys().cloned().collect())
             .unwrap_or_default();
+
+        let progress_task = self.load_progress.start(repo_name.to_string(), Vec::new());
 
         let toprepo = self.toprepo.clone();
         let tx = self.tx.clone();
@@ -470,7 +494,11 @@ impl<'a> CommitLoader<'a> {
             let result =
                 single_repo_loader.load_repo(&existing_commits, &cached_commits, &callback);
             // Send only fails if the receiver has been interrupted.
-            if let Err(err) = tx.send(TaskResult::LoadRepoDone(repo_name, result)) {
+            if let Err(err) = tx.send(TaskResult::LoadRepoDone {
+                repo_name,
+                progress_task,
+                result,
+            }) {
                 assert!(
                     error_observer.should_interrupt(),
                     "The receiver should only close early when interrupted: {err:?}"
