@@ -666,22 +666,31 @@ fn with_termination_signal_handler<T>(
         let thread = std::thread::Builder::new()
             .name("signal-handler".to_owned())
             .spawn_scoped(s, move || {
-                let _span = tracing::debug_span!(parent: parent_span, "signal_handler").entered();
                 let mut signal_iter = signals.forever().peekable();
-                if let Some(signal) = signal_iter.peek() {
-                    let signal_str = signal_hook::low_level::signal_name(*signal)
-                        .map(|name| name.to_owned())
-                        .unwrap_or_else(|| signal.to_string());
-                    tracing::info!("Received termination signal {signal_str}");
-                }
-                // Stop listening for signals and run the shutdown function.
-                signal_handler_clone.close();
-                shutdown_fn();
-                // Reraise all signals to ensure they are handled in the default manner.
-                for signal in signal_iter {
-                    signal_hook::low_level::emulate_default_handler(signal)
-                        .expect("emulate default signal handler in the signal handler thread");
-                }
+                tracing::debug_span!(parent: parent_span.clone(), "signal_handler_watch").in_scope(
+                    || {
+                        if let Some(signal) = signal_iter.peek() {
+                            let signal_str = signal_hook::low_level::signal_name(*signal)
+                                .map(|name| name.to_owned())
+                                .unwrap_or_else(|| signal.to_string());
+                            tracing::info!("Received termination signal {signal_str}");
+                        }
+                        // Stop listening for signals and run the shutdown function.
+                        signal_handler_clone.close();
+                    },
+                );
+                tracing::debug_span!(parent: parent_span.clone(), "signal_handler_shutdown")
+                    .in_scope(shutdown_fn);
+                tracing::debug_span!(parent: parent_span, "signal_handler_reraise").in_scope(
+                    || {
+                        // Reraise all signals to ensure they are handled in the default manner.
+                        for signal in signal_iter {
+                            signal_hook::low_level::emulate_default_handler(signal).expect(
+                                "emulate default signal handler in the signal handler thread",
+                            );
+                        }
+                    },
+                );
             })?;
         // Run the main function.
         let result_or_panic = catch_unwind(AssertUnwindSafe(main_fn));
