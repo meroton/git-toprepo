@@ -141,6 +141,9 @@ pub struct Clone {
     #[command(flatten)]
     pub init: Init,
 
+    #[command(flatten)]
+    pub refilter: Refilter,
+
     /// After fetching the top repository, skip fetching the submodules.
     #[clap(long)]
     pub minimal: bool,
@@ -514,6 +517,10 @@ pub struct Push {
     /// Stop pushing on the first error.
     #[arg(long)]
     pub fail_fast: bool,
+
+    /// Number of concurrent threads to load the repository.
+    #[arg(long, default_value = "7")]
+    pub jobs: std::num::NonZero<u16>,
 
     /// A configured git remote in the mono repository or a URL of the top
     /// repository to push to. Submodules are calculated relative this remote.

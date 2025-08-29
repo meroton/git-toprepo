@@ -61,17 +61,40 @@ fn clone_after_init(clone_args: &cli::Clone, processor: &mut MonoRepoProcessor) 
         &cli::Fetch {
             keep_going: false,
             jobs: std::num::NonZero::new(1).unwrap(),
-            skip_filter: clone_args.minimal,
+            skip_filter: true,
             remote: None,
             path: None,
             refspecs: None,
         },
         processor,
     )?;
+    verify_config_existence_after_clone()?;
+    if !clone_args.minimal {
+        processor.reload_config()?;
+        refilter(&clone_args.refilter, processor)?;
+    }
     git_command(Path::new("."))
         .args(["checkout", "refs/remotes/origin/HEAD", "--"])
         .trace_command(git_toprepo::command_span!("git checkout"))
         .check_success_with_stderr()?;
+    Ok(())
+}
+
+#[tracing::instrument(skip_all)]
+fn verify_config_existence_after_clone() -> Result<()> {
+    let repo_dir = git_toprepo::util::find_current_worktree(Path::new("."))?;
+    let location = config::GitTopRepoConfig::find_configuration_location(&repo_dir)?;
+    if location.validate_existence(&repo_dir).is_err() {
+        // Fetch from the default remote to get all the direct submodules.
+        let gix_repo =
+            gix::open(&repo_dir).context("Could not open the newly cloned repository")?;
+        log::error!("Config file .gittoprepo.toml does not exist in {location}");
+        git_toprepo::fetch::RemoteFetcher::new(&gix_repo).fetch_on_terminal()?;
+        log::info!(
+            "Please run 'git-toprepo config bootstrap' to generate an initial .gittoprepo.toml."
+        );
+        bail!("Clone failed due to missing config file");
+    }
     Ok(())
 }
 
@@ -164,6 +187,8 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
                 threadpool::ThreadPool::new(1),
             )?;
             commit_loader.fetch_missing_commits = false;
+            // No point in spamming with warnings when a configuration is missing anyway.
+            commit_loader.log_missing_config_warnings = false;
             commit_loader.load_repo(&git_toprepo::repo_name::RepoName::Top)?;
             commit_loader.join()?;
             error_observer.get_result(())
@@ -734,9 +759,14 @@ where
 
     // First run subcommands that can run with a mis- or unconfigured repo.
     match &args.command {
-        Commands::Init(init_args) => return init(init_args).map(|_path| ()),
+        Commands::Init(init_args) => {
+            init(init_args).map(|_path| ())?;
+            log::info!("The next step is to run 'git-toprepo fetch'.");
+            return Ok(());
+        }
         Commands::Clone(cli::Clone {
             init: init_args,
+            refilter: _,
             minimal: _,
         }) => {
             let directory = init(init_args)?;
