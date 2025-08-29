@@ -152,3 +152,50 @@ fn test_config_commands_use_correct_working_directory() {
         .assert()
         .success();
 }
+
+#[test]
+fn test_config_bootstrap() {
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+
+    Command::new("git")
+        .current_dir(&toprepo)
+        .args(["rm", ".gittoprepo.toml"])
+        .assert()
+        .success();
+    Command::new("git")
+        .current_dir(&toprepo)
+        .args(["commit", "-m", "Remove toprepo config"])
+        .envs(commit_env_for_testing())
+        .assert()
+        .success();
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .arg("clone")
+        .arg(&toprepo)
+        .arg(&monorepo)
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("git-toprepo config bootstrap"));
+
+    const EXPECTED_BOOTSTRAP_CONFIG: &str = "\
+[repo.sub]
+urls = [\"../sub/\"]
+skip_expanding = []
+
+[log]
+ignore_warnings = []
+";
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&monorepo)
+        .args(["config", "bootstrap"])
+        .assert()
+        .success()
+        .stdout(EXPECTED_BOOTSTRAP_CONFIG)
+        .stderr(predicate::function(|stderr: &str| {
+            !stderr.contains("ERROR:") && !stderr.contains("WARNING:")
+        }));
+}

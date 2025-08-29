@@ -67,8 +67,12 @@ pub enum ConfigLocation {
     /// Load a blob from the repo.
     RepoBlob { gitref: String, path: PathBuf },
     /// Load from the path relative to the main worktree root.
+    // (The primary repository checkout).
     Local { path: PathBuf },
     /// Load from the path relative to the current worktree root.
+    // A worktree links to the main worktree (repository) ,
+    // but can be located anywhere on the filesystem.
+    // https://git-scm.com/docs/git-worktree
     Worktree { path: PathBuf },
 }
 
@@ -299,8 +303,9 @@ impl GitTopRepoConfig {
     /// . This is initialized with `git-toprepo init` to
     /// `ref:refs/remotes/origin/HEAD:.gittoprepo.toml`, which is managed for
     /// the entire project by the maintainers.
+    ///
     /// A developer can choose their own config file with a `worktree:` reference
-    /// to a file on disk.
+    /// to a file relative to the current worktree.
     ///    `worktree:.gittoprepo.user.toml`,
     ///
     /// Overriding the location is not recommended.
@@ -686,12 +691,6 @@ mod tests {
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(&tmp_path)
-            .args(["update-ref", "refs/namespaces/top/HEAD", "HEAD"])
-            .envs(&env)
-            .check_success_with_stderr()
-            .unwrap();
-
         // Try a path in the repository.
         git_command(&tmp_path)
             .args([
@@ -785,7 +784,11 @@ mod tests {
             .unwrap();
 
         git_command(&tmp_path)
-            .args(["update-ref", "refs/namespaces/top/HEAD", "HEAD"])
+            .args([
+                "update-ref",
+                "refs/namespaces/top/refs/remotes/origin/HEAD",
+                "HEAD",
+            ])
             .envs(&env)
             .check_success_with_stderr()
             .unwrap();
@@ -806,7 +809,7 @@ mod tests {
             .args([
                 "config",
                 TOPREPO_CONFIG_FILE_KEY,
-                "repo:refs/namespaces/top/HEAD:.gittoprepo.toml",
+                "repo:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml",
             ])
             .check_success_with_stderr()
             .unwrap();

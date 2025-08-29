@@ -71,6 +71,7 @@ pub struct CommitLoader<'a> {
     fetch_progress: ProgressStatus,
     /// Signal to not start new work but to fail as fast as possible.
     error_observer: crate::log::ErrorObserver,
+    pub log_missing_config_warnings: bool,
 
     thread_pool: threadpool::ThreadPool,
     ongoing_jobs_in_threads: usize,
@@ -141,6 +142,7 @@ impl<'a> CommitLoader<'a> {
             load_progress,
             fetch_progress,
             error_observer,
+            log_missing_config_warnings: true,
             thread_pool,
             ongoing_jobs_in_threads: 0,
             load_after_fetch: true,
@@ -683,6 +685,7 @@ impl<'a> CommitLoader<'a> {
             tree_id,
             self.config,
             &mut self.dot_gitmodules_cache,
+            self.log_missing_config_warnings,
         )
         .context(context)
         .map_err(InterruptedError::Normal)?;
@@ -849,6 +852,7 @@ impl<'a> CommitLoader<'a> {
         tree_id: TreeId,
         config: &mut GitTopRepoConfig,
         dot_gitmodules_cache: &mut DotGitModulesCache,
+        log_missing_config_warnings: bool,
     ) -> Result<(Rc<ThinCommit>, Vec<NeededCommit>)> {
         let commit_id: CommitId = exported_commit.original_id;
         let thin_parents = exported_commit
@@ -895,7 +899,7 @@ impl<'a> CommitLoader<'a> {
                             &repo_storage.url,
                             config,
                             dot_gitmodules_cache,
-                            true,
+                            log_missing_config_warnings,
                         );
                         if let Some(submod_repo_name) = &submod_repo_name {
                             new_submodule_commits.push(NeededCommit {
@@ -953,7 +957,7 @@ impl<'a> CommitLoader<'a> {
                             &repo_storage.url,
                             config,
                             dot_gitmodules_cache,
-                            true,
+                            log_missing_config_warnings,
                         );
                         if new_repo_name != thin_submod.repo_name {
                             // Insert an entry that this submodule has been updated.
