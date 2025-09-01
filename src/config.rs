@@ -43,24 +43,6 @@ pub struct GitTopRepoConfig {
     /// automatically been added to `suprepos`.
     #[serde(skip)]
     pub missing_subrepos: HashSet<SubRepoName>,
-    pub log: LogConfig,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct LogConfig {
-    // Settings:
-    /// Warning messages that should be ignored and not displayed for the user.
-    #[serde(default)]
-    pub ignore_warnings: Vec<String>,
-
-    // State propagation: These are filled in during execution of the program
-    // and logs are collected from subcomponents and subprocesses.
-    /// Error messages that were displayed to the user during execution.
-    #[serde(skip_deserializing, skip_serializing_if = "is_default")]
-    pub reported_errors: Vec<String>,
-    /// Warning messages that were displayed to the user during execution.
-    #[serde(skip_deserializing, skip_serializing_if = "is_default")]
-    pub reported_warnings: Vec<String>,
 }
 
 pub enum ConfigLocation {
