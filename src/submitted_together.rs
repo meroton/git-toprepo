@@ -31,6 +31,8 @@ use std::collections::HashMap;
 //
 // Multiple commits within the same repo may also be in
 // the same topic and should also be treated as an atomic commit.
+// Though it is important to remember the internal order,
+// if one wants to cherry-pick them before it is merged.
 //
 // Repos:    A     B
 // Commits
@@ -136,7 +138,7 @@ where
 /// But the key is still used by the algorithm to chunk into iterators.
 /// `Cons` should have a reverse chronological order within each grouping.
 /// The result will retain this order.
-pub fn reorder_submitted_together<T>(
+fn reorder_submitted_together<T>(
     cons: &[SubmittedTogether<T>],
 ) -> Result<Vec<Vec<Vec<SubmittedTogether<T>>>>>
 where
