@@ -28,6 +28,7 @@ use git_toprepo::repo::ConfiguredTopRepo;
 use git_toprepo::repo::ImportCache;
 use git_toprepo::repo_name::RepoName;
 use git_toprepo::repo_name::SubRepoName;
+use git_toprepo::submitted_together::order_submitted_together;
 use git_toprepo::util::CommandExtension as _;
 use gix::refs::FullName;
 use gix::refs::FullNameRef;
@@ -415,10 +416,19 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     let triplet_id = res.changes[0].triplet_id();
     let res = gerrit.get_submitted_together(&triplet_id);
 
-    println!("{checkout:?}");
-    println!("{gerrit:?}");
-    println!("{triplet_id:?}");
-    println!("{res:?}");
+    let res = order_submitted_together(res.unwrap())?;
+
+    println!("Cherry-pick order:");
+    for (index, grouping) in res.into_iter().rev().enumerate() {
+        for commit in grouping.into_iter() {
+            println!(
+                "{} {} {}",
+                index,
+                commit.project,
+                commit.current_revision.unwrap()
+            );
+        }
+    }
 
     todo!();
 }
