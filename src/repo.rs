@@ -145,6 +145,14 @@ impl TopRepo {
             .safe_status()?
             .check_success()
             .context("Failed to set git-config remote.origin.tagOpt")?;
+        // NB: Marker for other tools to know.
+        // TODO(nils): make it not bad, document it.
+        // TODO(nils): naming is hard.
+        git_command(directory)
+            .args(["config", "--add", "git-toprepo.git-toprepo", "-"])
+            .safe_status()?
+            .check_success()
+            .context("Failed to set git-config git-toprepo marker")?;
         git_command(directory)
             .args([
                 "config",
