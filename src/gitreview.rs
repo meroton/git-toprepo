@@ -2,6 +2,9 @@ use anyhow::Result;
 use anyhow::anyhow;
 use serde::Deserialize;
 
+/// TODO: Create a new config format for Gerrit entirely.
+/// backwards compatible with gitreview so projects can symlink the files.
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct GitReview {
     pub host: String,
