@@ -418,6 +418,13 @@ pub struct Fetch {
     /// wildcards are not supported.
     #[arg(value_name = "REF", num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec))]
     pub refspecs: Option<Vec<(String, String)>>,
+
+    /// Fetch entire topics for commits, rather that just the commit chain
+    /// within a subproject (repository).
+    /// This requires access to the Gerrit REST API.
+    // TODO: Find a good description and name for this flag.
+    #[arg(long)]
+    pub fetch_entire_topics_from_gerrit: bool,
 }
 
 pub fn resolve_remote_and_path(
