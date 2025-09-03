@@ -93,6 +93,7 @@ fn clone_after_init(
             keep_going: false,
             job_count: std::num::NonZero::new(1).unwrap(),
             skip_combine: true,
+            fetch_entire_topics_from_gerrit: false,
             remote: None,
             path: None,
             refspecs: None,
