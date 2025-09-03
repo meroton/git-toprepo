@@ -194,6 +194,20 @@ pub enum Dump {
     // TODO: Take a full path for a file and convert it to its remote repo, or
     // url path?
     GitModules,
+    /// Dump Gerrit information.
+    #[command(subcommand)]
+    Gerrit(DumpGerrit),
+}
+
+#[derive(Subcommand, Debug, PartialEq)]
+pub enum DumpGerrit {
+    // TODO: allow a full dump if neither subcommand is used.
+    Host,
+    Project,
+    // The user is typically not handled in code but handled by `ssh` itself
+    // under all git operations.
+    // If, however, an override is needed we should dump it.
+    UserOverride,
 }
 
 #[derive(Args, Debug)]

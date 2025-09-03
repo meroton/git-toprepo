@@ -3,6 +3,7 @@ use git_toprepo::config::TOPREPO_CONFIG_FILE_KEY;
 use git_toprepo::config::toprepo_git_config;
 use git_toprepo::git::commit_env_for_testing;
 use git_toprepo::git::git_command;
+use git_toprepo::util::CommandExtension;
 use predicates::prelude::*;
 use std::path::Path;
 use std::process::Command;
@@ -12,6 +13,63 @@ const GENERIC_CONFIG: &str = r#"
     [repo.foo.fetch]
     url = "ssh://generic/repo.git"
 "#;
+
+const GIT_REVIEW_CONFIG: &str = r#"[gerrit]
+    host=gerrit.server.example
+    project=path/to/repository.git
+    port=2222"#;
+
+#[test]
+fn test_parse_gitreview() {
+    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-gerrit-").unwrap();
+    // Debug with &temp_dir.into_path() to persist the path.
+    // TODO: Parameterize all integrations tests to keep their temporary files.
+    // Possibly with an environment variable?
+    let temp_dir = temp_dir.path();
+
+    let gitreview = ".gitreview";
+    std::fs::write(temp_dir.join(gitreview), GIT_REVIEW_CONFIG).unwrap();
+
+    let toprepo = ".gittoprepo.toml";
+    std::fs::write(temp_dir.join(toprepo), GENERIC_CONFIG).unwrap();
+
+    let deterministic = commit_env_for_testing();
+    git_command(temp_dir)
+        .args(["init"])
+        .envs(&deterministic)
+        .check_success_with_stderr()
+        .unwrap();
+
+    git_command(temp_dir)
+        .args([
+            "config",
+            &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
+            &format!("local:{toprepo}"),
+        ])
+        .envs(&deterministic)
+        .check_success_with_stderr()
+        .unwrap();
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(temp_dir)
+        .arg("dump")
+        .arg("gerrit")
+        .arg("host")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("gerrit.server.example"));
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(temp_dir)
+        .arg("dump")
+        .arg("gerrit")
+        .arg("project")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("path/to/repository.git"));
+}
 
 #[test]
 fn test_validate_external_file_in_corrupt_repository() {
