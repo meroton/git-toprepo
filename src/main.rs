@@ -371,7 +371,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
         for repo in atomic.into_iter() {
             for commit in repo.into_iter().rev() {
                 let remote = format!("ssh://{}/{}.git", gerrit.ssh_host(), commit.project);
-                let cherry_pick = "&& git cherry-pick refs/toprepo/fetch-head";
+                let cherry_pick = "&& git cherry-pick --allow-empty refs/toprepo/fetch-head";
                 if let Some(subject) = commit.subject {
                     println!("# {subject}");
                 }
