@@ -21,6 +21,7 @@ use crate::util::CommandExtension as _;
 use crate::util::EMPTY_GIX_URL;
 use crate::util::NewlineTrimmer as _;
 use crate::util::RcKey;
+use crate::util::normalize;
 use anyhow::Context;
 use anyhow::Result;
 use bstr::BStr;
@@ -42,6 +43,34 @@ use std::rc::Rc;
 
 pub const COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY: &str =
     "Could not open toprepo, it must be a git repository";
+
+pub fn gerrit_project(url: &gix::url::Url) -> Result<String> {
+    // TODO use `url.scheme`
+    let tail = url.path_argument_safe().unwrap();
+    Ok(tail.to_string().to_owned())
+}
+
+// TODO: A specific type for the resolved subprojects?
+pub fn resolve_subprojects(
+    subs: &GitModulesInfo,
+    main_project: String,
+) -> Result<HashMap<GitPath, String>> {
+    let mut resolved = HashMap::<GitPath, String>::default();
+
+    for (path, url) in subs.submodules.iter() {
+        // TODO: Nightly `as_str`: https://docs.rs/bstr/latest/bstr/struct.BString.html#deref-methods-%5BT%5D-1
+        let relative = gerrit_project(url.as_ref().unwrap())?;
+        let relative = match relative.strip_prefix("/") {
+            None => relative,
+            Some(r) => r.to_owned(),
+        };
+
+        let project = normalize(&format!("{}/{}", &main_project, relative));
+        resolved.insert(path.clone(), project);
+    }
+
+    Ok(resolved)
+}
 
 #[derive(Debug)]
 pub struct TopRepo {
@@ -227,6 +256,30 @@ Initial empty git-toprepo configuration
                 self.gix_repo.git_dir().display()
             )
         })
+    }
+
+    // TODO: This should be unified with the information about modules found
+    // through the ToprepoConfig and Processor data.
+    // #unified-git-config.
+    pub fn submodules(&self) -> Result<HashMap<GitPath, String>> {
+        let gitmodules = self.gix_repo.to_thread_local().modules()?.unwrap();
+        let main_project = self.gerrit_project();
+
+        let mut info = GitModulesInfo::default();
+        for name in gitmodules.names() {
+            let path = gitmodules.path(name)?;
+            let url = gitmodules.url(name)?;
+            info.submodules
+                .insert(GitPath::new(path.into_owned()), Ok(url));
+        }
+
+        resolve_subprojects(&info, main_project)
+    }
+
+    pub fn gerrit_project(&self) -> String {
+        let repo = self.gix_repo.to_thread_local();
+        let url = crate::git::get_default_remote_url(&repo).unwrap();
+        gerrit_project(&url).unwrap()
     }
 }
 
@@ -1454,7 +1507,7 @@ impl ThinCommit {
     }
 
     pub fn is_descendant_of(&self, ancestor: &ThinCommit) -> bool {
-        // Doesn't matter which order we iterate.
+        // Doesn't matter in which order we iterate.
         let mut visited = HashSet::new();
         let mut queue = Vec::new();
         visited.insert(self.commit_id);

@@ -35,7 +35,7 @@ pub struct GitPath(
     /// The serialized human readable form is a string, so non-UTF8 will panic.
     // TODO: Maybe '::<hex>' as paths don't contain (or starts with) ':'.
     #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
-    BString,
+    pub BString,
 );
 
 impl GitPath {
