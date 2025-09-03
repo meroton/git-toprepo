@@ -61,6 +61,29 @@ use std::collections::HashMap;
 // This is a little annoying to workaround.
 // TODO: Introduce another vector-layer for order within repositories.
 
+#[derive(clap::ValueEnum, PartialEq, Default, Debug, Clone)]
+pub enum SupercommitSplitStrategy {
+    ForceSquash,
+    SquashIfPossible,
+    // TODO(nils): take the default through configuration instead.
+    #[default]
+    Recreate,
+}
+
+impl std::fmt::Display for SupercommitSplitStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::ForceSquash => "force-squash",
+                Self::SquashIfPossible => "squash-if-possible",
+                Self::Recreate => "recreate",
+            }
+        )
+    }
+}
+
 /// A small data view for this algorithm, to help in testing.
 /// Real data should use a small `From<Real Data>` impl.
 /// And then reconstruct the structure based on the id.
@@ -144,8 +167,11 @@ impl ChangesSubmittedTogether {
 }
 
 pub fn split_by_supercommits(
-    to_fetch: ChangesSubmittedTogether, /*, strategy */
+    to_fetch: ChangesSubmittedTogether,
+    strategy: &SupercommitSplitStrategy,
 ) -> Result<CherryPickable> {
+    assert!(strategy == &SupercommitSplitStrategy::ForceSquash);
+
     // let mut res: Vec<Vec<Vec<Vec<NewChange>>>> = Vec::new();
     let mut res = Vec::new();
     for topic in to_fetch.0.into_iter() {
