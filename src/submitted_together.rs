@@ -40,27 +40,14 @@ where
     secondary: T,
 }
 
+/// This assumes that the input is also grouped based on the secondary key.
+/// But the key is still used by the algorithm to chunk into iterators.
 pub fn order_submitted_together<T>(
     cons: Vec<SubmittedTogether<T>>,
 ) -> Result<Vec<Vec<SubmittedTogether<T>>>>
 where
     T: Eq + std::hash::Hash + Clone + std::fmt::Debug,
 {
-    /*
-    // first group based on secondary, it is possible that we could rely on this
-    // being done for us. In which case we save a lot of effort.
-    // Then we could just chunk the `cons` input based on `T` directly into
-    // Vec<Vec< >>.
-    let mut grouped: HashMap<T, Vec<SubmittedTogether<T>>> = HashMap::new();
-    for x in cons.into_iter() {
-        grouped.entry(x.secondary.clone())
-            .or_insert_with(Vec::new)
-            .push(x);
-    }
-
-    let key_order = grouped.keys().sorted_unstable();
-    */
-
     let mut count = 0;
     let mut topic_backlinks: HashMap<String, Vec<&SubmittedTogether<T>>> = HashMap::new();
     for c in cons.iter() {
@@ -91,41 +78,10 @@ where
         }
     }
 
-    // Find topic order. PartialOrd can be found within each grouping.
-    #[derive(Debug)]
-    struct PartialOrd {
-        before: String,
-        after: String,
-    }
-    let mut ords = Vec::new();
-
-    for repo in grouped.iter() {
-        let sentinel = "".to_owned();
-        let mut last = sentinel;
-        for commit in repo.iter() {
-            match (commit.topic.clone(), last.clone().as_ref()) {
-                (Some(t), "") => {
-                    last = t;
-                }
-                (Some(after), before) => {
-                    last = after.clone();
-                    ords.push(PartialOrd {
-                        before: before.to_owned(),
-                        after,
-                    });
-                }
-                (None, _) => (),
-            }
-        }
-    }
-    ords.retain(|e| e.before != e.after);
-
     // Successively iterate through all the secondary groupings and pop all "free" commits.
     // Then when all groupings have a topic barrier (or if they are empty they
     // are no longer part of this iteration).
     // Match the first topic in topological order.
-
-    println!("> grouped ===\n{grouped:?}");
 
     // An ordered list of iterators into the different repositories.
     let mut iters = Vec::new();
