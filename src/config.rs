@@ -4,6 +4,7 @@ use crate::git::git_config_get;
 use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::log::CommandSpanExt as _;
 use crate::repo_name::RepoName;
+use crate::repo_name::RepositoryName;
 use crate::repo_name::SubRepoName;
 use crate::util::CommandExtension as _;
 use crate::util::OrderedHashSet;
@@ -45,6 +46,9 @@ pub fn toprepo_git_config(key: &str) -> String {
     format!("{TOPREPO_CONFIG_NAMESPACE}.{key}")
 }
 pub const TOPREPO_CONFIG_FILE_KEY: &str = "config";
+
+/// NB: We can use this struct for the main repository as well.
+type RepositoryConfig = SubRepoConfig;
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
@@ -202,6 +206,25 @@ impl GitTopRepoConfig {
             RepoName::Top => None,
             RepoName::SubRepo(name) => Some(name),
         }
+    }
+
+    /// All projects in the mono repo. The super repo itself and its subrepos.
+    pub fn projects(&self) -> BTreeMap<RepositoryName, RepositoryConfig> {
+        let mut res: BTreeMap<RepositoryName, SubRepoConfig> = self.subrepos.clone();
+        let tops_own_config = RepositoryConfig {
+            urls: (),
+            fetch: (),
+            push: (),
+            enabled: (),
+            skip_expanding: (),
+        };
+        res.insert(
+            RepositoryName {
+                0: "top".to_owned(),
+            },
+            tops_own_config,
+        );
+        res
     }
 
     /// Get a repo name given a full url when doing an approximative matching,
