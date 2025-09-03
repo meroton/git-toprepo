@@ -242,7 +242,7 @@ pub struct Fetch {
     /// The worktree path to filter into, relative to the working directory.
     /// This path is used to override the repo to filter into which is otherwise
     /// deduced from the `remote` argument.
-    #[arg(long)]
+    #[arg(long, name = "submod", verbatim_doc_comment)]
     pub path: Option<PathBuf>,
 
     /// A reference to fetch from the top repository or submodule. Refspec
@@ -262,6 +262,7 @@ impl Fetch {
     }
 }
 
+/// Internal structure when the `Fetch` arguments have been parsed given config and `.gitmodules`.
 #[derive(Debug)]
 pub struct ResolvedFetchParams {
     /// The repository to fetch from.
