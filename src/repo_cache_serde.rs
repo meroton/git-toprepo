@@ -58,14 +58,9 @@ impl SerdeTopRepoCache {
     }
 
     /// Load parsed git repository information from `.git/toprepo/`.
-    pub fn load_from_repo(
-        toprepo: &gix::Repository,
-        config_checksum: Option<&str>,
-    ) -> Result<Self> {
-        Self::load_from_git_dir(toprepo.git_dir(), config_checksum)
-    }
-
-    /// Load parsed git repository information from `.git/toprepo/`.
+    ///
+    /// If `config_checksum` is `None`, the stored config checksum will be
+    /// ignored and the cache will be considered valid.
     pub fn load_from_git_dir(git_dir: &Path, config_checksum: Option<&str>) -> Result<Self> {
         let cache_path = Self::get_cache_path(git_dir);
         let _span_guard = tracing::info_span!(
@@ -115,6 +110,10 @@ impl SerdeTopRepoCache {
             {
                 log::warn!(
                     "The git-toprepo configuration has changed, discarding the toprepo cache",
+                );
+                log::debug!(
+                    "Configuration checksum {config_checksum} does not match cached checksum {}",
+                    loaded_cache.config_checksum
                 );
                 return Ok(Self::default());
             }
