@@ -248,61 +248,36 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
     // config.log = log_config;
     Ok(config)
 }
-/*
-/// Replace references to Gerrit projects to the local file paths of submodules.
-fn replace(args: &Cli, replace: &cli::Replace) -> Result<()> {
+
+fn dump_modules() -> Result<()> {
     /// The main repo is not technically a submodule.
     /// But it is very convenient to have transparent handling of the main
     /// project in code that iterates over projects provided by the users.
     struct Mod {
-        project: BString,
-        path: BString,
+        project: String,
+        path: git_toprepo::git::GitPath,
     }
-    let monorepo = Repo::from_str(&args.cwd)?;
-    let main_project = monorepo.gerrit_project();
-    let mut modules: Vec<Mod> = monorepo.submodules()?.into_iter()
-        .map(|m| Mod{project: m.project, path: m.path}).collect();
+    let toprepo = repo::TopRepo::open(&PathBuf::from("."))?;
 
-    modules.push(Mod{
-        project: main_project.into(),
+    let main_project = toprepo.gerrit_project();
+    let mut modules: Vec<Mod> = toprepo
+        .submodules()?
+        .into_iter()
+        .map(|(path, project)| Mod { project, path })
+        .collect();
+
+    modules.push(Mod {
+        project: main_project,
         // TODO: What is the path to the repo? May be upwards.
         path: ".".into(),
     });
 
-    if replace.dump {
-        for module in modules {
-            println!("{}: {}", module.project, module.path);
-        }
-        return Ok(())
-    }
-
-    // TODO: This became really cluttered :(
-    // In theory, we should also be able to do all the operations within the
-    // Byte-string world, but that too was fraught with type conversions.
-    let mut map: HashMap<String, String> = HashMap::new();
-    for module in modules.into_iter() {
-        map.insert(
-            <Vec<u8> as Clone>::clone(&module.project).clone().into_string()?,
-            <Vec<u8> as Clone>::clone(&module.path).clone().into_string()?,
-        );
-    }
-
-    for result in std::io::stdin().lines() {
-        let line = result?;
-        let parts: Vec<&str> = line.split(" ").collect();
-        // TODO: Return error and usage instructions here.
-        assert!(parts.len() >= 1);
-
-        let project = parts[0].to_owned();
-
-        let replacement = &map.get(&project).expect(&format!("Could not find key: '{}'", &project));
-        let replaced = line.replace(parts[0], replacement);
-        println!("{}", replaced);
+    for module in modules {
+        println!("{} {}", module.project, module.path);
     }
 
     Ok(())
 }
-*/
 
 #[tracing::instrument(skip(processor))]
 fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) -> Result<()> {
@@ -655,6 +630,7 @@ fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> 
 fn dump(dump_args: &cli::Dump) -> Result<()> {
     match dump_args {
         cli::Dump::ImportCache => dump_import_cache(),
+        cli::Dump::GitModules => dump_modules(),
     }
 }
 
@@ -809,15 +785,14 @@ where
 
     git_toprepo::repo::MonoRepoProcessor::run(Path::new("."), error_mode, |processor| {
         match args.command {
-            Commands::Init(_) => unreachable!("init already processed"),
+            Commands::Init(_) => unreachable!("init is already processed."),
             Commands::Clone(clone_args) => clone_after_init(&clone_args, processor),
-            Commands::Config(_) => unreachable!("config already processed"),
+            Commands::Config(_) => unreachable!("config is already processed."),
             Commands::Refilter(refilter_args) => refilter(&refilter_args, processor),
             Commands::Fetch(fetch_args) => fetch(&fetch_args, processor),
             Commands::Push(push_args) => push(&push_args, processor),
-            Commands::Dump(_) => unreachable!("dump already processed"),
-            Commands::Replace(_replace_args) => todo!(), //replace(&args, replace_args)?,
-            Commands::Version => unreachable!("version already processed"),
+            Commands::Dump(_) => unreachable!("dump is already processed."),
+            Commands::Version => unreachable!("version is already processed."),
         }
     })
 }

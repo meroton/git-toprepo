@@ -112,19 +112,6 @@ pub enum Commands {
     /// Print the version of the git-toprepo tool.
     #[clap(aliases = ["-V", "--version"])]
     Version,
-
-    /// Scaffolding code to start writing `.gitmodule` mapping code.
-    /// This replaces the first field of every line on standard in
-    /// with the submodule path.
-    ///
-    /// This can be used in interactive shell pipelines where the Gerrit project
-    /// and the revision is known. To download review comments for commits in
-    /// submodules, or to checkout out a commit in a submodule
-    ///
-    /// Note, that checking out submodules this way is only for regular repo
-    /// checkouts. For a git-toprepo super repo purposeful checkout must be
-    /// implemented.
-    Replace(Replace),
 }
 
 #[derive(Args, Debug)]
@@ -192,11 +179,16 @@ pub struct ConfigValidate {
 /// Experimental feature: dump internal states to stdout.
 /// Do not script against these.
 // If you want to use these in your own tools and pipeline please file a feature
-// request issue so we can guarantee a stable API for your usecase.
+// request issue so we can guarantee a stable API for your use-case.
 #[derive(Subcommand, Debug)]
 pub enum Dump {
     /// Dump the repository import cache as JSON to stdout.
     ImportCache,
+    /// Dump the git submodule path mappings to remote projects.
+    // TODO: Take individual modules and paths as arguments?
+    // TODO: Take a full path for a file and convert it to its remote repo, or
+    // url path?
+    GitModules,
 }
 
 #[derive(Args, Debug)]
@@ -559,12 +551,4 @@ fn parse_refspec(refspec: &str) -> Result<(String, String), std::io::Error> {
         let remote_ref = refspec.strip_prefix('+').unwrap_or(refspec);
         Ok((format!("+{remote_ref}"), "FETCH_HEAD".to_owned()))
     }
-}
-
-#[derive(Args, Debug)]
-pub struct Replace {
-    #[arg(long)]
-    /// Dump the project to submodule mapping
-    ///    <project>: <module path>
-    pub dump: bool,
 }
