@@ -1,10 +1,10 @@
-use crate::git::BlobId;
 use crate::git::CommitId;
 use crate::git::GitPath;
 use crate::git::TreeId;
 use crate::git_fast_export_import::WithoutCommitterId;
 use crate::git_fast_export_import_dedup::GitFastExportImportDedupCache;
 use crate::repo::ExpandedOrRemovedSubmodule;
+use crate::repo::ExportedFileEntry;
 use crate::repo::MonoRepoCommit;
 use crate::repo::MonoRepoCommitId;
 use crate::repo::MonoRepoParent;
@@ -49,7 +49,7 @@ pub struct SerdeTopRepoCache {
 
 impl SerdeTopRepoCache {
     const TOPREPO_CACHE_PATH: &str = "toprepo/cache.bincode";
-    const CACHE_VERSION_PRELUDE: &str = "#cache-format-v1\n";
+    const CACHE_VERSION_PRELUDE: &str = "#cache-format-v2\n";
 
     /// Constructs the path to the git repository information cache inside
     /// `.git/toprepo/`.
@@ -291,8 +291,7 @@ struct SerdeThinCommit {
     pub tree_id: TreeId,
     #[serde_as(as = "serde_with::IfIsHumanReadable<Vec<serde_with::DisplayFromStr>>")]
     pub parents: Vec<CommitId>,
-    #[serde_as(as = "serde_with::IfIsHumanReadable<Option<serde_with::DisplayFromStr>>")]
-    pub dot_gitmodules: Option<BlobId>,
+    pub dot_gitmodules: Option<ExportedFileEntry>,
     pub submodule_bumps: BTreeMap<GitPath, ThinSubmodule>,
 }
 
