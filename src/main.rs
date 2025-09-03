@@ -787,12 +787,14 @@ where
 
     git_toprepo::repo::MonoRepoProcessor::run(Path::new("."), |processor| {
         match args.command {
+            // Main toprepo operations.
             Commands::Init(_) => unreachable!("init is already processed."),
             Commands::Clone(clone_args) => clone_after_init(&clone_args, processor),
             Commands::Config(_) => unreachable!("config is already processed."),
             Commands::Refilter(refilter_args) => refilter(&refilter_args, processor),
             Commands::Fetch(fetch_args) => fetch(&fetch_args, processor),
             Commands::Push(push_args) => push(&push_args, processor),
+            // User friendly introspection into the tool itself.
             Commands::Dump(_) => unreachable!("dump is already processed."),
             Commands::Version => unreachable!("version is already processed."),
         }
