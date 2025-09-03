@@ -290,8 +290,10 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     // It is in fact load bearing with the hacky git-gr overrides.
     let mut http_server_override = None;
 
-    let toprepo = gix::open("")?;
-    let mut git_review_file = toprepo.path().to_owned();
+    let toprepo = repo::TopRepo::open(&PathBuf::from("."))?;
+    // TODO: Do we want a helper function on toprepo itself for the path to the
+    // source tree?
+    let mut git_review_file = toprepo.gix_repo.path().parent().unwrap().to_owned();
     git_review_file.push(".gitreview");
 
     if git_review_file.exists() {
