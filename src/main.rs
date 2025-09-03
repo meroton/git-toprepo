@@ -102,6 +102,7 @@ fn clone_after_init(clone_args: &cli::Clone, processor: &mut MonoRepoProcessor) 
             keep_going: false,
             job_count: std::num::NonZero::new(1).unwrap(),
             skip_filter: true,
+            fetch_entire_topics_from_gerrit: false,
             remote: None,
             path: None,
             refspecs: None,
