@@ -570,22 +570,32 @@ pub fn trim_newline_suffix(line: &str) -> &str {
 /// assert_eq!(trim_bytes_newline_suffix(b"foo\n\r"), b"foo\n\r");
 /// ```
 pub fn trim_bytes_newline_suffix(s: &[u8]) -> &[u8] {
-    // Even if the string ends with LF, the character before needs to be ASCII
-    // or the LF is a continuation of a multi-byte UTF-8 character.
-    if s.ends_with(b"\r\n") && (s.len() == 2 || s[s.len() - 3].is_ascii()) {
-        &s[..s.len() - 2]
-    } else if s.ends_with(b"\n") && (s.len() == 1 || s[s.len() - 2].is_ascii()) {
-        &s[..s.len() - 1]
-    } else {
-        s
+    // If the byte before CR or LF is not ASCII, the CR or LF is part of
+    // an invalid multi-byte UTF-8 sequence. Assume that the string is actually a valid UTF-8 string so that byte matching is enough.
+    //
+    // The reason is that UTF-8 multi-byte sequences have the high bit set in all bytes except for single ASCII bytes.
+    let Some(s) = s.strip_suffix(b"\n") else {
+        return s;
+    };
+    let Some(s) = s.strip_suffix(b"\r") else {
+        return s;
+    };
+    s
+}
+
+pub trait NewlineTrimmer {
+    fn trim_newline_suffix(&self) -> &Self;
+}
+
+impl NewlineTrimmer for str {
+    fn trim_newline_suffix(&self) -> &Self {
+        trim_newline_suffix(self)
     }
 }
 
-pub fn strip_suffix<'a>(string: &'a str, suffix: &str) -> &'a str {
-    if string.ends_with(suffix) {
-        string.strip_suffix(suffix).unwrap()
-    } else {
-        string
+impl NewlineTrimmer for [u8] {
+    fn trim_newline_suffix(&self) -> &[u8] {
+        trim_bytes_newline_suffix(self)
     }
 }
 

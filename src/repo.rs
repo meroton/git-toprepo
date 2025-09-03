@@ -19,6 +19,7 @@ use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::util::CommandExtension as _;
 use crate::util::EMPTY_GIX_URL;
+use crate::util::NewlineTrimmer as _;
 use crate::util::RcKey;
 use anyhow::Context;
 use anyhow::Result;
@@ -141,7 +142,7 @@ impl TopRepo {
                 result.status
             );
         }
-        let gittoprepotoml_blob_hash = crate::util::trim_newline_suffix(result.stdout.to_str()?);
+        let gittoprepotoml_blob_hash = result.stdout.to_str()?.trim_newline_suffix();
 
         let result = {
             let (mut process, _span_guard) = git_command(directory)
@@ -163,8 +164,7 @@ impl TopRepo {
                 result.status
             );
         }
-        let gittoprepotoml_tree_hash =
-            bstr::BStr::new(crate::util::trim_bytes_newline_suffix(&result.stdout));
+        let gittoprepotoml_tree_hash = bstr::BStr::new(result.stdout.trim_newline_suffix());
 
         let result = {
             let (mut process, _span_guard) = git_command(directory)
@@ -195,8 +195,7 @@ Initial empty git-toprepo configuration
                 result.status
             );
         }
-        let gittoprepotoml_commit_hash =
-            bstr::BStr::new(crate::util::trim_bytes_newline_suffix(&result.stdout));
+        let gittoprepotoml_commit_hash = bstr::BStr::new(result.stdout.trim_newline_suffix());
 
         let first_time_config_ref = toprepo_ref_prefix + "refs/remotes/origin/HEAD";
         git_command(directory)

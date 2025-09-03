@@ -1,5 +1,6 @@
 use assert_cmd::prelude::*;
 use git_toprepo::git::commit_env_for_testing;
+use git_toprepo::util::NewlineTrimmer as _;
 use predicates::prelude::*;
 use std::process::Command;
 
@@ -138,7 +139,7 @@ fn test_push_revision() {
         .success();
     let out = cmd.get_output();
     let revision = String::from_utf8(out.to_owned().stdout).unwrap();
-    let revision = git_toprepo::util::trim_newline_suffix(&revision);
+    let revision = revision.trim_newline_suffix();
 
     Command::cargo_bin("git-toprepo")
         .unwrap()
