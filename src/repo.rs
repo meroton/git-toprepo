@@ -23,6 +23,7 @@ use crate::util::RcKey;
 use crate::util::normalize;
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::anyhow;
 use bstr::BStr;
 use bstr::ByteSlice as _;
 use gix::refs::FullName;
@@ -42,10 +43,15 @@ use std::rc::Rc;
 
 pub const COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY: &str =
     "Could not open toprepo, it must be a git repository";
+pub const LOADING_THE_MAIN_PROJECT_CONTEXT: &str = "Loading the main repo Gerrit project";
 
-pub fn gerrit_project(url: &gix::url::Url) -> Result<String> {
+pub fn parse_gerrit_project(url: &gix::url::Url) -> Result<String> {
     // TODO use `url.scheme`
-    let tail = url.path_argument_safe().unwrap().to_owned().to_string();
+    let tail = url
+        .path_argument_safe()
+        .ok_or(anyhow!("Could not parse url to string."))?
+        .to_owned()
+        .to_string();
     let sans_slash = tail.strip_prefix("/").get_or_insert(&tail).to_string();
     Ok(sans_slash)
 }
@@ -59,7 +65,7 @@ pub fn resolve_subprojects(
 
     for (path, url) in subs.submodules.iter() {
         // TODO: Nightly `as_str`: https://docs.rs/bstr/latest/bstr/struct.BString.html#deref-methods-%5BT%5D-1
-        let relative = gerrit_project(url.as_ref().unwrap())?;
+        let relative = parse_gerrit_project(url.as_ref().unwrap())?;
         let relative = match relative.strip_prefix("/") {
             None => relative,
             Some(r) => r.to_owned(),
@@ -269,7 +275,7 @@ Initial empty git-toprepo configuration
             return Ok(HashMap::new());
         }
         let modules = modules.unwrap();
-        let main_project = self.gerrit_project();
+        let main_project = self.gerrit_project()?;
 
         let mut info = GitModulesInfo::default();
         for name in modules.names() {
@@ -282,10 +288,10 @@ Initial empty git-toprepo configuration
         resolve_subprojects(&info, main_project)
     }
 
-    pub fn gerrit_project(&self) -> String {
+    pub fn gerrit_project(&self) -> Result<String> {
         let repo = self.gix_repo.to_thread_local();
-        let url = crate::git::get_default_remote_url(&repo).unwrap();
-        gerrit_project(&url).unwrap()
+        let url = crate::git::get_default_remote_url(&repo)?;
+        parse_gerrit_project(&url).with_context(|| format!("Parse gerrit project from {url}"))
     }
 }
 
