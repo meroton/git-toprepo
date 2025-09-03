@@ -79,19 +79,11 @@ impl FromStr for RepoName {
 #[derive(
     Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
-// TODO: Reconsider the naming here. And that we want a rich `RepoName` for some
-// parts of the code base. But also just a type-safe string that can be either a
-// sub repo or the main repo.
-pub struct RepositoryName(pub String);
-
-#[derive(
-    Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
-pub struct SubRepoName(RepositoryName);
+pub struct SubRepoName(String);
 
 impl SubRepoName {
     pub fn new(name: String) -> Self {
-        SubRepoName(RepositoryName(name))
+        SubRepoName(name)
     }
 }
 
@@ -99,7 +91,7 @@ impl Deref for SubRepoName {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
-        &self.0.0
+        &self.0
     }
 }
 
