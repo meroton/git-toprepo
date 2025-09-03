@@ -562,6 +562,26 @@ impl ErrorObserver {
             }
         }
     }
+
+    /// Write the error to the logger if in keep-going mode and return the
+    /// result. Return the error in fail-fast mode.
+    pub fn maybe_ignore_interrupted(&self, result: InterruptedResult<()>) -> Result<()> {
+        match result {
+            Ok(_) => Ok(()),
+            Err(InterruptedError::Interrupted) => Ok(()),
+            Err(InterruptedError::Normal(err)) => {
+                self.counter
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                match self.strategy {
+                    ErrorMode::KeepGoing => {
+                        log::error!("{err:#}");
+                        Ok(())
+                    }
+                    ErrorMode::FailFast => Err(err),
+                }
+            }
+        }
+    }
 }
 
 /// Macro version of `pub fn command_span<T>(name: &'static str, cmd: &mut std::process::Command) -> &mut std::process::Command`
