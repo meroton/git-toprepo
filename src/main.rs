@@ -430,14 +430,10 @@ fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) ->
 }
 
 #[tracing::instrument(skip(processor))]
-fn fetch(
-    fetch_args: &cli::Fetch,
-    processor: &mut MonoRepoProcessor,
-    toprepo_config: &GitTopRepoConfig,
-) -> Result<()> {
+fn fetch(fetch_args: &cli::Fetch, processor: &mut MonoRepoProcessor) -> Result<()> {
     if let Some(refspecs) = &fetch_args.refspecs {
         let repo = processor.gix_repo.to_thread_local();
-        let resolved_args = cli::resolve_remote_and_path(&fetch_args, &repo, &toprepo_config)?;
+        let resolved_args = cli::resolve_remote_and_path(&fetch_args, &repo, &processor.config)?;
         let detailed_refspecs = detail_refspecs(refspecs, &resolved_args.repo, &resolved_args.url)?;
         let mut result =
             fetch_with_refspec(fetch_args, resolved_args, &detailed_refspecs, processor);
