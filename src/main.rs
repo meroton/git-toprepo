@@ -15,8 +15,8 @@ use bstr::BStr;
 use bstr::ByteSlice as _;
 use clap::Parser;
 use colored::Colorize;
+use git_gr_lib::gerrit::Gerrit;
 use git_gr_lib::gerrit::HTTPPasswordPolicy;
-use git_gr_lib::git::Git;
 use git_gr_lib::query::QueryOptions;
 use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
@@ -288,7 +288,6 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     // TODO: Promote to a CLI argument,
     // and parse .gitreview for defaults instead of this!
     // It is in fact load bearing with the hacky git-gr overrides.
-    let mut http_server_override = None;
 
     let toprepo = repo::TopRepo::open(&PathBuf::from("."))?;
     // TODO: Do we want a helper function on toprepo itself for the path to the
@@ -296,37 +295,44 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     let mut git_review_file = toprepo.gix_repo.path().parent().unwrap().to_owned();
     git_review_file.push(".gitreview");
 
-    if git_review_file.exists() {
-        let mut content: String = "".to_owned();
-        File::open(git_review_file)
-            .unwrap()
-            .read_to_string(&mut content)
-            .unwrap();
-        let git_review = parse_git_review(&content)?;
-        http_server_override = Some(git_review.host);
+    if !git_review_file.exists() {
+        // TODO: rephrase and context.
+        bail!("Could not read gitreview file");
     }
+    let mut content: String = "".to_owned();
+    File::open(git_review_file)
+        .unwrap()
+        .read_to_string(&mut content)
+        .unwrap();
+    let git_review = parse_git_review(&content)?;
+    let http_host = git_review.host;
+    let ssh_host = git_review.ssh_host;
+    // TODO: git-gr: Why do we need to know the port? It is sufficient for ssh to know
+    // it right? Refactor git-gr to omit ports.
+    let port = git_review.port.unwrap_or(22);
 
     // let parsed_remote = git_gr_lib::gerrit_project::parse_remote_url(&checkout.remote).unwrap();
     // TODO: How should we ask for the username, or autodetect it?
     // It is often missing from the remote! We could rely on `.gitreview`.
     // let username_override = parsed_remote.username;
 
+    // TODO: Take from $USER, or leave it? It is only required for ssh anyway
+    // and ssh can find it on its own...
     // DEBUG: make it work:
-    let username_override = Some("nwirekli".to_owned());
+    let username = "nwirekli".to_owned();
 
-    assert!(
-        username_override.is_some(),
-        "Username must be overridden, git-gr can't find it"
-    );
-    assert!(
-        http_server_override.is_some(),
-        "http server must be overridden, git-gr can't find it"
-    );
-    let git = Git::new();
-    let gerrit = git.gerrit(
-        /* gerrit remote name */ None,
-        username_override,
-        http_server_override,
+    let host = git_gr_lib::gerrit_project::GerritProject {
+        host: git_gr_lib::gerrit_host::GerritHost {
+            username: Some(username),
+            host: ssh_host,
+            http_host: Some(http_host),
+            port: port as u16,
+        },
+        project: git_review.project,
+    };
+
+    let gerrit = Gerrit::new(
+        host,
         HTTPPasswordPolicy::Netrc,
         /* cache: */ true,
         /* persist ssh: */ false,
@@ -373,7 +379,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     for (index, atomic) in res.into_iter().rev().enumerate() {
         for repo in atomic.into_iter() {
             for commit in repo.into_iter().rev() {
-                let remote = format!("ssh://{}/{}.git", gerrit.ssh_host(), commit.project);
+                let remote = format!("ssh://{}/{}.git", gerrit.host.host.host, commit.project);
                 let cherry_pick = "&& git cherry-pick --allow-empty refs/toprepo/fetch-head";
                 if let Some(subject) = commit.subject {
                     println!("# {subject}");
