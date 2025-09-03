@@ -310,7 +310,7 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
 /// Checkout topics from Gerrit.
 fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     if !checkout.dry_run {
-        panic!("only --dry-run is supported.");
+        panic!("Only --dry-run is supported.");
     }
 
     // TODO: Promote to a CLI argument,
@@ -318,10 +318,12 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     // It is in fact load bearing with the hacky git-gr overrides.
     let mut http_server_override = None;
 
-    let toprepo = gix::open("")?;
-    let mut git_review_file = toprepo.path().to_owned();
-    git_review_file.push(".gitreview");
-
+    let toprepo = gix_discover_current_dir()?;
+    let git_review_file = toprepo
+        .workdir()
+        .context("Find worktree")?
+        .to_owned()
+        .join(".gitreview");
     if git_review_file.exists() {
         let mut content: String = "".to_owned();
         File::open(git_review_file)
