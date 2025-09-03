@@ -98,7 +98,8 @@ pub struct CommitLoader<'a> {
     repos: HashMap<RepoName, RepoFetcher>,
     /// Repositories that have been loaded from the cache.
     cached_repo_states: &'a mut RepoStates,
-    config: &'a mut GitTopRepoConfig,
+    // TODO: Why is this mutated?
+    config: &'a GitTopRepoConfig,
 
     tx: std::sync::mpsc::Sender<TaskResult>,
     rx: std::sync::mpsc::Receiver<TaskResult>,
@@ -807,7 +808,7 @@ impl<'a> CommitLoader<'a> {
     fn verify_cached_commit(
         repo_storage: &RepoData,
         commit: &ThinCommit,
-        config: &mut GitTopRepoConfig,
+        config: &GitTopRepoConfig,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
     ) -> Result<()> {
@@ -1121,7 +1122,7 @@ impl<'a> CommitLoader<'a> {
         first_parent: Option<&Rc<ThinCommit>>,
         path: &GitPath,
         base_url: &gix::Url,
-        config: &mut GitTopRepoConfig,
+        config: &GitTopRepoConfig,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
     ) -> Option<SubRepoName> {
