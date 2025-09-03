@@ -102,3 +102,32 @@ fn test_toprepo_clone() {
         );
     }
 }
+
+#[test]
+fn test_double_clone_should_fail() {
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .arg("clone")
+        .arg(&toprepo)
+        .arg(&monorepo)
+        .assert()
+        .code(1)
+        .stderr(predicate::eq(format!(
+            "ERROR: Target directory {monorepo:?} is not empty\n"
+        )));
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .arg("clone")
+        .arg("--force")
+        .arg(&toprepo)
+        .arg(&monorepo)
+        .assert()
+        .success();
+}

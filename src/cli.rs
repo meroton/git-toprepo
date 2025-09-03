@@ -134,6 +134,10 @@ pub struct Init {
     /// The name of a new directory to create the repository in. If no directory
     /// is given, the basename of the repository is used.
     pub directory: Option<PathBuf>,
+
+    /// Initialize even if the target directory is not empty.
+    #[clap(long)]
+    pub force: bool,
 }
 
 #[derive(Args, Debug)]
