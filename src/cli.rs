@@ -328,6 +328,7 @@ impl<'a> FetchParamsResolver<'a> {
         let url = gix::Url::from_bytes(remote_bstr)?;
         // TODO: If we refactor the repo view to contain a list of all
         // *projects* including super itself. We do not need tiered access here.
+        // #unified-git-config.
         if let Some(ret) = self.try_resolve_as_remote_url(&url, &override_path)? {
             return Ok(ret);
         }
