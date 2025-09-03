@@ -1,8 +1,6 @@
 mod fixtures;
 
 #[cfg(test)]
-mod cli;
-#[cfg(test)]
 mod clone;
 #[cfg(test)]
 mod config;
@@ -11,6 +9,8 @@ mod dump;
 #[cfg(test)]
 mod fetch;
 #[cfg(test)]
+mod init;
+#[cfg(test)]
 mod push;
 #[cfg(test)]
 mod refilter;
@@ -18,6 +18,5 @@ mod refilter;
 mod version;
 #[cfg(test)]
 mod workspace;
-
 #[cfg(test)]
 mod worktree;

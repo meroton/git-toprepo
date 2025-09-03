@@ -50,6 +50,9 @@ fn init(init_args: &cli::Init) -> Result<PathBuf> {
         }
     };
 
+    if !init_args.force && directory.is_dir() && directory.read_dir()?.next().is_some() {
+        anyhow::bail!("Target directory {directory:?} is not empty");
+    }
     git_toprepo::repo::TopRepo::create(&directory, url)?;
     log::info!("Initialized git-toprepo in {}", directory.display());
     Ok(directory)
