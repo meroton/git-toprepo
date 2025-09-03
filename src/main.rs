@@ -407,7 +407,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     let fetch_stem = "git toprepo fetch";
     for (index, atomic) in res.into_iter().rev().enumerate() {
         for repo in atomic.into_iter() {
-            for commit in repo.into_iter() {
+            for commit in repo.into_iter().rev() {
                 let remote = format!("ssh://{}/{}.git", gerrit.ssh_host(), commit.project);
                 let cherry_pick = "&& git cherry-pick refs/toprepo/fetch-head";
                 println!(
