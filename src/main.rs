@@ -32,6 +32,7 @@ use gix::refs::FullName;
 use gix::refs::FullNameRef;
 use itertools::Itertools as _;
 use std::env;
+use std::fs::File;
 use std::io::Read;
 use std::num::NonZeroUsize;
 use std::panic;
@@ -273,16 +274,37 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
 
 /// Checkout topics from Gerrit.
 fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
+    // TODO: Promote to a CLI argument,
+    // and parse .gitreview for defaults instead of this!
+    // It is in fact load bearing with the hacky git-gr overrides.
+    let mut http_server_override = None;
+
+    let toprepo = gix::open("")?;
+    let mut git_review_file = toprepo.path().to_owned();
+    git_review_file.push(".gitreview");
+
+    if git_review_file.exists() {
+        let mut content: String = "".to_owned();
+        File::open(git_review_file)
+            .unwrap()
+            .read_to_string(&mut content)
+            .unwrap();
+        let git_review = parse_git_review(&content)?;
+        http_server_override = Some(git_review.host);
+    }
+
     let git = Git::new();
     let parsed_remote = git_gr_lib::gerrit_project::parse_remote_url(&checkout.remote).unwrap();
+    let username_override = parsed_remote.username;
     let gerrit = git.gerrit(
         None,
-        parsed_remote.username,
-        None,
+        username_override,
+        http_server_override,
         HTTPPasswordPolicy::Netrc,
         /* cache: */ true,
         /* persist ssh: */ false,
     );
+
     // TODO: Is this a full conversion to anyhow errors?
     // It seems that we lose some of the miette context.
     // Notably, where is the inner error?:
@@ -296,7 +318,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     //     • ssh://csp-gerrit-ssh.volvocars.net/csp/hp/super
     // which to its credit shows the remotes it tried
     // but not the inner error.
-    let gerrit = match gerrit {
+    let mut gerrit = match gerrit {
         Ok(g) => g,
         Err(error) => {
             let box_dyn = Box::<dyn std::error::Error + Send + Sync>::from(error);
@@ -324,8 +346,12 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
             return Err(anyhow!(box_dyn.to_string()));
         }
     };
+    let triplet_id = res.changes[0].triplet_id();
+    let res = gerrit.get_submitted_together(&triplet_id);
+
     println!("{checkout:?}");
     println!("{gerrit:?}");
+    println!("{triplet_id:?}");
     println!("{res:?}");
 
     todo!();
