@@ -192,7 +192,6 @@ skip_expanding = []
         .assert()
         .success()
         .stdout(EXPECTED_BOOTSTRAP_CONFIG)
-        .stderr(predicate::function(|stderr: &str| {
-            !stderr.contains("ERROR:") && !stderr.contains("WARNING:")
-        }));
+        .stderr(predicate::str::contains("ERROR:").not())
+        .stderr(predicate::str::contains("WARN:").not());
 }
