@@ -1,3 +1,5 @@
+use anyhow::Result;
+use anyhow::anyhow;
 use itertools::Itertools;
 use std::collections::HashMap;
 
@@ -40,7 +42,7 @@ where
 
 pub fn order_submitted_together<T>(
     cons: Vec<SubmittedTogether<T>>,
-) -> Vec<Vec<SubmittedTogether<T>>>
+) -> Result<Vec<Vec<SubmittedTogether<T>>>>
 where
     T: Eq + std::hash::Hash + Clone + std::fmt::Debug,
 {
@@ -59,8 +61,10 @@ where
     let key_order = grouped.keys().sorted_unstable();
     */
 
+    let mut count = 0;
     let mut topic_backlinks: HashMap<String, Vec<&SubmittedTogether<T>>> = HashMap::new();
     for c in cons.iter() {
+        count += 1;
         if let Some(topic) = c.topic.clone() {
             topic_backlinks
                 .entry(topic)
@@ -73,7 +77,7 @@ where
     let mut res: Vec<Vec<SubmittedTogether<T>>> = Vec::new();
     let mut grouped: Vec<Vec<&SubmittedTogether<T>>> = Vec::new();
     if cons.len() == 0 {
-        return res;
+        return Ok(res);
     }
     let mut iter = cons.iter();
     grouped = vec![vec![iter.next().unwrap()]];
@@ -125,7 +129,7 @@ where
     // are no longer part of this iteration).
     // Match the first topic in topological order.
 
-    println!("{:?}", grouped);
+    println!("> grouped ===\n{:?}", grouped);
 
     // An ordered list of iterators into the different repositories.
     let mut iters = Vec::new();
@@ -188,7 +192,11 @@ where
         let mut commits = Vec::new();
         for commit in looking_for.into_iter() {
             let head = iters[slots[&commit.secondary]].next().unwrap();
-            assert_eq!(head.topic, commit.topic);
+            if head.topic != commit.topic {
+                return Err(anyhow!(
+                    "Unexpected non-topic commit, expected a topic in this repo."
+                ));
+            }
             commits.push(head.clone())
         }
 
@@ -196,9 +204,16 @@ where
         index += 1;
     }
 
-    println!("{:?}", ords);
+    let mut res_count = 0;
+    for outer in res.iter() {
+        for inner in outer.iter() {
+            res_count += 1;
+        }
+    }
 
-    res
+    assert_eq!(count, res_count, "Not all commits are accounted for");
+
+    Ok(res)
 }
 
 #[cfg(test)]
@@ -219,7 +234,7 @@ mod tests {
         let b = new("second", None, 2);
 
         let res = order_submitted_together(vec![a.clone(), b.clone()]);
-        assert_eq!(res, vec![vec![a], vec![b]]);
+        assert_eq!(res.unwrap(), vec![vec![a], vec![b]]);
     }
 
     #[test]
@@ -229,7 +244,7 @@ mod tests {
         let b = new("second", topic, 2);
 
         let res = order_submitted_together(vec![a.clone(), b.clone()]);
-        assert_eq!(res, vec![vec![a, b]]);
+        assert_eq!(res.unwrap(), vec![vec![a, b]]);
     }
 
     #[test]
@@ -240,7 +255,7 @@ mod tests {
         let b = new("second", topic, shared_secondary);
 
         let res = order_submitted_together(vec![a.clone(), b.clone()]);
-        assert_eq!(res, vec![vec![a, b]]);
+        assert_eq!(res.unwrap(), vec![vec![a, b]]);
     }
 
     #[test]
@@ -253,7 +268,7 @@ mod tests {
         let u = new("under", None, shared_secondary);
 
         let res = order_submitted_together(vec![u.clone(), a.clone(), b.clone()]);
-        assert_eq!(res, vec![vec![u], vec![a, b]]);
+        assert_eq!(res.unwrap(), vec![vec![u], vec![a, b]]);
     }
 
     #[test]
@@ -265,7 +280,7 @@ mod tests {
         let o = new("over", None, shared_secondary);
 
         let res = order_submitted_together(vec![a.clone(), b.clone(), o.clone()]);
-        assert_eq!(res, vec![vec![a, b], vec![o]]);
+        assert_eq!(res.unwrap(), vec![vec![a, b], vec![o]]);
     }
 
     #[test]
@@ -276,12 +291,12 @@ mod tests {
         let a = new("first", topic, 1);
         let b = new("second", topic, shared_secondary);
         let m = new("middle", None, shared_secondary);
-        let c = new("third", other_topic, 3);
-        let d = new("fourth", other_topic, shared_secondary);
+        let c = new("fourth", other_topic, shared_secondary);
+        let d = new("fifth", other_topic, 3);
 
         let res =
             order_submitted_together(vec![a.clone(), b.clone(), m.clone(), c.clone(), d.clone()]);
-        assert_eq!(res, vec![vec![a, b], vec![m], vec![c, d]]);
+        assert_eq!(res.unwrap(), vec![vec![a, b], vec![m], vec![c, d]]);
     }
 
     #[test]
@@ -295,20 +310,7 @@ mod tests {
         let cu = new("second_under", topic, 3);
 
         let res = order_submitted_together(vec![at.clone(), bu.clone(), bt.clone(), cu.clone()]);
-        assert_eq!(res, vec![vec![bu, cu], vec![at, bt]]);
-    }
-
-    #[test]
-    fn no_topic_inside_a_stacked_topic() {
-        let topic = Some("topic");
-        let shared_secondary = 1;
-        let a = new("under", topic, shared_secondary);
-        let b = new("interloper", None, shared_secondary);
-        let c = new("on_top", topic, shared_secondary);
-
-        let res = order_submitted_together(vec![a.clone(), b.clone(), c.clone()]);
-        // TODO: This should fail! Cannot compute.
-        assert_eq!(res, vec![vec![a, b, c]]);
+        assert_eq!(res.unwrap(), vec![vec![bu, cu], vec![at, bt]]);
     }
 
     #[test]
@@ -320,6 +322,31 @@ mod tests {
         let c = new("other", topic, 2);
 
         let res = order_submitted_together(vec![a.clone(), b.clone(), c.clone()]);
-        assert_eq!(res, vec![vec![a, b, c]]);
+        assert_eq!(res.unwrap(), vec![vec![a, b, c]]);
+    }
+
+    #[test]
+    fn fail_no_topic_inside_a_stacked_topic() {
+        let topic = Some("topic");
+        let shared_secondary = 1;
+        let a = new("under", topic, shared_secondary);
+        let b = new("interloper", None, shared_secondary);
+        let c = new("on_top", topic, shared_secondary);
+
+        let res = order_submitted_together(vec![a.clone(), b.clone(), c.clone()]);
+        // TODO: This should fail! Cannot compute.
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn fail_scrambled_commits_in_repos() {
+        let shared_secondary = 1;
+        let a = new("first", None, shared_secondary);
+        let b = new("other", None, 2);
+        let c = new("also_first", None, shared_secondary);
+
+        let res = order_submitted_together(vec![a.clone(), b.clone(), c.clone()]);
+        // TODO: This should fail! Cannot compute.
+        assert_eq!(res.unwrap(), vec![vec![a], vec![b], vec![c]]);
     }
 }
