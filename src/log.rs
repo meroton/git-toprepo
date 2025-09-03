@@ -2,6 +2,7 @@ use anyhow::Context as _;
 use anyhow::Result;
 use anyhow::bail;
 use colored::Colorize as _;
+use itertools::Itertools as _;
 use log::Log as _;
 use std::cell::RefCell;
 use std::fmt;
@@ -584,6 +585,42 @@ macro_rules! command_span {
     };
 }
 
+/// Format command arguments for shell command line. If escaping is needed,
+/// single quotes are added.
+///
+/// Note: This is not a complete implementation.
+///
+/// # Examples
+/// ```
+/// # use git_toprepo::log::format_arg_lossy;
+/// use std::ffi::OsStr;
+///
+/// assert_eq!(format_arg_lossy(OsStr::new("arg")), "arg");
+/// assert_eq!(format_arg_lossy(OsStr::new("a'rg")), "a\\'rg");
+/// assert_eq!(format_arg_lossy(OsStr::new("ar\"g")), "'ar\"g'");
+/// assert_eq!(format_arg_lossy(OsStr::new("a$rg")), "'a$rg'");
+/// assert_eq!(format_arg_lossy(OsStr::new("some arg")), "'some arg'");
+/// assert_eq!(format_arg_lossy(OsStr::new("som'e arg")), "'som'\\''e arg'");
+/// ```
+pub fn format_arg_lossy(arg: &std::ffi::OsStr) -> String {
+    let s = arg.to_string_lossy();
+    if [' ', '"', '$'].iter().any(|c| s.contains(*c)) {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    } else if s.contains('\'') {
+        s.replace('\'', "\\'")
+    } else {
+        s.to_string()
+    }
+}
+
+pub fn command_to_string_lossy(cmd: &std::process::Command) -> String {
+    format!(
+        "{} {}",
+        format_arg_lossy(cmd.get_program()),
+        cmd.get_args().map(format_arg_lossy).join(" ")
+    )
+}
+
 pub struct CommandSpanScope<'a> {
     command: &'a mut std::process::Command,
     entered_span: Option<tracing::span::EnteredSpan>,
@@ -592,7 +629,7 @@ pub struct CommandSpanScope<'a> {
 impl<'a> CommandSpanScope<'a> {
     /// Creates a new command span scope.
     pub fn new(command: &'a mut std::process::Command, span: tracing::Span) -> Self {
-        let cmd_string = format!("{command:?}");
+        let cmd_string = command_to_string_lossy(command);
         let shorter_cmd_string = cmd_string.chars().take(100).collect::<String>();
         if shorter_cmd_string.len() < cmd_string.len() {
             log::debug!("Running {shorter_cmd_string} ... (truncated)",);
