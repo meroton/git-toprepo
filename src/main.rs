@@ -381,14 +381,16 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     let res = order_submitted_together(res.unwrap())?;
 
     println!("Cherry-pick order:");
-    for (index, grouping) in res.into_iter().rev().enumerate() {
-        for commit in grouping.into_iter() {
-            println!(
-                "{} {} {}",
-                index,
-                commit.project,
-                commit.current_revision.unwrap()
-            );
+    for (index, atomic) in res.into_iter().rev().enumerate() {
+        for repo in atomic.into_iter() {
+            for commit in repo.into_iter() {
+                println!(
+                    "{} {} {}",
+                    index,
+                    commit.project,
+                    commit.current_revision.unwrap()
+                );
+            }
         }
     }
 
