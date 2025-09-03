@@ -12,5 +12,6 @@ pub mod push;
 pub mod repo;
 pub mod repo_cache_serde;
 pub mod repo_name;
+pub mod submitted_together;
 pub mod ui;
 pub mod util;
