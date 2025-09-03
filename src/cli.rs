@@ -211,6 +211,10 @@ pub struct Refilter {
     /// Skip fetching missing submodule commits.
     #[arg(long)]
     pub no_fetch: bool,
+
+    /// Reuse information from the cache and skip full refiltering.
+    #[arg(long)]
+    pub reuse_cache: bool,
 }
 
 #[derive(Args, Debug)]

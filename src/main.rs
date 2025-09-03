@@ -306,6 +306,9 @@ fn replace(args: &Cli, replace: &cli::Replace) -> Result<()> {
 
 #[tracing::instrument(skip(processor))]
 fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) -> Result<()> {
+    if !refilter_args.reuse_cache {
+        processor.top_repo_cache = repo::TopRepoCache::default();
+    }
     load_commits(
         refilter_args.jobs.into(),
         |commit_loader| {
@@ -407,6 +410,7 @@ fn fetch_with_default_refspecs(
                 keep_going: fetch_args.keep_going,
                 jobs: fetch_args.jobs,
                 no_fetch: false,
+                reuse_cache: true,
             },
             processor,
         )?;
