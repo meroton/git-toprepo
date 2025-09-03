@@ -46,8 +46,9 @@ pub const COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY: &str =
 
 pub fn gerrit_project(url: &gix::url::Url) -> Result<String> {
     // TODO use `url.scheme`
-    let tail = url.path_argument_safe().unwrap();
-    Ok(tail.to_string().to_owned())
+    let tail = url.path_argument_safe().unwrap().to_owned().to_string();
+    let sans_slash = tail.strip_prefix("/").get_or_insert(&tail).to_string();
+    Ok(sans_slash)
 }
 
 // TODO: A specific type for the resolved subprojects?
@@ -262,13 +263,17 @@ Initial empty git-toprepo configuration
     // through the ToprepoConfig and Processor data.
     // #unified-git-config.
     pub fn submodules(&self) -> Result<HashMap<GitPath, String>> {
-        let gitmodules = self.gix_repo.to_thread_local().modules()?.unwrap();
+        let modules = self.gix_repo.to_thread_local().modules()?;
+        if modules.is_none() {
+            return Ok(HashMap::new());
+        }
+        let modules = modules.unwrap();
         let main_project = self.gerrit_project();
 
         let mut info = GitModulesInfo::default();
-        for name in gitmodules.names() {
-            let path = gitmodules.path(name)?;
-            let url = gitmodules.url(name)?;
+        for name in modules.names() {
+            let path = modules.path(name)?;
+            let url = modules.url(name)?;
             info.submodules
                 .insert(GitPath::new(path.into_owned()), Ok(url));
         }
