@@ -105,30 +105,10 @@ pub fn order_submitted_together(cons: Vec<NewChange>) -> Result<Vec<Vec<NewChang
     Ok(res)
 }
 
-/// This assumes that the input is also grouped based on the secondary key.
-/// But the key is still used by the algorithm to chunk into iterators.
-/// `Cons` should have a reverse chronological order within each grouping.
-/// The result will retain this order.
-pub fn reorder_submitted_together<T>(
-    cons: &[SubmittedTogether<T>],
-) -> Result<Vec<Vec<SubmittedTogether<T>>>>
+fn group_by_secondary<T>(cons: &[SubmittedTogether<T>]) -> Vec<Vec<&SubmittedTogether<T>>>
 where
-    T: Eq + std::hash::Hash + Clone + std::fmt::Debug,
+    T: Eq + std::hash::Hash,
 {
-    let mut count = 0;
-    let mut topic_backlinks: HashMap<String, Vec<&SubmittedTogether<T>>> = HashMap::new();
-    for c in cons.iter() {
-        count += 1;
-        if let Some(topic) = c.topic.clone() {
-            topic_backlinks.entry(topic).or_default().push(c)
-        }
-    }
-
-    // TODO: see if there is a better solution.
-    let mut res: Vec<Vec<SubmittedTogether<T>>> = Vec::new();
-    if cons.is_empty() {
-        return Ok(res);
-    }
     let mut iter = cons.iter();
     let mut grouped = vec![vec![iter.next().unwrap()]];
     let mut outer = 0;
@@ -145,6 +125,35 @@ where
         }
     }
 
+    grouped
+}
+
+/// This assumes that the input is also grouped based on the secondary key.
+/// But the key is still used by the algorithm to chunk into iterators.
+/// `Cons` should have a reverse chronological order within each grouping.
+/// The result will retain this order.
+pub fn reorder_submitted_together<T>(
+    cons: &[SubmittedTogether<T>],
+) -> Result<Vec<Vec<SubmittedTogether<T>>>>
+where
+    T: Eq + std::hash::Hash + Clone + std::fmt::Debug,
+{
+    // TODO: see if there is a better solution.
+    let mut res: Vec<Vec<SubmittedTogether<T>>> = Vec::new();
+    if cons.is_empty() {
+        return Ok(res);
+    }
+
+    let mut count = 0;
+    let mut topic_backlinks: HashMap<String, Vec<&SubmittedTogether<T>>> = HashMap::new();
+    for c in cons.iter() {
+        count += 1;
+        if let Some(topic) = c.topic.clone() {
+            topic_backlinks.entry(topic).or_default().push(c)
+        }
+    }
+
+    let grouped = group_by_secondary(cons);
     // Successively iterate through all the secondary groupings and pop all "free" commits.
     // Then when all groupings have a topic barrier (or if they are empty they
     // are no longer part of this iteration).
@@ -163,6 +172,7 @@ where
     let mut index = 0;
     loop {
         if iteration_limit == 0 {
+            println!("WARNING: Iteration limit hit");
             break;
         }
         iteration_limit -= 1;
@@ -203,8 +213,11 @@ where
         }
 
         // All the necessary topics are on the heads. Possibly stacked within an
-        // iterator.
-        // We can now pop them.
+        // iterator. (We never checked past the heads, it is assumed that the
+        // topics within a repo is contiguous. It does not make sense
+        // otherwise.)
+        // We can now pop them. (And assert that we do in fact find contiguous
+        // topics.)
         let mut commits = Vec::new();
         for commit in looking_for {
             let head = iters[slots[&commit.secondary]].next().unwrap();
