@@ -11,40 +11,51 @@ use std::collections::HashMap;
 // repositories.
 // But across repos we have no order.
 //
-// Repos:    A     B     C     D
-// Commits
+//     Repos:    A     B     C     D
+//     Commits
 //
-// New       A3 -------------- D3
-//  |                          D2
-//  v        A2 -- B2 -- C1 -- D1
-//           A1    B1
-// Old
+//     New       A3 -------------- D3
+//      |                          D2
+//      v        A2 -- B2 -- C1 -- D1
+//               A1    B1
+//     Old
+//
 // Gerrit reports the commits submitted together:
 //     [A3**, A2*, A1, B2*, B1, C1*, D3**, D2, D1*]
 // The asterisks mark commits with topics.
 // We have decided to use forward chronological order for this algorithm,
 //
 // We can split this to the (partially arbitrarily) ordered list of lists:
-//     [[[A3], [D3]], [[D2]], [[A2], [B2], [C1], [D1]], [[A1]], [[B1]]]
+//     [
+//         {[A3], [D3]},
+//         {[D2]},
+//         {[A2], [B2], [C1], [D1]},
+//         {[A1]},
+//         {[B1]},
+//     ]
+// Curly braces are used to indicate the atomic commits and topics,
+// for visual clarity.
 //
 // The order between A1 and B1 is arbitrary, we can choose lexicographic order
-// on the repository name.
+// on the repository name. We currently call this the secondary ordering or
+// split axis.
 //
 // Multiple commits within the same repo may also be in
 // the same topic and should also be treated as an atomic commit.
 // Though it is important to remember the internal order,
-// if one wants to cherry-pick them before it is merged.
+// if one wants to cherry-pick them instead of squashing.
 //
-// Repos:    A     B
-// Commits
+//     Repos:    A     B
+//     Commits
 //
-// New       A2
-//  |        |
-//  v        A1 -- B1
+//     New       A2
+//      |        |
+//      v        A1 -- B1
 //
-// Old
+//     Old
+//
 // Gerrit reports this as [A2, A1, B1], they all have the same topic
-// so we group them into [[[A2, A1], [B1]]].
+// so we group them into [{[A2, A1], [B1]}].
 // This means there is only one topic to cherry-pick, but inside there are two
 // commits that must be cherry-picked. First A1 and then A2.
 // This is a little annoying to workaround.
@@ -60,6 +71,8 @@ where
 {
     id: String,
     topic: Option<String>,
+    // Typically the repository name. This is used to order commits that have no
+    // order from Gerrit in a consistent way.
     secondary: T,
 }
 
