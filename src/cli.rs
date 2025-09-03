@@ -193,6 +193,9 @@ pub enum Commands {
     /// Print the version of the git-toprepo tool.
     #[command(aliases = ["-V", "--version"])]
     Version,
+
+    /// Scaffolding code to start writing Gerrit integration with `git-gr`.
+    Checkout(Checkout),
 }
 
 #[derive(Args, Debug)]
@@ -685,4 +688,17 @@ fn parse_refspec(refspec: &str) -> Result<(String, String), std::io::Error> {
         let remote_ref = refspec.strip_prefix('+').unwrap_or(refspec);
         Ok((format!("+{remote_ref}"), "FETCH_HEAD".to_owned()))
     }
+}
+
+#[derive(Args, Debug)]
+pub struct Checkout {
+    /// ssh://gerrit@domain.com/path/to/project
+    pub remote: String,
+    /// refs/changes/nn/xxxnn/y
+    pub change: String,
+
+    #[arg(long)]
+    /// Dump the project to submodule mapping
+    ///    <project>: <module path>
+    pub dump: bool,
 }
