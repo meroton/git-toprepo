@@ -331,10 +331,13 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
         http_server_override = Some(git_review.host);
     }
 
-    let parsed_remote = git_gr_lib::gerrit_project::parse_remote_url(&checkout.remote).unwrap();
+    // let parsed_remote = git_gr_lib::gerrit_project::parse_remote_url(&checkout.remote).unwrap();
     // TODO: How should we ask for the username, or autodetect it?
     // It is often missing from the remote! We could rely on `.gitreview`.
-    let username_override = parsed_remote.username;
+    // let username_override = parsed_remote.username;
+
+    // DEBUG: make it work:
+    let username_override = Some("nwirekli".to_owned());
 
     assert!(
         username_override.is_some(),
