@@ -303,6 +303,10 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
 
 /// Checkout topics from Gerrit.
 fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
+    if !checkout.dry_run {
+        panic!("only --dry-run is supported.");
+    }
+
     // TODO: Promote to a CLI argument,
     // and parse .gitreview for defaults instead of this!
     // It is in fact load bearing with the hacky git-gr overrides.
@@ -381,20 +385,21 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     let res = order_submitted_together(res.unwrap())?;
 
     println!("Cherry-pick order:");
+    let fetch_stem = "git toprepo fetch";
     for (index, atomic) in res.into_iter().rev().enumerate() {
         for repo in atomic.into_iter() {
             for commit in repo.into_iter() {
+                let remote = format!("ssh://{}/{}.git", gerrit.ssh_host(), commit.project);
+                let cherry_pick = "; git cherry-pick FETCH_HEAD";
                 println!(
-                    "{} {} {}",
-                    index,
-                    commit.project,
+                    "{fetch_stem} {remote} {} {cherry_pick} # topic index: {index}",
                     commit.current_revision.unwrap()
                 );
             }
         }
     }
 
-    todo!();
+    Ok(())
 }
 
 #[tracing::instrument(skip(configured_repo))]
