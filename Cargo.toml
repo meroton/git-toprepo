@@ -37,6 +37,7 @@ tracing-chrome = "0.7.2"
 tracing-log = "0.2.0"
 tracing-subscriber = "0.3.20"
 wait-timeout = "0.2.1"
+git-gr = { path = "../private-git-gr" }
 
 [dev-dependencies]
 assert_cmd = "2.0.17"
