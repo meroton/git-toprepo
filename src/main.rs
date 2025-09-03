@@ -403,13 +403,16 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
 
     let res = order_submitted_together(res.unwrap())?;
 
-    println!("Cherry-pick order:");
+    println!("# # Cherry-pick order:");
     let fetch_stem = "git toprepo fetch";
     for (index, atomic) in res.into_iter().rev().enumerate() {
         for repo in atomic.into_iter() {
             for commit in repo.into_iter().rev() {
                 let remote = format!("ssh://{}/{}.git", gerrit.ssh_host(), commit.project);
                 let cherry_pick = "&& git cherry-pick refs/toprepo/fetch-head";
+                if let Some(subject) = commit.subject {
+                    println!("# {subject}");
+                }
                 println!(
                     "{fetch_stem} {remote} {} {cherry_pick} # topic index: {index}",
                     commit.current_revision.unwrap()
