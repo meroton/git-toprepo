@@ -1,3 +1,8 @@
+/// TODO(nils): better error handling for service authentication/login flow
+/// missing .netrc file?
+/// should give instructions for the required manual steps.
+/// or generate a new netrc file following Albin's suggestions with
+/// XDG_RUNTIME_DIR.
 mod cli;
 
 use crate::cli::Cli;
