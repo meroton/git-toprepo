@@ -24,7 +24,7 @@ use std::collections::HashMap;
 // We have decided to use forward chronological order for this algorithm,
 //
 // We can split this to the (partially arbitrarily) ordered list of lists:
-//     [[A3, D3], [D2], [A2, B2, C1, D1], [A1], [B1]]
+//     [[[A3], [D3]], [[D2]], [[A2], [B2], [C1], [D1]], [[A1]], [[B1]]]
 //
 // The order between A1 and B1 is arbitrary, we can choose lexicographic order
 // on the repository name.
@@ -41,7 +41,7 @@ use std::collections::HashMap;
 //
 // Old
 // Gerrit reports this as [A2, A1, B1], they all have the same topic
-// so we group them into [[A2, A1, B1]].
+// so we group them into [[[A2, A1], [B1]]].
 // This means there is only one topic to cherry-pick, but inside there are two
 // commits that must be cherry-picked. First A1 and then A2.
 // This is a little annoying to workaround.
@@ -84,7 +84,7 @@ impl From<NewChange> for SubmittedTogether<String> {
     }
 }
 
-pub fn order_submitted_together(cons: Vec<NewChange>) -> Result<Vec<Vec<NewChange>>> {
+pub fn order_submitted_together(cons: Vec<NewChange>) -> Result<Vec<Vec<Vec<NewChange>>>> {
     let substrate: Vec<SubmittedTogether<String>> = cons.clone().vec_into();
     let restoration = cons
         .iter()
@@ -92,14 +92,18 @@ pub fn order_submitted_together(cons: Vec<NewChange>) -> Result<Vec<Vec<NewChang
         .collect::<HashMap<String, &NewChange>>();
     let reordered = reorder_submitted_together(&substrate)?;
 
-    let mut res: Vec<Vec<NewChange>> = Vec::new();
-    for inner in reordered.into_iter() {
-        let mut changes = Vec::new();
-        for x in inner.into_iter() {
-            let found = restoration.get(&x.id).unwrap(); //.ok_or(Err(anyhow!("Could not restore commit: {}", x.id)))?;
-            changes.push((**found).clone());
+    let mut res: Vec<Vec<Vec<NewChange>>> = Vec::new();
+    for atomic in reordered.into_iter() {
+        let mut repo = Vec::new();
+        for readrepo in atomic.into_iter() {
+            let mut changes = Vec::new();
+            for c in readrepo.into_iter() {
+                let found = restoration.get(&c.id).unwrap(); //.ok_or(Err(anyhow!("Could not restore commit: {}", x.id)))?;
+                changes.push((**found).clone());
+            }
+            repo.push(changes);
         }
-        res.push(changes);
+        res.push(repo);
     }
 
     Ok(res)
@@ -134,22 +138,26 @@ where
 /// The result will retain this order.
 pub fn reorder_submitted_together<T>(
     cons: &[SubmittedTogether<T>],
-) -> Result<Vec<Vec<SubmittedTogether<T>>>>
+) -> Result<Vec<Vec<Vec<SubmittedTogether<T>>>>>
 where
     T: Eq + std::hash::Hash + Clone + std::fmt::Debug,
 {
     // TODO: see if there is a better solution.
-    let mut res: Vec<Vec<SubmittedTogether<T>>> = Vec::new();
+    let mut res: Vec<Vec<Vec<SubmittedTogether<T>>>> = Vec::new();
     if cons.is_empty() {
         return Ok(res);
     }
 
     let mut count = 0;
-    let mut topic_backlinks: HashMap<String, Vec<&SubmittedTogether<T>>> = HashMap::new();
+    // TODO: We do not necessarily need to own The ST<T> in here.
+    // but want to reuse `group_by_secondary` with the inner data.
+    // If we can make `group_by_secondary` work with either owned or reference
+    // data this can be improved.
+    let mut topic_backlinks: HashMap<String, Vec<SubmittedTogether<T>>> = HashMap::new();
     for c in cons.iter() {
         count += 1;
         if let Some(topic) = c.topic.clone() {
-            topic_backlinks.entry(topic).or_default().push(c)
+            topic_backlinks.entry(topic).or_default().push(c.clone())
         }
     }
 
@@ -177,6 +185,10 @@ where
         }
         iteration_limit -= 1;
 
+        if iters.iter_mut().all(|i| i.peek().is_none()) {
+            break;
+        }
+
         let slot = index % iters.len();
 
         let candidate = iters[slot].peek();
@@ -187,7 +199,7 @@ where
         let candidate = candidate.unwrap();
 
         if candidate.topic.is_none() {
-            res.push(vec![iters[slot].next().unwrap().clone()]);
+            res.push(vec![vec![iters[slot].next().unwrap().clone()]]);
             // Continue and try the same slot again, do not increment index.
             continue;
         }
@@ -197,8 +209,9 @@ where
         // finalize a topic.
 
         let topic = candidate.topic.clone().unwrap();
-        let looking_for: &Vec<&SubmittedTogether<T>> = &topic_backlinks[&topic];
+        let looking_for: &Vec<SubmittedTogether<T>> = &topic_backlinks[&topic];
         let within = looking_for.iter().map(|e| &e.secondary).unique();
+        let looking_for = group_by_secondary(looking_for);
 
         let mut ok = true;
         for secondary in within {
@@ -218,25 +231,31 @@ where
         // otherwise.)
         // We can now pop them. (And assert that we do in fact find contiguous
         // topics.)
-        let mut commits = Vec::new();
-        for commit in looking_for {
-            let head = iters[slots[&commit.secondary]].next().unwrap();
-            if head.topic != commit.topic {
-                return Err(anyhow!(
-                    "Unexpected non-topic commit, expected a topic in this repo."
-                ));
+        let mut topic = Vec::new();
+        for readrepo in looking_for.into_iter() {
+            let mut commits = Vec::new();
+            for commit in readrepo.iter() {
+                let head = iters[slots[&commit.secondary]].next().unwrap();
+                if head.topic != commit.topic {
+                    return Err(anyhow!(
+                        "Unexpected non-topic commit, expected a topic in this repo."
+                    ));
+                }
+                commits.push(head.clone())
             }
-            commits.push(head.clone())
+            topic.push(commits);
         }
 
-        res.push(commits);
+        res.push(topic);
         index += 1;
     }
 
     let mut res_count = 0;
-    for outer in res.iter() {
-        for _ in outer.iter() {
-            res_count += 1;
+    for topic in res.iter() {
+        for repo in topic.iter() {
+            for _commit in repo.iter() {
+                res_count += 1;
+            }
         }
     }
 
@@ -263,7 +282,7 @@ mod tests {
         let b = new("second", None, 2);
 
         let res = reorder_submitted_together(&[a.clone(), b.clone()]);
-        assert_eq!(res.unwrap(), vec![vec![a], vec![b]]);
+        assert_eq!(res.unwrap(), vec![vec![[a]], vec![[b]]]);
     }
 
     #[test]
@@ -273,7 +292,7 @@ mod tests {
         let b = new("second", topic, 2);
 
         let res = reorder_submitted_together(&[a.clone(), b.clone()]);
-        assert_eq!(res.unwrap(), vec![vec![a, b]]);
+        assert_eq!(res.unwrap(), vec![vec![[a], [b]]]);
     }
 
     #[test]
@@ -284,7 +303,7 @@ mod tests {
         let b = new("second", topic, shared_secondary);
 
         let res = reorder_submitted_together(&[b.clone(), a.clone()]);
-        assert_eq!(res.unwrap(), vec![vec![b, a]]);
+        assert_eq!(res.unwrap(), vec![vec![[b, a]]]);
     }
 
     #[test]
@@ -297,7 +316,7 @@ mod tests {
         let u = new("under", None, shared_secondary);
 
         let res = reorder_submitted_together(&[a.clone(), b.clone(), u.clone()]);
-        assert_eq!(res.unwrap(), vec![vec![a, b], vec![u]]);
+        assert_eq!(res.unwrap(), vec![vec![[a], [b]], vec![[u]]]);
     }
 
     #[test]
@@ -309,7 +328,7 @@ mod tests {
         let o = new("over", None, shared_secondary);
 
         let res = reorder_submitted_together(&[a.clone(), o.clone(), b.clone()]);
-        assert_eq!(res.unwrap(), vec![vec![o], vec![a, b]]);
+        assert_eq!(res.unwrap(), vec![vec![[o]], vec![[a], [b]]]);
     }
 
     #[test]
@@ -325,7 +344,10 @@ mod tests {
 
         let res =
             reorder_submitted_together(&[a.clone(), c.clone(), m.clone(), b.clone(), d.clone()]);
-        assert_eq!(res.unwrap(), vec![vec![c, d], vec![m], vec![a, b]]);
+        assert_eq!(
+            res.unwrap(),
+            vec![vec![[c], [d]], vec![[m]], vec![[a], [b]]]
+        );
     }
 
     #[test]
@@ -339,7 +361,7 @@ mod tests {
         let cu = new("second_under", topic, 3);
 
         let res = reorder_submitted_together(&[at.clone(), bt.clone(), bu.clone(), cu.clone()]);
-        assert_eq!(res.unwrap(), vec![vec![at, bt], vec![bu, cu]]);
+        assert_eq!(res.unwrap(), vec![vec![[at], [bt]], vec![[bu], [cu]]]);
     }
 
     #[test]
@@ -351,7 +373,7 @@ mod tests {
         let c = new("other", topic, 2);
 
         let res = reorder_submitted_together(&[b.clone(), a.clone(), c.clone()]);
-        assert_eq!(res.unwrap(), vec![vec![b, a, c]]);
+        assert_eq!(res.unwrap(), vec![vec![vec![b, a], vec![c]]]);
     }
 
     #[test]
