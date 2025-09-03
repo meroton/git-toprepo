@@ -719,4 +719,7 @@ pub struct Checkout {
     /// Dump the project to submodule mapping
     ///    <project>: <module path>
     pub dump: bool,
+
+    #[arg(long)]
+    pub dry_run: bool,
 }
