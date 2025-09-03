@@ -407,7 +407,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
         .context("Could not query Gerrit's REST API for changes submitted together")?;
 
     let res = order_submitted_together(res)?.chronological_order();
-    let res = split_by_supercommits(res /*, supercommit_strategy */)?;
+    let res = split_by_supercommits(res, &checkout.strategy)?;
 
     println!("# # Cherry-pick order:");
     let fetch_stem = "git toprepo fetch";

@@ -16,6 +16,7 @@ use git_toprepo::gitmodules::SubmoduleUrlExt as _;
 use git_toprepo::loader::SubRepoLedger;
 use git_toprepo::repo_name::RepoName;
 use git_toprepo::repo_name::SubRepoName;
+use git_toprepo::submitted_together::SupercommitSplitStrategy;
 use git_toprepo::util::UniqueContainer;
 use std::ops::Deref as _;
 use std::path::Path;
@@ -720,4 +721,7 @@ pub struct Checkout {
 
     #[arg(long)]
     pub dry_run: bool,
+
+    #[arg(long, default_value_t)]
+    pub strategy: SupercommitSplitStrategy,
 }
