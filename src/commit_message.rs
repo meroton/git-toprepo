@@ -14,6 +14,13 @@ use std::collections::HashSet;
 
 /// The rewritten commit messages gets this additinal footer in the form
 /// `Git-Toprepo-Ref: path commit-id`.
+///
+/// This footer is useful for users to find which the original commit ids were
+/// by simply using `git-log`.
+///
+/// The footer is also used by `git-toprepo` to split a commit message into
+/// multiple commit messages for different submodules, when pushing a
+/// cherry-picked mono commit into multiple repositories.
 const GIT_TOPREPO_FOOTER_PREFIX: &str = "Git-Toprepo-Ref:";
 
 /// Instead of an empty path, use this in the commit message footer.
@@ -21,7 +28,7 @@ const TOPREPO_DISPLAY_PATH: &str = "<top>";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PushMessage {
-    /// The commit message for a pure commit.
+    /// The commit message for the commit to push to a remote.
     pub message: String,
     /// Any potential topic for the commit to belong to.
     pub topic: Option<String>,

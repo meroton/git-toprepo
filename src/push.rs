@@ -10,12 +10,12 @@ use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::log::CommandSpanExt as _;
 use crate::log::InterruptedError;
 use crate::log::InterruptedResult;
+use crate::repo::ConfiguredTopRepo;
 use crate::repo::ExpandedOrRemovedSubmodule;
 use crate::repo::ExpandedSubmodule;
 use crate::repo::MonoRepoCommit;
 use crate::repo::MonoRepoCommitId;
 use crate::repo::MonoRepoParent;
-use crate::repo::MonoRepoProcessor;
 use crate::repo::SubmoduleContent;
 use crate::repo::TopRepoCommitId;
 use crate::repo_name::RepoName;
@@ -39,19 +39,21 @@ use std::sync::Mutex;
 /// and top-repo commits, so that each commit is pushed to its underlying
 /// repositories.
 pub fn split_for_push(
-    processor: &mut MonoRepoProcessor,
+    configured_repo: &mut ConfiguredTopRepo,
+    progress: &indicatif::MultiProgress,
     top_push_url: &gix::Url,
     local_rev_or_ref: &String,
 ) -> Result<Vec<PushMetadata>> {
-    if processor.top_repo_cache.monorepo_commits.is_empty() {
+    if configured_repo.top_repo_cache.monorepo_commits.is_empty() {
         anyhow::bail!("No filtered mono commits exists, please run `git toprepo refilter` first");
     }
 
-    let local_rev = processor
+    let local_rev = configured_repo
         .gix_repo
         .rev_parse_single(local_rev_or_ref.as_bytes())?;
     let local_rev_arg: std::ffi::OsString = local_rev.to_hex().to_string().into();
-    let export_refs_args: Vec<std::ffi::OsString> = processor
+    let local_rev = local_rev.detach();
+    let export_refs_args: Vec<std::ffi::OsString> = configured_repo
         .gix_repo
         .references()?
         .prefixed(b"refs/remotes/origin/".as_bstr())?
@@ -70,26 +72,27 @@ pub fn split_for_push(
         .collect::<std::result::Result<Vec<_>, _>>()
         .with_context(|| "Failed listing refs/remotes/origin/*")?;
 
-    let mut dedup_cache = std::mem::take(&mut processor.top_repo_cache.dedup);
+    let mut dedup_cache = std::mem::take(&mut configured_repo.top_repo_cache.dedup);
     let mut fast_importer = crate::git_fast_export_import_dedup::FastImportRepoDedup::new(
-        crate::git_fast_export_import::FastImportRepo::new(processor.gix_repo.git_dir())?,
+        crate::git_fast_export_import::FastImportRepo::new(configured_repo.gix_repo.git_dir())?,
         &mut dedup_cache,
     );
     let to_push_metadata = split_for_push_impl(
-        processor,
+        configured_repo,
+        progress,
         &mut fast_importer,
         top_push_url,
         &export_refs_args,
     );
     // Make sure to gracefully shutdown the fast-importer before returning.
     fast_importer.wait()?;
-    processor.top_repo_cache.dedup = dedup_cache;
+    configured_repo.top_repo_cache.dedup = dedup_cache;
 
     let mut to_push_metadata = to_push_metadata?;
     if to_push_metadata.is_empty() {
         // Everything exists upstream. Add a dummy entry of the toprepo to
         // actually push something, e.g. if creating a new branch.
-        let top_commit_id = processor.top_repo_cache.monorepo_commits.get(&MonoRepoCommitId::new(local_rev.detach()))
+        let top_commit_id = configured_repo.top_repo_cache.monorepo_commits.get(&MonoRepoCommitId::new(local_rev))
         .and_then(|mono_commit| mono_commit.top_bump)
         .with_context(|| format!("All commits to push exist upstream, yet the mono commit {local_rev_or_ref} has not been assembled from upstream data. Please rerun `git toprepo refilter`"))?;
 
@@ -111,7 +114,7 @@ fn resolve_push_repo(
     mono_commit: &gix::Commit,
     path: GitPath,
     mut push_url: gix::Url,
-    config: &mut crate::config::GitTopRepoConfig,
+    ledger: &mut crate::loader::SubRepoLedger,
 ) -> Result<(RepoName, GitPath, GitPath, gix::Url)> {
     let mut repo_name = RepoName::Top;
     let mut repo_path = GitPath::from("");
@@ -157,7 +160,7 @@ fn resolve_push_repo(
         generic_url = generic_url.join(sub_url);
         push_url = push_url.join(sub_url);
         // Update the return value.
-        let sub_repo_name = match config.get_or_insert_from_url(&generic_url)? {
+        let sub_repo_name = match ledger.get_or_insert_from_url(&generic_url)? {
             crate::config::GetOrInsertOk::Found((name, _)) => name,
             crate::config::GetOrInsertOk::Missing(_)
             | crate::config::GetOrInsertOk::MissingAgain(_) => {
@@ -169,14 +172,15 @@ fn resolve_push_repo(
 }
 
 fn split_for_push_impl(
-    processor: &mut MonoRepoProcessor,
+    configured_repo: &mut ConfiguredTopRepo,
+    progress: &indicatif::MultiProgress,
     fast_importer: &mut crate::git_fast_export_import_dedup::FastImportRepoDedup<'_>,
     top_push_url: &gix::Url,
     export_refs_args: &[std::ffi::OsString],
 ) -> Result<Vec<PushMetadata>> {
-    let monorepo_commits = &processor.top_repo_cache.monorepo_commits;
+    let monorepo_commits = &configured_repo.top_repo_cache.monorepo_commits;
 
-    let pb = processor.progress.add(
+    let pb = progress.add(
         indicatif::ProgressBar::no_length()
             .with_style(
                 indicatif::ProgressStyle::default_spinner()
@@ -186,7 +190,7 @@ fn split_for_push_impl(
             .with_message("Splitting commits"),
     );
     let fast_exporter = crate::git_fast_export_import::FastExportRepo::load_from_path(
-        processor.gix_repo.git_dir(),
+        configured_repo.gix_repo.git_dir(),
         Some(export_refs_args),
     )?;
 
@@ -199,7 +203,7 @@ fn split_for_push_impl(
         match entry {
             crate::git_fast_export_import::FastExportEntry::Commit(exported_mono_commit) => {
                 let mono_commit_id = MonoRepoCommitId::new(exported_mono_commit.original_id);
-                let gix_mono_commit = processor.gix_repo.find_commit(*mono_commit_id)?;
+                let gix_mono_commit = configured_repo.gix_repo.find_commit(*mono_commit_id)?;
                 let mono_parents = exported_mono_commit
                     .parents
                     .iter()
@@ -232,7 +236,7 @@ fn split_for_push_impl(
                         &gix_mono_commit,
                         GitPath::new(fc.path),
                         top_push_url.clone(),
-                        processor.config,
+                        &mut configured_repo.ledger,
                     )?;
                     grouped_file_changes
                         .entry((submod_path, repo_name, push_url))

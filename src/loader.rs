@@ -1,4 +1,6 @@
+use crate::config::GetOrInsertOk;
 use crate::config::GitTopRepoConfig;
+use crate::config::SubRepoConfig;
 use crate::git::BlobId;
 use crate::git::CommitId;
 use crate::git::GitModulesInfo;
@@ -11,9 +13,9 @@ use crate::git_fast_export_import::FileChange;
 use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::log::InterruptedError;
 use crate::log::InterruptedResult;
+use crate::repo::ConfiguredTopRepo;
 use crate::repo::ExportedFileEntry;
 use crate::repo::RepoData;
-use crate::repo::RepoStates;
 use crate::repo::ThinCommit;
 use crate::repo::ThinSubmodule;
 use crate::repo::ThinSubmoduleContent;
@@ -23,6 +25,7 @@ use crate::ui::ProgressStatus;
 use crate::ui::ProgressTaskHandle;
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::bail;
 use bstr::BStr;
 use bstr::ByteSlice as _;
 use gix::ObjectId;
@@ -42,6 +45,175 @@ use tracing::instrument;
 /// printing log messages as they then can include the refs the user need to
 /// look into.
 type CommitToRefMap = HashMap<CommitId, Vec<FullName>>;
+
+/// A mapping of submodule expansion status. This will be mutated during the
+/// expansion algorithm and the `monorepo` object will have implementation
+/// details tracked for submodules in here.
+#[derive(Debug, Default)]
+pub struct SubRepoLedger {
+    pub subrepos: BTreeMap<SubRepoName, SubRepoConfig>,
+
+    /// List of subrepos that are missing in the configuration and have
+    /// automatically been added to `suprepos`. This is only used to limit
+    /// warning and log statements.
+    pub missing_subrepos: HashSet<SubRepoName>,
+}
+
+impl SubRepoLedger {
+    /// Check if the submodule should be expanded or not.
+    pub fn is_enabled(&self, repo_name: &RepoName) -> bool {
+        match repo_name {
+            RepoName::Top => true,
+            RepoName::SubRepo(sub_repo_name) => self
+                .subrepos
+                .get(sub_repo_name)
+                .is_none_or(|repo_config| repo_config.enabled),
+        }
+    }
+
+    /// Gets a `SubRepoConfig` based on a URL using exact matching. If an URL is
+    /// missing, the user should add it to the `SubRepoConfig::urls` list.
+    pub fn get_name_from_url(&self, url: &gix::Url) -> Result<Option<SubRepoName>> {
+        let mut matches = self
+            .subrepos
+            .iter()
+            .filter(|(_name, subrepo_config)| subrepo_config.urls.iter().any(|u| u == url));
+        let Some(first_match) = matches.next() else {
+            return Ok(None);
+        };
+        if let Some(second_match) = matches.next() {
+            let names = [first_match, second_match]
+                .into_iter()
+                .chain(matches)
+                .map(|(name, _)| name)
+                .join(", ");
+            bail!("Multiple remote candidates for {url}: {names}");
+        }
+        // Only a single match.
+        let repo_name = first_match.0;
+        Ok(Some(repo_name.clone()))
+    }
+
+    pub fn default_name_from_url(&self, repo_url: &gix::Url) -> Option<SubRepoName> {
+        // TODO: UTF-8 validation.
+        let mut name: &str = &repo_url.path.to_str_lossy();
+        if name.ends_with(".git") {
+            name = &name[..name.len() - 4];
+        } else if name.ends_with("/") {
+            name = &name[..name.len() - 1];
+        }
+        loop {
+            if name.starts_with("../") {
+                name = &name[3..];
+            } else if name.starts_with("./") {
+                name = &name[2..];
+            } else if name.starts_with("/") {
+                name = &name[1..];
+            } else {
+                break;
+            }
+        }
+        let name = name.replace("/", "_");
+        match RepoName::new(name) {
+            RepoName::Top => None,
+            RepoName::SubRepo(name) => Some(name),
+        }
+    }
+
+    /// Get a repo name given a full url when doing an approximative matching,
+    /// for example matching `ssh://foo/bar.git` with `https://foo/bar`.
+    pub fn get_name_from_similar_full_url(
+        &self,
+        wanted_full_url: gix::Url,
+        base_url: &gix::Url,
+    ) -> Result<RepoName> {
+        let wanted_url_str = wanted_full_url.to_string();
+        let trimmed_wanted_full_url = wanted_full_url.trim_url_path();
+        let mut matching_names = Vec::new();
+        if trimmed_wanted_full_url.approx_equal(&base_url.clone().trim_url_path()) {
+            matching_names.push(RepoName::Top);
+        }
+        for (submod_name, submod_config) in self.subrepos.iter() {
+            if submod_config.urls.iter().any(|submod_url| {
+                let full_submod_url = base_url.join(submod_url).trim_url_path();
+                full_submod_url.approx_equal(&trimmed_wanted_full_url)
+            }) {
+                matching_names.push(RepoName::SubRepo(submod_name.clone()));
+            }
+        }
+        matching_names.sort();
+        let repo_name = match matching_names.as_slice() {
+            [] => anyhow::bail!("No configured submodule URL matches {wanted_url_str:?}"),
+            [repo_name] => repo_name.clone(),
+            [_, ..] => anyhow::bail!(
+                "URLs from multiple configured repos match: {}",
+                matching_names
+                    .iter()
+                    .map(|name| name.to_string())
+                    .join(", ")
+            ),
+        };
+        Ok(repo_name)
+    }
+
+    /// Get a subrepo configuration without creating a new entry if missing.
+    pub fn get_existing_config_from_url(
+        &self,
+        repo_url: &gix::Url,
+    ) -> Result<Option<(SubRepoName, &SubRepoConfig)>> {
+        match self.get_name_from_url(repo_url)? {
+            Some(repo_name) => {
+                if self.missing_subrepos.contains(&repo_name) {
+                    Ok(None)
+                } else {
+                    let subrepo_config = self.subrepos.get(&repo_name).expect("valid subrepo name");
+                    Ok(Some((repo_name, subrepo_config)))
+                }
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Get a subrepo configuration or create a new entry if missing.
+    pub fn get_or_insert_from_url<'a>(
+        &'a mut self,
+        repo_url: &gix::Url,
+    ) -> Result<GetOrInsertOk<'a>> {
+        let Some(repo_name) = self.get_name_from_url(repo_url)? else {
+            let mut repo_name = self.default_name_from_url(repo_url).with_context(|| {
+                format!(
+                    "URL {repo_url} cannot be automatically converted to a valid repo name. \
+                    Please create a manual config entry with the URL."
+                )
+            })?;
+            // Instead of just self.subrepos.get(&repo_name), also check for
+            // case insensitive repo name uniqueness. It's confusing for the
+            // user to get multiple repos with the same name and not
+            // realising that it's just the casing that is different.
+            // Manually adding multiple entries with different casing is
+            // allowed but not recommended.
+            for existing_name in self.subrepos.keys() {
+                if repo_name.to_lowercase() == existing_name.to_lowercase() {
+                    repo_name = existing_name.clone();
+                }
+            }
+            let urls = &mut self.subrepos.entry(repo_name.clone()).or_default().urls;
+            if !urls.contains(repo_url) {
+                urls.push(repo_url.clone());
+            }
+            return Ok(if self.missing_subrepos.insert(repo_name.clone()) {
+                GetOrInsertOk::Missing(repo_name.clone())
+            } else {
+                GetOrInsertOk::MissingAgain(repo_name.clone())
+            });
+        };
+        let subrepo_config = self
+            .subrepos
+            .get_mut(&repo_name)
+            .expect("valid subrepo name");
+        Ok(GetOrInsertOk::Found((repo_name, subrepo_config)))
+    }
+}
 
 enum TaskResult {
     RepoFetchDone {
@@ -94,11 +266,12 @@ struct CommitLogLevel {
 }
 
 pub struct CommitLoader<'a> {
-    toprepo: &'a gix::Repository,
-    repos: HashMap<RepoName, RepoFetcher>,
+    monorepo: &'a gix::Repository,
+    config: &'a GitTopRepoConfig,
     /// Repositories that have been loaded from the cache.
-    cached_repo_states: &'a mut RepoStates,
-    config: &'a mut GitTopRepoConfig,
+    cached_repo_states: &'a mut crate::repo::RepoStates,
+    ledger: &'a mut SubRepoLedger,
+    fetch_states: HashMap<RepoName, RepoFetcher>,
 
     tx: std::sync::mpsc::Sender<TaskResult>,
     rx: std::sync::mpsc::Receiver<TaskResult>,
@@ -128,10 +301,8 @@ pub struct CommitLoader<'a> {
 
 impl<'a> CommitLoader<'a> {
     pub fn new(
-        toprepo: &'a gix::Repository,
-        cached_repo_states: &'a mut RepoStates,
-        config: &'a mut GitTopRepoConfig,
-        progress: indicatif::MultiProgress,
+        repo: &'a mut ConfiguredTopRepo,
+        progress: &indicatif::MultiProgress,
         error_observer: &'a crate::log::ErrorObserver,
         thread_pool: threadpool::ThreadPool,
     ) -> Result<Self> {
@@ -169,10 +340,11 @@ impl<'a> CommitLoader<'a> {
             ),
         );
         Ok(Self {
-            toprepo,
-            repos: HashMap::new(),
-            cached_repo_states,
-            config,
+            monorepo: &repo.gix_repo,
+            config: &repo.config,
+            cached_repo_states: &mut repo.top_repo_cache.repos,
+            ledger: &mut repo.ledger,
+            fetch_states: HashMap::new(),
             tx,
             rx,
             event_queue: VecDeque::new(),
@@ -188,7 +360,7 @@ impl<'a> CommitLoader<'a> {
             repos_to_fetch: VecDeque::new(),
             repos_to_load: VecDeque::new(),
             dot_gitmodules_cache: DotGitModulesCache {
-                repo: toprepo,
+                repo: &repo.gix_repo,
                 cache: HashMap::new(),
             },
         })
@@ -207,8 +379,8 @@ impl<'a> CommitLoader<'a> {
             log::warn!("Repo {repo_name} is disabled in the configuration, will not fetch");
             return Ok(());
         }
-        if repo_fetcher.fetch_state == RepoFetcherState::Idle {
-            repo_fetcher.fetch_state = RepoFetcherState::Queued;
+        if repo_fetcher.fetch_states == RepoFetcherState::Idle {
+            repo_fetcher.fetch_states = RepoFetcherState::Queued;
             self.repos_to_fetch.push_back(repo_name);
         }
         Ok(())
@@ -250,7 +422,7 @@ impl<'a> CommitLoader<'a> {
         self.thread_pool.join();
         self.cached_repo_states.clear();
         self.cached_repo_states.extend(
-            self.repos
+            self.fetch_states
                 .into_iter()
                 .map(|(repo_name, repo_fetcher)| (repo_name, repo_fetcher.repo_data)),
         );
@@ -400,12 +572,12 @@ impl<'a> CommitLoader<'a> {
         let context = format!("Fetching {repo_name}");
         let _log_scope_guard = crate::log::scope(context.clone());
 
-        let repo_fetcher = self.repos.get_mut(&repo_name).unwrap();
-        assert_eq!(repo_fetcher.fetch_state, RepoFetcherState::Queued);
-        repo_fetcher.fetch_state = RepoFetcherState::InProgress;
+        let repo_fetcher = self.fetch_states.get_mut(&repo_name).unwrap();
+        assert_eq!(repo_fetcher.fetch_states, RepoFetcherState::Queued);
+        repo_fetcher.fetch_states = RepoFetcherState::InProgress;
 
-        let mut fetcher = crate::fetch::RemoteFetcher::new(self.toprepo);
-        fetcher.set_remote_from_repo_name(self.toprepo, &repo_name, self.config)?;
+        let mut fetcher = crate::fetch::RemoteFetcher::new(self.monorepo);
+        fetcher.set_remote_from_repo_name(self.monorepo, &repo_name, self.ledger)?;
 
         let pb_url = indicatif::ProgressBar::hidden()
             .with_style(
@@ -452,9 +624,9 @@ impl<'a> CommitLoader<'a> {
     }
 
     fn finish_fetch_repo_job(&mut self, repo_name: &RepoName) {
-        let repo_fetcher = self.repos.get_mut(repo_name).unwrap();
-        assert_eq!(repo_fetcher.fetch_state, RepoFetcherState::InProgress);
-        repo_fetcher.fetch_state = RepoFetcherState::Done;
+        let repo_fetcher = self.fetch_states.get_mut(repo_name).unwrap();
+        assert_eq!(repo_fetcher.fetch_states, RepoFetcherState::InProgress);
+        repo_fetcher.fetch_states = RepoFetcherState::Done;
 
         // Load the fetched data.
         if self.load_after_fetch {
@@ -473,7 +645,7 @@ impl<'a> CommitLoader<'a> {
 
         // Use the main thread when getting the refs to make use of the gix cached
         let existing_commits: HashSet<_> = self
-            .repos
+            .fetch_states
             .get(&repo_name)
             .unwrap()
             .repo_data
@@ -489,7 +661,7 @@ impl<'a> CommitLoader<'a> {
 
         let progress_task = self.load_progress.start(repo_name.to_string(), Vec::new());
 
-        let toprepo = self.toprepo.clone();
+        let monorepo = self.monorepo.clone();
         let tx = self.tx.clone();
         let error_observer = self.error_observer.clone();
         let log_context = crate::log::current_scope();
@@ -499,7 +671,7 @@ impl<'a> CommitLoader<'a> {
             let _span_guard =
                 tracing::info_span!(parent: parent_span, "Loading", "repo" = %repo_name).entered();
             let single_repo_loader = SingleRepoLoader {
-                toprepo: &toprepo,
+                monorepo: &monorepo,
                 repo_name: &repo_name,
                 error_observer: &error_observer,
             };
@@ -569,7 +741,7 @@ impl<'a> CommitLoader<'a> {
     }
 
     fn finish_load_repo_job(&mut self, repo_name: &RepoName) -> Result<()> {
-        let repo_fetcher = self.repos.get_mut(repo_name).unwrap();
+        let repo_fetcher = self.fetch_states.get_mut(repo_name).unwrap();
         // Load again?
         match repo_fetcher.loading {
             LoadRepoState::NotLoadedYet => unreachable!(),
@@ -623,7 +795,7 @@ impl<'a> CommitLoader<'a> {
             return Ok(());
         };
         let repo_fetcher = self
-            .repos
+            .fetch_states
             .get_mut(repo_name)
             .expect("repo_fetcher already exists");
         if repo_fetcher.repo_data.url != cached_repo.url {
@@ -698,7 +870,7 @@ impl<'a> CommitLoader<'a> {
                 Self::verify_cached_commit(
                     &repo_fetcher.repo_data,
                     thin_commit.as_ref(),
-                    self.config,
+                    self.ledger,
                     &mut self.dot_gitmodules_cache,
                     commit_log_level,
                 )
@@ -710,7 +882,7 @@ impl<'a> CommitLoader<'a> {
                         && let Some(submod_repo_name) = &bump.repo_name
                     {
                         let subconfig = self
-                            .config
+                            .ledger
                             .subrepos
                             .get(submod_repo_name)
                             .expect("subrepo name exists");
@@ -765,12 +937,12 @@ impl<'a> CommitLoader<'a> {
 
         let _log_scope_guard = crate::log::scope(context.clone());
         let hash_without_committer = exported_commit.hash_without_committer()?;
-        let repo_data = &mut self.repos.get_mut(repo_name).unwrap().repo_data;
+        let repo_data = &mut self.fetch_states.get_mut(repo_name).unwrap().repo_data;
         let (thin_commit, updated_submodule_commits) = Self::export_thin_commit(
             repo_data,
             exported_commit,
             tree_id,
-            self.config,
+            self.ledger,
             &mut self.dot_gitmodules_cache,
             CommitLogLevel {
                 is_tip,
@@ -809,7 +981,7 @@ impl<'a> CommitLoader<'a> {
     fn verify_cached_commit(
         repo_storage: &RepoData,
         commit: &ThinCommit,
-        config: &mut GitTopRepoConfig,
+        ledger: &mut SubRepoLedger,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
     ) -> Result<()> {
@@ -843,7 +1015,7 @@ impl<'a> CommitLoader<'a> {
                         commit.parents.first(),
                         path,
                         &repo_storage.url,
-                        config,
+                        ledger,
                         dot_gitmodules_cache,
                         commit_log_level,
                     );
@@ -865,11 +1037,11 @@ impl<'a> CommitLoader<'a> {
         &'_ mut self,
         repo_name: &RepoName,
     ) -> Result<&'_ mut RepoFetcher> {
-        if !self.repos.contains_key(repo_name) {
+        if !self.fetch_states.contains_key(repo_name) {
             self.create_repo_fetcher(repo_name)?;
         }
         Ok(self
-            .repos
+            .fetch_states
             .get_mut(repo_name)
             .expect("just added repo fetcher"))
     }
@@ -882,7 +1054,7 @@ impl<'a> CommitLoader<'a> {
             RepoName::SubRepo(submod_repo_name) => {
                 // Check if the submodule is configured.
                 let submod_contig = self
-                    .config
+                    .ledger
                     .subrepos
                     .get(submod_repo_name)
                     .with_context(|| format!("Repo {repo_name} not found in config"))?;
@@ -891,7 +1063,7 @@ impl<'a> CommitLoader<'a> {
             }
         };
         let repo_fetcher = RepoFetcher::new(enabled, url);
-        self.repos.insert(repo_name.clone(), repo_fetcher);
+        self.fetch_states.insert(repo_name.clone(), repo_fetcher);
         Ok(())
     }
 
@@ -899,12 +1071,12 @@ impl<'a> CommitLoader<'a> {
         let repo_name: RepoName = RepoName::SubRepo(needed_commit.repo_name);
         let commit_id = needed_commit.commit_id;
         // Already loaded?
-        if !self.repos.contains_key(&repo_name) {
+        if !self.fetch_states.contains_key(&repo_name) {
             self.create_repo_fetcher(&repo_name)
                 .expect("repo_name has been found in the configuration");
         }
         let repo_fetcher = self
-            .repos
+            .fetch_states
             .get_mut(&repo_name)
             .expect("repo_fetch just inserted");
         if repo_fetcher.repo_data.thin_commits.contains_key(&commit_id)
@@ -949,7 +1121,7 @@ impl<'a> CommitLoader<'a> {
         repo_storage: &RepoData,
         exported_commit: FastExportCommit,
         tree_id: TreeId,
-        config: &mut GitTopRepoConfig,
+        ledger: &mut SubRepoLedger,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
     ) -> Result<(Rc<ThinCommit>, Vec<NeededCommit>)> {
@@ -1003,7 +1175,7 @@ impl<'a> CommitLoader<'a> {
                             thin_parents.first(),
                             &path,
                             &repo_storage.url,
-                            config,
+                            ledger,
                             dot_gitmodules_cache,
                             commit_log_level,
                         );
@@ -1063,7 +1235,7 @@ impl<'a> CommitLoader<'a> {
                             thin_parents.first(),
                             path,
                             &repo_storage.url,
-                            config,
+                            ledger,
                             dot_gitmodules_cache,
                             commit_log_level,
                         );
@@ -1130,7 +1302,7 @@ impl<'a> CommitLoader<'a> {
         first_parent: Option<&Rc<ThinCommit>>,
         path: &GitPath,
         base_url: &gix::Url,
-        config: &mut GitTopRepoConfig,
+        ledger: &mut SubRepoLedger,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
     ) -> Option<SubRepoName> {
@@ -1187,7 +1359,7 @@ impl<'a> CommitLoader<'a> {
             }
         };
         let full_url = base_url.join(submod_url);
-        let name = match config
+        let name = match ledger
             .get_or_insert_from_url(&full_url)
             .map_err(|err| {
                 if do_log() {
@@ -1210,7 +1382,7 @@ impl<'a> CommitLoader<'a> {
 }
 
 struct SingleRepoLoader<'a> {
-    toprepo: &'a gix::Repository,
+    monorepo: &'a gix::Repository,
     repo_name: &'a RepoName,
     error_observer: &'a crate::log::ErrorObserver,
 }
@@ -1289,7 +1461,7 @@ impl SingleRepoLoader<'_> {
         let mut tips = Vec::new();
         let mut active_tips_map: CommitToRefMap = HashMap::new();
         for r in self
-            .toprepo
+            .monorepo
             .references()?
             .prefixed(BStr::new(ref_prefix.as_bytes()))?
         {
@@ -1378,7 +1550,7 @@ impl SingleRepoLoader<'_> {
             .map(|id| id.to_hex().to_string())
             .collect::<Vec<_>>();
         let (stop_commit_ids, unknown_commit_count) = crate::git::get_first_known_commits(
-            self.toprepo,
+            self.monorepo,
             unknown_tips.into_iter(),
             |commit_id| {
                 if existing_commits.contains(&commit_id) {
@@ -1409,7 +1581,7 @@ impl SingleRepoLoader<'_> {
     ) -> InterruptedResult<()> {
         // The top repository will get an empty URL, which is exactly
         // what is wanted.
-        let toprepo_git_dir = self.toprepo.git_dir();
+        let toprepo_git_dir = self.monorepo.git_dir();
         for export_entry in FastExportRepo::load_from_path(toprepo_git_dir, Some(refs_arg))? {
             if self.error_observer.should_interrupt() {
                 break;
@@ -1417,7 +1589,7 @@ impl SingleRepoLoader<'_> {
             match export_entry? {
                 FastExportEntry::Commit(exported_commit) => {
                     let tree_id = self
-                        .toprepo
+                        .monorepo
                         .find_commit(exported_commit.original_id)
                         .with_context(|| {
                             format!("Exported commit {} not found", exported_commit.original_id)
@@ -1481,7 +1653,7 @@ struct RepoFetcher {
     missing_commits: HashSet<CommitId>,
 
     /// What be fetched.
-    fetch_state: RepoFetcherState,
+    fetch_states: RepoFetcherState,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1504,12 +1676,12 @@ impl RepoFetcher {
             needed_commits: HashSet::new(),
             loading: LoadRepoState::NotLoadedYet,
             missing_commits: HashSet::new(),
-            fetch_state: RepoFetcherState::Idle,
+            fetch_states: RepoFetcherState::Idle,
         }
     }
 
     fn fetching_default_refspec_done(&self) -> bool {
-        self.fetch_state == RepoFetcherState::Done
+        self.fetch_states == RepoFetcherState::Done
     }
 }
 

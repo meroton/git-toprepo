@@ -53,7 +53,7 @@ fn validate_external_file_in_corrupt_repository() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(format!(
-            "ERROR: Parsing worktree:{invalid_toml}: Could not parse TOML string",
+            "Parsing worktree:{invalid_toml}: Could not parse TOML string"
         )));
 
     // TODO: 2025-09-22 Rephrase the namespace in the error message. It looks ugly.
@@ -143,10 +143,16 @@ fn validate_use_correct_working_directory() {
 }
 
 #[test]
-fn bootstrap() {
+fn bootstrap_after_clone() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
+
+    let expected_boostrap_config = &r#"
+[repo.sub]
+urls = ["../sub/"]
+skip_expanding = []
+"#[1..];
 
     git_command_for_testing(&toprepo)
         .args(["rm", ".gittoprepo.toml"])
@@ -166,18 +172,46 @@ fn bootstrap() {
         .code(1)
         .stderr(predicate::str::contains("git-toprepo config bootstrap"));
 
-    const EXPECTED_BOOTSTRAP_CONFIG: &str = "\
-[repo.sub]
-urls = [\"../sub/\"]
-skip_expanding = []
-";
     Command::cargo_bin("git-toprepo")
         .unwrap()
         .current_dir(&monorepo)
         .args(["config", "bootstrap"])
         .assert()
         .success()
-        .stdout(EXPECTED_BOOTSTRAP_CONFIG)
+        .stdout(expected_boostrap_config)
+        .stderr(predicate::str::contains("ERROR:").not())
+        .stderr(predicate::str::contains("WARN:").not());
+}
+
+#[test]
+fn bootstrap_on_existing() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+
+    let expected_boostrap_config: &str = &r#"
+[repo.subx]
+urls = ["../subx/"]
+skip_expanding = []
+
+[repo.suby]
+urls = ["../suby/"]
+skip_expanding = []
+"#[1..];
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&monorepo)
+        .args(["config", "bootstrap"])
+        .assert()
+        .success()
+        .stdout(expected_boostrap_config)
         .stderr(predicate::str::contains("ERROR:").not())
         .stderr(predicate::str::contains("WARN:").not());
 }
