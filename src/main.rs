@@ -357,19 +357,6 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
         /* persist ssh: */ false,
     );
 
-    // TODO: Is this a full conversion to anyhow errors?
-    // It seems that we lose some of the miette context.
-    // Notably, where is the inner error?:
-    //     Err(  × Override: None
-    //     ╰─▶ Could not determine git remote username
-    //     )
-    //
-    // If this fails without the required override we just see:
-    //     called `Result::unwrap()` on an `Err` value: Failed to parse Gerrit configuration from Git remotes. Tried to parse these remotes:
-    //     • file:///dev/null
-    //     • ssh://csp-gerrit-ssh.volvocars.net/csp/hp/super
-    // which to its credit shows the remotes it tried
-    // but not the inner error.
     let mut gerrit = match gerrit {
         Ok(g) => g,
         Err(error) => {
@@ -400,8 +387,11 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     };
     let triplet_id = res.changes[0].triplet_id();
     let res = gerrit.get_submitted_together(&triplet_id);
+    let res = res
+        .map_err(|e| anyhow::Error::from_boxed(e.into()))
+        .context("Could not query Gerrit's REST API for changes submitted together")?;
 
-    let res = order_submitted_together(res.unwrap())?;
+    let res = order_submitted_together(res)?;
 
     println!("# # Cherry-pick order:");
     let fetch_stem = "git toprepo fetch";
