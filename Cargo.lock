@@ -1060,6 +1060,7 @@ dependencies = [
  "predicates",
  "regex",
  "rstest",
+ "rust-netrc",
  "serde",
  "serde_json",
  "serde_path_to_error",

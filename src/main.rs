@@ -316,10 +316,13 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     // It is often missing from the remote! We could rely on `.gitreview`.
     // let username_override = parsed_remote.username;
 
-    // TODO: Take from $USER, or leave it? It is only required for ssh anyway
-    // and ssh can find it on its own...
-    // DEBUG: make it work:
-    let username = "nwirekli".to_owned();
+    let netrc = netrc::Netrc::new()?;
+
+    let authenticator = netrc
+        .hosts
+        .get(&http_host)
+        .context("Looking for Gerrit entry for '{&http_host}' in netrc file.")?;
+    let username = authenticator.login.clone();
 
     let host = git_gr_lib::gerrit_project::GerritProject {
         host: git_gr_lib::gerrit_host::GerritHost {
@@ -333,9 +336,12 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
 
     let gerrit = Gerrit::new(
         host,
+        // TODO: Now that we do parse the netrc ourselves we might as well pick
+        // out the password and pass it on? To bypass even more setup code in
+        // git-gr.
         HTTPPasswordPolicy::Netrc,
         /* cache: */ true,
-        /* persist ssh: */ false,
+        /* persist SSH: */ false, // No SSH calls are expected.
     );
 
     let mut gerrit = match gerrit {
