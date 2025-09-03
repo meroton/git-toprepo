@@ -49,6 +49,8 @@ pub const TOPREPO_CONFIG_FILE_KEY: &str = "config";
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 #[serde(deny_unknown_fields)]
+/// Static configuration for the tool itself.
+/// Read from the configuration file.
 pub struct GitTopRepoConfig {
     #[serde(skip)]
     pub checksum: String,
@@ -56,6 +58,7 @@ pub struct GitTopRepoConfig {
     pub fetch: GlobalFetchConfig,
     #[serde(rename = "repo")]
     pub subrepos: BTreeMap<SubRepoName, SubRepoConfig>,
+    // TODO: remove refined dynamic data from this struct.
     /// List of subrepos that are missing in the configuration and have
     /// automatically been added to `suprepos`.
     #[serde(skip)]

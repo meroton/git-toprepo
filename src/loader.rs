@@ -1,4 +1,6 @@
+use crate::config::GetOrInsertOk;
 use crate::config::GitTopRepoConfig;
+use crate::config::SubRepoConfig;
 use crate::git::BlobId;
 use crate::git::CommitId;
 use crate::git::GitModulesInfo;
@@ -21,6 +23,7 @@ use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::ui::ProgressStatus;
 use crate::ui::ProgressTaskHandle;
+use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
 use bstr::BStr;
@@ -42,6 +45,167 @@ use tracing::instrument;
 /// printing log messages as they then can include the refs the user need to
 /// look into.
 type CommitToRefMap = HashMap<CommitId, Vec<FullName>>;
+
+/// A mapping of submodule filter/expansion status.
+/// Moved out of `GitTopRepoConfig` and duplicates some data.
+/// This will be mutated during the filter/expansion algorithm
+/// and the `monorepo` object will have implementation details tracked for
+/// submodules in here.
+// TODO: Split the shared `SubRepoConfig` to be specific to the two different
+// usecases.
+struct SubRepoLedger {
+    subrepos: BTreeMap<SubRepoName, SubRepoConfig>,
+
+    /// List of subrepos that are missing in the configuration and have
+    /// automatically been added to `suprepos`.
+    pub missing_subrepos: HashSet<SubRepoName>,
+}
+
+impl SubRepoLedger {
+    /// Gets a `SubRepoConfig` based on a URL using exact matching. If an URL is
+    /// missing, the user should add it to the `SubRepoConfig::urls` list.
+    pub fn get_name_from_url(&self, url: &gix::Url) -> Result<Option<SubRepoName>> {
+        let mut matches = self
+            .subrepos
+            .iter()
+            .filter(|(_name, subrepo_config)| subrepo_config.urls.iter().any(|u| u == url));
+        let Some(first_match) = matches.next() else {
+            return Ok(None);
+        };
+        if let Some(second_match) = matches.next() {
+            let names = [first_match, second_match]
+                .into_iter()
+                .chain(matches)
+                .map(|(name, _)| name)
+                .join(", ");
+            bail!("Multiple remote candidates for {url}: {names}");
+        }
+        // Only a single match.
+        let repo_name = first_match.0;
+        if self.missing_subrepos.contains(repo_name) {
+            Ok(None)
+        } else {
+            Ok(Some(repo_name.clone()))
+        }
+    }
+
+    pub fn default_name_from_url(&self, repo_url: &gix::Url) -> Option<SubRepoName> {
+        // TODO: UTF-8 validation.
+        let mut name: &str = &repo_url.path.to_str_lossy();
+        if name.ends_with(".git") {
+            name = &name[..name.len() - 4];
+        } else if name.ends_with("/") {
+            name = &name[..name.len() - 1];
+        }
+        loop {
+            if name.starts_with("../") {
+                name = &name[3..];
+            } else if name.starts_with("./") {
+                name = &name[2..];
+            } else if name.starts_with("/") {
+                name = &name[1..];
+            } else {
+                break;
+            }
+        }
+        let name = name.replace("/", "_");
+        match RepoName::new(name) {
+            RepoName::Top => None,
+            RepoName::SubRepo(name) => Some(name),
+        }
+    }
+
+    /// Get a repo name given a full url when doing an approximative matching,
+    /// for example matching `ssh://foo/bar.git` with `https://foo/bar`.
+    pub fn get_name_from_similar_full_url(
+        &self,
+        wanted_full_url: gix::Url,
+        base_url: &gix::Url,
+    ) -> Result<RepoName> {
+        let wanted_url_str = wanted_full_url.to_string();
+        let trimmed_wanted_full_url = wanted_full_url.trim_url_path();
+        let mut matching_names = Vec::new();
+        if trimmed_wanted_full_url.approx_equal(&base_url.clone().trim_url_path()) {
+            matching_names.push(RepoName::Top);
+        }
+        for (submod_name, submod_config) in self.subrepos.iter() {
+            if submod_config.urls.iter().any(|submod_url| {
+                let full_submod_url = base_url.join(submod_url).trim_url_path();
+                full_submod_url.approx_equal(&trimmed_wanted_full_url)
+            }) {
+                matching_names.push(RepoName::SubRepo(submod_name.clone()));
+            }
+        }
+        matching_names.sort();
+        let repo_name = match matching_names.as_slice() {
+            [] => anyhow::bail!("No configured submodule URL matches {wanted_url_str:?}"),
+            [repo_name] => repo_name.clone(),
+            [_, ..] => anyhow::bail!(
+                "URLs from multiple configured repos match: {}",
+                matching_names
+                    .iter()
+                    .map(|name| name.to_string())
+                    .join(", ")
+            ),
+        };
+        Ok(repo_name)
+    }
+
+    /// Get a subrepo configuration without creating a new entry if missing.
+    pub fn get_from_url(
+        &self,
+        repo_url: &gix::Url,
+    ) -> Result<Option<(SubRepoName, &SubRepoConfig)>> {
+        match self.get_name_from_url(repo_url)? {
+            Some(repo_name) => {
+                let subrepo_config = self.subrepos.get(&repo_name).expect("valid subrepo name");
+                Ok(Some((repo_name, subrepo_config)))
+            }
+            None => Ok(None),
+        }
+    }
+
+
+    /// Get a subrepo configuration or create a new entry if missing.
+    pub fn get_or_insert_from_url<'a>(
+        &'a mut self,
+        repo_url: &gix::Url,
+    ) -> Result<GetOrInsertOk<'a>> {
+        let Some(repo_name) = self.get_name_from_url(repo_url)? else {
+            let mut repo_name = self.default_name_from_url(repo_url).with_context(|| {
+                format!(
+                    "URL {repo_url} cannot be automatically converted to a valid repo name. \
+                    Please create a manual config entry with the URL."
+                )
+            })?;
+            // Instead of just self.subrepos.get(&repo_name), also check for
+            // case insensitive repo name uniqueness. It's confusing for the
+            // user to get multiple repos with the same name and not
+            // realising that it's just the casing that is different.
+            // Manually adding multiple entries with different casing is
+            // allowed but not recommended.
+            for existing_name in self.subrepos.keys() {
+                if repo_name.to_lowercase() == existing_name.to_lowercase() {
+                    repo_name = existing_name.clone();
+                }
+            }
+            let urls = &mut self.subrepos.entry(repo_name.clone()).or_default().urls;
+            if !urls.contains(repo_url) {
+                urls.push(repo_url.clone());
+            }
+            return Ok(if self.missing_subrepos.insert(repo_name.clone()) {
+                GetOrInsertOk::Missing(repo_name.clone())
+            } else {
+                GetOrInsertOk::MissingAgain(repo_name.clone())
+            });
+        };
+        let subrepo_config = self
+            .subrepos
+            .get_mut(&repo_name)
+            .expect("valid subrepo name");
+        Ok(GetOrInsertOk::Found((repo_name, subrepo_config)))
+    }
+}
 
 enum TaskResult {
     RepoFetchDone {
@@ -98,7 +262,8 @@ pub struct CommitLoader<'a> {
     repos: HashMap<RepoName, RepoFetcher>,
     /// Repositories that have been loaded from the cache.
     cached_repo_states: &'a mut RepoStates,
-    config: &'a mut GitTopRepoConfig,
+    // TODO: Why is this mutated?
+    config: &'a GitTopRepoConfig,
 
     tx: std::sync::mpsc::Sender<TaskResult>,
     rx: std::sync::mpsc::Receiver<TaskResult>,
@@ -807,7 +972,7 @@ impl<'a> CommitLoader<'a> {
     fn verify_cached_commit(
         repo_storage: &RepoData,
         commit: &ThinCommit,
-        config: &mut GitTopRepoConfig,
+        config: &GitTopRepoConfig,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
     ) -> Result<()> {
@@ -947,7 +1112,7 @@ impl<'a> CommitLoader<'a> {
         repo_storage: &RepoData,
         exported_commit: FastExportCommit,
         tree_id: TreeId,
-        config: &mut GitTopRepoConfig,
+        ledger: &mut SubRepoLedger,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
     ) -> Result<(Rc<ThinCommit>, Vec<NeededCommit>)> {
@@ -994,7 +1159,7 @@ impl<'a> CommitLoader<'a> {
                             thin_parents.first(),
                             &path,
                             &repo_storage.url,
-                            config,
+                            ledger,
                             dot_gitmodules_cache,
                             commit_log_level,
                         );
@@ -1054,7 +1219,7 @@ impl<'a> CommitLoader<'a> {
                             thin_parents.first(),
                             path,
                             &repo_storage.url,
-                            config,
+                            ledger,
                             dot_gitmodules_cache,
                             commit_log_level,
                         );
@@ -1121,7 +1286,7 @@ impl<'a> CommitLoader<'a> {
         first_parent: Option<&Rc<ThinCommit>>,
         path: &GitPath,
         base_url: &gix::Url,
-        config: &mut GitTopRepoConfig,
+        ledger: &SubRepoLedger,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
     ) -> Option<SubRepoName> {
@@ -1174,7 +1339,7 @@ impl<'a> CommitLoader<'a> {
             }
         };
         let full_url = base_url.join(submod_url);
-        let name = match config
+        let name = match ledger
             .get_or_insert_from_url(&full_url)
             .map_err(|err| {
                 if do_log() {

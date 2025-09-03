@@ -110,6 +110,8 @@ they are part of _topcommit_s.
 These are fetched in `git-toprepo fetch`
 these are formed when pushing new work with `git-toprepo push`.
 
+**SubRepo**: A _submodule_, either _assimilated_ or left as _regular submodule_.
+
 ## Examples
 
 ### Initialization: Create a toprepo for a repository
