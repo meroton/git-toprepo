@@ -296,10 +296,15 @@ Initial empty git-toprepo configuration
 
 pub struct MonoRepoProcessor {
     pub gix_repo: gix::ThreadSafeRepository,
-    pub config: crate::config::GitTopRepoConfig,
     pub top_repo_cache: crate::repo::TopRepoCache,
     pub error_observer: crate::log::ErrorObserver,
     pub progress: indicatif::MultiProgress,
+
+    // Cache the config in the struct to avoid passing it through all functions.
+    // Other's should not use the config through the processor.
+    // The processor only export specific or refined data.
+    // Base data that is given to the processor is not re-exported.
+    config: crate::config::GitTopRepoConfig,
 }
 
 impl MonoRepoProcessor {
