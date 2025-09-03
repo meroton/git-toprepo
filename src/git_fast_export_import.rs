@@ -813,6 +813,7 @@ mod tests {
     use crate::git::CommitId;
     use crate::git::GitPath;
     use crate::util::CommandExtension as _;
+    use crate::util::NewlineTrimmer as _;
     use bstr::ByteSlice;
     use std::borrow::Borrow as _;
     use std::path::Path;
@@ -850,7 +851,7 @@ mod tests {
             .check_success_with_stderr()
             .unwrap();
 
-        let commit_id_hex = crate::util::trim_newline_suffix(output.stdout.to_str().unwrap());
+        let commit_id_hex = output.stdout.to_str().unwrap().trim_newline_suffix();
         CommitId::from_hex(commit_id_hex.as_bytes()).unwrap()
     }
 

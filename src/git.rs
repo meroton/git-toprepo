@@ -1,6 +1,6 @@
 use crate::log::CommandSpanExt as _;
 use crate::util::CommandExtension as _;
-use crate::util::trim_newline_suffix;
+use crate::util::NewlineTrimmer as _;
 use anyhow::Context;
 use anyhow::Result;
 use bstr::BString;
@@ -244,7 +244,7 @@ pub fn git_config_get(repo: &Path, key: &str) -> anyhow::Result<Option<String>> 
     } else {
         output.check_success_with_stderr()?;
         Ok(Some(
-            trim_newline_suffix(output.stdout.to_str()?).to_string(),
+            output.stdout.to_str()?.trim_newline_suffix().to_string(),
         ))
     }
 }
