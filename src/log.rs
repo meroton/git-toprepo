@@ -489,11 +489,35 @@ pub struct ErrorObserver {
 }
 
 impl ErrorObserver {
-    pub fn new(strategy: ErrorMode) -> Self {
+    fn new(strategy: ErrorMode) -> Self {
         ErrorObserver {
             counter: Arc::new(AtomicUsize::new(0)),
             strategy,
         }
+    }
+
+    pub fn run_keep_going<T>(
+        keep_going: bool,
+        f: impl FnOnce(&ErrorObserver) -> Result<T>,
+    ) -> Result<T> {
+        Self::run(ErrorMode::from_keep_going_flag(keep_going), f)
+    }
+
+    /// Runs the given function while collecting and logging errors. After `f`
+    /// has returned, `has_got_errors()` is called and an error will be returned
+    /// if any error was observed during processing.
+    pub fn run<T>(strategy: ErrorMode, f: impl FnOnce(&ErrorObserver) -> Result<T>) -> Result<T> {
+        let observer = ErrorObserver::new(strategy);
+        let result = f(&observer);
+        if observer.has_got_errors() {
+            observer.maybe_consume(result.map(|_| ()))?;
+            let error_count = observer.counter.load(std::sync::atomic::Ordering::Relaxed);
+            bail!(
+                "Processing failed, see the {error_count} previous error{}",
+                if error_count == 1 { "" } else { "s" }
+            );
+        }
+        result
     }
 
     /// Returns `true` if the strategy is `FailFast` and the processing
@@ -544,8 +568,9 @@ impl ErrorObserver {
             .ok()
     }
 
-    /// Write the error to the logger if in keep-going mode and return the
-    /// result. Return the error in fail-fast mode.
+    /// In keep-going mode, write the error to the logger and return `Ok(())`.
+    ///
+    /// In fail-fast mode, simply return the result and count the errors.
     pub fn maybe_consume(&self, result: Result<()>) -> Result<()> {
         match result {
             Ok(_) => Ok(()),

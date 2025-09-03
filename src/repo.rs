@@ -234,12 +234,11 @@ pub struct MonoRepoProcessor {
     pub gix_repo: gix::ThreadSafeRepository,
     pub config: crate::config::GitTopRepoConfig,
     pub top_repo_cache: crate::repo::TopRepoCache,
-    pub error_observer: crate::log::ErrorObserver,
     pub progress: indicatif::MultiProgress,
 }
 
 impl MonoRepoProcessor {
-    pub fn run<T, F>(directory: &Path, error_mode: crate::log::ErrorMode, f: F) -> Result<T>
+    pub fn run<T, F>(directory: &Path, f: F) -> Result<T>
     where
         F: FnOnce(&mut MonoRepoProcessor) -> Result<T>,
     {
@@ -260,12 +259,10 @@ impl MonoRepoProcessor {
         )
         .with_context(|| format!("Loading cache from {}", gix_repo.git_dir().display()))?
         .unpack()?;
-        let error_observer = crate::log::ErrorObserver::new(error_mode);
         let mut processor = MonoRepoProcessor {
             gix_repo,
             config,
             top_repo_cache,
-            error_observer,
             progress: indicatif::MultiProgress::new(),
         };
         processor
@@ -293,9 +290,6 @@ impl MonoRepoProcessor {
             && result.is_ok()
         {
             result = Err(err);
-        }
-        if result.is_ok() && processor.error_observer.has_got_errors() {
-            anyhow::bail!("Processing failed, see previous errors");
         }
         result
     }
