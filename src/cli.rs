@@ -264,15 +264,13 @@ pub struct Fetch {
     pub fetch_entire_topics_from_gerrit: bool,
 }
 
-impl Fetch {
-    pub fn resolve_remote_and_path(
-        &self,
-        repo: &gix::Repository,
-        config: &GitTopRepoConfig,
-    ) -> Result<ResolvedFetchParams> {
-        FetchParamsResolver::new(repo, config)?
-            .resolve_remote_and_path(self.remote.as_deref(), self.path.as_deref())
-    }
+pub fn resolve_remote_and_path(
+    args: &Fetch,
+    repo: &gix::Repository,
+    config: &GitTopRepoConfig,
+) -> Result<ResolvedFetchParams> {
+    FetchParamsResolver::new(repo, config)?
+        .resolve_remote_and_path(args.remote.as_deref(), args.path.as_deref())
 }
 
 #[derive(Debug)]
@@ -316,6 +314,7 @@ impl<'a> FetchParamsResolver<'a> {
     ) -> Result<ResolvedFetchParams> {
         // Convert from working directory relative `Path` to worktree relative
         // `GitPath`.
+        // TODO: why does this not have a git-toprepo object?
         let override_path = match override_path {
             Some(path) => Some(repo_relative_path(&self.worktree, path)?),
             None => None,
