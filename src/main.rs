@@ -390,7 +390,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
         for repo in atomic.into_iter() {
             for commit in repo.into_iter() {
                 let remote = format!("ssh://{}/{}.git", gerrit.ssh_host(), commit.project);
-                let cherry_pick = "&& git cherry-pick FETCH_HEAD";
+                let cherry_pick = "&& git cherry-pick refs/toprepo/fetch-head";
                 println!(
                     "{fetch_stem} {remote} {} {cherry_pick} # topic index: {index}",
                     commit.current_revision.unwrap()
