@@ -1,4 +1,5 @@
 use assert_cmd::prelude::*;
+use predicate::str::contains;
 use predicates::prelude::*;
 use std::process::Command;
 
@@ -30,7 +31,49 @@ fn test_dump_outside_git_repo() {
         .arg("import-cache")
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
+        .stderr(contains(
             git_toprepo::repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY,
         ));
+}
+
+#[test]
+fn test_dump_git_modules() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_merge_with_one_submodule_a.sh",
+        )
+        .unwrap(),
+    );
+
+    let project = "main/project";
+    let temp_dir = temp_dir.path().join("top");
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&temp_dir)
+        // An arbitrary subcommand that requires it to be initialized
+        .arg("dump")
+        .arg("git-modules")
+        .assert()
+        .failure()
+        .stderr(contains("Loading the main repo Gerrit project"));
+
+    Command::new("git")
+        .current_dir(&temp_dir)
+        .arg("remote")
+        .arg("add")
+        .arg("origin")
+        .arg(format!("ssh://gerrit.example/{project}.git"))
+        .assert()
+        .success();
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&temp_dir)
+        // An arbitrary subcommand that requires it to be initialized
+        .arg("dump")
+        .arg("git-modules")
+        .assert()
+        .success()
+        .stdout(contains(project));
 }

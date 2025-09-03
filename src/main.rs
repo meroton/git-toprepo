@@ -259,7 +259,9 @@ fn dump_modules() -> Result<()> {
     }
     let toprepo = repo::TopRepo::open(&PathBuf::from("."))?;
 
-    let main_project = toprepo.gerrit_project();
+    let main_project = toprepo
+        .gerrit_project()
+        .context(git_toprepo::repo::LOADING_THE_MAIN_PROJECT_CONTEXT)?;
     let mut modules: Vec<Mod> = toprepo
         .submodules()?
         .into_iter()
