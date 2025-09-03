@@ -14,6 +14,8 @@ use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::git::git_command;
 use git_toprepo::log::CommandSpanExt as _;
+use git_toprepo::log::ErrorMode;
+use git_toprepo::log::ErrorObserver;
 use git_toprepo::repo;
 use git_toprepo::repo::MonoRepoProcessor;
 use git_toprepo::repo_name::RepoName;
@@ -178,24 +180,21 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
     let gix_repo = gix_repo.clone();
 
     git_toprepo::log::get_global_logger().with_progress(|progress| {
-        (|| -> Result<()> {
-            let error_observer =
-                git_toprepo::log::ErrorObserver::new(git_toprepo::log::ErrorMode::KeepGoing);
+        ErrorObserver::run(ErrorMode::KeepGoing, |error_observer| {
             let mut commit_loader = git_toprepo::loader::CommitLoader::new(
                 gix_repo,
                 &mut top_repo_cache.repos,
                 &mut config,
                 progress.clone(),
-                error_observer.clone(),
+                error_observer,
                 threadpool::ThreadPool::new(1),
             )?;
             commit_loader.fetch_missing_commits = false;
             // No point in spamming with warnings when a configuration is missing anyway.
             commit_loader.log_missing_config_warnings = false;
             commit_loader.load_repo(&git_toprepo::repo_name::RepoName::Top)?;
-            commit_loader.join()?;
-            error_observer.get_result(())
-        })()
+            commit_loader.join()
+        })
         .context("Failed to load the top repo")?;
 
         // Go through submodules at HEAD and enable them in the config.
@@ -309,14 +308,17 @@ fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) ->
     if !refilter_args.reuse_cache {
         processor.top_repo_cache = repo::TopRepoCache::default();
     }
-    load_commits(
-        refilter_args.job_count.into(),
-        |commit_loader| {
-            commit_loader.fetch_missing_commits = !refilter_args.no_fetch;
-            commit_loader.load_repo(&git_toprepo::repo_name::RepoName::Top)
-        },
-        processor,
-    )?;
+    ErrorObserver::run_keep_going(refilter_args.keep_going, |error_observer| {
+        load_commits(
+            refilter_args.job_count.into(),
+            |commit_loader| {
+                commit_loader.fetch_missing_commits = !refilter_args.no_fetch;
+                commit_loader.load_repo(&git_toprepo::repo_name::RepoName::Top)
+            },
+            processor,
+            error_observer,
+        )
+    })?;
     processor.refilter_all_top_refs()
 }
 
@@ -501,110 +503,112 @@ fn fetch_with_refspec(
     detailed_refspecs: &Vec<DetailedFetchRefspec>,
     processor: &mut MonoRepoProcessor,
 ) -> Result<()> {
-    let repo = processor.gix_repo.to_thread_local();
-    let mut fetcher = git_toprepo::fetch::RemoteFetcher::new(&repo);
+    ErrorObserver::run_keep_going(fetch_args.keep_going, |error_observer| {
+        let repo = processor.gix_repo.to_thread_local();
+        let mut fetcher = git_toprepo::fetch::RemoteFetcher::new(&repo);
 
-    fetcher.remote = Some(
-        resolved_args
-            .url
-            .to_bstring()
-            .to_str()
-            .context("Bad UTF-8 defualt remote URL")?
-            .to_owned(),
-    );
-    // TODO: Should the + force be possible to remove?
-    fetcher.refspecs = detailed_refspecs
-        .iter()
-        .map(|refspec| format!("+{}:{}", refspec.remote_ref, refspec.unfiltered_ref))
-        .collect_vec();
-    fetcher.fetch_on_terminal()?;
-    // Stop early?
-    if fetch_args.skip_filter {
-        return Ok(());
-    }
-    processor.reload_config()?;
-
-    load_commits(
-        fetch_args.job_count.into(),
-        |commit_loader| commit_loader.load_repo(&resolved_args.repo),
-        processor,
-    )?;
-
-    match &resolved_args.repo {
-        RepoName::Top => {
-            let top_refs = detailed_refspecs
-                .iter()
-                .map(|refspec| &refspec.unfiltered_ref);
-            processor.refilter_some_top_refspecs(top_refs)?;
+        fetcher.remote = Some(
+            resolved_args
+                .url
+                .to_bstring()
+                .to_str()
+                .context("Bad UTF-8 defualt remote URL")?
+                .to_owned(),
+        );
+        // TODO: Should the + force be possible to remove?
+        fetcher.refspecs = detailed_refspecs
+            .iter()
+            .map(|refspec| format!("+{}:{}", refspec.remote_ref, refspec.unfiltered_ref))
+            .collect_vec();
+        fetcher.fetch_on_terminal()?;
+        // Stop early?
+        if fetch_args.skip_filter {
+            return Ok(());
         }
-        RepoName::SubRepo(sub_repo_name) => {
-            for refspec in detailed_refspecs {
-                if processor.error_observer.should_interrupt() {
-                    bail!("Aborting due to previous errors");
-                }
-                // TODO: Reuse the git-fast-import process for all refspecs.
-                let dest_ref = refspec.destination.get_filtered_ref();
-                if let Err(err) = processor.expand_submodule_ref_onto_head(
-                    refspec.unfiltered_ref.as_ref(),
-                    sub_repo_name,
-                    &resolved_args.path,
-                    dest_ref,
-                ) {
-                    log::error!("Failed to expand {}: {err:#}", refspec.remote_ref);
+        processor.reload_config()?;
+
+        load_commits(
+            fetch_args.job_count.into(),
+            |commit_loader| commit_loader.load_repo(&resolved_args.repo),
+            processor,
+            error_observer,
+        )?;
+
+        match &resolved_args.repo {
+            RepoName::Top => {
+                let top_refs = detailed_refspecs
+                    .iter()
+                    .map(|refspec| &refspec.unfiltered_ref);
+                processor.refilter_some_top_refspecs(top_refs)?;
+            }
+            RepoName::SubRepo(sub_repo_name) => {
+                for refspec in detailed_refspecs {
+                    // TODO: Reuse the git-fast-import process for all refspecs.
+                    let dest_ref = refspec.destination.get_filtered_ref();
+                    if let Err(err) = processor.expand_submodule_ref_onto_head(
+                        refspec.unfiltered_ref.as_ref(),
+                        sub_repo_name,
+                        &resolved_args.path,
+                        dest_ref,
+                    ) {
+                        log::error!("Failed to expand {}: {err:#}", refspec.remote_ref);
+                    }
                 }
             }
         }
-    }
 
-    // Update .git/FETCH_HEAD.
-    let mut fetch_head_lines = Vec::new();
-    for refspec in detailed_refspecs {
-        match &refspec.destination {
-            FetchDestinationRef::Normal(_normal_ref) => {
-                // Normal ref is written by git-fast-import.
-            }
-            FetchDestinationRef::FetchHead {
-                filtered_ref,
-                description_suffix,
-            } => {
-                // Special case for FETCH_HEAD.
-                let mut r = repo
-                    .find_reference(filtered_ref.as_ref())
-                    .with_context(|| {
-                        format!("Failed to find filtered ref {}", filtered_ref.as_bstr())
-                    })?;
-                let r = r.follow_to_object().with_context(|| {
-                    format!(
-                        "Failed to follow filtered ref {} to commit or tag",
-                        filtered_ref.as_bstr()
-                    )
-                })?;
-                let mono_object_id = r
-                    .object()
-                    .with_context(|| {
+        // Update .git/FETCH_HEAD.
+        let mut fetch_head_lines = Vec::new();
+        for refspec in detailed_refspecs {
+            match &refspec.destination {
+                FetchDestinationRef::Normal(_normal_ref) => {
+                    // Normal ref is written by git-fast-import.
+                }
+                FetchDestinationRef::FetchHead {
+                    filtered_ref,
+                    description_suffix,
+                } => {
+                    // Special case for FETCH_HEAD.
+                    let mut r = repo
+                        .find_reference(filtered_ref.as_ref())
+                        .with_context(|| {
+                            format!("Failed to find filtered ref {}", filtered_ref.as_bstr())
+                        })?;
+                    let r = r.follow_to_object().with_context(|| {
                         format!(
-                            "Failed to get the object id for filtered ref {}",
+                            "Failed to follow filtered ref {} to commit or tag",
                             filtered_ref.as_bstr()
                         )
-                    })?
-                    .id;
-                fetch_head_lines.push(format!("{}{description_suffix}\n", mono_object_id.to_hex()));
+                    })?;
+                    let mono_object_id = r
+                        .object()
+                        .with_context(|| {
+                            format!(
+                                "Failed to get the object id for filtered ref {}",
+                                filtered_ref.as_bstr()
+                            )
+                        })?
+                        .id;
+                    fetch_head_lines
+                        .push(format!("{}{description_suffix}\n", mono_object_id.to_hex()));
+                }
             }
         }
-    }
-    if !fetch_head_lines.is_empty() {
-        // Update .git/FETCH_HEAD.
-        let fetch_head_path = repo.git_dir().join("FETCH_HEAD");
-        std::fs::write(&fetch_head_path, fetch_head_lines.join(""))?;
-    }
-    Ok(())
+        if !fetch_head_lines.is_empty() {
+            // Update .git/FETCH_HEAD.
+            let fetch_head_path = repo.git_dir().join("FETCH_HEAD");
+            std::fs::write(&fetch_head_path, fetch_head_lines.join(""))?;
+        }
+        Ok(())
+    })
 }
 
-#[tracing::instrument(skip(commit_loader_setup, processor))]
+#[tracing::instrument(skip_all, fields(job_count = %job_count))]
 fn load_commits<F>(
     job_count: NonZeroUsize,
     commit_loader_setup: F,
     processor: &mut MonoRepoProcessor,
+    error_observer: &ErrorObserver,
 ) -> Result<()>
 where
     F: FnOnce(&mut git_toprepo::loader::CommitLoader) -> Result<()>,
@@ -614,14 +618,11 @@ where
         &mut processor.top_repo_cache.repos,
         &mut processor.config,
         processor.progress.clone(),
-        processor.error_observer.clone(),
+        error_observer,
         threadpool::ThreadPool::new(job_count.get()),
     )?;
     commit_loader_setup(&mut commit_loader).with_context(|| "Failed to setup the commit loader")?;
     commit_loader.join()?;
-    if processor.error_observer.has_got_errors() {
-        anyhow::bail!("Failed to load commits, see previous errors");
-    }
     Ok(())
 }
 
@@ -800,18 +801,13 @@ where
             }
         }
     }
-    let error_mode = git_toprepo::log::ErrorMode::from_keep_going_flag(match &args.command {
-        Commands::Refilter(refilter_args) => refilter_args.keep_going,
-        Commands::Fetch(fetch_args) => fetch_args.keep_going,
-        _ => false,
-    });
 
     // Now when the working directory is set, we can persist the tracing.
     if let Some(logger) = logger {
         logger.write_to_git_dir(gix::open(".")?.git_dir())?;
     }
 
-    git_toprepo::repo::MonoRepoProcessor::run(Path::new("."), error_mode, |processor| {
+    git_toprepo::repo::MonoRepoProcessor::run(Path::new("."), |processor| {
         match args.command {
             Commands::Init(_) => unreachable!("init already processed"),
             Commands::Clone(clone_args) => clone_after_init(&clone_args, processor),

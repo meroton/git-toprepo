@@ -79,7 +79,7 @@ pub struct CommitLoader<'a> {
     load_progress: ProgressStatus,
     fetch_progress: ProgressStatus,
     /// Signal to not start new work but to fail as fast as possible.
-    error_observer: crate::log::ErrorObserver,
+    error_observer: &'a crate::log::ErrorObserver,
     pub log_missing_config_warnings: bool,
 
     thread_pool: threadpool::ThreadPool,
@@ -103,7 +103,7 @@ impl<'a> CommitLoader<'a> {
         cached_repo_states: &'a mut RepoStates,
         config: &'a mut GitTopRepoConfig,
         progress: indicatif::MultiProgress,
-        error_observer: crate::log::ErrorObserver,
+        error_observer: &'a crate::log::ErrorObserver,
         thread_pool: threadpool::ThreadPool,
     ) -> Result<Self> {
         let (tx, rx) = std::sync::mpsc::channel::<TaskResult>();
