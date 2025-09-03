@@ -7,7 +7,8 @@ use std::collections::HashMap;
 // Order submitted_together
 //
 // Gerrit returns a partially ordered list of commits.
-// Where topics are clearly delineated and dependency order internal to repos.
+// Where topics are clearly delineated and dependency order internal to
+// repositories.
 // But across repos we have no order.
 //
 // Repos:    A     B     C     D
@@ -86,6 +87,9 @@ impl From<NewChange> for SubmittedTogether<String> {
     }
 }
 
+// TODO: Create a type alias for the VecVecVec
+// and explain the ordering of each
+// TODO: Consider using cherry-pickable chronological order within the repo.
 pub fn order_submitted_together(cons: Vec<NewChange>) -> Result<Vec<Vec<Vec<NewChange>>>> {
     let substrate: Vec<SubmittedTogether<String>> = cons.clone().vec_into();
     let restoration = cons
@@ -165,8 +169,8 @@ where
 
     let grouped = group_by_secondary(cons);
     // Successively iterate through all the secondary groupings and pop all "free" commits.
-    // Then when all groupings have a topic barrier (or if they are empty they
-    // are no longer part of this iteration).
+    // Then when all groupings have a topic barrier
+    // (or if they are empty they are no longer part of this iteration).
     // Match the first topic in topological order.
 
     // An ordered list of iterators into the different repositories.
@@ -190,7 +194,7 @@ where
     let mut index = 0;
     loop {
         if iteration_limit == 0 {
-            println!("WARNING: Iteration limit hit");
+            eprintln!("WARNING: Iteration limit hit: truncating work.");
             break;
         }
         iteration_limit -= 1;
