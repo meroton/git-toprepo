@@ -107,10 +107,56 @@ impl From<NewChange> for SubmittedTogether<String> {
     }
 }
 
-// TODO: Create a type alias for the VecVecVec
-// and explain the ordering of each
-// TODO: Consider using cherry-pickable chronological order within the repo.
-pub fn order_submitted_together(cons: Vec<NewChange>) -> Result<Vec<Vec<Vec<NewChange>>>> {
+/// Changes submitted together. This is a Gerrit concept relating to _unmerged_
+/// commits. That *would* be submitted together. We partition that from a flat
+/// list to a list of topics, with repositories, that contain individual
+/// commits.
+///
+/// Vec<                   > : List of topics
+///     Vec<              >  : List of repositories
+///         Vec<         >   : List of commits
+///             NewChange    : commit
+pub struct ChangesSubmittedTogether(pub Vec<Vec<Vec<NewChange>>>);
+
+// TODO: What should this be called?
+/// Changes to fetch and filter.
+///
+/// Vec<                        > : List of topics
+///     Vec<                   >  : List of supercommits
+///         Vec<              >   : List of repositories
+///             Vec<         >    : List of commits
+///                 NewChange     : commit
+pub struct CherryPickable(pub Vec<Vec<Vec<Vec<NewChange>>>>);
+
+impl ChangesSubmittedTogether {
+    // TODO: This must be idempotent!
+    //       (Use a different return type, or phantom marker)
+    // TODO: add a test!
+    //       (It is easier to test in the SubmittedTogether<T> world).
+    pub fn chronological_order(self) -> Self {
+        ChangesSubmittedTogether(self.0.into_iter().rev().collect())
+    }
+
+    #[allow(unused)]
+    fn gerrit_order(self) -> Self {
+        self
+    }
+}
+
+pub fn split_by_supercommits(
+    to_fetch: ChangesSubmittedTogether, /*, strategy */
+) -> Result<CherryPickable> {
+    // let mut res: Vec<Vec<Vec<Vec<NewChange>>>> = Vec::new();
+    let mut res = Vec::new();
+    for topic in to_fetch.0.into_iter() {
+        let supercommit: Vec<Vec<NewChange>> = topic.clone();
+        res.push(vec![supercommit]);
+    }
+
+    Ok(CherryPickable(res))
+}
+
+pub fn order_submitted_together(cons: Vec<NewChange>) -> Result<ChangesSubmittedTogether> {
     let substrate: Vec<SubmittedTogether<String>> = cons.clone().vec_into();
     let restoration = cons
         .iter()
@@ -132,7 +178,7 @@ pub fn order_submitted_together(cons: Vec<NewChange>) -> Result<Vec<Vec<Vec<NewC
         res.push(repo);
     }
 
-    Ok(res)
+    Ok(ChangesSubmittedTogether(res))
 }
 
 fn group_by_repo<T>(cons: &[SubmittedTogether<T>]) -> Vec<Vec<&SubmittedTogether<T>>>

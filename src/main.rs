@@ -28,6 +28,7 @@ use git_toprepo::repo::ConfiguredTopRepo;
 use git_toprepo::repo::ImportCache;
 use git_toprepo::repo_name::RepoName;
 use git_toprepo::submitted_together::order_submitted_together;
+use git_toprepo::submitted_together::split_by_supercommits;
 use git_toprepo::util::CommandExtension as _;
 use gix::refs::FullName;
 use gix::refs::FullNameRef;
@@ -405,22 +406,25 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
         .map_err(|e| anyhow::Error::from_boxed(e.into()))
         .context("Could not query Gerrit's REST API for changes submitted together")?;
 
-    let res = order_submitted_together(res)?;
+    let res = order_submitted_together(res)?.chronological_order();
+    let res = split_by_supercommits(res /*, supercommit_strategy */)?;
 
     println!("# # Cherry-pick order:");
     let fetch_stem = "git toprepo fetch";
-    for (index, atomic) in res.into_iter().rev().enumerate() {
-        for repo in atomic.into_iter() {
-            for commit in repo.into_iter().rev() {
-                let remote = format!("ssh://{}/{}.git", gerrit.host.host.host, commit.project);
-                let cherry_pick = "&& git cherry-pick --allow-empty refs/toprepo/fetch-head";
-                if let Some(subject) = commit.subject {
-                    println!("# {subject}");
+    for (index, topic) in res.0.into_iter().enumerate() {
+        for supercommit in topic.into_iter() {
+            for repo in supercommit.into_iter() {
+                for commit in repo.into_iter().rev() {
+                    let remote = format!("ssh://{}/{}.git", gerrit.host.host.host, commit.project);
+                    let cherry_pick = "&& git cherry-pick --allow-empty refs/toprepo/fetch-head";
+                    if let Some(subject) = commit.subject {
+                        println!("# {subject}");
+                    }
+                    println!(
+                        "{fetch_stem} {remote} {} {cherry_pick} # topic index: {index}",
+                        commit.current_revision.unwrap()
+                    );
                 }
-                println!(
-                    "{fetch_stem} {remote} {} {cherry_pick} # topic index: {index}",
-                    commit.current_revision.unwrap()
-                );
             }
         }
     }
