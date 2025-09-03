@@ -137,6 +137,37 @@ impl<'de> DeserializeAs<'de, Option<gix::Url>> for SerdeGixUrl {
     }
 }
 
+pub(crate) struct SerdeOctalNumber;
+
+impl SerializeAs<u32> for SerdeOctalNumber {
+    fn serialize_as<S>(source: &u32, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if serializer.is_human_readable() {
+            let source_str = format!("{source:o}");
+            source_str.serialize(serializer)
+        } else {
+            source.serialize(serializer)
+        }
+    }
+}
+
+impl<'de> DeserializeAs<'de, u32> for SerdeOctalNumber {
+    fn deserialize_as<D>(deserializer: D) -> Result<u32, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            let s = String::deserialize(deserializer)?;
+            u32::from_str_radix(&s, 8)
+                .map_err(|err| serde::de::Error::custom(format!("Invalid octal number {s}: {err}")))
+        } else {
+            u32::deserialize(deserializer)
+        }
+    }
+}
+
 /// A wrapper around `HashMap<K, V>` that serializes the keys in sorted order.
 /// This is useful when comparing JSON serialized data.
 pub(crate) struct OrderedHashMap<K, V> {

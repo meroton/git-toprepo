@@ -11,6 +11,7 @@ use crate::git_fast_export_import::FileChange;
 use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::log::InterruptedError;
 use crate::log::InterruptedResult;
+use crate::repo::ExportedFileEntry;
 use crate::repo::RepoData;
 use crate::repo::RepoStates;
 use crate::repo::ThinCommit;
@@ -981,25 +982,30 @@ impl<'a> CommitLoader<'a> {
         Ok((thin_commit, new_submodule_commits))
     }
 
-    /// Returns `Ok(Some(...))` if a `.gitmodules` update was found.
+    /// Returns `Ok(Some(...))` if a `.gitmodules` update was found and
+    /// `Ok(None)` if there is no update.
     fn get_dot_gitmodules_update(
         exported_commit: &FastExportCommit,
-    ) -> Result<Option<Option<gix::ObjectId>>> {
+    ) -> Result<Option<Option<ExportedFileEntry>>> {
         // Assume just a single entry for .gitmodules.
-        const GITMODULES_FILE_REMOVED: Option<Option<gix::ObjectId>> = Some(None);
+        const GITMODULES_FILE_REMOVED: Option<Option<ExportedFileEntry>> = Some(None);
         for fc in &exported_commit.file_changes {
             if fc.path == b".gitmodules" {
                 match &fc.change {
                     FileChange::Modified { mode, hash } => {
                         let dot_gitmodules =
                             gix::ObjectId::from_hex(hash).context("Bad blob id for .gitmodules")?;
-                        if mode != b"100644" && mode != b"100755" {
-                            // Expecting regular file or executable file,
-                            // not a symlink, directory, submodule, etc.
-                            log::warn!("Bad mode {mode} for .gitmodules");
-                            return Ok(GITMODULES_FILE_REMOVED);
-                        }
-                        return Ok(Some(Some(dot_gitmodules)));
+                        // Cannot do proper error reporting for bad modes here,
+                        // as that is a fixable warning.
+                        let mode_str = std::str::from_utf8(mode)
+                            .with_context(|| format!("Bad .gitmodules mode {mode:?}"))?;
+                        let mode_u32 = u32::from_str_radix(mode_str, 8).with_context(|| {
+                            format!("Failed to parse mode {mode_str} for .gitmodules")
+                        })?;
+                        return Ok(Some(Some(ExportedFileEntry {
+                            mode: mode_u32,
+                            id: dot_gitmodules,
+                        })));
                     }
                     FileChange::Deleted => {
                         return Ok(GITMODULES_FILE_REMOVED);
@@ -1013,7 +1019,7 @@ impl<'a> CommitLoader<'a> {
 
     /// Finds the `SubRepoName` for a submodule and logs warnings for potential problems.
     fn get_submod_repo_name(
-        dot_gitmodules: Option<gix::ObjectId>,
+        dot_gitmodules: Option<ExportedFileEntry>,
         first_parent: Option<&Rc<ThinCommit>>,
         path: &GitPath,
         base_url: &gix::Url,
@@ -1325,16 +1331,22 @@ impl RepoFetcher {
 /// that is read directly from blobs in a git repository. file by given a blob `id`.
 struct DotGitModulesCache {
     repo: gix::Repository,
-    cache: HashMap<gix::ObjectId, Result<GitModulesInfo>>,
+    cache: HashMap<BlobId, Result<GitModulesInfo>>,
 }
 
 impl DotGitModulesCache {
     /// Parse the `.gitmodules` file given by the `BlobId` and return the map
     /// from path to url.
-    pub fn get_from_blob_id(&mut self, id: BlobId) -> &Result<GitModulesInfo> {
+    pub fn get_from_blob_id(&mut self, entry: ExportedFileEntry) -> Result<&GitModulesInfo> {
+        if entry.mode != 0o100644 && entry.mode != 0o100755 {
+            anyhow::bail!("Bad mode {:o} for .gitmodules", entry.mode);
+        }
         self.cache
-            .entry(id)
-            .or_insert_with(|| Self::get_from_blob_id_impl(&self.repo, id))
+            .entry(entry.id)
+            .or_insert_with(|| Self::get_from_blob_id_impl(&self.repo, entry.id))
+            .as_ref()
+            // anyhow::Error doesn't implement clone, simply format it to create a copy.
+            .map_err(|err| anyhow::anyhow!("{err:#}"))
     }
 
     fn get_from_blob_id_impl(repo: &gix::Repository, id: BlobId) -> Result<GitModulesInfo> {

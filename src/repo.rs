@@ -1385,6 +1385,17 @@ pub struct ThinSubmoduleContent {
     pub commit_id: CommitId,
 }
 
+/// A file entry received from git-fast-export pointing to a specific blob.
+#[serde_as]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ExportedFileEntry {
+    /// The mode reported by git-fast-export.
+    #[serde_as(as = "crate::util::SerdeOctalNumber")]
+    pub mode: u32,
+    #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
+    pub id: BlobId,
+}
+
 #[derive(Debug)]
 pub struct ThinCommit {
     pub commit_id: CommitId,
@@ -1393,7 +1404,7 @@ pub struct ThinCommit {
     /// strictly decreasing when following the parents.
     pub depth: u32,
     pub parents: Vec<Rc<ThinCommit>>,
-    pub dot_gitmodules: Option<BlobId>,
+    pub dot_gitmodules: Option<ExportedFileEntry>,
     /// Submodule updates in this commit compared to first parent. Added
     /// submodules are included. `BTreeMap` is used for deterministic ordering.
     pub submodule_bumps: BTreeMap<GitPath, ThinSubmodule>,
@@ -1411,7 +1422,7 @@ impl ThinCommit {
         commit_id: CommitId,
         tree_id: TreeId,
         parents: Vec<Rc<ThinCommit>>,
-        dot_gitmodules: Option<BlobId>,
+        dot_gitmodules: Option<ExportedFileEntry>,
         submodule_bumps: BTreeMap<GitPath, ThinSubmodule>,
     ) -> Rc<Self> {
         // Adding and removing more than one submodule at a time is so rare that
