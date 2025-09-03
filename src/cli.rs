@@ -270,6 +270,8 @@ struct FetchParamsResolver<'a> {
     /// The git-toprepo configuration.
     config: &'a GitTopRepoConfig,
     worktree: PathBuf,
+    /// Cache computation of the infos. They are not expected to be mutated
+    /// during execution. If they are we will not pick up the changes.
     gitmod_infos: GitModulesInfo,
 }
 

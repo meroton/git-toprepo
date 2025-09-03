@@ -152,6 +152,7 @@ impl GitModulesInfo {
             .or_else(|err| {
                 if err.kind() == std::io::ErrorKind::NotFound {
                     // The file does not exist, return empty info.
+                    // It is okay for a repo to not have submodules.
                     Ok(Vec::new())
                 } else {
                     Err(err)
@@ -168,6 +169,7 @@ impl GitModulesInfo {
         let mut info = GitModulesInfo::default();
         for name in config.names() {
             // Skip misconfigured paths, they might not even be used.
+            // TODO: Warn about them?
             let Ok(path) = config.path(name) else {
                 continue;
             };
@@ -180,12 +182,16 @@ impl GitModulesInfo {
     /// Parses the `.gitmodules` content.
     ///
     /// The `path` argument is used for error reporting only.
+    // TODO: The caller should use context with the path instead.
+    //       This function don't need the path for its error.
+    // TODO: Why does the function above have the same implementation?
     pub fn parse_dot_gitmodules_bytes(bytes: &[u8], path: PathBuf) -> Result<Self> {
         let config = gix::submodule::File::from_bytes(bytes, Some(path), &Default::default())
             .context("Failed to parse .gitmodules")?;
         let mut info = GitModulesInfo::default();
         for name in config.names() {
             // Skip misconfigured paths, they might not even be used.
+            // TODO: Warn about them?
             let Ok(path) = config.path(name) else {
                 continue;
             };
