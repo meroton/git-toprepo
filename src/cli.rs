@@ -205,8 +205,8 @@ pub struct Refilter {
     pub keep_going: bool,
 
     /// Number of concurrent threads to load the repository.
-    #[arg(long, default_value = "7")]
-    pub jobs: std::num::NonZero<u16>,
+    #[arg(long("jobs"), name = "N", default_value = "7")]
+    pub job_count: std::num::NonZero<u16>,
 
     /// Skip fetching missing submodule commits.
     #[arg(long)]
@@ -224,8 +224,8 @@ pub struct Fetch {
     pub keep_going: bool,
 
     /// Number of concurrent threads to perform git-fetch and the filtering.
-    #[arg(long, name = "N", default_value = "7")]
-    pub jobs: std::num::NonZero<u16>,
+    #[arg(long("jobs"), name = "N", default_value = "7")]
+    pub job_count: std::num::NonZero<u16>,
 
     /// Skip the filtering step after fetching the top repository.
     #[arg(long)]
@@ -527,8 +527,8 @@ pub struct Push {
     pub fail_fast: bool,
 
     /// Number of concurrent threads to load the repository.
-    #[arg(long, default_value = "7")]
-    pub jobs: std::num::NonZero<u16>,
+    #[arg(long("jobs"), name = "N", default_value = "7")]
+    pub job_count: std::num::NonZero<u16>,
 
     /// A configured git remote in the mono repository or a URL of the top
     /// repository to push to. Submodules are calculated relative this remote.

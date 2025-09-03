@@ -63,7 +63,7 @@ fn clone_after_init(clone_args: &cli::Clone, processor: &mut MonoRepoProcessor) 
     fetch(
         &cli::Fetch {
             keep_going: false,
-            jobs: std::num::NonZero::new(1).unwrap(),
+            job_count: std::num::NonZero::new(1).unwrap(),
             skip_filter: true,
             remote: None,
             path: None,
@@ -310,7 +310,7 @@ fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) ->
         processor.top_repo_cache = repo::TopRepoCache::default();
     }
     load_commits(
-        refilter_args.jobs.into(),
+        refilter_args.job_count.into(),
         |commit_loader| {
             commit_loader.fetch_missing_commits = !refilter_args.no_fetch;
             commit_loader.load_repo(&git_toprepo::repo_name::RepoName::Top)
@@ -408,7 +408,7 @@ fn fetch_with_default_refspecs(
         refilter(
             &cli::Refilter {
                 keep_going: fetch_args.keep_going,
-                jobs: fetch_args.jobs,
+                job_count: fetch_args.job_count,
                 no_fetch: false,
                 reuse_cache: true,
             },
@@ -525,7 +525,7 @@ fn fetch_with_refspec(
     processor.reload_config()?;
 
     load_commits(
-        fetch_args.jobs.into(),
+        fetch_args.job_count.into(),
         |commit_loader| commit_loader.load_repo(&resolved_args.repo),
         processor,
     )?;
