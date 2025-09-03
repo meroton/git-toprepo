@@ -40,8 +40,16 @@ enum TaskResult {
         progress_task: ProgressTaskHandle,
         result: Result<()>,
     },
-    LoadCachedCommits(RepoName, Vec<CommitId>, oneshot::Sender<Result<()>>),
-    ImportCommit(Arc<RepoName>, FastExportCommit, TreeId),
+    LoadCachedCommits {
+        repo_name: RepoName,
+        cached_commits_to_load: Vec<CommitId>,
+        result_channel: oneshot::Sender<Result<()>>,
+    },
+    ImportCommit {
+        repo_name: Arc<RepoName>,
+        commit: FastExportCommit,
+        tree_id: TreeId,
+    },
     LoadRepoDone {
         repo_name: RepoName,
         progress_task: ProgressTaskHandle,
@@ -291,8 +299,12 @@ impl<'a> CommitLoader<'a> {
                     }
                 }
             }
-            TaskResult::LoadCachedCommits(repo_name, cached_tips_to_load, result_channel) => {
-                let result = match self.load_cached_commits(&repo_name, cached_tips_to_load) {
+            TaskResult::LoadCachedCommits {
+                repo_name,
+                cached_commits_to_load,
+                result_channel,
+            } => {
+                let result = match self.load_cached_commits(&repo_name, cached_commits_to_load) {
                     Ok(()) => Ok(()),
                     Err(InterruptedError::Interrupted) => {
                         // The caller can continue processing if they want.
@@ -304,7 +316,11 @@ impl<'a> CommitLoader<'a> {
                     .send(result)
                     .expect("result from loading cached commits has not been set yet");
             }
-            TaskResult::ImportCommit(repo_name, commit, tree_id) => {
+            TaskResult::ImportCommit {
+                repo_name,
+                commit,
+                tree_id,
+            } => {
                 match self.import_commit(&repo_name, commit, tree_id) {
                     Ok(()) => self.import_progress.inc(1),
                     Err(InterruptedError::Interrupted) => {
@@ -454,15 +470,15 @@ impl<'a> CommitLoader<'a> {
             impl SingleLoadRepoCallback for LoadRepoCallback {
                 fn load_cached_commits(
                     &self,
-                    cached_tips_to_load: Vec<CommitId>,
+                    cached_commits_to_load: Vec<CommitId>,
                 ) -> InterruptedResult<()> {
                     let (result_tx, result_rx) = oneshot::channel();
                     self.tx
-                        .send(TaskResult::LoadCachedCommits(
-                            (*self.repo_name).clone(),
-                            cached_tips_to_load,
-                            result_tx,
-                        ))
+                        .send(TaskResult::LoadCachedCommits {
+                            repo_name: (*self.repo_name).clone(),
+                            cached_commits_to_load,
+                            result_channel: result_tx,
+                        })
                         // The receiver only closes to fail fast.
                         .map_err(|_| InterruptedError::Interrupted)?;
                     result_rx
@@ -478,11 +494,11 @@ impl<'a> CommitLoader<'a> {
                     tree_id: TreeId,
                 ) -> InterruptedResult<()> {
                     self.tx
-                        .send(TaskResult::ImportCommit(
-                            self.repo_name.clone(),
+                        .send(TaskResult::ImportCommit {
+                            repo_name: self.repo_name.clone(),
                             commit,
                             tree_id,
-                        ))
+                        })
                         // The receiver only closes to fail fast.
                         .map_err(|_| InterruptedError::Interrupted)?;
                     Ok(())
@@ -557,7 +573,7 @@ impl<'a> CommitLoader<'a> {
     fn load_cached_commits(
         &mut self,
         repo_name: &RepoName,
-        cached_tips_to_load: Vec<CommitId>,
+        cached_commits_to_load: Vec<CommitId>,
     ) -> InterruptedResult<()> {
         // Load from cache, should be quick.
         let Some(cached_repo) = self.cached_repo_states.remove(repo_name) else {
@@ -582,7 +598,7 @@ impl<'a> CommitLoader<'a> {
             .collect::<HashMap<_, _>>();
 
         let mut needed_commits = Vec::new();
-        let mut todo = cached_tips_to_load
+        let mut todo = cached_commits_to_load
             .into_iter()
             .map(|commit_id| {
                 cached_repo
@@ -1112,11 +1128,11 @@ impl SingleRepoLoader<'_> {
         cached_commits: &HashSet<CommitId>,
         callback: &impl SingleLoadRepoCallback,
     ) -> InterruptedResult<()> {
-        let (mut refs_arg, mut cached_tips_to_load, mut unknown_commit_count) = self
+        let (mut refs_arg, mut cached_commits_to_load, mut unknown_commit_count) = self
             .get_refs_to_load_arg(existing_commits, cached_commits)
             .context("Failed to find refs to load")?;
-        if !cached_tips_to_load.is_empty()
-            && let Err(err) = callback.load_cached_commits(cached_tips_to_load)
+        if !cached_commits_to_load.is_empty()
+            && let Err(err) = callback.load_cached_commits(cached_commits_to_load)
         {
             let err = match err {
                 InterruptedError::Interrupted => return Err(InterruptedError::Interrupted),
@@ -1126,11 +1142,11 @@ impl SingleRepoLoader<'_> {
             // the commits might have been loaded, but this kind of failure
             // should be rare so it is not worth updating existing_commits.
             log::warn!("Discarding cache for {}: {err:#}", self.repo_name);
-            (refs_arg, cached_tips_to_load, unknown_commit_count) = self
+            (refs_arg, cached_commits_to_load, unknown_commit_count) = self
                 .get_refs_to_load_arg(existing_commits, &HashSet::new())
                 .context("Failed to find refs to load")
                 .map_err(InterruptedError::Normal)?;
-            assert!(cached_tips_to_load.is_empty());
+            assert!(cached_commits_to_load.is_empty());
         }
         if !refs_arg.is_empty() {
             match self.load_from_refs(refs_arg, unknown_commit_count, callback) {
