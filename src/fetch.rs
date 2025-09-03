@@ -1,7 +1,7 @@
-use crate::config::GitTopRepoConfig;
 use crate::config::SubRepoConfig;
 use crate::git::git_command;
 use crate::gitmodules::SubmoduleUrlExt as _;
+use crate::loader::SubRepoLedger;
 use crate::log::CommandSpanExt as _;
 use crate::repo_name::RepoName;
 use crate::util::CommandExtension;
@@ -12,7 +12,6 @@ use anyhow::bail;
 use bstr::ByteSlice as _;
 use gix::remote::Direction;
 use std::path::PathBuf;
-use std::str::FromStr as _;
 use wait_timeout::ChildExt as _;
 
 pub struct RemoteFetcher {
@@ -32,19 +31,19 @@ impl RemoteFetcher {
         }
     }
 
-    pub fn set_remote_from_repo_name(
+    pub(crate) fn set_remote_from_repo_name(
         &mut self,
         gix_repo: &gix::Repository,
         repo_name: &RepoName,
-        config: &GitTopRepoConfig,
+        ledger: &SubRepoLedger,
     ) -> Result<()> {
         match repo_name {
             RepoName::Top => self.set_remote_as_top_repo(gix_repo)?,
             RepoName::SubRepo(sub_repo_name) => {
-                let subrepo_config = config
+                let subrepo_config = ledger
                     .subrepos
                     .get(sub_repo_name)
-                    .with_context(|| format!("Repo {repo_name} not found in config"))?;
+                    .with_context(|| format!("Repo {repo_name} not found in ledger"))?;
                 self.set_remote_from_subrepo_config(gix_repo, repo_name, subrepo_config)?;
             }
         };
@@ -94,45 +93,6 @@ impl RemoteFetcher {
             // refs/heads/main anyway.
             // format!("+HEAD:{ref_namespace_prefix}HEAD"),
         ];
-        Ok(())
-    }
-
-    pub fn set_remote_from_str(
-        &mut self,
-        gix_repo: &gix::Repository,
-        name_or_url: &str,
-        config: &GitTopRepoConfig,
-    ) -> Result<()> {
-        // Ignore any errors in the remote name.
-        match gix_repo
-            .try_find_remote(name_or_url)
-            .and_then(|remote| remote.ok())
-        {
-            Some(remote) => {
-                self.remote = Some(
-                    remote
-                        .url(Direction::Fetch)
-                        .with_context(|| format!("Fetch URL for {name_or_url} is missing"))?
-                        .to_string(),
-                );
-                self.args.push("--prune".to_owned());
-            }
-            None => {
-                // Not the super repo, try to find the subrepo.
-                let url = gix::Url::from_bytes(name_or_url.into()).context("Invalid fetch URL")?;
-                match config.get_from_url(&url)? {
-                    Some((repo_name, subrepo_config)) => {
-                        let repo_name = RepoName::from_str(&repo_name)
-                            .map_err(|_| anyhow::anyhow!("Bad repo name {repo_name:#}"))?;
-                        self.set_remote_from_subrepo_config(gix_repo, &repo_name, subrepo_config)?;
-                    }
-                    None => {
-                        // TODO: 2025-09-22 Give command line or config suggestions to the user.
-                        anyhow::bail!("No remote found for {name_or_url}");
-                    }
-                }
-            }
-        }
         Ok(())
     }
 

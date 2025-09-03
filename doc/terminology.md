@@ -135,6 +135,8 @@ instead of "_git-toprepo emulated monorepo commit_" or "_combined commit_", for
 symmetry reasons. As the code has no use in a "_pure monorepo_" context, the
 brevity is placed over preciseness of the term within the code.
 
+**sub repo**: A _submodule_, either _assimilated_ or left as _regular submodule_.
+
 ## Examples
 
 ### Initialization: Expand the toprepo into an emulated monorepo

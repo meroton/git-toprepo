@@ -1,9 +1,7 @@
 use crate::git::CommitId;
 use crate::git::git_command;
 use crate::git::git_config_get;
-use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::log::CommandSpanExt as _;
-use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::util::CommandExtension as _;
 use crate::util::OrderedHashSet;
@@ -13,7 +11,6 @@ use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 use bstr::ByteSlice as _;
-use itertools::Itertools;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_with::serde_as;
@@ -45,6 +42,7 @@ pub fn toprepo_git_config(key: &str) -> String {
 }
 pub const TOPREPO_CONFIG_FILE_KEY: &str = "config";
 
+/// Configuration for the tool itself read from a configuration file.
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 #[serde(deny_unknown_fields)]
@@ -55,10 +53,6 @@ pub struct GitTopRepoConfig {
     pub fetch: GlobalFetchConfig,
     #[serde(rename = "repo")]
     pub subrepos: BTreeMap<SubRepoName, SubRepoConfig>,
-    /// List of subrepos that are missing in the configuration and have
-    /// automatically been added to `suprepos`.
-    #[serde(skip)]
-    pub missing_subrepos: HashSet<SubRepoName>,
 }
 
 pub enum ConfigLocation {
@@ -157,149 +151,6 @@ impl FromStr for ConfigLocation {
 }
 
 impl GitTopRepoConfig {
-    /// Gets a `SubRepoConfig` based on a URL using exact matching. If an URL is
-    /// missing, the user should add it to the `SubRepoConfig::urls` list.
-    pub fn get_name_from_url(&self, url: &gix::Url) -> Result<Option<SubRepoName>> {
-        let mut matches = self
-            .subrepos
-            .iter()
-            .filter(|(_name, subrepo_config)| subrepo_config.urls.iter().any(|u| u == url));
-        let Some(first_match) = matches.next() else {
-            return Ok(None);
-        };
-        if let Some(second_match) = matches.next() {
-            let names = [first_match, second_match]
-                .into_iter()
-                .chain(matches)
-                .map(|(name, _)| name)
-                .join(", ");
-            bail!("Multiple remote candidates for {url}: {names}");
-        }
-        // Only a single match.
-        let repo_name = first_match.0;
-        if self.missing_subrepos.contains(repo_name) {
-            Ok(None)
-        } else {
-            Ok(Some(repo_name.clone()))
-        }
-    }
-
-    pub fn default_name_from_url(&self, repo_url: &gix::Url) -> Option<SubRepoName> {
-        // TODO: 2025-09-22 UTF-8 validation.
-        let mut name: &str = &repo_url.path.to_str_lossy();
-        if name.ends_with(".git") {
-            name = &name[..name.len() - 4];
-        } else if name.ends_with("/") {
-            name = &name[..name.len() - 1];
-        }
-        loop {
-            if name.starts_with("../") {
-                name = &name[3..];
-            } else if name.starts_with("./") {
-                name = &name[2..];
-            } else if name.starts_with("/") {
-                name = &name[1..];
-            } else {
-                break;
-            }
-        }
-        let name = name.replace("/", "_");
-        match RepoName::new(name) {
-            RepoName::Top => None,
-            RepoName::SubRepo(name) => Some(name),
-        }
-    }
-
-    /// Get a repo name given a full url when doing an approximative matching,
-    /// for example matching `ssh://foo/bar.git` with `https://foo/bar`.
-    pub fn get_name_from_similar_full_url(
-        &self,
-        wanted_full_url: gix::Url,
-        base_url: &gix::Url,
-    ) -> Result<RepoName> {
-        let wanted_url_str = wanted_full_url.to_string();
-        let trimmed_wanted_full_url = wanted_full_url.trim_url_path();
-        let mut matching_names = Vec::new();
-        if trimmed_wanted_full_url.approx_equal(&base_url.clone().trim_url_path()) {
-            matching_names.push(RepoName::Top);
-        }
-        for (submod_name, submod_config) in self.subrepos.iter() {
-            if submod_config.urls.iter().any(|submod_url| {
-                let full_submod_url = base_url.join(submod_url).trim_url_path();
-                full_submod_url.approx_equal(&trimmed_wanted_full_url)
-            }) {
-                matching_names.push(RepoName::SubRepo(submod_name.clone()));
-            }
-        }
-        matching_names.sort();
-        let repo_name = match matching_names.as_slice() {
-            [] => anyhow::bail!("No configured submodule URL matches {wanted_url_str:?}"),
-            [repo_name] => repo_name.clone(),
-            [_, ..] => anyhow::bail!(
-                "URLs from multiple configured repos match: {}",
-                matching_names
-                    .iter()
-                    .map(|name| name.to_string())
-                    .join(", ")
-            ),
-        };
-        Ok(repo_name)
-    }
-
-    /// Get a subrepo configuration without creating a new entry if missing.
-    pub fn get_from_url(
-        &self,
-        repo_url: &gix::Url,
-    ) -> Result<Option<(SubRepoName, &SubRepoConfig)>> {
-        match self.get_name_from_url(repo_url)? {
-            Some(repo_name) => {
-                let subrepo_config = self.subrepos.get(&repo_name).expect("valid subrepo name");
-                Ok(Some((repo_name, subrepo_config)))
-            }
-            None => Ok(None),
-        }
-    }
-
-    /// Get a subrepo configuration or create a new entry if missing.
-    pub fn get_or_insert_from_url<'a>(
-        &'a mut self,
-        repo_url: &gix::Url,
-    ) -> Result<GetOrInsertOk<'a>> {
-        let Some(repo_name) = self.get_name_from_url(repo_url)? else {
-            let mut repo_name = self.default_name_from_url(repo_url).with_context(|| {
-                format!(
-                    "URL {repo_url} cannot be automatically converted to a valid repo name. \
-                    Please create a manual config entry with the URL."
-                )
-            })?;
-            // Instead of just self.subrepos.get(&repo_name), also check for
-            // case insensitive repo name uniqueness. It's confusing for the
-            // user to get multiple repos with the same name and not
-            // realising that it's just the casing that is different.
-            // Manually adding multiple entries with different casing is
-            // allowed but not recommended.
-            for existing_name in self.subrepos.keys() {
-                if repo_name.to_lowercase() == existing_name.to_lowercase() {
-                    repo_name = existing_name.clone();
-                }
-            }
-            let urls = &mut self.subrepos.entry(repo_name.clone()).or_default().urls;
-            if !urls.contains(repo_url) {
-                urls.push(repo_url.clone());
-            }
-            return Ok(if self.missing_subrepos.insert(repo_name.clone()) {
-                GetOrInsertOk::Missing(repo_name.clone())
-            } else {
-                GetOrInsertOk::MissingAgain(repo_name.clone())
-            });
-        };
-        let subrepo_config = self
-            .subrepos
-            .get_mut(&repo_name)
-            .expect("valid subrepo name");
-        Ok(GetOrInsertOk::Found((repo_name, subrepo_config)))
-    }
-
     /// Finds the location of the configuration to load.
     ///
     /// The location of the configuration file is set in the git-config of the
@@ -343,7 +194,8 @@ impl GitTopRepoConfig {
                     std::fs::read_to_string(main_worktree.join(path)).context("Reading config file")
                 }
                 ConfigLocation::Worktree { path } => {
-                    let current_worktree = repo.workdir().context("Missing worktree")?;
+                    let current_worktree =
+                        repo.workdir().context("Bare repository without worktree")?;
                     std::fs::read_to_string(current_worktree.join(path))
                         .context("Reading config file")
                 }
@@ -413,16 +265,6 @@ impl GitTopRepoConfig {
             }
         }
         Ok(())
-    }
-
-    pub fn is_enabled(&self, repo_name: &RepoName) -> bool {
-        match repo_name {
-            RepoName::Top => true,
-            RepoName::SubRepo(sub_repo_name) => self
-                .subrepos
-                .get(sub_repo_name)
-                .is_none_or(|repo_config| repo_config.enabled),
-        }
     }
 }
 
@@ -869,60 +711,6 @@ mod tests {
                 .to_bstring(),
             b"ssh://bar/baz.git".as_bstr()
         );
-    }
-
-    #[test]
-    fn get_repo_with_new_entry() -> Result<()> {
-        let mut config = GitTopRepoConfig::parse_config_toml_string("")?;
-
-        assert_eq!(config.subrepos.len(), 0);
-        assert_eq!(
-            config
-                .get_or_insert_from_url(&gix::Url::from_bytes(b"ssh://bar/baz.git".as_bstr())?)
-                .unwrap(),
-            GetOrInsertOk::Missing(SubRepoName::new("baz".to_owned()))
-        );
-        assert!(
-            config
-                .subrepos
-                .contains_key(&SubRepoName::new("baz".to_owned()))
-        );
-        // Second time, it should still report an error.
-        assert_eq!(
-            config
-                .get_or_insert_from_url(&gix::Url::from_bytes(b"ssh://bar/baz.git".as_bstr())?)
-                .unwrap(),
-            GetOrInsertOk::MissingAgain(SubRepoName::new("baz".to_owned()))
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn get_repo_without_new_entry() -> Result<()> {
-        let config = GitTopRepoConfig::parse_config_toml_string(
-            r#"
-                [repo.foo]
-                urls = ["../bar/repo.git"]
-            "#,
-        );
-        assert!(config.is_ok(), "{config:?}");
-        let mut config = config.unwrap();
-
-        assert!(
-            config
-                .subrepos
-                .contains_key(&SubRepoName::new("foo".to_owned()))
-        );
-        assert_eq!(
-            config
-                .get_or_insert_from_url(&gix::Url::from_bytes(
-                    b"https://example.com/foo.git".as_bstr()
-                )?)
-                .unwrap(),
-            GetOrInsertOk::Missing(SubRepoName::new("foo".to_owned()))
-        );
-        assert_eq!(config.subrepos.len(), 1);
-        Ok(())
     }
 
     #[test]

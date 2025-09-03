@@ -34,7 +34,18 @@ mod main {
     #[case::pwd_sub("sub", &[])]
     #[case::c_sub(".", &["-C", "sub"])]
     #[case::pwd_sub_c_dotdot("sub", &["-C", ".."])]
-    fn commands_in_not_initialized_repo_fails(#[case] pwd_sub_dir: &str, #[case] dash_c: &[&str]) {
+    fn commands_in_uninitialized_repo_fails(
+        #[case] pwd_sub_dir: &str,
+        #[case] dash_c: &[&str],
+        #[values(
+            "dump import-cache",
+            "config show",
+            "fetch origin",
+            "refilter",
+            "push origin main"
+        )]
+        command: &str,
+    ) {
         let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
         std::fs::create_dir(temp_dir.join("sub")).unwrap();
         let expected_stderr = "ERROR: git-config \'toprepo.config\' is missing. Is this an initialized git-toprepo?\n";
@@ -49,51 +60,9 @@ mod main {
             .unwrap()
             .current_dir(temp_dir.join(pwd_sub_dir))
             .args(dash_c)
-            .arg("dump")
-            .arg("import-cache")
+            .args(command.split(' '))
             .assert()
             .failure()
-            .stderr(expected_stderr);
-        assert_cmd::Command::cargo_bin("git-toprepo")
-            .unwrap()
-            .current_dir(temp_dir.join(pwd_sub_dir))
-            .args(dash_c)
-            .arg("dump")
-            .arg("git-modules")
-            .assert()
-            .failure()
-            .stderr(expected_stderr);
-        assert_cmd::Command::cargo_bin("git-toprepo")
-            .unwrap()
-            .current_dir(temp_dir.join(pwd_sub_dir))
-            .args(dash_c)
-            .args(["config", "show"])
-            .assert()
-            .code(1)
-            .stderr(expected_stderr);
-        assert_cmd::Command::cargo_bin("git-toprepo")
-            .unwrap()
-            .current_dir(temp_dir.join(pwd_sub_dir))
-            .args(dash_c)
-            .args(["fetch", "origin"])
-            .assert()
-            .code(1)
-            .stderr(expected_stderr);
-        assert_cmd::Command::cargo_bin("git-toprepo")
-            .unwrap()
-            .current_dir(temp_dir.join(pwd_sub_dir))
-            .args(dash_c)
-            .args(["refilter"])
-            .assert()
-            .code(1)
-            .stderr(expected_stderr);
-        assert_cmd::Command::cargo_bin("git-toprepo")
-            .unwrap()
-            .current_dir(temp_dir.join(pwd_sub_dir))
-            .args(dash_c)
-            .args(["push", "origin", "main"])
-            .assert()
-            .code(1)
             .stderr(expected_stderr);
     }
 
@@ -106,6 +75,14 @@ mod main {
         #[case] pwd_sub_dir: &str,
         #[case] dash_c: &[&str],
         #[case] final_dir: &str,
+        #[values(
+            "dump git-modules",
+            "config show",
+            "fetch origin",
+            "refilter",
+            "push origin main"
+        )]
+        command: &str,
     ) {
         let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
         std::fs::create_dir_all(temp_dir.join("sub")).unwrap();
@@ -119,43 +96,9 @@ mod main {
             .unwrap()
             .current_dir(temp_dir.join(pwd_sub_dir))
             .args(dash_c)
-            .arg("dump")
-            .arg("import-cache")
+            .args(command.split(' '))
             .assert()
             .failure()
             .stderr(expected_stderr.clone());
-        assert_cmd::Command::cargo_bin("git-toprepo")
-            .unwrap()
-            .current_dir(temp_dir.join(pwd_sub_dir))
-            .args(dash_c)
-            .arg("config")
-            .arg("show")
-            .assert()
-            .failure()
-            .stderr(expected_stderr.clone());
-        assert_cmd::Command::cargo_bin("git-toprepo")
-            .unwrap()
-            .current_dir(temp_dir.join(pwd_sub_dir))
-            .args(dash_c)
-            .args(["fetch", "origin"])
-            .assert()
-            .code(1)
-            .stderr(expected_stderr.clone());
-        assert_cmd::Command::cargo_bin("git-toprepo")
-            .unwrap()
-            .current_dir(temp_dir.join(pwd_sub_dir))
-            .args(dash_c)
-            .args(["refilter"])
-            .assert()
-            .code(1)
-            .stderr(expected_stderr.clone());
-        assert_cmd::Command::cargo_bin("git-toprepo")
-            .unwrap()
-            .current_dir(temp_dir.join(pwd_sub_dir))
-            .args(dash_c)
-            .args(["push", "origin", "main"])
-            .assert()
-            .code(1)
-            .stderr(expected_stderr);
     }
 }

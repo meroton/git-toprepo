@@ -70,7 +70,6 @@ impl SerdeTopRepoCache {
         )
         .entered();
         (|| -> anyhow::Result<_> {
-            let now = std::time::Instant::now();
             let reader = match std::fs::File::open(&cache_path) {
                 Ok(file) => file,
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
@@ -79,46 +78,7 @@ impl SerdeTopRepoCache {
                 }
                 Err(err) => return Err(err.into()),
             };
-            let mut reader = std::io::BufReader::new(reader);
-            // Check the header.
-            let mut version_prelude = [0; Self::CACHE_VERSION_PRELUDE.len()];
-            reader.read_exact(&mut version_prelude)?;
-            if version_prelude != Self::CACHE_VERSION_PRELUDE.as_bytes() {
-                log::warn!(
-                    "Discarding toprepo cache {} due to version mismatch, expected {:?}",
-                    cache_path.display(),
-                    Self::CACHE_VERSION_PRELUDE.trim_newline_suffix(),
-                );
-                return Ok(Self::default());
-            }
-
-            let loaded_cache: SerdeTopRepoCache =
-                bincode::serde::decode_from_std_read(&mut reader, bincode::config::standard())?;
-            let mut eof_buffer = [0; 1];
-            if reader.read(&mut eof_buffer)? != 0 {
-                anyhow::bail!("Expected EOF");
-            }
-            let file = reader.into_inner();
-            drop(file);
-            log::debug!(
-                "Deserialized toprepo cache from {} in {:.2?}",
-                &cache_path.display(),
-                now.elapsed()
-            );
-            // If the checksum has changed, the imported and exported commits might be totally different.
-            if let Some(config_checksum) = config_checksum
-                && loaded_cache.config_checksum != config_checksum
-            {
-                log::warn!(
-                    "The git-toprepo configuration has changed, discarding the toprepo cache",
-                );
-                log::debug!(
-                    "Configuration checksum {config_checksum} does not match cached checksum {}",
-                    loaded_cache.config_checksum
-                );
-                return Ok(Self::default());
-            }
-            Ok(loaded_cache)
+            Self::load_from_reader(&cache_path, reader, config_checksum)
         })()
         .with_context(|| {
             format!(
@@ -126,6 +86,50 @@ impl SerdeTopRepoCache {
                 &cache_path.display()
             )
         })
+    }
+
+    pub fn load_from_reader(
+        cache_path: &Path,
+        reader: impl std::io::Read,
+        config_checksum: Option<&str>,
+    ) -> Result<Self> {
+        let now = std::time::Instant::now();
+        let mut reader = std::io::BufReader::new(reader);
+        // Check the header.
+        let mut version_prelude = [0; Self::CACHE_VERSION_PRELUDE.len()];
+        reader.read_exact(&mut version_prelude)?;
+        if version_prelude != Self::CACHE_VERSION_PRELUDE.as_bytes() {
+            log::warn!(
+                "Discarding toprepo cache {} due to version mismatch, expected {:?}",
+                cache_path.display(),
+                Self::CACHE_VERSION_PRELUDE.trim_newline_suffix(),
+            );
+            return Ok(Self::default());
+        }
+
+        let loaded_cache: SerdeTopRepoCache =
+            bincode::serde::decode_from_std_read(&mut reader, bincode::config::standard())?;
+        let mut eof_buffer = [0; 1];
+        if reader.read(&mut eof_buffer)? != 0 {
+            anyhow::bail!("Expected EOF");
+        }
+        log::debug!(
+            "Deserialized toprepo cache from {} in {:.2?}",
+            &cache_path.display(),
+            now.elapsed()
+        );
+        // If the checksum has changed, the imported and exported commits might be totally different.
+        if let Some(config_checksum) = config_checksum
+            && loaded_cache.config_checksum != config_checksum
+        {
+            log::warn!("The git-toprepo configuration has changed, discarding the toprepo cache",);
+            log::debug!(
+                "Configuration checksum {config_checksum} does not match cached checksum {}",
+                loaded_cache.config_checksum
+            );
+            return Ok(Self::default());
+        }
+        Ok(loaded_cache)
     }
 
     /// Write parsed git repository information as JSON.

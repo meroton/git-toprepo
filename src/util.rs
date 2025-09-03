@@ -32,7 +32,9 @@ pub fn find_main_worktree_path(repo: &gix::Repository) -> Result<PathBuf> {
     // Get the common .git directory for a linked worktree or the .git directory
     // for a normal repository.
     let main_workdir = if repo.worktree().is_none_or(|worktree| worktree.is_main()) {
-        repo.workdir().context("Bare repository")?.to_path_buf()
+        repo.workdir()
+            .context("Bare repository without worktree")?
+            .to_path_buf()
     } else {
         let main_git_dir = repo.common_dir();
         // Unfortunately, the common_dir variable is private.

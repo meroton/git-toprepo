@@ -1,3 +1,4 @@
+use crate::config::GitTopRepoConfig;
 use crate::config::TOPREPO_CONFIG_FILE_KEY;
 use crate::config::toprepo_git_config;
 use crate::git::BlobId;
@@ -8,6 +9,7 @@ use crate::git::TreeId;
 use crate::git::git_command;
 use crate::git_fast_export_import::WithoutCommitterId;
 use crate::git_fast_export_import_dedup::GitFastExportImportDedupCache;
+use crate::loader::SubRepoLedger;
 use crate::log::CommandSpanExt as _;
 use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
@@ -30,7 +32,10 @@ use std::ops::Deref;
 use std::path::Path;
 use std::rc::Rc;
 
-pub const LOADING_THE_MAIN_PROJECT_CONTEXT: &str = "Loading the main repo Gerrit project";
+pub fn gix_discover(directory: &Path) -> Result<gix::Repository> {
+    let repo = gix::ThreadSafeRepository::discover_with_environment_overrides(directory)?;
+    Ok(repo.to_thread_local())
+}
 
 pub fn parse_gerrit_project(url: &gix::url::Url) -> Result<String> {
     // TODO use `url.scheme`
@@ -64,31 +69,46 @@ pub fn resolve_subprojects(
     Ok(resolved)
 }
 
-/// Open the git repository in the working directory or its parents.
-pub fn gix_discover() -> Result<gix::ThreadSafeRepository> {
-    Ok(
-        gix::ThreadSafeRepository::discover_with_environment_overrides(
-            // Using working directory instead of "." to get better error messages.
-            std::env::current_dir()?,
-        )?,
-    )
+// TODO: 2025-09-22 This should be unified with the information about modules found
+// through the ToprepoConfig and Processor data.
+// #unified-git-config.
+// NOTE: ConfiguredTopRepo::submodules() provides the unified implementation
+// that uses config data instead of parsing .gitmodules each time.
+pub fn get_submodules(gix_repo: &gix::Repository) -> Result<HashMap<GitPath, String>> {
+    let modules = gix_repo.modules()?;
+    if modules.is_none() {
+        return Ok(HashMap::new());
+    }
+    let modules = modules.unwrap();
+    let main_project = resolve_gerrit_project(gix_repo)?;
+
+    let mut info = GitModulesInfo::default();
+    for name in modules.names() {
+        let path = modules.path(name)?;
+        let url = modules.url(name)?;
+        info.submodules
+            .insert(GitPath::new(path.into_owned()), Ok(url));
+    }
+
+    resolve_subprojects(&info, main_project)
 }
 
-/// Open the git repository in the current working directory, without looking in the parents.
-pub fn gix_open() -> Result<gix::ThreadSafeRepository> {
-    Ok(gix::ThreadSafeRepository::open(
-        // Using working directory instead of "." to get better error messages.
-        std::env::current_dir()?,
-    )?)
+pub fn resolve_gerrit_project(gix_repo: &gix::Repository) -> Result<String> {
+    let url = crate::git::get_default_remote_url(gix_repo)?;
+    parse_gerrit_project(&url).with_context(|| format!("Parse gerrit project from {url}"))
 }
 
-#[derive(Debug)]
-pub struct TopRepo {
-    pub gix_repo: gix::ThreadSafeRepository,
+/// A fully configured toprepo with all state loaded. This unifies access to
+/// both raw git operations and toprepo configuration.
+pub struct ConfiguredTopRepo {
+    pub gix_repo: gix::Repository,
+    pub config: GitTopRepoConfig,
+    pub ledger: SubRepoLedger,
+    pub top_repo_cache: TopRepoCache,
 }
 
-impl TopRepo {
-    pub fn create(directory: &Path, url: gix::url::Url) -> Result<TopRepo> {
+impl ConfiguredTopRepo {
+    pub fn create(directory: &Path, url: gix::url::Url) -> Result<ConfiguredTopRepo> {
         std::process::Command::new("git")
             .arg("init")
             .arg("--quiet")
@@ -246,117 +266,82 @@ Initial empty git-toprepo configuration
             .safe_status()?
             .check_success()
             .with_context(|| format!("Failed to reset {first_time_config_ref}"))?;
-        Ok(TopRepo {
-            gix_repo: gix::ThreadSafeRepository::open(directory)?,
-        })
+        Self::open_directory(directory)
     }
 
-    pub fn discover() -> Result<TopRepo> {
-        let gix_repo = gix_discover()?;
-        Ok(TopRepo { gix_repo })
-    }
-
-    /// Get the main worktree path of the repository.
-    /// If the user has multiple worktrees
-    /// this may not be the current working directory.
-    pub fn main_worktree(&self) -> Result<&Path> {
-        self.gix_repo.work_dir().with_context(|| {
-            format!(
-                "Bare repository without worktree {}",
-                self.gix_repo.git_dir().display()
-            )
-        })
-    }
-
-    // TODO: 2025-09-22 This should be unified with the information about modules found
-    // through the ToprepoConfig and Processor data.
-    // #unified-git-config.
-    pub fn submodules(&self) -> Result<HashMap<GitPath, String>> {
-        let modules = self.gix_repo.to_thread_local().modules()?;
-        if modules.is_none() {
-            return Ok(HashMap::new());
+    /// Does not load any configuration, just creates an empty state.
+    pub fn new_empty(gix_repo: gix::Repository) -> Self {
+        Self {
+            gix_repo,
+            config: GitTopRepoConfig::default(),
+            ledger: SubRepoLedger::default(),
+            top_repo_cache: TopRepoCache::default(),
         }
-        let modules = modules.unwrap();
-        let main_project = self.gerrit_project()?;
-
-        let mut info = GitModulesInfo::default();
-        for name in modules.names() {
-            let path = modules.path(name)?;
-            let url = modules.url(name)?;
-            info.submodules
-                .insert(GitPath::new(path.into_owned()), Ok(url));
-        }
-
-        resolve_subprojects(&info, main_project)
     }
 
-    pub fn gerrit_project(&self) -> Result<String> {
-        let repo = self.gix_repo.to_thread_local();
-        let url = crate::git::get_default_remote_url(&repo)?;
-        parse_gerrit_project(&url).with_context(|| format!("Parse gerrit project from {url}"))
+    /// Open the git repository in the `directory` or its parents, trying
+    /// configured first, falling back to basic This is the main entry point for
+    /// command operations.
+    pub fn discover(directory: &Path) -> Result<ConfiguredTopRepo> {
+        let gix_repo = gix_discover(directory)?;
+        ConfiguredTopRepo::load_repo(gix_repo)
     }
-}
 
-pub struct MonoRepoProcessor<'a> {
-    pub gix_repo: &'a gix::Repository,
-    pub config: &'a mut crate::config::GitTopRepoConfig,
-    pub top_repo_cache: &'a mut crate::repo::TopRepoCache,
-    pub progress: &'a mut indicatif::MultiProgress,
-}
+    /// Open a toprepo with full configuration and state loaded. The `directory`
+    /// must point to the repository root or the `.git` directory.
+    pub fn open_directory(directory: &Path) -> Result<Self> {
+        let gix_repo = gix::open(directory)?;
+        Self::load_repo(gix_repo)
+    }
 
-impl MonoRepoProcessor<'_> {
-    pub fn run<T, F>(f: F) -> Result<T>
-    where
-        F: FnOnce(&mut MonoRepoProcessor) -> Result<T>,
-    {
-        let gix_repo = gix_discover()?.to_thread_local();
-        let mut config = crate::config::GitTopRepoConfig::load_config_from_repo(&gix_repo)?;
-        let mut top_repo_cache = crate::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
+    /// Loads the same repository from scratch using `load_repo`.
+    pub fn reload_repo(&mut self) -> Result<()> {
+        let config = GitTopRepoConfig::load_config_from_repo(&self.gix_repo)?;
+        self.ledger.subrepos = config.subrepos.clone();
+        self.config = config;
+        Ok(())
+    }
+
+    pub fn load_repo(gix_repo: gix::Repository) -> Result<Self> {
+        let config = GitTopRepoConfig::load_config_from_repo(&gix_repo)?;
+        let ledger = SubRepoLedger {
+            subrepos: config.subrepos.clone(),
+            missing_subrepos: std::collections::HashSet::new(),
+        };
+        let top_repo_cache = crate::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
             gix_repo.git_dir(),
             Some(&config.checksum),
         )
         .with_context(|| format!("Loading cache from {}", gix_repo.git_dir().display()))?
         .unpack()?;
-        let mut progress = indicatif::MultiProgress::new();
-        let mut processor = MonoRepoProcessor {
-            gix_repo: &gix_repo,
-            config: &mut config,
-            top_repo_cache: &mut top_repo_cache,
-            progress: &mut progress,
-        };
-        processor
-            .progress
-            .set_draw_target(indicatif::ProgressDrawTarget::hidden());
-        let mut result = crate::log::get_global_logger().with_progress(|progress| {
-            let old_progress = std::mem::replace(processor.progress, progress);
-            let result = f(&mut processor);
-            *processor.progress = old_progress;
-            result
-        });
-        // Store some result files.
-        if let Err(err) = crate::repo_cache_serde::SerdeTopRepoCache::pack(
-            processor.top_repo_cache,
-            processor.config.checksum.clone(),
-        )
-        .store_to_git_dir(processor.gix_repo.git_dir())
-            && result.is_ok()
-        {
-            result = Err(err);
-        }
-        const EFFECTIVE_TOPREPO_CONFIG: &str = "toprepo/last-effective-git-toprepo.toml";
-        let config_path = processor.gix_repo.git_dir().join(EFFECTIVE_TOPREPO_CONFIG);
-        if let Err(err) = processor.config.save(&config_path)
-            && result.is_ok()
-        {
-            result = Err(err);
-        }
-        result
+
+        Ok(Self {
+            gix_repo,
+            config,
+            ledger,
+            top_repo_cache,
+        })
     }
 
-    /// Reload the git-toprepo configuration in case anything has changed. Also
-    /// check if the top repo cache is still valid given the new configuration.
-    pub fn reload_config(&mut self) -> Result<()> {
-        *self.config = crate::config::GitTopRepoConfig::load_config_from_repo(self.gix_repo)?;
+    /// Save state (config + cache) back to disk
+    pub fn save_state(&mut self) -> Result<()> {
+        // Save cache
+        crate::repo_cache_serde::SerdeTopRepoCache::pack(
+            &self.top_repo_cache,
+            self.config.checksum.clone(),
+        )
+        .store_to_git_dir(self.gix_repo.git_dir())?;
+
+        // Save effective config with ledger mutations
+        const EFFECTIVE_TOPREPO_CONFIG: &str = "toprepo/last-effective-git-toprepo.toml";
+        let config_path = self.gix_repo.git_dir().join(EFFECTIVE_TOPREPO_CONFIG);
+        let updated_config = GitTopRepoConfig {
+            checksum: self.config.checksum.clone(),
+            fetch: self.config.fetch.clone(),
+            subrepos: self.ledger.subrepos.clone(),
+        };
+        updated_config.save(&config_path)?;
+
         Ok(())
     }
 }
@@ -599,8 +584,8 @@ pub enum ExpandedSubmodule {
     /// * A with y
     /// ```
     // TODO: 2025-09-22 Implement this in the
-    // TopRepoExpander::get_recursive_submodule_bumps() or extract the
-    // information from TopRepoExpander::expand_inner_submodules().
+    // Expander::get_recursive_submodule_bumps() or extract the
+    // information from Expander::expand_inner_submodules().
     RegressedNotFullyImplemented(SubmoduleContent),
 }
 
