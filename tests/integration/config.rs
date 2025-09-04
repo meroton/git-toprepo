@@ -1,5 +1,6 @@
 use assert_cmd::prelude::*;
 use git_toprepo::config::TOPREPO_CONFIG_FILE_KEY;
+use git_toprepo::config::toprepo_git_config;
 use git_toprepo::git::commit_env_for_testing;
 use git_toprepo::git::git_command;
 use predicates::prelude::*;
@@ -43,7 +44,7 @@ fn test_validate_external_file_in_corrupt_repository() {
     git_command(&temp_dir)
         .args([
             "config",
-            TOPREPO_CONFIG_FILE_KEY,
+            &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
             &format!("worktree:{invalid_toml}"),
         ])
         .envs(&deterministic)

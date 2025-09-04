@@ -29,7 +29,22 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-pub const TOPREPO_CONFIG_FILE_KEY: &str = "toprepo.config";
+// NB: We can't seem to curry this into a const function
+// https://docs.rs/const-str/latest/const_str/index.html#const-context-only
+// So we can either use a single variable for the full string
+// and type in the namespace (no compile-time concatenation),
+// or use a runtime function that just takes the key,
+// which should too be a constant.
+// So we can use either of the two use patterns:
+//    * `TOPREPO_CONFIG_FILE_KEY`
+//      benefits: tersest use sites
+//    * `toprepo_config(CONFIG_FILE_KEY)`
+//      benefits: does not repeat the namespace in multiple constant definitions.
+pub const TOPREPO_CONFIG_NAMESPACE: &str = "toprepo";
+pub fn toprepo_git_config(key: &str) -> String {
+    format!("{TOPREPO_CONFIG_NAMESPACE}.{key}")
+}
+pub const TOPREPO_CONFIG_FILE_KEY: &str = "config";
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
@@ -298,8 +313,9 @@ impl GitTopRepoConfig {
     pub fn find_configuration_location(repo_dir: &Path) -> Result<ConfigLocation> {
         // Load config file location.
 
-        let location = git_config_get(repo_dir, TOPREPO_CONFIG_FILE_KEY)?.with_context(|| {
-            format!("git-config '{TOPREPO_CONFIG_FILE_KEY}' is missing. Is this an initialized git-toprepo?")
+        let key = &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY);
+        let location = git_config_get(repo_dir, key)?.with_context(|| {
+            format!("git-config '{key}' is missing. Is this an initialized git-toprepo?")
         })?;
 
         ConfigLocation::from_str(&location)
@@ -632,7 +648,11 @@ mod tests {
             .success();
 
         git_command(&tmp_path)
-            .args(["config", TOPREPO_CONFIG_FILE_KEY, "worktree:foobar.toml"])
+            .args([
+                "config",
+                &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
+                "worktree:foobar.toml",
+            ])
             .envs(&env)
             .assert()
             .success();
@@ -670,7 +690,11 @@ mod tests {
             .success();
 
         git_command(&tmp_path)
-            .args(["config", TOPREPO_CONFIG_FILE_KEY, "worktree:foobar.toml"])
+            .args([
+                "config",
+                &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
+                "worktree:foobar.toml",
+            ])
             .envs(&env)
             .assert()
             .success();
@@ -722,7 +746,7 @@ mod tests {
         git_command(&tmp_path)
             .args([
                 "config",
-                TOPREPO_CONFIG_FILE_KEY,
+                &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
                 "repo:HEAD:.gittoprepo.toml",
             ])
             .check_success_with_stderr()
@@ -741,7 +765,7 @@ mod tests {
         git_command(&tmp_path)
             .args([
                 "config",
-                TOPREPO_CONFIG_FILE_KEY,
+                &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
                 "worktree:nonexisting.toml",
             ])
             .check_success_with_stderr()
@@ -835,7 +859,7 @@ mod tests {
         git_command(&tmp_path)
             .args([
                 "config",
-                TOPREPO_CONFIG_FILE_KEY,
+                &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
                 "repo:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml",
             ])
             .check_success_with_stderr()
