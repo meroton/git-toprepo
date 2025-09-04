@@ -1,3 +1,5 @@
+use crate::config::TOPREPO_CONFIG_FILE_KEY;
+use crate::config::toprepo_git_config;
 use crate::git::BlobId;
 use crate::git::CommitId;
 use crate::git::GitModulesInfo;
@@ -139,16 +141,17 @@ impl TopRepo {
             .safe_status()?
             .check_success()
             .context("Failed to set git-config remote.origin.tagOpt")?;
+        let key = &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY);
         git_command(directory)
             .args([
                 "config",
-                "toprepo.config",
+                key,
                 &format!("repo:{toprepo_ref_prefix}refs/remotes/origin/HEAD:.gittoprepo.toml"),
             ])
             .trace_command(crate::command_span!("git config"))
             .safe_status()?
             .check_success()
-            .context("Failed to set git-config toprepo.config")?;
+            .context("Failed to set git-config {key}")?;
 
         let result = {
             let (process, _span_guard) = git_command(directory)

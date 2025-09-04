@@ -841,6 +841,8 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::TOPREPO_CONFIG_FILE_KEY;
+    use crate::config::toprepo_git_config;
 
     #[test]
     fn test_main_outside_git_toprepo() {
@@ -869,9 +871,10 @@ mod tests {
         let _ = init_cmd.arg("init").output();
         let argv = vec!["git-toprepo", "-C", temp_dir_str, "config", "show"];
         let argv = argv.into_iter().map(|s| s.into());
+        let key = toprepo_git_config(TOPREPO_CONFIG_FILE_KEY);
         assert_eq!(
             format!("{:#}", main_impl(argv, None).unwrap_err()),
-            "git-config 'toprepo.config' is missing. Is this an initialized git-toprepo?",
+            format!("git-config '{key}' is missing. Is this an initialized git-toprepo?"),
         );
     }
 }
