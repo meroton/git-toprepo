@@ -29,7 +29,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-pub const TOPREPO_CONFIG_FILE_KEY: &str = "toprepo.config";
+pub const TOPREPO_CONFIG_FILE_KEY: &str = "git-toprepo.config";
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
