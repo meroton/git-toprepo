@@ -764,6 +764,29 @@ where
             })?;
         }
         Commands::Config(config_args) => return config(config_args),
+        // TODO: Dump can run with a mis- or unconfigured repo.
+        //       But it would also be good if it did run on a configured repo
+        //       and could dump more information. Like the remotes of each
+        //       module. We can probably find it through `gix::Repository`,
+        //       but the main toprepo operations do it through `GitTopRepoConfig`
+        //       which is not available without the processor.
+        //
+        //       It strikes me as odd to have two completely different access
+        //       paths for the same information. And makes maintaining these
+        //       commands harder. I would prefer to have a richer representation
+        //       around the repo. And have it optionally contain more specific
+        //       toprepo configs, than to maintain them in two different data
+        //       structures without a less clear (shared) provenance.
+        //
+        //       Especially since some algorithms only operate on submodules
+        //       but others operate on all projects (including super)
+        //       using the same API. So to avoid placing an early exit that
+        //       checks for the main module before each submodule lookup
+        //       it would be better to have a datastructure that treat them as
+        //       interchangeable.
+        //
+        //       $ git-toprepo fetch ssh://gerrit.example/super 1046c7139f113ca82ccff86722707e089debf919
+        //       ERROR: No configured submodule URL matches "ssh://gerrit.example/super"
         Commands::Dump(dump_args) => return dump(dump_args),
         Commands::Version => return print_version(),
         _ => {
@@ -787,6 +810,12 @@ where
 
     git_toprepo::repo::MonoRepoProcessor::run(Path::new("."), |processor| {
         match args.command {
+            // TODO: Why does the config belong to the processor?
+            // would it not make more sense in a richer repo representation,
+            // we do have the regular submodule info available in the gix::Repository
+            // that is customarily used for the toprepo itself.
+            // But that only contains the local paths, no remote information.
+
             // Main toprepo operations.
             Commands::Init(_) => unreachable!("init is already processed."),
             Commands::Clone(clone_args) => clone_after_init(&clone_args, processor),
