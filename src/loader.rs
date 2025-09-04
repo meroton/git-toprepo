@@ -427,12 +427,13 @@ impl<'a> CommitLoader<'a> {
         let error_observer = self.error_observer.clone();
         let log_context = crate::log::current_scope();
         let parent_span = tracing::Span::current();
+        let idle_timeouts = self.config.fetch.get_idle_timeouts();
         self.thread_pool.execute(move || {
             let _log_scope_guard = crate::log::scope(log_context);
             let _span_guard =
                 tracing::info_span!(parent: parent_span, "Fetching", "repo" = %repo_name).entered();
             let result = fetcher
-                .fetch_with_progress_bar(&pb_status)
+                .fetch_with_progress_bar(&pb_status, &idle_timeouts)
                 .with_context(|| format!("Fetching {repo_name}"));
             // Sending might fail on interrupt.
             if let Err(err) = tx.send(TaskResult::RepoFetchDone {

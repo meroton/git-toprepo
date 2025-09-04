@@ -37,6 +37,8 @@ pub const TOPREPO_CONFIG_FILE_KEY: &str = "toprepo.config";
 pub struct GitTopRepoConfig {
     #[serde(skip)]
     pub checksum: String,
+    #[serde(skip_serializing_if = "is_default")]
+    pub fetch: GlobalFetchConfig,
     #[serde(rename = "repo")]
     pub subrepos: BTreeMap<SubRepoName, SubRepoConfig>,
     /// List of subrepos that are missing in the configuration and have
@@ -425,6 +427,39 @@ pub struct TopRepoConfig {
     pub url: gix::Url,
     #[serde_as(as = "crate::util::SerdeGixUrl")]
     pub push_url: gix::Url,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GlobalFetchConfig {
+    /// Timeouts for git-fetch when there is no update on stderr. This is useful
+    /// for patchy network connections where git-fetch sometimes hangs. Example
+    /// value is `[10, 30, 0]` where zero means infinite.
+    ///
+    /// Default: `[]` means `[0]` (no timeout).
+    #[serde(skip_serializing_if = "is_default")]
+    pub idle_timeouts_secs: Vec<u32>,
+}
+
+impl GlobalFetchConfig {
+    /// Returns the idle timeouts as `Duration`s with at least one element.
+    /// `None` means no timeout.
+    pub fn get_idle_timeouts(&self) -> Vec<Option<std::time::Duration>> {
+        if self.idle_timeouts_secs.is_empty() {
+            vec![None]
+        } else {
+            self.idle_timeouts_secs
+                .iter()
+                .map(|secs| {
+                    if *secs == 0 {
+                        None
+                    } else {
+                        Some(std::time::Duration::from_secs(*secs as u64))
+                    }
+                })
+                .collect()
+        }
+    }
 }
 
 /// `SubRepoConfig` holds the configuration for a subrepo in the super repo. If
