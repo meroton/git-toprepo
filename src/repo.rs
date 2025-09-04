@@ -1,3 +1,4 @@
+use crate::config::TOPREPO_CONFIG_FILE_KEY;
 use crate::expander::BumpCache;
 use crate::expander::TopRepoExpander;
 use crate::expander::strip_ref_prefix;
@@ -155,13 +156,13 @@ impl TopRepo {
         git_command(directory)
             .args([
                 "config",
-                "toprepo.config",
+                TOPREPO_CONFIG_FILE_KEY,
                 &format!("repo:{toprepo_ref_prefix}refs/remotes/origin/HEAD:.gittoprepo.toml"),
             ])
             .trace_command(crate::command_span!("git config"))
             .safe_status()?
             .check_success()
-            .context("Failed to set git-config toprepo.config")?;
+            .context("Failed to set git-config {TOPREPO_CONFIG_FILE_KEY}")?;
 
         let result = {
             let (process, _span_guard) = git_command(directory)
