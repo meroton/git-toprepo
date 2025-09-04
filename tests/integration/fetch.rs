@@ -1,5 +1,6 @@
 use assert_cmd::prelude::*;
 use git_toprepo::git::commit_env_for_testing;
+use itertools::Itertools as _;
 use predicates::prelude::*;
 use rstest::rstest;
 use std::process::Command;
@@ -510,4 +511,100 @@ fn test_fetch_force_refspec_not_implemented_yet() {
             )
             .unwrap(),
         );
+}
+
+/// Test `git fetch` does not time out while printing progress messages.
+fn no_timeout_with_progress_checker(cmd: assert_cmd::assert::Assert) {
+    cmd.success()
+        .stderr(predicate::str::contains("WARN: Fetching subx:").not());
+}
+
+/// Test `git fetch` does not time out while printing progress messages.
+fn idle_progress_with_successful_retry_checker(cmd: assert_cmd::assert::Assert) {
+    cmd.success().stderr(
+        predicate::str::is_match(
+            "WARN: Fetching subx: git fetch .* timed out, was silent 1s, retrying",
+        )
+        .unwrap(),
+    );
+}
+
+/// Test `git-toprepo fetch` fails if there are too many timeouts.
+fn too_many_timeouts_checker(cmd: assert_cmd::assert::Assert) {
+    cmd.code(1)
+        .stderr(
+            predicate::str::is_match(
+                "\
+WARN: Fetching subx: git fetch .* timed out, was silent 1s, retrying
+WARN: Fetching subx: git fetch .* timed out, was silent 1s, retrying
+",
+            )
+            .unwrap(),
+        )
+        .stderr(
+            predicate::str::is_match(
+                "ERROR: Fetching subx: git fetch .* exceeded timeout retry limit",
+            )
+            .unwrap(),
+        );
+}
+
+#[rstest]
+#[case::does_not_timeout_with_progress("[3]", no_timeout_with_progress_checker)]
+#[case::idle_progress("[1, 3]", idle_progress_with_successful_retry_checker)]
+#[case::exceeds_retries("[1, 1]", too_many_timeouts_checker)]
+fn test_fetch_timeout(
+    #[case] idle_timeouts: &str,
+    #[case] command_checker: impl Fn(assert_cmd::assert::Assert),
+) {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    Command::new("git")
+        .current_dir(&repo.monorepo)
+        .args(["config", "toprepo.config", "local:.gittoprepo.toml"])
+        .assert()
+        .success();
+    let toprepo_config_path = repo.monorepo.join(".gittoprepo.toml");
+    let old_config_content = std::fs::read_to_string(&toprepo_config_path).unwrap();
+    let new_config_content =
+        format!("fetch.idle_timeouts_secs = {idle_timeouts}\n{old_config_content}");
+    std::fs::write(&toprepo_config_path, &new_config_content).unwrap();
+    let slow_upload_pack_dir =
+        std::path::absolute("tests/integration/fixtures/git-upload-pack-slow").unwrap();
+
+    // Force a submodule fetch.
+    const RANDOM_SHA1: &str = "0123456789abcdef0123456789abcdef01234567";
+    Command::new("git")
+        .current_dir(&repo.toprepo)
+        .args([
+            "update-index",
+            "--cacheinfo",
+            &format!("160000,{RANDOM_SHA1},subx"),
+        ])
+        .assert()
+        .success();
+    Command::new("git")
+        .current_dir(&repo.toprepo)
+        .args(["commit", "-m", "Update submodule subx"])
+        .envs(commit_env_for_testing())
+        .assert()
+        .success();
+    Command::new("git")
+        .current_dir(&repo.subx_repo)
+        .args(["commit", "--allow-empty", "-m", "Something to fetch"])
+        .envs(commit_env_for_testing())
+        .assert()
+        .success();
+    let old_path_env = std::env::var_os("PATH").unwrap_or_default();
+    let new_paths = [slow_upload_pack_dir]
+        .into_iter()
+        .chain(std::env::split_paths(&old_path_env))
+        .collect_vec();
+    let cmd = Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&repo.monorepo)
+        .args(["fetch"])
+        .env("OLD_PATH", &old_path_env)
+        .env("PATH", std::env::join_paths(new_paths).unwrap())
+        .assert();
+    command_checker(cmd);
 }
