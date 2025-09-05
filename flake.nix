@@ -51,6 +51,7 @@
               BUILD_SCM_REVISION = fakeRev;
               nativeBuildInputs = with pkgs; [
                   git
+                  python3
               ];
               cargoLock.lockFile = "${src}/Cargo.lock";
               passthru = {

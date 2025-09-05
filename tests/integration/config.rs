@@ -94,7 +94,7 @@ fn test_validate_external_file_in_corrupt_repository() {
             "ERROR: Loading config file {incorrect_config}: Could not parse TOML string",
         )))
         .stderr(predicate::str::contains(
-            "unknown field `Wrong`, expected `repo`",
+            "unknown field `Wrong`, expected `fetch` or `repo`",
         ));
 
     Command::cargo_bin("git-toprepo")

@@ -13,6 +13,7 @@ use bstr::ByteSlice as _;
 use gix::remote::Direction;
 use std::path::PathBuf;
 use std::str::FromStr as _;
+use wait_timeout::ChildExt as _;
 
 pub struct RemoteFetcher {
     pub git_dir: PathBuf,
@@ -152,35 +153,103 @@ impl RemoteFetcher {
         cmd
     }
 
-    pub fn fetch_with_progress_bar(self, pb: &indicatif::ProgressBar) -> Result<()> {
-        pb.set_prefix(self.remote.as_deref().unwrap_or_default().to_owned());
-        let (mut proc, _span_guard) = self
-            .create_command()
-            // TODO: Collect stdout (use a thread to avoid backpressure deadlock).
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped())
-            .trace_command(crate::command_span!("git fetch"))
-            .spawn()
-            .context("Failed to spawn git-fetch")?;
+    pub fn fetch_with_progress_bar(
+        self,
+        pb: &indicatif::ProgressBar,
+        idle_timeouts: &Vec<Option<std::time::Duration>>,
+    ) -> Result<()> {
+        let remote_str = self.remote.as_deref().unwrap_or_default();
+        pb.set_prefix(remote_str.to_owned());
+        for idle_timeout in idle_timeouts {
+            let _timeout_span_guard = tracing::debug_span!("idle-timeout", ?idle_timeout).entered();
+            let (proc, _span_guard) = self
+                .create_command()
+                // TODO: Collect stdout (use a thread to avoid backpressure deadlock).
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .trace_command(crate::command_span!("git fetch"))
+                .spawn()
+                .context("Failed to spawn git-fetch")?;
 
-        let permanent_stderr = crate::util::read_stderr_progress_status(
-            proc.stderr.take().expect("piping stderr"),
-            |line| pb.set_message(line),
-        );
-        let exit_status = SafeExitStatus::new(proc.wait().context("Failed to wait for git-fetch")?);
-        if let Err(err) = exit_status.check_success() {
-            let maybe_newline = if permanent_stderr.is_empty() {
-                ""
-            } else {
-                "\n"
+            let Some((exit_status, permanent_stderr)) =
+                Self::wait_for_fetch_with_progress_bar(pb, idle_timeout.as_ref(), proc, remote_str)
+                    .with_context(|| format!("Running git-fetch {remote_str}"))?
+            else {
+                // Timeout, try again.
+                let idle_timeout = idle_timeout.expect("Timeout is set");
+                log::warn!(
+                    "git fetch {remote_str} timed out, was silent {idle_timeout:?}, retrying"
+                );
+                continue;
             };
-            bail!(
-                "git fetch {} failed: {err:#}{maybe_newline}{permanent_stderr}",
-                self.remote.as_deref().unwrap_or("<default>")
-            );
+            if let Err(err) = exit_status.check_success() {
+                let maybe_newline = if permanent_stderr.is_empty() {
+                    ""
+                } else {
+                    "\n"
+                };
+                bail!(
+                    "git fetch {} failed: {err:#}{maybe_newline}{permanent_stderr}",
+                    self.remote.as_deref().unwrap_or("<default>")
+                );
+            }
+            self.remove_fetch_head()?;
+            return Ok(());
         }
-        self.remove_fetch_head()?;
-        Ok(())
+        bail!("git fetch {remote_str} exceeded timeout retry limit");
+    }
+
+    fn wait_for_fetch_with_progress_bar(
+        pb: &indicatif::ProgressBar,
+        idle_timeout: Option<&std::time::Duration>,
+        mut proc: std::process::Child,
+        remote_str: &str,
+    ) -> Result<Option<(SafeExitStatus, String)>> {
+        let stderr_pipe = proc.stderr.take().expect("piping stderr");
+        if let Some(idle_timeout) = idle_timeout {
+            let proc_timeout = &std::sync::Mutex::new(std::time::Instant::now() + *idle_timeout);
+            std::thread::scope(|scope| {
+                // Collect stderr in a separate thread to be able to check for
+                // timeout. Creating a thread should be cheaper than running
+                // git-fetch, so no need to optimize.
+                let parent_span = tracing::Span::current();
+                let stderr_thread = std::thread::Builder::new()
+                    .name(format!("git-fetch-stderr-{remote_str}"))
+                    .spawn_scoped(scope, move || {
+                        let _span_guard =
+                            tracing::debug_span!(parent: &parent_span, "git-fetch stderr")
+                                .entered();
+                        crate::util::read_stderr_progress_status(stderr_pipe, |line| {
+                            tracing::trace!(name: "stderr", line = ?line);
+                            pb.set_message(line);
+                            *proc_timeout.lock().unwrap() =
+                                std::time::Instant::now() + *idle_timeout;
+                        })
+                    })
+                    .expect("Failed to spawn git-fetch stderr thread");
+                let Some(exit_status) = proc_wait_with_timeout(proc, proc_timeout)
+                    .with_context(|| format!("Running git-fetch {remote_str}"))?
+                else {
+                    // Timeout.
+                    return Ok(None);
+                };
+                let permanent_stderr = stderr_thread
+                    .join()
+                    .expect("Failed to join git-fetch stderr thread");
+                Ok(Some((exit_status, permanent_stderr)))
+            })
+        } else {
+            // No timeout, just wait.
+            let permanent_stderr = crate::util::read_stderr_progress_status(stderr_pipe, |line| {
+                tracing::trace!(name: "stderr", line = ?line);
+                pb.set_message(line);
+            });
+            let exit_status = SafeExitStatus::new(
+                proc.wait()
+                    .with_context(|| format!("Failed to wait for git-fetch {remote_str}"))?,
+            );
+            Ok(Some((exit_status, permanent_stderr)))
+        }
     }
 
     pub fn fetch_on_terminal(self) -> Result<()> {
@@ -218,5 +287,38 @@ impl RemoteFetcher {
                 Err(err).with_context(|| format!("Failed to remove {fetch_head_path:?}"))
             }
         }
+    }
+}
+
+fn proc_wait_with_timeout(
+    mut proc: std::process::Child,
+    timeout: &std::sync::Mutex<std::time::Instant>,
+) -> Result<Option<SafeExitStatus>> {
+    loop {
+        let duration_to_wait = timeout
+            .lock()
+            .unwrap()
+            .saturating_duration_since(std::time::Instant::now());
+        if duration_to_wait.is_zero() {
+            // Timeout reached.
+            proc.kill().expect("Failed to kill git-fetch after timeout");
+            let status = SafeExitStatus::new(
+                proc.wait()
+                    .context("Failed to wait for process after kill")?,
+            );
+            if status.success() {
+                // Finished before kill.
+                return Ok(Some(status));
+            }
+            return Ok(None);
+        }
+        if let Some(status) = proc
+            .wait_timeout(duration_to_wait)
+            .context("Failed to wait for process with timeout")?
+        {
+            // Process exited.
+            return Ok(Some(SafeExitStatus::new(status)));
+        }
+        // Timed out, check if the timeout has been updated.
     }
 }

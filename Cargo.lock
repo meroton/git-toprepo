@@ -706,6 +706,7 @@ dependencies = [
  "tracing-chrome",
  "tracing-log",
  "tracing-subscriber",
+ "wait-timeout",
 ]
 
 [[package]]
