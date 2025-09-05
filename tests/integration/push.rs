@@ -246,3 +246,215 @@ fn test_push_shortrev() {
         .success()
         .stdout("text\n");
 }
+
+#[test]
+fn test_push_top_and_submodule_in_series() {
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
+    let toprepo = temp_dir.join("top");
+    let subrepo = temp_dir.join("sub");
+    let monorepo = temp_dir.join("mono");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+
+    std::fs::write(monorepo.join("file.txt"), "top\n").unwrap();
+    std::fs::write(monorepo.join("sub/file.txt"), "submodule\n").unwrap();
+
+    Command::new("git")
+        .current_dir(&monorepo)
+        .args(["add", "file.txt", "sub/file.txt"])
+        .assert()
+        .success();
+    Command::new("git")
+        .current_dir(&monorepo)
+        .args(["commit", "-m", "Add files\n\nTopic: my-topic"])
+        .envs(commit_env_for_testing())
+        .assert()
+        .success();
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&monorepo)
+        .args(["push", "origin", "--jobs=1", "HEAD:refs/heads/foo"])
+        .assert()
+        .success()
+        // First execute one push, then the other.
+        .stderr(
+            predicate::str::is_match(
+                "\
+INFO: Running git push .*/sub/? -o topic=my-topic [0-9a-f]+:refs/heads/foo
+INFO: Stderr from git push .*/sub/? -o topic=my-topic [0-9a-f]+:refs/heads/foo
+remote: GIT_PUSH_OPTION_0=topic=my-topic\\s*
+remote: prereceive hook sleeping\\s*
+remote: prereceive hook continues\\s*
+To .*/sub/?
+ \\* \\[new branch\\]\\s+[0-9a-f]+ -> foo
+INFO: Running git push .*/top/? -o topic=my-topic [0-9a-f]+:refs/heads/foo
+INFO: Stderr from git push .*/top/? -o topic=my-topic [0-9a-f]+:refs/heads/foo
+remote: GIT_PUSH_OPTION_0=topic=my-topic\\s*
+remote: prereceive hook sleeping\\s*
+remote: prereceive hook continues\\s*
+To .*/top/?
+ \\* \\[new branch\\]\\s+[0-9a-f]+ -> foo
+",
+            )
+            .unwrap(),
+        );
+
+    Command::new("git")
+        .current_dir(&toprepo)
+        .args(["show", "refs/heads/foo:file.txt"])
+        .assert()
+        .success()
+        .stdout("top\n");
+    Command::new("git")
+        .current_dir(&subrepo)
+        .args(["show", "refs/heads/foo:file.txt"])
+        .assert()
+        .success()
+        .stdout("submodule\n");
+}
+
+#[test]
+fn test_push_top_and_submodule_in_parallel() {
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
+    let toprepo = temp_dir.join("top");
+    let subrepo = temp_dir.join("sub");
+    let monorepo = temp_dir.join("mono");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+
+    std::fs::write(monorepo.join("file.txt"), "top\n").unwrap();
+    std::fs::write(monorepo.join("sub/file.txt"), "submodule\n").unwrap();
+
+    Command::new("git")
+        .current_dir(&monorepo)
+        .args(["add", "file.txt", "sub/file.txt"])
+        .assert()
+        .success();
+    Command::new("git")
+        .current_dir(&monorepo)
+        .args(["commit", "-m", "Add files\n\nTopic: my-topic"])
+        .envs(commit_env_for_testing())
+        .assert()
+        .success();
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&monorepo)
+        .args(["push", "origin", "HEAD:refs/heads/foo"])
+        .assert()
+        .success()
+        // Both pushes should have started in parallel before printing the
+        // "pre-receive hook continues" lines.
+        .stderr(
+            predicate::str::is_match(
+                "\
+INFO: Running git push .* -o topic=my-topic [0-9a-f]+:refs/heads/foo
+INFO: Running git push .* -o topic=my-topic [0-9a-f]+:refs/heads/foo
+INFO: Stderr from git push .* -o topic=my-topic [0-9a-f]+:refs/heads/foo
+remote: GIT_PUSH_OPTION_0=topic=my-topic\\s*
+remote: prereceive hook sleeping\\s*
+remote: prereceive hook continues\\s*
+To .*
+ \\* \\[new branch\\]\\s+[0-9a-f]+ -> foo
+INFO: Stderr from git push .* -o topic=my-topic [0-9a-f]+:refs/heads/foo
+remote: GIT_PUSH_OPTION_0=topic=my-topic\\s*
+remote: prereceive hook sleeping\\s*
+remote: prereceive hook continues\\s*
+To .*
+ \\* \\[new branch\\]\\s+[0-9a-f]+ -> foo
+",
+            )
+            .unwrap(),
+        );
+
+    Command::new("git")
+        .current_dir(&toprepo)
+        .args(["show", "refs/heads/foo:file.txt"])
+        .assert()
+        .success()
+        .stdout("top\n");
+    Command::new("git")
+        .current_dir(&subrepo)
+        .args(["show", "refs/heads/foo:file.txt"])
+        .assert()
+        .success()
+        .stdout("submodule\n");
+}
+
+#[test]
+fn test_push_topic_removed_from_commit_message() {
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
+    let toprepo = temp_dir.join("top");
+    let subrepo = temp_dir.join("sub");
+    let monorepo = temp_dir.join("mono");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+
+    std::fs::write(monorepo.join("file.txt"), "top\n").unwrap();
+    std::fs::write(monorepo.join("sub/file.txt"), "submodule\n").unwrap();
+
+    Command::new("git")
+        .current_dir(&monorepo)
+        .args(["add", "file.txt", "sub/file.txt"])
+        .assert()
+        .success();
+    Command::new("git")
+        .current_dir(&monorepo)
+        .args(["commit", "-m", "Add files\n\nTopic: my-topic"])
+        .envs(commit_env_for_testing())
+        .assert()
+        .success();
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&monorepo)
+        .args(["push", "origin", "HEAD:refs/heads/foo"])
+        .assert()
+        .success();
+
+    // Check for missing topic and a single LF at the end.
+    Command::new("git")
+        .current_dir(&toprepo)
+        .args(["cat-file", "-p", "refs/heads/foo"])
+        .assert()
+        .success()
+        .stdout(predicate::str::ends_with("\n\nAdd files\n"));
+    Command::new("git")
+        .current_dir(&subrepo)
+        .args(["cat-file", "-p", "refs/heads/foo"])
+        .assert()
+        .success()
+        .stdout(predicate::str::ends_with("\n\nAdd files\n"));
+}
+
+#[test]
+fn test_push_topic_is_used_as_push_option() {
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+
+    std::fs::write(monorepo.join("file.txt"), "top\n").unwrap();
+
+    Command::new("git")
+        .current_dir(&monorepo)
+        .args(["add", "file.txt"])
+        .assert()
+        .success();
+    Command::new("git")
+        .current_dir(&monorepo)
+        .args(["commit", "-m", "Add file\n\nTopic: my-topic"])
+        .envs(commit_env_for_testing())
+        .assert()
+        .success();
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&monorepo)
+        .args(["push", "origin", "HEAD:refs/heads/foo"])
+        .assert()
+        .success()
+        // Both pushes should have started in parallel before printing the
+        // "pre-receive hook continues" lines.
+        .stderr(predicate::str::contains(
+            "\nremote: GIT_PUSH_OPTION_0=topic=my-topic",
+        ));
+}
