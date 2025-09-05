@@ -300,12 +300,21 @@ impl<'a> CommitLoader<'a> {
                     return Ok(false);
                 }
                 // Blocking message fetching.
-                match self.rx.recv() {
-                    Ok(msg) => msg,
-                    Err(std::sync::mpsc::RecvError) => {
-                        // The sender has been dropped, no more events will come.
-                        unreachable!();
-                    }
+                loop {
+                    match self.rx.recv_timeout(std::time::Duration::from_secs(1)) {
+                        Ok(msg) => break msg,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            // The sender has been dropped, no more events will come.
+                            unreachable!();
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            if self.thread_pool.panic_count() != 0 {
+                                return Err(anyhow::anyhow!(
+                                    "A worker thread has panicked, aborting"
+                                ));
+                            }
+                        }
+                    };
                 }
             }
         };
