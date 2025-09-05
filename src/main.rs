@@ -625,7 +625,7 @@ fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> 
     // TODO: This assumes a single ref in the refspec. What about patterns?
     let local_rev = local_ref;
 
-    processor.push(
+    git_toprepo::push::PushProcessor::new(processor).push(
         &base_url,
         local_rev,
         &FullName::try_from(remote_ref.clone())?,

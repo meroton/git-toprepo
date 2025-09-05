@@ -7,6 +7,7 @@ pub mod git_fast_export_import_dedup;
 pub mod gitmodules;
 pub mod loader;
 pub mod log;
+pub mod push;
 pub mod repo;
 pub mod repo_cache_serde;
 pub mod repo_name;
