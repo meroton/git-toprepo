@@ -1288,8 +1288,13 @@ impl SingleRepoLoader<'_> {
                 .as_bstr()
                 .strip_prefix(ref_prefix.as_bytes())
                 .expect("ref has prefix");
-            if !ref_suffix.starts_with("refs/tags/".as_bytes()) {
-                // Only non-tags can be expected to be updated.
+            if ref_suffix.starts_with("refs/remotes/".as_bytes())
+                || ref_suffix.starts_with("refs/heads/".as_bytes())
+            {
+                // Only remotes can be expected to be updated, not . refs/tags/,
+                // refs/notes/, refs/pull/ etc. are ignored.
+                //
+                // Also allowing refs/heads/ in case someone puts their remote branches there.
                 let ref_suffix_name = FullName::try_from(ref_suffix.as_bstr())
                     .expect("The ref suffix should be a valid full name");
                 active_tips_map
