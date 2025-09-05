@@ -24,6 +24,8 @@ use crate::ui::ProgressTaskHandle;
 use anyhow::Context;
 use anyhow::Result;
 use bstr::BStr;
+use bstr::ByteSlice as _;
+use gix::refs::FullName;
 use itertools::Itertools as _;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -35,33 +37,59 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tracing::instrument;
 
+/// A mapping of commit ids to their potential git-refs. This is useful when
+/// printing log messages as they then can include the refs the user need to
+/// look into.
+type CommitToRefMap = HashMap<CommitId, Vec<FullName>>;
+
 enum TaskResult {
     RepoFetchDone {
         repo_name: RepoName,
+        /// A reference to the UI progress line.
         progress_task: ProgressTaskHandle,
+        /// The result of the fetch.
         result: Result<()>,
     },
     LoadCachedCommits {
         repo_name: RepoName,
-        cached_commits_to_load: Vec<CommitId>,
+        /// Commit ids to load and their potential git-refs. All ancestors should also be loaded.
+        cached_commits_to_load: CommitToRefMap,
+        /// A channel to send the result of the loading process.
         result_channel: oneshot::Sender<Result<()>>,
     },
     ImportCommit {
         repo_name: Arc<RepoName>,
         commit: FastExportCommit,
         tree_id: TreeId,
+        /// git-refs for the commit to be imported.
+        ref_names: Vec<FullName>,
     },
     LoadRepoDone {
         repo_name: RepoName,
+        /// A reference to the UI progress line.
         progress_task: ProgressTaskHandle,
+        /// The result of loading a repository, potentially interrupted.
         result: InterruptedResult<()>,
     },
 }
 
 #[derive(Debug)]
 struct NeededCommit {
+    /// Repository the needed commit is in.
     pub repo_name: SubRepoName,
+    /// Needed submodule commit.
     pub commit_id: CommitId,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CommitLogLevel {
+    /// Used for a branch tip which can be fixed.
+    pub is_tip: bool,
+    /// Hide warnings that config-bootstrap should not log.
+    // TODO: Can this be refactored somewhere else?
+    pub log_missing_repo_configs: bool,
+    /// The log level for messages that belong to a commit.
+    pub level: log::Level,
 }
 
 pub struct CommitLoader<'a> {
@@ -321,8 +349,9 @@ impl<'a> CommitLoader<'a> {
                 repo_name,
                 commit,
                 tree_id,
+                ref_names,
             } => {
-                match self.import_commit(&repo_name, commit, tree_id) {
+                match self.import_commit(&repo_name, commit, tree_id, &ref_names) {
                     Ok(()) => self.import_progress.inc(1),
                     Err(InterruptedError::Interrupted) => {
                         // The caller can continue processing if they want.
@@ -471,7 +500,7 @@ impl<'a> CommitLoader<'a> {
             impl SingleLoadRepoCallback for LoadRepoCallback {
                 fn load_cached_commits(
                     &self,
-                    cached_commits_to_load: Vec<CommitId>,
+                    cached_commits_to_load: CommitToRefMap,
                 ) -> InterruptedResult<()> {
                     let (result_tx, result_rx) = oneshot::channel();
                     self.tx
@@ -493,12 +522,14 @@ impl<'a> CommitLoader<'a> {
                     &self,
                     commit: FastExportCommit,
                     tree_id: TreeId,
+                    ref_names: &[FullName],
                 ) -> InterruptedResult<()> {
                     self.tx
                         .send(TaskResult::ImportCommit {
                             repo_name: self.repo_name.clone(),
                             commit,
                             tree_id,
+                            ref_names: Vec::from(ref_names),
                         })
                         // The receiver only closes to fail fast.
                         .map_err(|_| InterruptedError::Interrupted)?;
@@ -574,7 +605,7 @@ impl<'a> CommitLoader<'a> {
     fn load_cached_commits(
         &mut self,
         repo_name: &RepoName,
-        cached_commits_to_load: Vec<CommitId>,
+        cached_commits_to_load: CommitToRefMap,
     ) -> InterruptedResult<()> {
         // Load from cache, should be quick.
         let Some(cached_repo) = self.cached_repo_states.remove(repo_name) else {
@@ -600,11 +631,11 @@ impl<'a> CommitLoader<'a> {
 
         let mut needed_commits = Vec::new();
         let mut todo = cached_commits_to_load
-            .into_iter()
+            .keys()
             .map(|commit_id| {
                 cached_repo
                     .thin_commits
-                    .get(&commit_id)
+                    .get(commit_id)
                     .expect("commit_id is in cache")
                     .clone()
             })
@@ -633,13 +664,34 @@ impl<'a> CommitLoader<'a> {
                 }
                 // All parents have been process previously.
                 let thin_commit = todo.pop().expect("at least one element exists");
+                let mut context = format!("Commit {} in {}", thin_commit.commit_id, repo_name);
+                let commit_log_level = if let Some(ref_names) =
+                    cached_commits_to_load.get(&thin_commit.commit_id)
+                    && !ref_names.is_empty()
+                {
+                    context += &format!(" ({})", ref_names.iter().sorted().join(", "));
+                    CommitLogLevel {
+                        is_tip: true,
+                        log_missing_repo_configs: self.log_missing_config_warnings,
+                        level: log::Level::Warn,
+                    }
+                } else {
+                    CommitLogLevel {
+                        is_tip: false,
+                        log_missing_repo_configs: self.log_missing_config_warnings,
+                        level: log::Level::Trace,
+                    }
+                };
+
+                let _log_scope_guard = crate::log::scope(context.clone());
                 Self::verify_cached_commit(
                     &repo_fetcher.repo_data,
                     thin_commit.as_ref(),
                     self.config,
                     &mut self.dot_gitmodules_cache,
+                    commit_log_level,
                 )
-                .with_context(|| format!("Repo {repo_name} commit {}", thin_commit.commit_id))?;
+                .context(context)?;
                 // Load all submodule commits as well as that would be done if not
                 // using the cache.
                 for bump in thin_commit.submodule_bumps.values() {
@@ -691,8 +743,15 @@ impl<'a> CommitLoader<'a> {
         repo_name: &RepoName,
         exported_commit: FastExportCommit,
         tree_id: TreeId,
+        ref_names: &[FullName],
     ) -> InterruptedResult<()> {
-        let context = format!("Repo {} commit {}", repo_name, exported_commit.original_id);
+        let mut context = format!("Commit {} in {}", exported_commit.original_id, repo_name);
+        if !ref_names.is_empty() {
+            let ref_names_str = ref_names.iter().sorted().join(", ");
+            context += &format!(" ({ref_names_str})");
+        }
+        let is_tip = !ref_names.is_empty();
+
         let _log_scope_guard = crate::log::scope(context.clone());
         let hash_without_committer = exported_commit.hash_without_committer()?;
         let repo_data = &mut self.repos.get_mut(repo_name).unwrap().repo_data;
@@ -702,7 +761,15 @@ impl<'a> CommitLoader<'a> {
             tree_id,
             self.config,
             &mut self.dot_gitmodules_cache,
-            self.log_missing_config_warnings,
+            CommitLogLevel {
+                is_tip,
+                log_missing_repo_configs: self.log_missing_config_warnings,
+                level: if is_tip {
+                    log::Level::Warn
+                } else {
+                    log::Level::Trace
+                },
+            },
         )
         .context(context)
         .map_err(InterruptedError::Normal)?;
@@ -731,11 +798,13 @@ impl<'a> CommitLoader<'a> {
         commit: &ThinCommit,
         config: &mut GitTopRepoConfig,
         dot_gitmodules_cache: &mut DotGitModulesCache,
+        commit_log_level: CommitLogLevel,
     ) -> Result<()> {
-        let submodule_paths_to_check = if commit
-            .parents
-            .first()
-            .is_none_or(|first_parent| commit.dot_gitmodules != first_parent.dot_gitmodules)
+        let submodule_paths_to_check = if commit_log_level.is_tip
+            || commit
+                .parents
+                .first()
+                .is_none_or(|first_parent| commit.dot_gitmodules != first_parent.dot_gitmodules)
         {
             &commit
                 .submodule_paths
@@ -763,7 +832,7 @@ impl<'a> CommitLoader<'a> {
                         &repo_storage.url,
                         config,
                         dot_gitmodules_cache,
-                        false,
+                        commit_log_level,
                     );
                     if submod_repo_name != cached_thin_submod.repo_name {
                         anyhow::bail!(
@@ -869,7 +938,7 @@ impl<'a> CommitLoader<'a> {
         tree_id: TreeId,
         config: &mut GitTopRepoConfig,
         dot_gitmodules_cache: &mut DotGitModulesCache,
-        log_missing_config_warnings: bool,
+        commit_log_level: CommitLogLevel,
     ) -> Result<(Rc<ThinCommit>, Vec<NeededCommit>)> {
         let commit_id: CommitId = exported_commit.original_id;
         let thin_parents = exported_commit
@@ -916,7 +985,7 @@ impl<'a> CommitLoader<'a> {
                             &repo_storage.url,
                             config,
                             dot_gitmodules_cache,
-                            log_missing_config_warnings,
+                            commit_log_level,
                         );
                         if let Some(submod_repo_name) = &submod_repo_name {
                             new_submodule_commits.push(NeededCommit {
@@ -949,7 +1018,9 @@ impl<'a> CommitLoader<'a> {
         //
         // Do this after removing deleted submodules as those entries are likely
         // also gone from .gitmodules.
-        if dot_gitmodules != old_dot_gitmodules {
+        //
+        // Also do it to get logs for fixable commits, i.e. tips of branches.
+        if dot_gitmodules != old_dot_gitmodules || commit_log_level.is_tip {
             // Loop through all submodules to see if any have changed, sorted to
             // get deterministic sorting.
             for path in parent_submodule_paths.iter().sorted() {
@@ -974,7 +1045,7 @@ impl<'a> CommitLoader<'a> {
                             &repo_storage.url,
                             config,
                             dot_gitmodules_cache,
-                            log_missing_config_warnings,
+                            commit_log_level,
                         );
                         if new_repo_name != thin_submod.repo_name {
                             // Insert an entry that this submodule has been updated.
@@ -1041,10 +1112,10 @@ impl<'a> CommitLoader<'a> {
         base_url: &gix::Url,
         config: &mut GitTopRepoConfig,
         dot_gitmodules_cache: &mut DotGitModulesCache,
-        do_log: bool,
+        commit_log_level: CommitLogLevel,
     ) -> Option<SubRepoName> {
         let do_log = || {
-            do_log && {
+            commit_log_level.is_tip || {
                 // Only log if .gitmodules has changed or the submodule was just added.
                 let submodule_just_added = first_parent
                     .is_none_or(|first_parent| !first_parent.submodule_paths.contains(path));
@@ -1058,15 +1129,19 @@ impl<'a> CommitLoader<'a> {
         // Parse .gitmodules.
         let Some(dot_gitmodules) = dot_gitmodules else {
             if do_log() {
-                log::warn!("Cannot resolve submodule {path}, .gitmodules is missing");
+                log::log!(
+                    commit_log_level.level,
+                    "Cannot resolve submodule {path}, .gitmodules is missing"
+                );
             }
             return None;
         };
+
         let gitmodules_info = match dot_gitmodules_cache.get_from_blob_id(dot_gitmodules) {
             Ok(gitmodules_info) => gitmodules_info,
             Err(err) => {
                 if do_log() {
-                    log::warn!("{err:#}");
+                    log::log!(commit_log_level.level, "{err:#}");
                 }
                 return None;
             }
@@ -1076,13 +1151,13 @@ impl<'a> CommitLoader<'a> {
             Some(Ok(url)) => url,
             Some(Err(err)) => {
                 if do_log() {
-                    log::warn!("{err:#}");
+                    log::log!(commit_log_level.level, "{err:#}");
                 }
                 return None;
             }
             None => {
                 if do_log() {
-                    log::warn!("Missing {path} in .gitmodules");
+                    log::log!(commit_log_level.level, "Missing {path} in .gitmodules");
                 }
                 return None;
             }
@@ -1099,7 +1174,7 @@ impl<'a> CommitLoader<'a> {
         {
             crate::config::GetOrInsertOk::Found((name, _)) => name,
             crate::config::GetOrInsertOk::Missing(_) => {
-                if do_log() {
+                if commit_log_level.log_missing_repo_configs && do_log() {
                     log::warn!("URL {full_url} is missing in the git-toprepo configuration");
                 }
                 return None;
@@ -1117,12 +1192,13 @@ struct SingleRepoLoader<'a> {
 }
 
 trait SingleLoadRepoCallback {
-    fn load_cached_commits(&self, cached_tips_to_load: Vec<CommitId>) -> InterruptedResult<()>;
+    fn load_cached_commits(&self, cached_commits_to_load: CommitToRefMap) -> InterruptedResult<()>;
 
     fn import_commit(
         &self,
         exported_commit: FastExportCommit,
         tree_id: TreeId,
+        ref_names: &[FullName],
     ) -> InterruptedResult<()>;
 }
 
@@ -1134,9 +1210,20 @@ impl SingleRepoLoader<'_> {
         cached_commits: &HashSet<CommitId>,
         callback: &impl SingleLoadRepoCallback,
     ) -> InterruptedResult<()> {
-        let (mut refs_arg, mut cached_commits_to_load, mut unknown_commit_count) = self
-            .get_refs_to_load_arg(existing_commits, cached_commits)
+        let (tips, active_tips_map) = self.get_tips().context("Failed to resolve refs")?;
+        let (mut refs_arg, cached_commit_ids_to_load, mut unknown_commit_count) = self
+            .get_refs_to_load_arg(&tips, existing_commits, cached_commits)
             .context("Failed to find refs to load")?;
+        // Map from commit id to ref names of branch tips for that commit.
+        let cached_commits_to_load = cached_commit_ids_to_load
+            .into_iter()
+            .map(|commit_id| {
+                (
+                    commit_id,
+                    active_tips_map.get(&commit_id).cloned().unwrap_or_default(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
         if !cached_commits_to_load.is_empty()
             && let Err(err) = callback.load_cached_commits(cached_commits_to_load)
         {
@@ -1148,14 +1235,15 @@ impl SingleRepoLoader<'_> {
             // the commits might have been loaded, but this kind of failure
             // should be rare so it is not worth updating existing_commits.
             log::warn!("Discarding cache for {}: {err:#}", self.repo_name);
-            (refs_arg, cached_commits_to_load, unknown_commit_count) = self
-                .get_refs_to_load_arg(existing_commits, &HashSet::new())
+            let cached_commit_ids_to_load;
+            (refs_arg, cached_commit_ids_to_load, unknown_commit_count) = self
+                .get_refs_to_load_arg(&tips, existing_commits, &HashSet::new())
                 .context("Failed to find refs to load")
                 .map_err(InterruptedError::Normal)?;
-            assert!(cached_commits_to_load.is_empty());
+            assert!(cached_commit_ids_to_load.is_empty());
         }
         if !refs_arg.is_empty() {
-            match self.load_from_refs(refs_arg, unknown_commit_count, callback) {
+            match self.load_from_refs(&active_tips_map, refs_arg, unknown_commit_count, callback) {
                 Ok(()) => Ok(()),
                 Err(InterruptedError::Interrupted) => Err(InterruptedError::Interrupted),
                 Err(InterruptedError::Normal(err)) => {
@@ -1164,6 +1252,44 @@ impl SingleRepoLoader<'_> {
             }?
         }
         Ok(())
+    }
+
+    #[instrument(
+        name = "get_tips",
+        skip_all,
+        fields(repo_name = %self.repo_name)
+    )]
+    fn get_tips(&self) -> Result<(Vec<CommitId>, CommitToRefMap)> {
+        let ref_prefix = self.repo_name.to_ref_prefix();
+        let mut tips = Vec::new();
+        let mut active_tips_map: CommitToRefMap = HashMap::new();
+        for r in self
+            .toprepo
+            .references()?
+            .prefixed(BStr::new(ref_prefix.as_bytes()))?
+        {
+            let mut r = r.map_err(|err| anyhow::anyhow!("Failed while iterating refs: {err:#}"))?;
+            let commit_id = r
+                .peel_to_commit()
+                .with_context(|| format!("Failed to peel to commit: {r:?}"))?
+                .id;
+            tips.push(commit_id);
+            let ref_suffix = r
+                .name()
+                .as_bstr()
+                .strip_prefix(ref_prefix.as_bytes())
+                .expect("ref has prefix");
+            if !ref_suffix.starts_with("refs/tags/".as_bytes()) {
+                // Only non-tags can be expected to be updated.
+                let ref_suffix_name = FullName::try_from(ref_suffix.as_bstr())
+                    .expect("The ref suffix should be a valid full name");
+                active_tips_map
+                    .entry(commit_id)
+                    .or_default()
+                    .push(ref_suffix_name);
+            }
+        }
+        Ok((tips, active_tips_map))
     }
 
     /// Creates ref listing arguments to give to git, on the form of
@@ -1176,30 +1302,21 @@ impl SingleRepoLoader<'_> {
     )]
     fn get_refs_to_load_arg(
         &self,
+        tips: &Vec<CommitId>,
         existing_commits: &HashSet<CommitId>,
         cached_commits: &HashSet<CommitId>,
     ) -> Result<(Vec<String>, Vec<CommitId>, usize)> {
-        let ref_prefix = self.repo_name.to_ref_prefix();
         let mut unknown_tips: Vec<CommitId> = Vec::new();
         let mut visited_cached_commits = Vec::new();
-        for r in self
-            .toprepo
-            .references()?
-            .prefixed(BStr::new(ref_prefix.as_bytes()))?
-        {
-            let mut r = r.map_err(|err| anyhow::anyhow!("Failed while iterating refs: {err:#}"))?;
-            let commit_id = r
-                .peel_to_commit()
-                .with_context(|| format!("Failed to peel to commit: {r:?}"))?
-                .id;
-            if existing_commits.contains(&commit_id) {
+        for commit_id in tips {
+            if existing_commits.contains(commit_id) {
                 continue;
             }
-            if cached_commits.contains(&commit_id) {
-                visited_cached_commits.push(commit_id);
+            if cached_commits.contains(commit_id) {
+                visited_cached_commits.push(*commit_id);
                 continue;
             }
-            unknown_tips.push(commit_id);
+            unknown_tips.push(*commit_id);
         }
         if unknown_tips.is_empty() {
             return Ok((vec![], visited_cached_commits, 0));
@@ -1235,6 +1352,7 @@ impl SingleRepoLoader<'_> {
     )]
     fn load_from_refs(
         &self,
+        tips: &CommitToRefMap,
         refs_arg: Vec<String>,
         _unknown_commit_count: usize, // TODO: Remove.
         callback: &impl SingleLoadRepoCallback,
@@ -1259,7 +1377,9 @@ impl SingleRepoLoader<'_> {
                             format!("Missing tree id in commit {}", exported_commit.original_id)
                         })?
                         .detach();
-                    callback.import_commit(exported_commit, tree_id)?;
+                    let empty_vec = Vec::new();
+                    let ref_names = tips.get(&exported_commit.original_id).unwrap_or(&empty_vec);
+                    callback.import_commit(exported_commit, tree_id, ref_names)?;
                 }
                 FastExportEntry::Reset(_exported_reset) => {
                     // Not used.
