@@ -125,7 +125,7 @@ impl TopRepoExpander<'_> {
             indicatif::ProgressBar::new(c as u64)
                 .with_style(
                     indicatif::ProgressStyle::with_template(
-                        "{elapsed:>4} {prefix:.cyan} [{bar:24}] {pos}/{len} ({eta})",
+                        "{elapsed:>4} {prefix:.cyan} [{bar:24}] {pos}/{len}",
                     )
                     .unwrap()
                     .progress_chars("=> "),
