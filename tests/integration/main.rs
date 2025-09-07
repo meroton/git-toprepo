@@ -3,6 +3,8 @@ mod fixtures;
 #[cfg(test)]
 mod clone;
 #[cfg(test)]
+mod commit_message;
+#[cfg(test)]
 mod config;
 #[cfg(test)]
 mod dump;

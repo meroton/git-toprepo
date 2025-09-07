@@ -462,8 +462,8 @@ fn test_refilter_prints_updates() {
         .assert()
         .success()
         .stdout(
-            " * [new] 77cd3a5      -> origin/HEAD
- * [new] 77cd3a5      -> origin/main
+            " * [new] e1f32c7      -> origin/HEAD
+ * [new] e1f32c7      -> origin/main
 ",
         );
     git_command(&monorepo)
@@ -494,7 +494,7 @@ fn test_refilter_prints_updates() {
         .args([
             "update-ref",
             "refs/namespaces/top/refs/remotes/origin/other",
-            "77cd3a5",
+            "d849346",
         ])
         .assert()
         .success();
@@ -502,7 +502,7 @@ fn test_refilter_prints_updates() {
         .args([
             "update-ref",
             "refs/namespaces/top/refs/tags/v1.0",
-            "77cd3a5",
+            "d849346",
         ])
         .assert()
         .success();
@@ -510,7 +510,7 @@ fn test_refilter_prints_updates() {
         .args([
             "update-ref",
             "refs/namespaces/top/refs/tags/v2.0",
-            "77cd3a5",
+            "d849346",
         ])
         .assert()
         .success();
@@ -524,12 +524,12 @@ fn test_refilter_prints_updates() {
         .stderr(predicates::str::contains("WARN: Skipping symbolic ref refs/namespaces/top/refs/symbolic/outside-top that points outside the top repo, to refs/heads/main"))
         .stderr(predicates::function::function(|s: &str| s.matches("WARN:").count() == 1))
         .stdout(&"
- * [new] 77cd3a5              -> origin/other
+ * [new] e1f32c7              -> origin/other
  * [new] link:refs/heads/main -> refs/symbolic/good
- * [new tag] 77cd3a5          -> v1.0
- * [new tag] 77cd3a5          -> v2.0
- = [up to date] 77cd3a5       -> origin/HEAD
- - [deleted] 77cd3a5          -> origin/main
+ * [new tag] e1f32c7          -> v1.0
+ * [new tag] e1f32c7          -> v2.0
+ = [up to date] e1f32c7       -> origin/HEAD
+ - [deleted] e1f32c7          -> origin/main
 "[1..]);
 
     // Symbolic refs are never pruned, so delete it manually.
@@ -590,12 +590,12 @@ fn test_refilter_prints_updates() {
         // `refs/namespaces/top/...` and refilter.
         .stdout(
             &"
- * [new] 837c2d2                     -> origin/main
- * [new tag] 867b230                 -> v1.0-nested
- + [forced update] 77cd3a5...837c2d2 -> origin/HEAD
-   77cd3a5..3c3143d                  -> origin/other
- t [updated tag] 77cd3a5..b78c2aa    -> v1.0
- - [deleted tag] 77cd3a5             -> v2.0
+ * [new] ce017aa                     -> origin/main
+ * [new tag] 2998233                 -> v1.0-nested
+ + [forced update] e1f32c7...ce017aa -> origin/HEAD
+   e1f32c7..13e5daa                  -> origin/other
+ t [updated tag] e1f32c7..adc9359    -> v1.0
+ - [deleted tag] e1f32c7             -> v2.0
 "[1..],
         );
 }

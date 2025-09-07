@@ -16,6 +16,11 @@ mkdir suby
 git -C top init -q --initial-branch main
 git -C subx init -q --initial-branch main
 git -C suby init -q --initial-branch main
+# Accept push options.
+git -C top config receive.advertisePushOptions true
+git -C subx config receive.advertisePushOptions true
+git -C suby config receive.advertisePushOptions true
+
 cat <<EOF > top/.gittoprepo.toml
 [repo.subx]
 urls = ["../subx/"]

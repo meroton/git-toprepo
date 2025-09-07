@@ -1,3 +1,4 @@
+use crate::commit_message::calculate_mono_commit_message_from_commits;
 use crate::config::GitTopRepoConfig;
 use crate::git::CommitId;
 use crate::git::GitPath;
@@ -26,7 +27,6 @@ use crate::util::RcKey;
 use crate::util::UniqueContainer;
 use anyhow::Context as _;
 use anyhow::Result;
-use bstr::B;
 use bstr::BStr;
 use bstr::BString;
 use bstr::ByteSlice as _;
@@ -254,12 +254,13 @@ impl TopRepoExpander<'_> {
             // There should be a first parent that is not a submodule.
             // Add an initial empty commit.
             mono_parents_of_top.push(self.emit_mono_commit_with_tree_updates(
+                &GitPath::new("".into()),
                 &top_commit,
                 vec![],
                 vec![],
                 None,
                 HashMap::new(),
-                Some(BString::from(b"Initial empty commit")),
+                Some(BString::from(b"Initial empty commit\n")),
             )?);
         }
         let mono_parents = mono_parents_of_top
@@ -383,7 +384,7 @@ impl TopRepoExpander<'_> {
 
         // tree_updates need to be ordered to get the inner submodules replaced
         // inside the outer submodules.
-        tree_updates.sort_by(|(lhs_path, _), (rhs_path, _)| lhs_path.cmp(rhs_path));
+        tree_updates.sort();
         let tree_file_changes = tree_updates
             .into_iter()
             .map(|(tree_path, tree_id)| {
@@ -402,6 +403,7 @@ impl TopRepoExpander<'_> {
         let mut file_changes = initial_file_changes;
         file_changes.extend(tree_file_changes);
         let mono_commit = self.emit_mono_commit_with_tree_updates(
+            path,
             source_commit,
             parents,
             file_changes,
@@ -415,6 +417,7 @@ impl TopRepoExpander<'_> {
     #[allow(clippy::too_many_arguments)]
     fn emit_mono_commit_with_tree_updates(
         &mut self,
+        source_path: &GitPath,
         source_commit: &ThinCommit,
         parents: Vec<MonoRepoParent>,
         file_changes: Vec<ChangedFile>,
@@ -430,7 +433,14 @@ impl TopRepoExpander<'_> {
         let mut committer = Vec::new();
         source_gix_commit.committer.write_to(&mut committer)?;
         let message = message.unwrap_or_else(|| {
-            calculate_mono_commit_message(source_gix_commit.message, &submodule_bumps)
+            calculate_mono_commit_message_from_commits(
+                self.gix_repo,
+                source_path,
+                &source_commit.commit_id,
+                &source_gix_commit,
+                &submodule_bumps,
+            )
+            .into()
         });
         let importer_mark = self.fast_importer.write_commit(&FastImportCommit {
             // TODO: FullNameRef::try_from() doesn't work for some reason.
@@ -1285,161 +1295,6 @@ impl Default for BumpCache {
             last_bumps: LruCache::new(std::num::NonZeroUsize::new(10000).unwrap()),
         }
     }
-}
-
-/// Construct a commit message from the submodule updates.
-///
-/// # Examples
-/// ```
-/// use git_toprepo::expander::calculate_mono_commit_message;
-/// use git_toprepo::git::CommitId;
-/// use git_toprepo::git::GitPath;
-/// use git_toprepo::repo::ExpandedOrRemovedSubmodule;
-/// use git_toprepo::repo::ExpandedSubmodule;
-///
-/// use bstr::ByteSlice;
-/// use std::collections::HashMap;
-/// use std::rc::Rc;
-///
-/// let mut submod_updates = HashMap::new();
-/// let subx_commit_id: CommitId = gix::ObjectId::from_hex(b"1234567890abcdef1234567890abcdef12345678").unwrap();
-/// submod_updates.insert(
-///     GitPath::from("subx"),
-///     ExpandedOrRemovedSubmodule::Expanded(ExpandedSubmodule::KeptAsSubmodule(subx_commit_id)),
-/// );
-/// submod_updates.insert(
-///     GitPath::from("suby"),
-///     ExpandedOrRemovedSubmodule::Removed,
-/// );
-///
-/// let toprepo_message = br#"Update git submodules
-///
-/// * Update subx from branch 'main'
-///   to abc123
-///   - New algo
-///
-///   - Parent commit
-///
-/// * Update suby from branch 'main'
-///   to def456
-///   - New algo
-///
-///   - Another parent commit
-/// "#.as_bstr();
-/// let expected_message = br#"New algo
-///
-/// * Update subx from branch 'main'
-///   to abc123
-///   - New algo
-///
-///   - Parent commit
-///
-/// * Update suby from branch 'main'
-///   to def456
-///   - New algo
-///
-///   - Another parent commit
-/// ^-- subx 1234567890abcdef1234567890abcdef12345678
-/// ^-- suby removed
-/// "#.as_bstr();
-/// assert_eq!(calculate_mono_commit_message(toprepo_message.as_bstr(), &submod_updates), expected_message);
-///
-/// let toprepo_message = br#"Something
-/// "#.as_bstr();
-/// let expected_message = br#"Something
-///
-/// ^-- subx 1234567890abcdef1234567890abcdef12345678
-/// ^-- suby removed
-/// "#.as_bstr();
-/// assert_eq!(calculate_mono_commit_message(toprepo_message.as_bstr(), &submod_updates), expected_message);
-///
-/// let toprepo_message = b"Something".as_bstr();
-/// let expected_message = br#"Something
-///
-/// ^-- subx 1234567890abcdef1234567890abcdef12345678
-/// ^-- suby removed
-/// "#.as_bstr();
-/// assert_eq!(calculate_mono_commit_message(toprepo_message.as_bstr(), &submod_updates), expected_message);
-///
-/// let toprepo_message = br#"Update git modules
-///
-/// * Update subx from branch 'main'
-///   to abc123
-///   - New algo
-///
-/// * Update suby from branch 'main'
-///   to def456
-///   - Other algo
-/// "#.as_bstr();
-/// let expected_message = br#"Update git modules
-///
-/// * Update subx from branch 'main'
-///   to abc123
-///   - New algo
-///
-/// * Update suby from branch 'main'
-///   to def456
-///   - Other algo
-/// ^-- subx 1234567890abcdef1234567890abcdef12345678
-/// ^-- suby removed
-/// "#.as_bstr();
-/// assert_eq!(calculate_mono_commit_message(toprepo_message.as_bstr(), &submod_updates), expected_message);
-/// ```
-pub fn calculate_mono_commit_message(
-    toprepo_message: &BStr,
-    submod_updates: &HashMap<GitPath, ExpandedOrRemovedSubmodule>,
-) -> BString {
-    let mut message =
-        if let Some(alt_message) = toprepo_message.strip_prefix(b"Update git submodules\n\n") {
-            let alt_message = alt_message.as_bstr();
-            let mut alt_subject = UniqueContainer::Empty;
-            let mut line_idx_after_submod: usize = 0;
-            for line in alt_message.lines() {
-                if line.starts_with(b"* Update ") {
-                    line_idx_after_submod = 0;
-                } else if line_idx_after_submod == 2
-                    && let Some(subject) = line.strip_prefix(B("  - "))
-                {
-                    alt_subject.insert(subject);
-                }
-                line_idx_after_submod += 1;
-            }
-            if let UniqueContainer::Single(alt_subject) = alt_subject {
-                let mut message = BString::new(vec![]);
-                message.push_str(alt_subject);
-                message.push_str("\n\n");
-                message.push_str(alt_message);
-                message
-            } else {
-                toprepo_message.to_owned()
-            }
-        } else {
-            toprepo_message.to_owned()
-        };
-
-    // Add lines referencing the original commit ids.
-    if !submod_updates.is_empty() {
-        if !message.ends_with(b"\n") {
-            message.push(b'\n');
-        }
-        if message.find_byte(b'\n').unwrap() == message.len() - 1 {
-            // If the message is just a single subject line, add an empty line
-            // before the body.
-            message.push(b'\n');
-        }
-        for (path, submod) in submod_updates.iter().sorted_by_key(|(path, _)| *path) {
-            let status = match submod {
-                ExpandedOrRemovedSubmodule::Expanded(submod) => {
-                    &submod.get_orig_commit_id().to_string()
-                }
-                ExpandedOrRemovedSubmodule::Removed => "removed",
-            };
-            message
-                .write_fmt(format_args!("^-- {path} {status}\n"))
-                .unwrap();
-        }
-    }
-    message
 }
 
 /// Removes a given prefix from a reference name. The prefix often ends with a

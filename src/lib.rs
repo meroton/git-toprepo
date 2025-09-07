@@ -1,3 +1,4 @@
+pub mod commit_message;
 pub mod config;
 pub mod expander;
 pub mod fetch;

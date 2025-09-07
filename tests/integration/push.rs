@@ -489,6 +489,40 @@ fn test_push_topic_is_used_as_push_option() {
 }
 
 #[test]
+fn test_topic_is_required_for_multi_repo_push() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let temp_dir = temp_dir.path();
+    let monorepo = temp_dir.join("mono");
+    let toprepo = temp_dir.join("top");
+
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    std::fs::write(monorepo.join("top.txt"), "top\n").unwrap();
+    std::fs::write(monorepo.join("subx/file.txt"), "subx\n").unwrap();
+    std::fs::write(monorepo.join("suby/file.txt"), "suby\n").unwrap();
+    git_command(&monorepo)
+        .args(["add", "top.txt", "subx/file.txt", "suby/file.txt"])
+        .assert()
+        .success();
+    git_command(&monorepo)
+        .args(["commit", "-m", "Add files"])
+        .envs(commit_env_for_testing())
+        .assert()
+        .success();
+    assert_cmd::Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&monorepo)
+        .args(["push", "origin", "HEAD:refs/heads/other"])
+        .assert()
+        .code(1)
+        .stderr(predicates::str::is_match(r"^ERROR: Multiple submodules are modified in commit [0-9a-f]+, but no topic was provided. Please amend the commit message to add a 'Topic: something-descriptive' footer line.\n$").unwrap());
+}
+
+#[test]
 fn test_force_push() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(

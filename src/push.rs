@@ -68,7 +68,7 @@ pub fn split_for_push(
         })
         .chain([Ok(local_rev_arg)])
         .collect::<std::result::Result<Vec<_>, _>>()
-        .with_context(|| "Failed while iterating refs/remotes/origin/")?;
+        .with_context(|| "Failed listing refs/remotes/origin/*")?;
 
     let mut dedup_cache = std::mem::take(&mut processor.top_repo_cache.dedup);
     let mut fast_importer = crate::git_fast_export_import_dedup::FastImportRepoDedup::new(
@@ -102,27 +102,6 @@ pub fn split_for_push(
         });
     }
     Ok(to_push_metadata)
-}
-
-fn rewrite_push_message(message: &str) -> (String, Option<String>) {
-    let mut filtered_message = String::with_capacity(message.len());
-    let mut topic = None;
-    for line in message.lines() {
-        if let Some(topic_name) = line.strip_prefix("Topic: ") {
-            topic = Some(topic_name.to_owned());
-        } else if line.starts_with("^-- ") {
-            // Ignore '^-- path/to/submod 0123...'
-        } else {
-            filtered_message.push_str(line);
-            filtered_message.push('\n');
-        }
-    }
-    // If the original message was "Subject\n\nTopic: something\n", the double
-    // LF should be removed.
-    while filtered_message.ends_with("\n\n") {
-        filtered_message.pop();
-    }
-    (filtered_message, topic)
 }
 
 /// Resolves which repository to push to. Note that the push URL might not be
@@ -264,14 +243,42 @@ fn split_for_push_impl(
                             change: fc.change,
                         });
                 }
-                let (message, topic) = rewrite_push_message(exported_mono_commit.message.to_str()?);
-                if grouped_file_changes.len() > 1 && topic.is_none() {
-                    anyhow::bail!(
-                        "Multiple submodules changed in commit {mono_commit_id}, but no topic was provided. \
-                        Please amend the commit message to add a 'Topic: something-descriptive' line."
-                    );
+                // Calculate the commit messages for each submodule.
+                let mono_commit_message = exported_mono_commit.message.to_str()?;
+                let (push_messages, mut residual_message) =
+                    crate::commit_message::split_commit_message(mono_commit_message.to_owned())?;
+                if residual_message.is_none() {
+                    let one_message = push_messages.values().next().expect("at least one message");
+                    if push_messages.values().all(|msg| msg == one_message) {
+                        // All are the same.
+                        residual_message = Some(one_message.clone());
+                    } else {
+                        // Use the toprepo message as backup.
+                        residual_message = push_messages.get(&GitPath::new(b"".into())).cloned();
+                    }
                 }
+
+                let single_push = grouped_file_changes.len() == 1;
                 for ((abs_sub_path, repo_name, push_url), file_changes) in grouped_file_changes {
+                    let subrepo_message = match (
+                        push_messages.get(&abs_sub_path),
+                        residual_message.as_ref(),
+                    ) {
+                        (Some(msg), _) => msg,
+                        (None, Some(msg)) => msg,
+                        (None, None) => {
+                            anyhow::bail!(
+                                "No commit message found for path {abs_sub_path}{} in mono commit {mono_commit_id}",
+                                if abs_sub_path.is_empty() { "<top>" } else { "" }
+                            );
+                        }
+                    };
+                    if !single_push && subrepo_message.topic.is_none() {
+                        anyhow::bail!(
+                            "Multiple submodules are modified in commit {mono_commit_id}, but no topic was provided. Please amend the commit message to add a 'Topic: something-descriptive' footer line."
+                        );
+                    }
+
                     let push_branch = format!("{}push", repo_name.to_ref_prefix());
                     let parents_commit_ids = mono_parents
                         .iter()
@@ -310,7 +317,7 @@ fn split_for_push_impl(
                         author_info: exported_mono_commit.author_info.clone(),
                         committer_info: exported_mono_commit.committer_info.clone(),
                         encoding: exported_mono_commit.encoding.clone(),
-                        message: bstr::BString::from(message.clone()),
+                        message: bstr::BString::from(subrepo_message.message.clone()),
                         file_changes,
                         parents,
                         original_id: None,
@@ -348,7 +355,7 @@ fn split_for_push_impl(
                     to_push_metadata.push(PushMetadata {
                         repo_name,
                         push_url,
-                        topic: topic.clone(),
+                        topic: subrepo_message.topic.clone(),
                         commit_id: import_commit_id,
                         parents: parents_commit_ids,
                     });
