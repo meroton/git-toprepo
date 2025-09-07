@@ -552,7 +552,7 @@ impl MonoRepoCommit {
 pub enum ExpandedSubmodule {
     /// Known submodule and known commit.
     Expanded(SubmoduleContent),
-    /// The submodule was not expanded. The used has to run `git submodule
+    /// The submodule was not expanded. The user has to run `git submodule
     /// update --init` to get its content.
     KeptAsSubmodule(
         #[serde_as(serialize_as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
