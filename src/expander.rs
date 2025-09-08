@@ -31,6 +31,7 @@ use bstr::BStr;
 use bstr::BString;
 use bstr::ByteSlice as _;
 use bstr::ByteVec;
+use gix::prelude::ObjectIdExt as _;
 use gix::refs::FullName;
 use gix::refs::FullNameRef;
 use gix::refs::file::ReferenceExt as _;
@@ -1713,6 +1714,7 @@ fn refilter(
     }
 
     update_refs(processor.gix_repo, &update_actions)?;
+    print_updated_refs(processor, &update_actions);
     if remove_refs {
         let remaining_monorefs = update_actions
             .iter()
@@ -1727,22 +1729,68 @@ fn refilter(
     Ok(())
 }
 
+/// Prints the resulting ref updates, in the same fashion like git-fetch.
+fn print_updated_refs(
+    processor: &MonoRepoProcessor,
+    update_actions: &BTreeMap<FullName, MonoRefUpdateAction>,
+) {
+    let update_results = update_actions
+        .iter()
+        .filter_map(|(name, action)| {
+            let sort_order = match action {
+                MonoRefUpdateAction::Create { .. } => 1,
+                MonoRefUpdateAction::Update { .. } => 2,
+                MonoRefUpdateAction::Unchanged { .. } => {
+                    if crate::log::get_global_logger().get_stderr_log_level() < log::Level::Debug {
+                        // Don't print "up-to-date" in the default info log level.
+                        return None;
+                    }
+                    3
+                }
+                MonoRefUpdateAction::Delete { .. } => 4,
+            };
+            let (description, short_name) =
+                action.describe(name, processor.gix_repo, processor.top_repo_cache);
+            Some((sort_order, short_name, description))
+        })
+        .sorted();
+    let update_results = update_results.as_slice();
+    // git-fetch use 20 as minimum length when using 7 hex digits for object ids.
+    let min_description_len = 20;
+    let max_description_len = update_results
+        .iter()
+        .map(|(_, _, desc)| desc.len())
+        .chain([min_description_len])
+        .max()
+        .unwrap();
+    processor.progress.suspend(|| {
+        for (_, short_name, description) in update_results {
+            println!(" {description:<max_description_len$} -> {short_name}");
+        }
+    });
+}
+
+/// Return a short description of the target of the reference.
+fn short_ref_target_description(repo: &gix::Repository, target: &gix::refs::Target) -> String {
+    match target {
+        gix::refs::Target::Object(object_id) => object_id.attach(repo).shorten_or_id().to_string(),
+        gix::refs::Target::Symbolic(target) => format!("link:{target}"),
+    }
+}
+
 /// An action to perform on a mono-repo reference.
 enum MonoRefUpdateAction {
     Create {
         new_target: gix::refs::Target,
     },
     Update {
-        #[allow(dead_code)]
         old_target: gix::refs::Target,
         new_target: gix::refs::Target,
     },
     Unchanged {
-        #[allow(dead_code)]
         target: gix::refs::Target,
     },
     Delete {
-        #[allow(dead_code)]
         old_target: gix::refs::Target,
     },
 }
@@ -1764,6 +1812,95 @@ impl MonoRefUpdateAction {
                     new_target,
                 }
             }),
+        }
+    }
+
+    /// Describe the update action in a short human-readable form, similar to git-fetch.
+    pub fn describe(
+        &self,
+        name: &FullName,
+        repo: &gix::Repository,
+        top_repo_cache: &TopRepoCache,
+    ) -> (String, String) {
+        let (is_tag, short_name) = match name.category_and_short_name() {
+            Some((gix::refs::Category::LocalBranch, short_name))
+            | Some((gix::refs::Category::RemoteBranch, short_name)) => {
+                // git-fetch also has the category "branch", but that clutters
+                // the output so it is not used.
+                (false, short_name.to_str_lossy().into_owned())
+            }
+            Some((gix::refs::Category::Tag, short_name)) => {
+                (true, short_name.to_str_lossy().into_owned())
+            }
+            Some((_, _)) | None => {
+                // git-fetch also has the category "ref", but that clutters
+                // the output so it is not used.
+                (false, name.as_bstr().to_str_lossy().into_owned())
+            }
+        };
+        let maybe_tag_space = if is_tag { "tag " } else { "" };
+        let maybe_space_tag = if is_tag { " tag" } else { "" };
+        match self {
+            MonoRefUpdateAction::Create { new_target } => (
+                format!(
+                    "* [new{maybe_space_tag}] {}",
+                    short_ref_target_description(repo, new_target)
+                ),
+                short_name,
+            ),
+            MonoRefUpdateAction::Update {
+                old_target,
+                new_target,
+            } => {
+                let forced = if let gix::refs::Target::Object(old_target) = old_target
+                    && let gix::refs::Target::Object(new_target) = new_target
+                    && let Some(old_mono_commit) = top_repo_cache
+                        .monorepo_commits
+                        .get(&MonoRepoCommitId::new(*old_target))
+                    && let Some(new_mono_commit) = top_repo_cache
+                        .monorepo_commits
+                        .get(&MonoRepoCommitId::new(*new_target))
+                    && !old_mono_commit.is_ancestor_of(new_mono_commit)
+                {
+                    true
+                } else {
+                    false
+                };
+                let prefix = if name.category() == Some(gix::refs::Category::Tag) {
+                    if forced {
+                        "T [force updated tag]"
+                    } else {
+                        "t [updated tag]"
+                    }
+                } else if forced {
+                    "+ [forced update]"
+                } else {
+                    " "
+                };
+                (
+                    format!(
+                        "{prefix} {}{}{}",
+                        short_ref_target_description(repo, old_target),
+                        if forced { "..." } else { ".." },
+                        short_ref_target_description(repo, new_target),
+                    ),
+                    short_name,
+                )
+            }
+            MonoRefUpdateAction::Unchanged { target } => (
+                format!(
+                    "= [{maybe_tag_space}up to date] {}",
+                    short_ref_target_description(repo, target)
+                ),
+                short_name,
+            ),
+            MonoRefUpdateAction::Delete { old_target } => (
+                format!(
+                    "- [deleted{maybe_space_tag}] {}",
+                    short_ref_target_description(repo, old_target)
+                ),
+                short_name,
+            ),
         }
     }
 }
@@ -1942,6 +2079,7 @@ pub fn expand_submodule_ref_onto_head(
         .unwrap(),
     )]);
     update_refs(processor.gix_repo, &ref_updates)?;
+    print_updated_refs(processor, &ref_updates);
     Ok(expanded_mono_commit)
 }
 

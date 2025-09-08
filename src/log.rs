@@ -159,6 +159,10 @@ pub struct GlobalLogger {
 }
 
 impl GlobalLogger {
+    pub fn get_stderr_log_level(&self) -> log::LevelFilter {
+        self.log_to_stderr.lock().unwrap().level
+    }
+
     pub fn set_stderr_log_level(&self, level: log::LevelFilter) {
         self.log_to_stderr.lock().unwrap().level = level;
     }
