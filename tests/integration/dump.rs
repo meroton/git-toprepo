@@ -1,4 +1,5 @@
 use assert_cmd::prelude::*;
+use git_toprepo::git::git_command;
 use predicate::str::contains;
 use predicates::prelude::*;
 use std::process::Command;
@@ -76,4 +77,32 @@ fn test_dump_git_modules() {
         .assert()
         .success()
         .stdout(contains(project));
+}
+
+#[test]
+fn test_wrong_cache_prelude() {
+    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
+        "git_toprepo-test_wrong_cache_prelude",
+    );
+
+    git_command(&temp_dir)
+        .args(["init", "--quiet"])
+        .assert()
+        .success();
+    let git_dir = temp_dir.join(".git");
+    let cache_path = git_toprepo::repo_cache_serde::SerdeTopRepoCache::get_cache_path(&git_dir);
+    std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+    std::fs::write(&cache_path, "wrong-#cache-format").unwrap();
+
+    // Look for a sance warning message.
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&temp_dir)
+        .arg("dump")
+        .arg("import-cache")
+        .assert()
+        .success()
+        .stderr(predicates::str::is_match(
+            "WARN: Discarding toprepo cache .* due to version mismatch, expected \"#cache-format-v2\"\n").unwrap()
+        );
 }
