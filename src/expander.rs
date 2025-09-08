@@ -11,6 +11,7 @@ use crate::repo::ExpandedSubmodule;
 use crate::repo::MonoRepoCommit;
 use crate::repo::MonoRepoCommitId;
 use crate::repo::MonoRepoParent;
+use crate::repo::MonoRepoProcessor;
 use crate::repo::OriginalSubmodParent;
 use crate::repo::RepoData;
 use crate::repo::SubmoduleContent;
@@ -32,6 +33,7 @@ use bstr::ByteSlice as _;
 use bstr::ByteVec;
 use gix::refs::FullName;
 use gix::refs::FullNameRef;
+use gix::refs::file::ReferenceExt as _;
 use itertools::Itertools as _;
 use lru::LruCache;
 use std::collections::HashMap;
@@ -1515,4 +1517,400 @@ pub fn strip_ref_prefix<'a>(
     } else {
         anyhow::bail!("Expected {ref_name} to start with {prefix}");
     }
+}
+
+/// Refilter all `refs/namespaces/top/refs/*` into `refs/*`.
+pub fn refilter_all_top_refs(processor: &mut MonoRepoProcessor) -> Result<()> {
+    let top_ref_prefix = format!("{}refs/", RepoName::Top.to_ref_prefix());
+
+    let repo_refs = processor.gix_repo.references()?;
+    let mut refs = Vec::new();
+    for r in repo_refs.prefixed(BStr::new(top_ref_prefix.as_bytes()))? {
+        let r = r.map_err(|err| anyhow::anyhow!("Failed while iterating refs: {err:#}"))?;
+        refs.push(r);
+    }
+    refilter(processor, refs, true)
+}
+
+pub fn refilter_some_top_refspecs(
+    processor: &mut MonoRepoProcessor,
+    top_ref_names: impl IntoIterator<Item = impl AsRef<FullNameRef>>,
+) -> Result<()> {
+    let mut refs = Vec::new();
+    for top_ref in top_ref_names {
+        let r = processor.gix_repo.find_reference(top_ref.as_ref())?;
+        refs.push(r);
+    }
+    refilter(processor, refs, false)
+}
+
+fn refilter(
+    processor: &mut MonoRepoProcessor,
+    top_refs: Vec<gix::Reference<'_>>,
+    remove_refs: bool,
+) -> Result<()> {
+    let old_monorepo_refs = read_monorepo_refs_log(processor.gix_repo)?;
+
+    let top_ref_prefix = RepoName::Top.to_ref_prefix();
+
+    let mut monorepo_symbolic_tips = Vec::new();
+    let mut monorepo_object_tips = Vec::new();
+    let mut todo_toprepo_object_tips = Vec::new();
+    for r in top_refs {
+        let r_target = r
+            .clone()
+            .follow_to_object()
+            .with_context(|| format!("Failed to resolve symbolic ref {}", r.name().as_bstr()))?;
+        match r_target.object()?.kind {
+            gix::object::Kind::Commit => {}
+            gix::object::Kind::Tag => {}
+            gix::object::Kind::Tree => {
+                log::warn!("Skipping ref {} that points to a tree", r.name().as_bstr());
+                continue;
+            }
+            gix::object::Kind::Blob => {
+                log::warn!("Skipping ref {} that points to a blob", r.name().as_bstr());
+                continue;
+            }
+        }
+        let r = r.detach();
+        let monorepo_ref_name = strip_ref_prefix(&r.name, top_ref_prefix.as_str())
+            .with_context(|| format!("Bad toprepo ref {}", r.name))?;
+        match r.target {
+            gix::refs::Target::Symbolic(target_name) => {
+                let monorepo_link_name = monorepo_ref_name;
+                let Ok(monorepo_target_name) =
+                    strip_ref_prefix(&target_name, BStr::new(&top_ref_prefix))
+                else {
+                    log::warn!(
+                        "Skipping symbolic ref {} that points outside the top repo, to {target_name}.",
+                        r.name,
+                    );
+                    continue;
+                };
+                monorepo_symbolic_tips.push((monorepo_link_name, monorepo_target_name));
+            }
+            gix::refs::Target::Object(object_id) => {
+                let commit_id = TopRepoCommitId::new(object_id);
+                if let Some(mono_commit) = processor.top_repo_cache.top_to_mono_map.get(&commit_id)
+                    && let Some(mono_commit_id) = processor
+                        .top_repo_cache
+                        .monorepo_commit_ids
+                        .get(&RcKey::new(mono_commit))
+                {
+                    monorepo_object_tips.push((monorepo_ref_name, mono_commit_id.clone()));
+                } else {
+                    todo_toprepo_object_tips.push((monorepo_ref_name, r.name, commit_id));
+                }
+            }
+        }
+    }
+    let mut final_monorefs = monorepo_object_tips
+        .iter()
+        .map(|(name, _)| name.clone())
+        .chain(
+            todo_toprepo_object_tips
+                .iter()
+                .map(|(mono_name, _, _)| mono_name.clone()),
+        )
+        .collect_vec();
+    final_monorefs.sort();
+    // Mark all the old refs (already marked) and all the new refs (the user
+    // have asked them to be overwritten) as okay to be removed if anything
+    // fails.
+    let old_and_new_monorefs = old_monorepo_refs
+        .iter()
+        .chain(&final_monorefs)
+        .unique()
+        .cloned()
+        .sorted();
+    write_monorepo_refs_log(processor.gix_repo, old_and_new_monorefs.as_slice())?;
+    if !todo_toprepo_object_tips.is_empty() {
+        let progress = processor.progress.clone();
+        let pb = progress.add(
+            indicatif::ProgressBar::no_length()
+                .with_style(
+                    indicatif::ProgressStyle::default_spinner()
+                        .template("{elapsed:>4} {msg} {pos}")
+                        .unwrap(),
+                )
+                .with_message("Looking for new commits to expand"),
+        );
+        let (stop_commits, num_commits_to_export) = crate::git::get_first_known_commits(
+            processor.gix_repo,
+            todo_toprepo_object_tips
+                .iter()
+                .map(|(_, _, top_commit_id)| *top_commit_id.deref()),
+            |commit_id| {
+                processor
+                    .top_repo_cache
+                    .top_to_mono_map
+                    .contains_key(&TopRepoCommitId::new(commit_id))
+            },
+        )?;
+        drop(pb);
+
+        log::info!("Found {num_commits_to_export} commits to expand");
+        let fast_importer =
+            crate::git_fast_export_import::FastImportRepo::new(processor.gix_repo.git_dir())?;
+        let mut expander = TopRepoExpander {
+            gix_repo: processor.gix_repo,
+            storage: processor.top_repo_cache,
+            config: processor.config,
+            progress,
+            fast_importer,
+            imported_commits: HashMap::new(),
+            bumps: crate::expander::BumpCache::default(),
+            inject_at_oldest_super_commit: false,
+        };
+        expander.expand_toprepo_commits(
+            &todo_toprepo_object_tips
+                .iter()
+                .map(|(_, toprepo_name, _)| toprepo_name.clone())
+                .collect_vec(),
+            stop_commits,
+            num_commits_to_export,
+        )?;
+        expander.wait()?;
+        // Collect all new monorepo commits.
+        for (monorepo_ref_name, _, top_commit_id) in todo_toprepo_object_tips {
+            let mono_commit = processor
+                .top_repo_cache
+                .top_to_mono_map
+                .get(&top_commit_id)
+                .expect("just filtered mono commit must exist");
+            let mono_commit_id = processor
+                .top_repo_cache
+                .monorepo_commit_ids
+                .get(&RcKey::new(mono_commit))
+                .expect("just filtered mono commit id must exist");
+            monorepo_object_tips.push((monorepo_ref_name, mono_commit_id.clone()));
+        }
+    }
+    // TODO: Update all refs here and not while running git-fast-import. By
+    // updating them here, we can avoid updating refs that are not "owned"
+    // by git-toprepo.
+    update_refs(
+        processor.gix_repo,
+        if remove_refs {
+            old_monorepo_refs
+        } else {
+            Vec::new()
+        },
+        monorepo_object_tips,
+        monorepo_symbolic_tips,
+    )?;
+    if remove_refs {
+        // No refs were removed, so nothing to clean up in the log file.
+        write_monorepo_refs_log(processor.gix_repo, final_monorefs.as_slice())?;
+    }
+    Ok(())
+}
+
+fn update_refs(
+    repo: &gix::Repository,
+    old_refs: Vec<FullName>,
+    object_tips: Vec<(FullName, MonoRepoCommitId)>,
+    symbolic_tips: Vec<(FullName, FullName)>,
+) -> Result<()> {
+    let mut ref_edits = Vec::new();
+    // Update object refs.
+    for (mono_ref, commit_id) in &object_tips {
+        ref_edits.push(gix::refs::transaction::RefEdit {
+            change: gix::refs::transaction::Change::Update {
+                log: gix::refs::transaction::LogChange {
+                    mode: gix::refs::transaction::RefLog::AndReference,
+                    force_create_reflog: false,
+                    message: b"git-toprepo filter".into(),
+                },
+                expected: gix::refs::transaction::PreviousValue::Any,
+                new: gix::refs::Target::Object(**commit_id),
+            },
+            name: mono_ref.clone(),
+            deref: false,
+        });
+    }
+    // Update symbolic refs.
+    for (mono_link_name, mono_target_name) in &symbolic_tips {
+        let new_target = gix::refs::Target::Symbolic(mono_target_name.clone());
+        ref_edits.push(gix::refs::transaction::RefEdit {
+            change: gix::refs::transaction::Change::Update {
+                log: gix::refs::transaction::LogChange {
+                    mode: gix::refs::transaction::RefLog::AndReference,
+                    force_create_reflog: false,
+                    message: b"git-toprepo filter".into(),
+                },
+                expected: gix::refs::transaction::PreviousValue::Any,
+                new: new_target,
+            },
+            name: mono_link_name.clone(),
+            deref: false,
+        });
+    }
+    // Remove refs/remote/origin/* references that were removed in refs/namespaces/top/*.
+    let all_new_tips = object_tips
+        .iter()
+        .map(|(name, _)| name)
+        .chain(symbolic_tips.iter().map(|(name, _)| name))
+        .collect::<HashSet<_>>();
+    for old_ref in old_refs {
+        if all_new_tips.contains(&old_ref) {
+            continue;
+        }
+        log::warn!("Deleting now removed ref {old_ref}",);
+        ref_edits.push(gix::refs::transaction::RefEdit {
+            change: gix::refs::transaction::Change::Delete {
+                // TODO: Is MustExistAndMatch possible? Should the previous
+                // filter result be stored in the log file?
+                expected: gix::refs::transaction::PreviousValue::Any,
+                log: gix::refs::transaction::RefLog::AndReference,
+            },
+            name: old_ref,
+            deref: false,
+        });
+    }
+    // Apply the ref changes.
+    if !ref_edits.is_empty() {
+        let committer = gix::actor::SignatureRef {
+            name: "git-toprepo".as_bytes().as_bstr(),
+            email: BStr::new(""),
+            time: &gix::date::Time::now_local_or_utc().format(gix::date::time::Format::Raw),
+        };
+        repo.edit_references_as(ref_edits, Some(committer))
+            .context("Failed to update all the mono references")?;
+    }
+    Ok(())
+}
+
+pub fn expand_submodule_ref_onto_head(
+    processor: &mut MonoRepoProcessor,
+    ref_to_inject: &FullNameRef,
+    sub_repo_name: &SubRepoName,
+    abs_sub_path: &GitPath,
+    dest_ref: &FullNameRef,
+) -> Result<Rc<MonoRepoCommit>> {
+    let mut ref_to_inject = processor.gix_repo.refs.find(ref_to_inject)?;
+    let id_to_inject =
+        ref_to_inject.peel_to_id_in_place(&processor.gix_repo.refs, &processor.gix_repo.objects)?;
+    let thin_commit_to_inject = processor
+        .top_repo_cache
+        .repos
+        .get(&RepoName::SubRepo(sub_repo_name.clone()))
+        .and_then(|repo_data| repo_data.thin_commits.get(&id_to_inject))
+        .with_context(|| {
+            format!(
+                "Failed to find {}, commit {}",
+                ref_to_inject.name,
+                id_to_inject.to_hex()
+            )
+        })?
+        .clone(); // Clone to avoid borrowing the `storage` object.
+
+    let pb = processor.progress.add(
+        indicatif::ProgressBar::no_length()
+            .with_style(
+                indicatif::ProgressStyle::default_spinner()
+                    .template("{elapsed:>4} {msg} {pos}")
+                    .unwrap(),
+            )
+            .with_message("Looking for mono commit to expand onto"),
+    );
+    // Hopefully, HEAD points to a commit.
+    let head_id: gix::ObjectId = processor.gix_repo.head_id()?.detach();
+    let mut possible_mono_parents = Vec::new();
+    let (_possible_mono_parent_ids, _num_skipped_unknowns) = crate::git::get_first_known_commits(
+        processor.gix_repo,
+        [head_id].into_iter(),
+        |commit_id| {
+            let Some(mono_parent) = processor
+                .top_repo_cache
+                .monorepo_commits
+                .get(&MonoRepoCommitId::new(commit_id))
+            else {
+                return false;
+            };
+            possible_mono_parents.push(mono_parent.clone());
+            true
+        },
+    )?;
+    drop(pb);
+
+    let fast_importer =
+        crate::git_fast_export_import::FastImportRepo::new(processor.gix_repo.git_dir())?;
+    let mut expander = TopRepoExpander {
+        gix_repo: processor.gix_repo,
+        storage: processor.top_repo_cache,
+        config: processor.config,
+        progress: processor.progress.clone(),
+        fast_importer,
+        imported_commits: HashMap::new(),
+        bumps: crate::expander::BumpCache::default(),
+        inject_at_oldest_super_commit: true,
+    };
+    let result = (|| {
+        let Some(mono_commit) = expander.inject_submodule_commit(
+            dest_ref,
+            possible_mono_parents,
+            abs_sub_path,
+            sub_repo_name,
+            &thin_commit_to_inject,
+        )?
+        else {
+            anyhow::bail!(
+                "Failed to inject commit {}, to become {}, at {abs_sub_path}: No common history with HEAD",
+                ref_to_inject.name,
+                dest_ref.as_bstr()
+            );
+        };
+        Ok(mono_commit)
+    })();
+    expander.wait()?;
+    result
+}
+
+/// Reads the monorepo refs that was the result of the last refiltering.
+fn read_monorepo_refs_log(repo: &gix::Repository) -> Result<Vec<FullName>> {
+    let refs_path = repo.git_dir().join("toprepo/mono-refs-ok-to-remove");
+    if !refs_path.exists() {
+        return Ok(Vec::new());
+    }
+    std::fs::read(&refs_path)
+        .with_context(|| format!("Failed to read monorepo ref log at {}", refs_path.display()))?
+        .lines()
+        .map(|line| {
+            FullName::try_from(line.as_bstr()).with_context(|| {
+                format!(
+                    "Bad ref {:?} in {}",
+                    line.to_str_lossy(),
+                    refs_path.display()
+                )
+            })
+        })
+        .collect::<Result<Vec<_>>>()
+}
+
+/// Writes the monorepo refs that have resulted from a refilter.
+fn write_monorepo_refs_log(repo: &gix::Repository, monorepo_refs: &[FullName]) -> Result<()> {
+    let refs_path = repo.git_dir().join("toprepo/mono-refs-ok-to-remove");
+    if let Some(parent) = refs_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create {}", parent.display()))?;
+    }
+    let refs_path_tmp = refs_path.with_extension("tmp");
+    (|| -> Result<()> {
+        let mut file = std::fs::File::create(&refs_path_tmp)?;
+        for r in monorepo_refs {
+            writeln!(file, "{}", r.as_bstr())?;
+        }
+        Ok(())
+    })()
+    .with_context(|| format!("Failed to write {}", refs_path_tmp.display()))?;
+    std::fs::rename(&refs_path_tmp, &refs_path).with_context(|| {
+        format!(
+            "Failed to rename {} to {}",
+            refs_path_tmp.display(),
+            refs_path.display()
+        )
+    })?;
+    Ok(())
 }

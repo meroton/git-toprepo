@@ -93,7 +93,7 @@ struct CommitLogLevel {
 }
 
 pub struct CommitLoader<'a> {
-    toprepo: gix::Repository,
+    toprepo: &'a gix::Repository,
     repos: HashMap<RepoName, RepoFetcher>,
     /// Repositories that have been loaded from the cache.
     cached_repo_states: &'a mut RepoStates,
@@ -122,12 +122,12 @@ pub struct CommitLoader<'a> {
     repos_to_fetch: VecDeque<RepoName>,
 
     /// A cache of parsed `.gitmodules` files.
-    dot_gitmodules_cache: DotGitModulesCache,
+    dot_gitmodules_cache: DotGitModulesCache<'a>,
 }
 
 impl<'a> CommitLoader<'a> {
     pub fn new(
-        toprepo: gix::Repository,
+        toprepo: &'a gix::Repository,
         cached_repo_states: &'a mut RepoStates,
         config: &'a mut GitTopRepoConfig,
         progress: indicatif::MultiProgress,
@@ -168,7 +168,7 @@ impl<'a> CommitLoader<'a> {
             ),
         );
         Ok(Self {
-            toprepo: toprepo.clone(),
+            toprepo,
             repos: HashMap::new(),
             cached_repo_states,
             config,
@@ -403,8 +403,8 @@ impl<'a> CommitLoader<'a> {
         assert_eq!(repo_fetcher.fetch_state, RepoFetcherState::Queued);
         repo_fetcher.fetch_state = RepoFetcherState::InProgress;
 
-        let mut fetcher = crate::fetch::RemoteFetcher::new(&self.toprepo);
-        fetcher.set_remote_from_repo_name(&self.toprepo, &repo_name, self.config)?;
+        let mut fetcher = crate::fetch::RemoteFetcher::new(self.toprepo);
+        fetcher.set_remote_from_repo_name(self.toprepo, &repo_name, self.config)?;
 
         let pb_url = indicatif::ProgressBar::hidden()
             .with_style(
@@ -1480,12 +1480,12 @@ impl RepoFetcher {
 
 /// `DotGitModulesCache` is a caching storage of parsed `.gitmodules` content
 /// that is read directly from blobs in a git repository. file by given a blob `id`.
-struct DotGitModulesCache {
-    repo: gix::Repository,
+struct DotGitModulesCache<'a> {
+    repo: &'a gix::Repository,
     cache: HashMap<BlobId, Result<GitModulesInfo>>,
 }
 
-impl DotGitModulesCache {
+impl<'a> DotGitModulesCache<'a> {
     /// Parse the `.gitmodules` file given by the `BlobId` and return the map
     /// from path to url.
     pub fn get_from_blob_id(&mut self, entry: ExportedFileEntry) -> Result<&GitModulesInfo> {
@@ -1494,7 +1494,7 @@ impl DotGitModulesCache {
         }
         self.cache
             .entry(entry.id)
-            .or_insert_with(|| Self::get_from_blob_id_impl(&self.repo, entry.id))
+            .or_insert_with(|| Self::get_from_blob_id_impl(self.repo, entry.id))
             .as_ref()
             // anyhow::Error doesn't implement clone, simply format it to create a copy.
             .map_err(|err| anyhow::anyhow!("{err:#}"))
