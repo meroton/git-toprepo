@@ -35,6 +35,9 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+/// Splits the mono-repo commits that needs to be pushed into submodule commits
+/// and top-repo commits, so that each commit is pushed to its underlying
+/// repositories.
 pub fn split_for_push(
     processor: &mut MonoRepoProcessor,
     top_push_url: &gix::Url,
@@ -43,11 +46,13 @@ pub fn split_for_push(
     if processor.top_repo_cache.monorepo_commits.is_empty() {
         anyhow::bail!("No filtered mono commits exists, please run `git toprepo refilter` first");
     }
-    let repo = processor.gix_repo.to_thread_local();
 
-    let local_rev = repo.rev_parse_single(local_rev_or_ref.as_bytes())?;
+    let local_rev = processor
+        .gix_repo
+        .rev_parse_single(local_rev_or_ref.as_bytes())?;
     let local_rev_arg: std::ffi::OsString = local_rev.to_hex().to_string().into();
-    let export_refs_args: Vec<std::ffi::OsString> = repo
+    let export_refs_args: Vec<std::ffi::OsString> = processor
+        .gix_repo
         .references()?
         .prefixed(b"refs/remotes/origin/".as_bstr())?
         .map(|r| {
@@ -220,7 +225,6 @@ fn split_for_push_impl(
     export_refs_args: &[std::ffi::OsString],
 ) -> Result<Vec<PushMetadata>> {
     let monorepo_commits = &processor.top_repo_cache.monorepo_commits;
-    let repo = processor.gix_repo.to_thread_local();
 
     let pb = processor.progress.add(
         indicatif::ProgressBar::no_length()
@@ -246,7 +250,7 @@ fn split_for_push_impl(
             crate::git_fast_export_import::FastExportEntry::Commit(exported_mono_commit) => {
                 // TODO: Should we check if exported_mono_commit.original_id exists in the top_repo_cache?
                 let mono_commit_id = MonoRepoCommitId::new(exported_mono_commit.original_id);
-                let gix_mono_commit = repo.find_commit(*mono_commit_id)?;
+                let gix_mono_commit = processor.gix_repo.find_commit(*mono_commit_id)?;
                 let mono_parents = exported_mono_commit
                     .parents
                     .iter()
@@ -279,7 +283,7 @@ fn split_for_push_impl(
                         &gix_mono_commit,
                         GitPath::new(fc.path),
                         top_push_url.clone(),
-                        &mut processor.config,
+                        processor.config,
                     )?;
                     grouped_file_changes
                         .entry((submod_path, repo_name, push_url))
@@ -420,7 +424,7 @@ pub struct CommitPusher {
 
 impl CommitPusher {
     pub fn new(
-        toprepo: gix::ThreadSafeRepository,
+        toprepo: gix::Repository,
         progress: indicatif::MultiProgress,
         error_observer: crate::log::ErrorObserver,
         thread_count: NonZeroUsize,
@@ -497,7 +501,7 @@ impl CommitPusher {
 
 #[derive(Clone)]
 struct PushContext {
-    toprepo: gix::ThreadSafeRepository,
+    toprepo: gix::Repository,
 
     push_progress: ProgressStatus,
     /// Signal to not start new work but to fail as fast as possible.

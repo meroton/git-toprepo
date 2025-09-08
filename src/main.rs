@@ -173,16 +173,12 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
         PathBuf::from(".gitmodules"),
     )?;
     let mut config = GitTopRepoConfig::default();
-
     let mut top_repo_cache = git_toprepo::repo::TopRepoCache::default();
-
-    // Resolve borrowing issues.
-    let gix_repo = gix_repo.clone();
 
     git_toprepo::log::get_global_logger().with_progress(|progress| {
         ErrorObserver::run(ErrorMode::KeepGoing, |error_observer| {
             let mut commit_loader = git_toprepo::loader::CommitLoader::new(
-                gix_repo,
+                &gix_repo,
                 &mut top_repo_cache.repos,
                 &mut config,
                 progress.clone(),
@@ -283,7 +279,7 @@ fn dump_modules() -> Result<()> {
 #[tracing::instrument(skip(processor))]
 fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) -> Result<()> {
     if !refilter_args.reuse_cache {
-        processor.top_repo_cache = repo::TopRepoCache::default();
+        *processor.top_repo_cache = repo::TopRepoCache::default();
     }
     ErrorObserver::run_keep_going(refilter_args.keep_going, |error_observer| {
         load_commits(
@@ -296,14 +292,14 @@ fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) ->
             error_observer,
         )
     })?;
-    processor.refilter_all_top_refs()
+    git_toprepo::expander::refilter_all_top_refs(processor)
 }
 
 #[tracing::instrument(skip(processor))]
 fn fetch(fetch_args: &cli::Fetch, processor: &mut MonoRepoProcessor) -> Result<()> {
     if let Some(refspecs) = &fetch_args.refspecs {
-        let repo = processor.gix_repo.to_thread_local();
-        let resolved_args = cli::resolve_remote_and_path(fetch_args, &repo, &processor.config)?;
+        let resolved_args =
+            cli::resolve_remote_and_path(fetch_args, processor.gix_repo, processor.config)?;
         let detailed_refspecs = detail_refspecs(refspecs, &resolved_args.repo, &resolved_args.url)?;
         let mut result =
             fetch_with_refspec(fetch_args, resolved_args, &detailed_refspecs, processor);
@@ -339,7 +335,8 @@ fn fetch(fetch_args: &cli::Fetch, processor: &mut MonoRepoProcessor) -> Result<(
                 email: BStr::new(""),
                 time: &gix::date::Time::now_local_or_utc().format(gix::date::time::Format::Raw),
             };
-            if let Err(err) = repo
+            if let Err(err) = processor
+                .gix_repo
                 .edit_references_as(ref_edits, Some(committer))
                 .context("Failed to update all the mono references")
                 && result.is_ok()
@@ -358,14 +355,13 @@ fn fetch_with_default_refspecs(
     fetch_args: &cli::Fetch,
     processor: &mut MonoRepoProcessor,
 ) -> Result<()> {
-    let repo = processor.gix_repo.to_thread_local();
-    let mut fetcher = git_toprepo::fetch::RemoteFetcher::new(&repo);
+    let mut fetcher = git_toprepo::fetch::RemoteFetcher::new(processor.gix_repo);
 
     // Fetch without a refspec.
     if fetch_args.path.is_some() {
         anyhow::bail!("Cannot use --path without specifying a refspec");
     }
-    let remote_names = repo.remote_names();
+    let remote_names = processor.gix_repo.remote_names();
     if let Some(remote) = &fetch_args.remote
         && !remote_names.contains(BStr::new(remote))
     {
@@ -481,8 +477,7 @@ fn fetch_with_refspec(
     processor: &mut MonoRepoProcessor,
 ) -> Result<()> {
     ErrorObserver::run_keep_going(fetch_args.keep_going, |error_observer| {
-        let repo = processor.gix_repo.to_thread_local();
-        let mut fetcher = git_toprepo::fetch::RemoteFetcher::new(&repo);
+        let mut fetcher = git_toprepo::fetch::RemoteFetcher::new(processor.gix_repo);
 
         fetcher.remote = Some(
             resolved_args
@@ -516,13 +511,14 @@ fn fetch_with_refspec(
                 let top_refs = detailed_refspecs
                     .iter()
                     .map(|refspec| &refspec.unfiltered_ref);
-                processor.refilter_some_top_refspecs(top_refs)?;
+                git_toprepo::expander::refilter_some_top_refspecs(processor, top_refs)?;
             }
             RepoName::SubRepo(sub_repo_name) => {
                 for refspec in detailed_refspecs {
                     // TODO: Reuse the git-fast-import process for all refspecs.
                     let dest_ref = refspec.destination.get_filtered_ref();
-                    if let Err(err) = processor.expand_submodule_ref_onto_head(
+                    if let Err(err) = git_toprepo::expander::expand_submodule_ref_onto_head(
+                        processor,
                         refspec.unfiltered_ref.as_ref(),
                         sub_repo_name,
                         &resolved_args.path,
@@ -546,7 +542,8 @@ fn fetch_with_refspec(
                     description_suffix,
                 } => {
                     // Special case for FETCH_HEAD.
-                    let mut r = repo
+                    let mut r = processor
+                        .gix_repo
                         .find_reference(filtered_ref.as_ref())
                         .with_context(|| {
                             format!("Failed to find filtered ref {}", filtered_ref.as_bstr())
@@ -573,7 +570,7 @@ fn fetch_with_refspec(
         }
         if !fetch_head_lines.is_empty() {
             // Update .git/FETCH_HEAD.
-            let fetch_head_path = repo.git_dir().join("FETCH_HEAD");
+            let fetch_head_path = processor.gix_repo.git_dir().join("FETCH_HEAD");
             std::fs::write(&fetch_head_path, fetch_head_lines.join(""))?;
         }
         Ok(())
@@ -591,9 +588,9 @@ where
     F: FnOnce(&mut git_toprepo::loader::CommitLoader) -> Result<()>,
 {
     let mut commit_loader = git_toprepo::loader::CommitLoader::new(
-        processor.gix_repo.to_thread_local(),
+        processor.gix_repo,
         &mut processor.top_repo_cache.repos,
-        &mut processor.config,
+        processor.config,
         processor.progress.clone(),
         error_observer,
         threadpool::ThreadPool::new(job_count.get()),
@@ -605,8 +602,10 @@ where
 
 #[tracing::instrument(skip(processor))]
 fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> {
-    let repo = processor.gix_repo.to_thread_local();
-    let base_url = match repo.try_find_remote(push_args.top_remote.as_bytes()) {
+    let base_url = match processor
+        .gix_repo
+        .try_find_remote(push_args.top_remote.as_bytes())
+    {
         Some(Ok(remote)) => remote
             // TODO: Support push URL config.
             .url(gix::remote::Direction::Fetch)
