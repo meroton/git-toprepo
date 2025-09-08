@@ -1,5 +1,7 @@
+use assert_cmd::Command;
 use assert_cmd::assert::OutputAssertExt as _;
 use bstr::ByteSlice as _;
+use git_toprepo::git::commit_env_for_testing;
 use git_toprepo::git::git_command;
 use itertools::Itertools as _;
 use std::path::Path;
@@ -377,4 +379,167 @@ fn extract_log_graph(repo_path: &Path, extra_args: Vec<&str>) -> String {
         .map(str::trim_end)
         .join("\n")
         .replace('\t', " ")
+}
+
+#[test]
+fn test_refilter_prints_updates() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .arg("clone")
+        .arg(&toprepo)
+        .arg(&monorepo)
+        .assert()
+        .success()
+        .stdout(
+            " * [new] 77cd3a5      -> origin/HEAD
+ * [new] 77cd3a5      -> origin/main
+",
+        );
+    git_command(&monorepo)
+        .args([
+            "symbolic-ref",
+            "refs/namespaces/top/refs/symbolic/good",
+            "refs/namespaces/top/refs/heads/main",
+        ])
+        .assert()
+        .success();
+    git_command(&monorepo)
+        .args([
+            "symbolic-ref",
+            "refs/namespaces/top/refs/symbolic/outside-top",
+            "refs/heads/main",
+        ])
+        .assert()
+        .success();
+    git_command(&monorepo)
+        .args([
+            "update-ref",
+            "-d",
+            "refs/namespaces/top/refs/remotes/origin/main",
+        ])
+        .assert()
+        .success();
+    git_command(&monorepo)
+        .args([
+            "update-ref",
+            "refs/namespaces/top/refs/remotes/origin/other",
+            "77cd3a5",
+        ])
+        .assert()
+        .success();
+    git_command(&monorepo)
+        .args([
+            "update-ref",
+            "refs/namespaces/top/refs/tags/v1.0",
+            "77cd3a5",
+        ])
+        .assert()
+        .success();
+    git_command(&monorepo)
+        .args([
+            "update-ref",
+            "refs/namespaces/top/refs/tags/v2.0",
+            "77cd3a5",
+        ])
+        .assert()
+        .success();
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&monorepo)
+        .arg("refilter")
+        .arg("-v")
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("WARN: Skipping symbolic ref refs/namespaces/top/refs/symbolic/outside-top that points outside the top repo, to refs/heads/main"))
+        .stderr(predicates::function::function(|s: &str| s.matches("WARN:").count() == 1))
+        .stdout(&"
+ * [new] 77cd3a5              -> origin/other
+ * [new] link:refs/heads/main -> refs/symbolic/good
+ * [new tag] 77cd3a5          -> v1.0
+ * [new tag] 77cd3a5          -> v2.0
+ = [up to date] 77cd3a5       -> origin/HEAD
+ - [deleted] 77cd3a5          -> origin/main
+"[1..]);
+
+    // Symbolic refs are never pruned, so delete it manually.
+    git_command(&monorepo)
+        .args([
+            "update-ref",
+            "-d",
+            "--no-deref",
+            "refs/namespaces/top/refs/symbolic/outside-top",
+        ])
+        .assert()
+        .success();
+    git_command(&toprepo)
+        .args(["commit", "--allow-empty", "-m", "Empty commit"])
+        .envs(commit_env_for_testing())
+        .assert()
+        .success();
+    git_command(&toprepo)
+        .args(["branch", "other", "HEAD"])
+        .assert()
+        .success();
+    git_command(&toprepo)
+        .args(["reset", "HEAD~"])
+        .assert()
+        .success();
+    git_command(&toprepo)
+        .args([
+            "commit",
+            "--amend",
+            "--allow-empty",
+            "-m",
+            "Different message",
+        ])
+        .envs(commit_env_for_testing())
+        .assert()
+        .success();
+    git_command(&toprepo)
+        .args(["tag", "-m", "Version 1.0", "v1.0", "HEAD"])
+        .envs(commit_env_for_testing())
+        .assert()
+        .success();
+    git_command(&toprepo)
+        // If this tag would not be nested, it would get the same hash as v1.0.
+        .args(["tag", "-m", "Version 1.0", "v1.0-nested", "v1.0"])
+        .envs(commit_env_for_testing())
+        .assert()
+        .stderr(predicates::str::contains("You have created a nested tag."))
+        .success();
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&monorepo)
+        .arg("fetch")
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(
+            "WARN: Skipping ref refs/namespaces/top/refs/tags/v1.0 that points to a tag",
+        ))
+        .stderr(predicates::str::contains(
+            "WARN: Skipping ref refs/namespaces/top/refs/tags/v1.0-nested that points to a tag",
+        ))
+        .stderr(predicates::function::function(|s: &str| {
+            s.matches("WARN:").count() == 2
+        }))
+        // This output has triggered most paths. Note that the symbolic links
+        // are not possible to fetch, only to add manually to
+        // `refs/namespaces/top/...` and refilter.
+        .stdout(
+            &"
+ * [new] 837c2d2                     -> origin/main
+ + [forced update] 77cd3a5...837c2d2 -> origin/HEAD
+   77cd3a5..3c3143d                  -> origin/other
+ - [deleted tag] 77cd3a5             -> v1.0
+ - [deleted tag] 77cd3a5             -> v2.0
+"[1..],
+        );
 }

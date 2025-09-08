@@ -518,6 +518,33 @@ impl MonoRepoCommit {
             submodule_paths,
         })
     }
+
+    pub fn is_ancestor_of(&self, descendant: &Rc<MonoRepoCommit>) -> bool {
+        // Doesn't matter in which order we iterate.
+        let mut visited = HashSet::new();
+        let mut queue = Vec::new();
+        visited.insert(RcKey::new(descendant));
+        queue.push(descendant);
+
+        while let Some(descendant) = queue.pop() {
+            if std::ptr::addr_eq(Rc::as_ptr(descendant), self) {
+                return true;
+            }
+            for descendant_parent in &descendant.parents {
+                match descendant_parent {
+                    MonoRepoParent::OriginalSubmod(_) => {}
+                    MonoRepoParent::Mono(descendant_parent) => {
+                        if descendant_parent.depth >= self.depth
+                            && visited.insert(RcKey::new(descendant_parent))
+                        {
+                            queue.push(descendant_parent);
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
 }
 
 #[serde_as]
