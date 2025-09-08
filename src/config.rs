@@ -432,9 +432,18 @@ pub struct TopRepoConfig {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GlobalFetchConfig {
-    /// Timeouts for git-fetch when there is no update on stderr. This is useful
-    /// for patchy network connections where git-fetch sometimes hangs. Example
-    /// value is `[10, 30, 0]` where zero means infinite.
+    /// Timeouts for git-fetch when there is no update on stderr. Each number
+    /// timeout value represents one additional attempt. Zero means infinite, so
+    /// no timeout.
+    ///
+    /// This is useful for patchy network connections where git-fetch sometimes
+    /// hangs.
+    ///
+    /// Consider the example `[10, 30, 0]`. This first execution of git-fetch is
+    /// killed after 10 seconds of no progress output to stderr. The second
+    /// attempt is killed after 30 seconds. The third attempt has no timeout, so
+    /// either git-fetch will fail after some time or the user has to abort
+    /// git-toprepo with e.g. Ctrl+C.
     ///
     /// Default: `[]` means `[0]` (no timeout).
     #[serde(skip_serializing_if = "is_default")]
