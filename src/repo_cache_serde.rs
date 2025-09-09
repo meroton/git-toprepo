@@ -16,6 +16,7 @@ use crate::repo::ThinSubmodule;
 use crate::repo::TopRepoCache;
 use crate::repo::TopRepoCommitId;
 use crate::repo_name::RepoName;
+use crate::util::NewlineTrimmer as _;
 use crate::util::OrderedHashMap;
 use crate::util::RcKey;
 use anyhow::Context;
@@ -86,7 +87,7 @@ impl SerdeTopRepoCache {
                 log::warn!(
                     "Discarding toprepo cache {} due to version mismatch, expected {:?}",
                     cache_path.display(),
-                    Self::CACHE_VERSION_PRELUDE
+                    Self::CACHE_VERSION_PRELUDE.trim_newline_suffix(),
                 );
                 return Ok(Self::default());
             }
