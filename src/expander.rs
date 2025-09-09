@@ -176,6 +176,13 @@ impl TopRepoExpander<'_> {
                     }
                     pb.inc(1);
                 }
+                crate::git_fast_export_import::FastExportEntry::AnnotatedTag(tag) => {
+                    // TODO: Implement annotated tags.
+                    log::warn!(
+                        "Annotated tags are not yet supported, skipping {}",
+                        tag.name
+                    );
+                }
                 crate::git_fast_export_import::FastExportEntry::Reset(reset) => {
                     let input_branch = &reset.branch;
                     let output_branch = strip_ref_prefix(input_branch, top_ref_prefix.as_str())

@@ -36,6 +36,16 @@ pub struct FastExportCommit {
 }
 
 #[derive(Debug)]
+pub struct FastExportTag {
+    pub name: FullName,
+    /// The commit (or object) that this tag points to.
+    pub target: gix::ObjectId,
+    pub original_id: gix::ObjectId,
+    pub tagger_info: BString,
+    pub message: BString,
+}
+
+#[derive(Debug)]
 pub struct FastExportReset {
     pub branch: FullName,
     pub from: gix::ObjectId,
@@ -44,6 +54,7 @@ pub struct FastExportReset {
 #[derive(Debug)]
 pub enum FastExportEntry {
     Commit(FastExportCommit),
+    AnnotatedTag(FastExportTag),
     Reset(FastExportReset),
 }
 
@@ -57,6 +68,18 @@ pub struct FastImportCommit<'a> {
     pub file_changes: Vec<ChangedFile>,
     pub parents: Vec<ImportCommitRef>,
     pub original_id: Option<gix::ObjectId>,
+}
+
+#[derive(Debug)]
+pub struct FastImportTag<'a> {
+    /// The name of the tag, which must start with `refs/tags` when importing
+    /// with git-fast-import.
+    pub name: &'a FullNameRef,
+    /// The commit (or object) that this tag points to.
+    pub target: ImportCommitRef,
+    pub original_id: Option<gix::ObjectId>,
+    pub tagger_info: BString,
+    pub message: BString,
 }
 
 impl FastExportCommit {
@@ -409,6 +432,85 @@ impl FastExportRepo {
         Ok(commit)
     }
 
+    /// Reads a 'tag' command according to documentation in git-fast-import.
+    fn read_tag(&mut self) -> Result<FastExportTag> {
+        let mut name = self
+            .current_line
+            .strip_prefix(b"tag ")
+            .ok_or_else(|| anyhow!("Expected 'tag' line"))?
+            .as_bstr()
+            .to_owned();
+        // git-fast-export strips refs/tags/ if possible.
+        if !name.starts_with(b"refs/") {
+            name = [b"refs/tags/", name.as_slice()].concat().into();
+        }
+        let name =
+            FullName::try_from(name.clone()).with_context(|| format!("Bad tag name {name}"))?;
+        self.must_advance_line()?;
+
+        // TODO: Convert to a GitFastExportMark struct.
+        let opt_mark = self
+            .current_line
+            .strip_prefix(b"mark :")
+            .map(|mark| mark.into());
+        if opt_mark.is_some() {
+            self.must_advance_line()?;
+        }
+
+        let from_str = self
+            .current_line
+            .strip_prefix(b"from ")
+            .ok_or_else(|| anyhow!("Expected 'from' line"))?
+            .as_bstr();
+        let from_id = if let Some(mark) = from_str.strip_prefix(b":") {
+            *self
+                .mark_oid_map
+                .get(mark)
+                .ok_or_else(|| anyhow!("Could not find from mark {from_str}"))?
+        } else {
+            gix::ObjectId::from_hex(from_str)
+                .with_context(|| format!("Bad from hash {from_str}"))?
+        };
+        self.must_advance_line()?;
+
+        let original_id = gix::ObjectId::from_hex(
+            self.current_line
+                .strip_prefix(b"original-oid ")
+                .ok_or_else(|| anyhow!("Expected 'original-oid' line"))?,
+        )?;
+        if let Some(mark) = opt_mark {
+            self.mark_oid_map.insert(mark, original_id);
+        }
+        self.must_advance_line()?;
+
+        let tagger_info = self
+            .current_line
+            .strip_prefix(b"tagger ")
+            .ok_or_else(|| anyhow!("Expected 'tagger' line"))?
+            .into();
+        self.must_advance_line()?;
+
+        let msg_byte_count = self
+            .current_line
+            .strip_prefix(b"data ")
+            .ok_or_else(|| anyhow!("Expected 'data' line"))?
+            .to_str()?
+            .parse::<usize>()
+            .context("Could not parse commit message size")?;
+        let mut message = BString::new(vec![]);
+        self.read_bytes(&mut message, msg_byte_count)
+            .context("Error reading commit message")?;
+        self.must_advance_line()?;
+
+        Ok(FastExportTag {
+            name,
+            target: from_id,
+            tagger_info,
+            message,
+            original_id,
+        })
+    }
+
     fn read_reset(&mut self) -> Result<Option<FastExportReset>> {
         let branch: BString = self
             .current_line
@@ -456,6 +558,14 @@ impl Iterator for FastExportRepo {
                     )
                 });
                 return Some(commit.map(FastExportEntry::Commit));
+            } else if self.current_line.starts_with(b"tag ") {
+                let tag = self.read_tag().with_context(|| {
+                    format!(
+                        "Error parsing git-fast-export tag line {:?}",
+                        self.current_line
+                    )
+                });
+                return Some(tag.map(FastExportEntry::AnnotatedTag));
             } else if self.current_line.starts_with(b"reset ") {
                 let reset = self.read_reset().with_context(|| {
                     format!(
@@ -679,6 +789,42 @@ impl FastImportRepo {
             out.write_all(b"\n")?;
         }
         out.write_all(b"\n")?;
+        writeln!(out, "get-mark :{mark}")?;
+        out.flush()?;
+        Ok(mark)
+    }
+
+    pub fn write_annotated_tag(&mut self, tag: &FastImportTag) -> Result<usize> {
+        self.peel_stdout()?;
+
+        self.last_mark += 1;
+        let mark = self.last_mark;
+        if let Some(oid) = tag.original_id {
+            self.oid_to_mark.insert(oid, mark);
+        }
+
+        let Some(stripped_tag_name) = tag.name.as_bstr().strip_prefix(b"refs/tags/") else {
+            // git 2.51.0 prepends the name with refs/tags/
+            // https://github.com/git/git/blob/c44beea485f0f2feaf460e2ac87fdd5608d63cf0/builtin/fast-import.c#L1700
+            bail!("Tag name must start with refs/tags/, got {:?}", tag.name);
+        };
+
+        let out = self.stdin_writer.as_mut().unwrap();
+
+        out.write_all(b"tag ")?;
+        out.write_all(stripped_tag_name)?;
+
+        writeln!(out, "\nmark :{mark}")?;
+
+        out.write_all(b"from ")?;
+        out.write_all(&Self::format_commit_ref(&self.oid_to_mark, &tag.target))?;
+
+        out.write_all(b"\ntagger ")?;
+        out.write_all(&tag.tagger_info)?;
+
+        writeln!(out, "\ndata {}", tag.message.len())?;
+        out.write_all(&tag.message)?;
+
         writeln!(out, "get-mark :{mark}")?;
         out.flush()?;
         Ok(mark)
@@ -909,6 +1055,12 @@ mod tests {
         .unwrap();
 
         commit(&top_repo, &env, "D");
+        // Create an annotated tag.
+        git_command(&top_repo)
+            .args(["tag", "-a", "v1.0", "-m", "Version 1.0", "HEAD"])
+            .envs(&env)
+            .assert()
+            .success();
         top_repo
     }
 
@@ -933,6 +1085,10 @@ mod tests {
         let commit_d = match repo.nth(2).unwrap().unwrap() {
             FastExportEntry::Commit(c) => c,
             _ => panic!("Expected FastExportCommit"),
+        };
+        let annotated_tag = match repo.next().unwrap().unwrap() {
+            FastExportEntry::AnnotatedTag(t) => t,
+            _ => panic!("Expected FastExportTag"),
         };
         drop(repo);
         assert!(logger.records.lock().unwrap().is_empty());
@@ -992,6 +1148,24 @@ mod tests {
             gix::ObjectId::from_hex(b"345fab2492c99865ba67457c6c47a76fedd5e75b").unwrap(),
         );
         assert_eq!(commit_d.encoding, None);
+
+        assert_eq!(
+            annotated_tag.name,
+            FullName::try_from(b"refs/tags/v1.0".as_bstr()).unwrap()
+        );
+        assert_eq!(
+            annotated_tag.target,
+            gix::ObjectId::from_hex(b"345fab2492c99865ba67457c6c47a76fedd5e75b").unwrap()
+        );
+        assert_eq!(annotated_tag.message, b"Version 1.0\n");
+        assert_eq!(
+            annotated_tag.original_id,
+            gix::ObjectId::from_hex(b"500ad7f04c1a15f0010b74d2823c62a820fd91a1").unwrap(),
+        );
+        assert_eq!(
+            annotated_tag.tagger_info,
+            b"C Name <c@no.example> 1686121750 +0100".as_bstr()
+        );
     }
 
     #[test]
@@ -1040,6 +1214,16 @@ mod tests {
                         original_id: Some(export_commit.original_id),
                     };
                     fast_import_repo.write_commit(&import_commit).unwrap();
+                }
+                FastExportEntry::AnnotatedTag(export_tag) => {
+                    let import_tag = FastImportTag {
+                        name: export_tag.name.borrow(),
+                        target: ImportCommitRef::CommitId(export_tag.target),
+                        message: export_tag.message,
+                        original_id: Some(export_tag.original_id),
+                        tagger_info: export_tag.tagger_info,
+                    };
+                    fast_import_repo.write_annotated_tag(&import_tag).unwrap();
                 }
                 FastExportEntry::Reset(export_reset) => {
                     fast_import_repo

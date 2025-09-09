@@ -384,6 +384,9 @@ fn split_for_push_impl(
                 }
                 pb.inc(1);
             }
+            crate::git_fast_export_import::FastExportEntry::AnnotatedTag(exported_tag) => {
+                anyhow::bail!("Pushing tags is unimplemented: {}", exported_tag.name);
+            }
             crate::git_fast_export_import::FastExportEntry::Reset(reset) => {
                 log::warn!(
                     "Resetting {} to {} is unimplemented",

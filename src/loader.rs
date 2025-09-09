@@ -1396,6 +1396,9 @@ impl SingleRepoLoader<'_> {
                     let ref_names = tips.get(&exported_commit.original_id).unwrap_or(&empty_vec);
                     callback.import_commit(exported_commit, tree_id, ref_names)?;
                 }
+                FastExportEntry::AnnotatedTag(_exported_tag) => {
+                    // Not used.
+                }
                 FastExportEntry::Reset(_exported_reset) => {
                     // Not used.
                 }
