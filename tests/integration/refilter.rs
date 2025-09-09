@@ -1,6 +1,6 @@
+use assert_cmd::assert::OutputAssertExt as _;
 use bstr::ByteSlice as _;
 use git_toprepo::git::git_command;
-use git_toprepo::util::CommandExtension as _;
 use itertools::Itertools as _;
 use std::path::Path;
 
@@ -365,14 +365,13 @@ fn test_refilter_moved_submodule() {
 }
 
 fn extract_log_graph(repo_path: &Path, extra_args: Vec<&str>) -> String {
-    let log_output = git_command(repo_path)
+    let log_command = git_command(repo_path)
         .args(["log", "--graph", "--format=%s"])
         .args(extra_args)
-        .check_success_with_stderr()
-        .unwrap();
-    let log_graph = log_output.stdout.to_str().unwrap();
+        .assert()
+        .success();
+    let log_graph = log_command.get_output().stdout.to_str().unwrap();
     // Replace TAB and trailing spaces.
-
     log_graph
         .split('\n')
         .map(str::trim_end)
