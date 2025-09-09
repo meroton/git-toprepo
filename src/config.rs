@@ -607,6 +607,7 @@ pub struct PushConfig {
 mod tests {
     use super::super::git::commit_env_for_testing;
     use super::*;
+    use assert_cmd::assert::OutputAssertExt as _;
 
     const BAR_BAZ: &str = r#"
         [repo]
@@ -627,14 +628,14 @@ mod tests {
         git_command(&tmp_path)
             .args(["init"])
             .envs(&env)
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         git_command(&tmp_path)
             .args(["config", TOPREPO_CONFIG_FILE_KEY, "worktree:foobar.toml"])
             .envs(&env)
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         let err: anyhow::Error = GitTopRepoConfig::load_config_from_repo(&tmp_path).unwrap_err();
         assert_eq!(
@@ -655,8 +656,8 @@ mod tests {
         git_command(&tmp_path)
             .args(["init"])
             .envs(&env)
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         let mut tmp_file = std::fs::File::create(tmp_path.join("foobar.toml")).unwrap();
 
@@ -665,14 +666,14 @@ mod tests {
         git_command(&tmp_path)
             .args(["add", "foobar.toml"])
             .envs(&env)
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         git_command(&tmp_path)
             .args(["config", TOPREPO_CONFIG_FILE_KEY, "worktree:foobar.toml"])
             .envs(&env)
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         let config = GitTopRepoConfig::load_config_from_repo(&tmp_path).unwrap();
 

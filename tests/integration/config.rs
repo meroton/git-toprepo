@@ -2,7 +2,6 @@ use assert_cmd::prelude::*;
 use git_toprepo::config::TOPREPO_CONFIG_FILE_KEY;
 use git_toprepo::git::commit_env_for_testing;
 use git_toprepo::git::git_command;
-use git_toprepo::util::CommandExtension as _;
 use predicates::prelude::*;
 use std::path::Path;
 use std::process::Command;
@@ -38,8 +37,8 @@ fn test_validate_external_file_in_corrupt_repository() {
     git_command(&temp_dir)
         .args(["init"])
         .envs(&deterministic)
-        .check_success_with_stderr()
-        .unwrap();
+        .assert()
+        .success();
 
     git_command(&temp_dir)
         .args([
@@ -48,8 +47,8 @@ fn test_validate_external_file_in_corrupt_repository() {
             &format!("worktree:{invalid_toml}"),
         ])
         .envs(&deterministic)
-        .check_success_with_stderr()
-        .unwrap();
+        .assert()
+        .success();
 
     // NB: We do not need to initialize the history for this test.
 

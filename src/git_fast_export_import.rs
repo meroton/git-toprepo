@@ -812,8 +812,8 @@ mod tests {
     use super::*;
     use crate::git::CommitId;
     use crate::git::GitPath;
-    use crate::util::CommandExtension as _;
     use crate::util::NewlineTrimmer as _;
+    use assert_cmd::assert::OutputAssertExt as _;
     use bstr::ByteSlice;
     use std::borrow::Borrow as _;
     use std::path::Path;
@@ -840,18 +840,23 @@ mod tests {
         git_command(repo)
             .args(["commit", "--allow-empty", "-m", message])
             .envs(env)
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         // Returns commit hash as String.
         // TODO: Return Result<String> instead?
-        let output = git_command(repo)
+        let cmd = git_command(repo)
             .args(["rev-parse", "HEAD"])
             .envs(env)
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
-        let commit_id_hex = output.stdout.to_str().unwrap().trim_newline_suffix();
+        let commit_id_hex = cmd
+            .get_output()
+            .stdout
+            .to_str()
+            .unwrap()
+            .trim_newline_suffix();
         CommitId::from_hex(commit_id_hex.as_bytes()).unwrap()
     }
 
@@ -868,14 +873,14 @@ mod tests {
         git_command(&top_repo)
             .args(["init", "--quiet", "--initial-branch", "main"])
             .envs(&env)
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         git_command(&sub_repo)
             .args(["init", "--quiet", "--initial-branch", "main"])
             .envs(&env)
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         commit(&sub_repo, &env, "1");
         commit(&sub_repo, &env, "2");
@@ -891,8 +896,8 @@ mod tests {
                            // sub_repo.to_str().unwrap(),
             ])
             .envs(&env)
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
         commit(&top_repo, &env, "B");
         commit(&top_repo, &env, "C");
         let sub_rev_3 = commit(&sub_repo, &env, "3");
@@ -998,10 +1003,7 @@ mod tests {
 
         let to_repo_path = temp_dir.join("to");
         std::fs::create_dir(&to_repo_path).unwrap();
-        git_command(&to_repo_path)
-            .args(["init"])
-            .check_success_with_stderr()
-            .unwrap();
+        git_command(&to_repo_path).args(["init"]).assert().success();
         std::fs::copy(
             from_repo_path.join(".gitmodules"),
             to_repo_path.join(".gitmodules"),
@@ -1009,8 +1011,8 @@ mod tests {
         .unwrap();
         git_command(&to_repo_path)
             .args(["add", ".gitmodules"])
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         let logger = Arc::new(git_toprepo_testtools::log::LogAccumulator::default());
         let fast_export_repo =
@@ -1054,8 +1056,9 @@ mod tests {
 
         let from_ref = git_command(&from_repo_path)
             .args(["rev-parse", "refs/heads/main"])
-            .check_success_with_stderr()
-            .unwrap()
+            .assert()
+            .success()
+            .get_output()
             .stdout
             .to_str()
             .unwrap()
@@ -1063,8 +1066,9 @@ mod tests {
 
         let to_ref = git_command(&to_repo_path)
             .args(["rev-parse", "refs/heads/main"])
-            .check_success_with_stderr()
-            .unwrap()
+            .assert()
+            .success()
+            .get_output()
             .stdout
             .to_str()
             .unwrap()
