@@ -410,8 +410,9 @@ pub struct TopRepoCache {
     pub repos: RepoStates,
     pub monorepo_commits: HashMap<MonoRepoCommitId, Rc<MonoRepoCommit>>,
     pub monorepo_commit_ids: HashMap<RcKey<MonoRepoCommit>, MonoRepoCommitId>,
-    /// Mapping from top repo commit to mono repo commit.
-    pub top_to_mono_map: HashMap<TopRepoCommitId, Rc<MonoRepoCommit>>,
+    /// Mapping from top repo commit to mono repo commit. To avoid confusion,
+    /// entries are only allowed when a `MonoRepoCommitId` is known.
+    pub top_to_mono_commit_map: HashMap<TopRepoCommitId, (MonoRepoCommitId, Rc<MonoRepoCommit>)>,
     pub dedup: GitFastExportImportDedupCache,
 }
 
@@ -430,7 +431,6 @@ pub enum MonoRepoParent {
     Mono(Rc<MonoRepoCommit>),
 }
 
-/// While importing, the commit id might not yet be known and set to a dummy id.
 #[serde_as]
 #[derive(
     Debug, Clone, Copy, Eq, Hash, PartialEq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -442,10 +442,6 @@ pub struct MonoRepoCommitId(
 impl MonoRepoCommitId {
     pub fn new(commit_id: CommitId) -> Self {
         MonoRepoCommitId(commit_id)
-    }
-
-    pub fn dummy() -> Self {
-        Self(gix::ObjectId::null(gix::hash::Kind::Sha1))
     }
 }
 

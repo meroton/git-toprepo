@@ -50,7 +50,11 @@ pub struct TopRepoExpander<'a> {
     pub config: &'a GitTopRepoConfig,
     pub progress: indicatif::MultiProgress,
     pub fast_importer: crate::git_fast_export_import::FastImportRepo,
-    pub imported_commits: HashMap<RcKey<MonoRepoCommit>, (usize, Rc<MonoRepoCommit>)>,
+    pub imported_commits:
+        HashMap<RcKey<MonoRepoCommit>, (usize, Rc<MonoRepoCommit>, Option<TopRepoCommitId>)>,
+    /// Commits that have been expanded, but not yet resolved the mono commit id
+    /// and stored in `self.storage`.
+    pub expanded_top_commits: HashMap<TopRepoCommitId, Rc<MonoRepoCommit>>,
     pub bumps: BumpCache,
     pub inject_at_oldest_super_commit: bool,
 }
@@ -79,12 +83,11 @@ impl TopRepoExpander<'_> {
                 .with_message("Looking for new commits to expand"),
         );
 
-        let toprepo_commits = &self.storage.top_to_mono_map;
         let walk = self.gix_repo.rev_walk(toprepo_tips);
         let mut commits_to_expand: Vec<_> = Vec::new();
         walk.selected(|commit_id| {
             let commit_id = TopRepoCommitId::new(commit_id.to_owned());
-            if toprepo_commits.contains_key(&commit_id) {
+            if self.storage.top_to_mono_commit_map.contains_key(&commit_id) {
                 // Stop iterating.
                 false
             } else {
@@ -185,9 +188,7 @@ impl TopRepoExpander<'_> {
                             )
                         })?;
                     let mono_commit = self
-                        .storage
-                        .top_to_mono_map
-                        .get(&TopRepoCommitId::new(reset.from))
+                        .get_mono_commit_from_toprepo_commit_id(&TopRepoCommitId::new(reset.from))
                         .with_context(|| {
                             format!(
                                 "Failed to reset {} to not yet expanded toprepo revision {}",
@@ -205,18 +206,37 @@ impl TopRepoExpander<'_> {
         Ok(())
     }
 
+    /// Not just the cache contains the top-to-mono mapping, also
+    /// `self.expanded_top_commits`. This method checks both.
+    fn get_mono_commit_from_toprepo_commit_id(
+        &self,
+        top_commit_id: &TopRepoCommitId,
+    ) -> Option<&Rc<MonoRepoCommit>> {
+        if let Some((_mono_commit_id, mono_commit)) =
+            self.storage.top_to_mono_commit_map.get(top_commit_id)
+        {
+            return Some(mono_commit);
+        }
+        self.expanded_top_commits.get(top_commit_id)
+    }
+
     #[instrument(name = "final_wait", skip_all)]
     pub fn wait(self) -> Result<()> {
         // Record the new mono commit ids.
         let commit_ids = self.fast_importer.wait()?;
-        for (mark, mono_commit) in self.imported_commits.values() {
-            let mono_commit_id = MonoRepoCommitId::new(commit_ids[*mark - 1]);
+        for (mark, mono_commit, top_commit_id) in self.imported_commits.into_values() {
+            let mono_commit_id = MonoRepoCommitId::new(commit_ids[mark - 1]);
             self.storage
                 .monorepo_commits
                 .insert(mono_commit_id, mono_commit.clone());
             self.storage
                 .monorepo_commit_ids
-                .insert(RcKey::new(mono_commit), mono_commit_id);
+                .insert(RcKey::new(&mono_commit), mono_commit_id);
+            if let Some(top_commit_id) = top_commit_id {
+                self.storage
+                    .top_to_mono_commit_map
+                    .insert(top_commit_id, (mono_commit_id, mono_commit));
+            }
         }
         Ok(())
     }
@@ -224,7 +244,7 @@ impl TopRepoExpander<'_> {
     /// Gets a `:mark` marker reference or the full commit id for a commit.
     fn get_import_commit_ref(&self, mono_commit: &Rc<MonoRepoCommit>) -> ImportCommitRef {
         let key = RcKey::new(mono_commit);
-        if let Some((mark, _)) = self.imported_commits.get(&key) {
+        if let Some((mark, _, _)) = self.imported_commits.get(&key) {
             ImportCommitRef::Mark(*mark)
         } else {
             let commit_id = self
@@ -252,10 +272,8 @@ impl TopRepoExpander<'_> {
             .parents
             .iter()
             .map(|parent| {
-                self.storage
-                    .top_to_mono_map
-                    .get(&TopRepoCommitId::new(parent.commit_id))
-                    .unwrap()
+                self.get_mono_commit_from_toprepo_commit_id(&TopRepoCommitId::new(parent.commit_id))
+                    .expect("all parents must already have been expanded")
                     .clone()
             })
             .collect_vec();
@@ -289,9 +307,12 @@ impl TopRepoExpander<'_> {
             commit.file_changes,
             None,
         )?;
-        self.storage
-            .top_to_mono_map
-            .insert(commit_id, mono_commit.clone());
+        // Overwrite, but include the top commit id.
+        self.imported_commits
+            .get_mut(&RcKey::new(&mono_commit))
+            .expect("just returned from emit_mono_commit")
+            .2 = Some(commit_id);
+        self.expanded_top_commits.insert(commit_id, mono_commit);
         Ok(())
     }
 
@@ -467,7 +488,7 @@ impl TopRepoExpander<'_> {
         let mono_commit = MonoRepoCommit::new_rc(parents, top_bump, submodule_bumps);
         self.imported_commits.insert(
             RcKey::new(&mono_commit),
-            (importer_mark, mono_commit.clone()),
+            (importer_mark, mono_commit.clone(), None),
         );
         Ok(mono_commit)
     }
@@ -1592,11 +1613,10 @@ fn refilter(
             }
             gix::refs::Target::Object(object_id) => {
                 let commit_id = TopRepoCommitId::new(object_id);
-                if let Some(mono_commit) = processor.top_repo_cache.top_to_mono_map.get(&commit_id)
-                    && let Some(mono_commit_id) = processor
-                        .top_repo_cache
-                        .monorepo_commit_ids
-                        .get(&RcKey::new(mono_commit))
+                if let Some((mono_commit_id, _mono_commit)) = processor
+                    .top_repo_cache
+                    .top_to_mono_commit_map
+                    .get(&commit_id)
                 {
                     monorepo_object_tips.push((monorepo_ref_name, *mono_commit_id));
                 } else {
@@ -1644,7 +1664,7 @@ fn refilter(
             |commit_id| {
                 processor
                     .top_repo_cache
-                    .top_to_mono_map
+                    .top_to_mono_commit_map
                     .contains_key(&TopRepoCommitId::new(commit_id))
             },
         )?;
@@ -1660,6 +1680,7 @@ fn refilter(
             progress,
             fast_importer,
             imported_commits: HashMap::new(),
+            expanded_top_commits: HashMap::new(),
             bumps: crate::expander::BumpCache::default(),
             inject_at_oldest_super_commit: false,
         };
@@ -1674,16 +1695,11 @@ fn refilter(
         expander.wait()?;
         // Collect all new monorepo commits.
         for (monorepo_ref_name, _, top_commit_id) in todo_toprepo_object_tips {
-            let mono_commit = processor
+            let (mono_commit_id, _mono_commit) = processor
                 .top_repo_cache
-                .top_to_mono_map
+                .top_to_mono_commit_map
                 .get(&top_commit_id)
                 .expect("just filtered mono commit must exist");
-            let mono_commit_id = processor
-                .top_repo_cache
-                .monorepo_commit_ids
-                .get(&RcKey::new(mono_commit))
-                .expect("just filtered mono commit id must exist");
             monorepo_object_tips.push((monorepo_ref_name, *mono_commit_id));
         }
     }
@@ -1844,6 +1860,7 @@ pub fn expand_submodule_ref_onto_head(
         progress: processor.progress.clone(),
         fast_importer,
         imported_commits: HashMap::new(),
+        expanded_top_commits: HashMap::new(),
         bumps: crate::expander::BumpCache::default(),
         inject_at_oldest_super_commit: true,
     };
