@@ -4,6 +4,7 @@ use bstr::ByteSlice as _;
 use git_toprepo::git::commit_env_for_testing;
 use git_toprepo::git::git_command;
 use itertools::Itertools as _;
+use predicates::prelude::PredicateBooleanExt as _;
 use std::path::Path;
 
 #[test]
@@ -521,24 +522,17 @@ fn test_refilter_prints_updates() {
         .arg("fetch")
         .assert()
         .success()
-        .stderr(predicates::str::contains(
-            "WARN: Skipping ref refs/namespaces/top/refs/tags/v1.0 that points to a tag",
-        ))
-        .stderr(predicates::str::contains(
-            "WARN: Skipping ref refs/namespaces/top/refs/tags/v1.0-nested that points to a tag",
-        ))
-        .stderr(predicates::function::function(|s: &str| {
-            s.matches("WARN:").count() == 2
-        }))
+        .stderr(predicates::str::contains("WARN:").not())
         // This output has triggered most paths. Note that the symbolic links
         // are not possible to fetch, only to add manually to
         // `refs/namespaces/top/...` and refilter.
         .stdout(
             &"
  * [new] 837c2d2                     -> origin/main
+ * [new tag] 867b230                 -> v1.0-nested
  + [forced update] 77cd3a5...837c2d2 -> origin/HEAD
    77cd3a5..3c3143d                  -> origin/other
- - [deleted tag] 77cd3a5             -> v1.0
+ t [updated tag] 77cd3a5..b78c2aa    -> v1.0
  - [deleted tag] 77cd3a5             -> v2.0
 "[1..],
         );
