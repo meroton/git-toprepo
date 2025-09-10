@@ -371,7 +371,7 @@ impl<'a> MonoRepoProcessor<'a> {
 
 #[serde_as]
 #[derive(
-    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct TopRepoCommitId(
     #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")] CommitId,
@@ -433,7 +433,7 @@ pub enum MonoRepoParent {
 /// While importing, the commit id might not yet be known and set to a dummy id.
 #[serde_as]
 #[derive(
-    Debug, Clone, Eq, Hash, PartialEq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    Debug, Clone, Copy, Eq, Hash, PartialEq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct MonoRepoCommitId(
     #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")] CommitId,

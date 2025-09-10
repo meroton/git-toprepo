@@ -191,13 +191,13 @@ impl SerdeTopRepoCache {
         }
         let mut monorepo_commits = HashMap::with_capacity(self.monorepo_commits.len());
         for serde_commit in self.monorepo_commits {
-            let commit_id = serde_commit.commit_id.clone();
+            let commit_id = serde_commit.commit_id;
             let mono_commit = serde_commit.unpack(&monorepo_commits)?;
             monorepo_commits.insert(commit_id, mono_commit);
         }
         let monorepo_commit_ids = monorepo_commits
             .iter()
-            .map(|(commit_id, commit)| (RcKey::new(commit), commit_id.clone()))
+            .map(|(commit_id, commit)| (RcKey::new(commit), *commit_id))
             .collect();
         let top_to_mono_map = self
             .top_to_mono_map
@@ -237,12 +237,11 @@ impl SerdeTopRepoCache {
             .iter()
             .map(|(top_commit_id, mono_commit)| {
                 (
-                    top_commit_id.clone(),
-                    cache
+                    *top_commit_id,
+                    *cache
                         .monorepo_commit_ids
                         .get(&RcKey::new(mono_commit))
-                        .unwrap()
-                        .clone(),
+                        .unwrap(),
                 )
             })
             .collect();
@@ -442,20 +441,18 @@ impl SerdeMonoRepoCommit {
                     SerdeMonoRepoParent::OriginalSubmod(original_submod.clone())
                 }
                 MonoRepoParent::Mono(monorepo_commit) => SerdeMonoRepoParent::Mono(
-                    commit_ids
+                    *commit_ids
                         .get(&RcKey::new(monorepo_commit))
-                        .expect("mono commit parents have commit ids")
-                        .clone(),
+                        .expect("mono commit parents have commit ids"),
                 ),
             })
             .collect();
         Self {
-            commit_id: commit_ids
+            commit_id: *commit_ids
                 .get(&RcKey::new(commit))
-                .expect("mono commits have commit ids")
-                .clone(),
+                .expect("mono commits have commit ids"),
             parents,
-            top_bump: commit.top_bump.clone(),
+            top_bump: commit.top_bump,
             submodule_bumps: commit.submodule_bumps.clone(),
         }
     }

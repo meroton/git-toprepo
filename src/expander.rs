@@ -213,7 +213,7 @@ impl TopRepoExpander<'_> {
             let mono_commit_id = MonoRepoCommitId::new(commit_ids[*mark - 1]);
             self.storage
                 .monorepo_commits
-                .insert(mono_commit_id.clone(), mono_commit.clone());
+                .insert(mono_commit_id, mono_commit.clone());
             self.storage
                 .monorepo_commit_ids
                 .insert(RcKey::new(mono_commit), mono_commit_id);
@@ -1163,7 +1163,7 @@ impl BumpCache {
         // TODO: Is caching needed?
         loop {
             if let Some(top_bump) = &mono_commit.top_bump {
-                return Some(top_bump.clone());
+                return Some(*top_bump);
             }
             let Some(MonoRepoParent::Mono(first_parent)) = mono_commit.parents.first() else {
                 return None;
@@ -1598,7 +1598,7 @@ fn refilter(
                         .monorepo_commit_ids
                         .get(&RcKey::new(mono_commit))
                 {
-                    monorepo_object_tips.push((monorepo_ref_name, mono_commit_id.clone()));
+                    monorepo_object_tips.push((monorepo_ref_name, *mono_commit_id));
                 } else {
                     todo_toprepo_object_tips.push((monorepo_ref_name, r.name, commit_id));
                 }
@@ -1684,7 +1684,7 @@ fn refilter(
                 .monorepo_commit_ids
                 .get(&RcKey::new(mono_commit))
                 .expect("just filtered mono commit id must exist");
-            monorepo_object_tips.push((monorepo_ref_name, mono_commit_id.clone()));
+            monorepo_object_tips.push((monorepo_ref_name, *mono_commit_id));
         }
     }
     // TODO: Update all refs here and not while running git-fast-import. By
