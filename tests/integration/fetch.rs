@@ -207,9 +207,52 @@ fn test_fetch_no_refspec_fail(#[case] remote: &str) {
         )));
 }
 
+#[rstest]
+#[case::no_remote(None)]
+#[case::origin(Some("origin"))]
+fn test_fetch_no_refspec_prunes_refs(#[case] remote: Option<&str>) {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    let mut cmd = Command::cargo_bin("git-toprepo").unwrap();
+    cmd.current_dir(&repo.monorepo).arg("fetch");
+    if let Some(remote) = remote {
+        cmd.arg(remote);
+    }
+    cmd.assert().success();
+    Command::new("git")
+        .current_dir(&repo.monorepo)
+        .args(["show-ref"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("foo"));
+
+    // Delete and prune foo.
+    Command::new("git")
+        .current_dir(&repo.toprepo)
+        .args(["checkout", "--detach"])
+        .assert()
+        .success();
+    Command::new("git")
+        .current_dir(&repo.toprepo)
+        .args(["update-ref", "-d", "refs/heads/foo"])
+        .assert()
+        .success();
+    let mut cmd = Command::cargo_bin("git-toprepo").unwrap();
+    cmd.current_dir(&repo.monorepo).arg("fetch");
+    if let Some(remote) = remote {
+        cmd.arg(remote);
+    }
+    cmd.assert().success();
+    Command::new("git")
+        .current_dir(&repo.monorepo)
+        .args(["show-ref"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("foo").not());
+}
+
 /// It is not possible to fetch a refspec without a remote.
 #[test]
-fn test_fetch_refspec_no_remote() {
+fn test_fetch_refspec_without_remote_fails() {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     Command::cargo_bin("git-toprepo")
         .unwrap()

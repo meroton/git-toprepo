@@ -376,6 +376,7 @@ fn fetch_with_default_refspecs(
         );
     }
     fetcher.remote = fetch_args.remote.clone();
+    fetcher.args.push("--prune".to_owned());
     fetcher.fetch_on_terminal()?;
 
     if !fetch_args.skip_filter {

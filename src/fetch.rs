@@ -56,6 +56,7 @@ impl RemoteFetcher {
             Some(name) => Some(name.to_str()?.to_string()),
             None => Some("origin".to_owned()),
         };
+        self.args.push("--prune".to_owned());
         Ok(())
     }
 
@@ -114,6 +115,7 @@ impl RemoteFetcher {
                         .with_context(|| format!("Fetch URL for {name_or_url} is missing"))?
                         .to_string(),
                 );
+                self.args.push("--prune".to_owned());
             }
             None => {
                 // Not the super repo, try to find the subrepo.
