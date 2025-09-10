@@ -292,7 +292,7 @@ where
     // TODO: The commit graph cannot be reused. Until fixed upstream,
     // use the default behaviour of reloading it for each walk.
     // walk.with_commit_graph(cache);
-    let mut stop_commit_ids: Vec<gix::ObjectId> = Vec::new();
+    let mut stop_commit_ids: Vec<CommitId> = Vec::new();
     let mut unknown_commit_count: usize = 0;
     for info in walk.selected(|commit_id| {
         if exists_filter(commit_id.to_owned()) {
