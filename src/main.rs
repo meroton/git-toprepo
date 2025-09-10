@@ -11,8 +11,11 @@ use clap::Parser;
 use colored::Colorize;
 use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
+use git_toprepo::config::TOPREPO_CONFIG_FILE_KEY;
+use git_toprepo::config::toprepo_git_config;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::git::git_command;
+use git_toprepo::git::git_config_get;
 use git_toprepo::log::CommandSpanExt as _;
 use git_toprepo::log::ErrorMode;
 use git_toprepo::log::ErrorObserver;
@@ -33,6 +36,16 @@ use std::panic::resume_unwind;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
+
+#[derive(Debug)]
+struct ExitSilently;
+
+impl std::fmt::Display for ExitSilently {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ExitSilently")
+    }
+}
+impl std::error::Error for ExitSilently {}
 
 #[tracing::instrument]
 fn init(init_args: &cli::Init) -> Result<PathBuf> {
@@ -601,6 +614,14 @@ where
     Ok(())
 }
 
+fn is_monorepo() -> Result<bool> {
+    // TODO: Add/Use the -C flag.
+    let repo_dir = git_toprepo::util::find_current_worktree(Path::new("."))?;
+    let key = &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY);
+    let maybe = git_config_get(&repo_dir, key)?;
+    Ok(maybe.is_some())
+}
+
 #[tracing::instrument(skip(processor))]
 fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> {
     let base_url = match processor
@@ -773,6 +794,13 @@ where
         Commands::Config(config_args) => return config(config_args),
         Commands::Dump(dump_args) => return dump(dump_args),
         Commands::Version => return print_version(),
+        Commands::IsMonorepo => {
+            let maybe = is_monorepo()?;
+            return match maybe {
+                true => Ok(()),
+                false => Err(ExitSilently.into()),
+            };
+        }
         _ => {
             if args.working_directory.is_none() {
                 let current_dir = std::env::current_dir()?;
@@ -801,6 +829,7 @@ where
             Commands::Refilter(refilter_args) => refilter(&refilter_args, processor),
             Commands::Fetch(fetch_args) => fetch(&fetch_args, processor),
             Commands::Push(push_args) => push(&push_args, processor),
+            Commands::IsMonorepo => unreachable!("is-monorepo is already handled."),
             // User friendly introspection into the tool itself.
             Commands::Dump(_) => unreachable!("dump is already processed."),
             Commands::Version => unreachable!("version is already processed."),
@@ -827,6 +856,13 @@ fn main() -> ExitCode {
         || match main_impl(std::env::args_os(), Some(global_logger)) {
             Ok(_) => Ok(ExitCode::SUCCESS),
             Err(err) => {
+                // NB: downcast of error is discouraged
+                // and we need to do it more we should look into more structured
+                // custom errors for our code base, like the `thiserror` crate.
+                // https://www.reddit.com/r/learnrust/comments/zovj2x/how_to_match_on_underlying_error_when_using_anyhow/
+                if let Some(ExitSilently) = err.downcast_ref() {
+                    return Ok(ExitCode::FAILURE);
+                }
                 log::error!("{err:#}");
                 Ok(ExitCode::FAILURE)
             }
