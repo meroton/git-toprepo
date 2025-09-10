@@ -1485,7 +1485,7 @@ struct DotGitModulesCache<'a> {
     cache: HashMap<BlobId, Result<GitModulesInfo>>,
 }
 
-impl<'a> DotGitModulesCache<'a> {
+impl DotGitModulesCache<'_> {
     /// Parse the `.gitmodules` file given by the `BlobId` and return the map
     /// from path to url.
     pub fn get_from_blob_id(&mut self, entry: ExportedFileEntry) -> Result<&GitModulesInfo> {

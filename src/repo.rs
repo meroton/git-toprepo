@@ -291,7 +291,7 @@ pub struct MonoRepoProcessor<'a> {
     pub progress: &'a mut indicatif::MultiProgress,
 }
 
-impl<'a> MonoRepoProcessor<'a> {
+impl MonoRepoProcessor<'_> {
     pub fn run<T, F>(directory: &Path, f: F) -> Result<T>
     where
         F: FnOnce(&mut MonoRepoProcessor) -> Result<T>,
@@ -761,7 +761,7 @@ impl ThinCommit {
     }
 
     /// Walks the first parent commit graph to the submodule entry.
-    pub fn get_submodule<'a>(&'a self, path: &GitPath) -> Option<&'a ThinSubmodule> {
+    pub fn get_submodule(&'_ self, path: &GitPath) -> Option<&'_ ThinSubmodule> {
         let mut node = self;
         loop {
             if let Some(submod) = node.submodule_bumps.get(path) {
