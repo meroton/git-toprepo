@@ -25,6 +25,7 @@ use anyhow::Context;
 use anyhow::Result;
 use bstr::BStr;
 use bstr::ByteSlice as _;
+use gix::ObjectId;
 use gix::refs::FullName;
 use itertools::Itertools as _;
 use std::collections::BTreeMap;
@@ -987,7 +988,7 @@ impl<'a> CommitLoader<'a> {
                 FileChange::Modified { mode, hash } => {
                     if mode == b"160000" {
                         // 160000 means submodule
-                        let submod_commit_id: CommitId = gix::ObjectId::from_hex(&hash)?;
+                        let submod_commit_id: CommitId = ObjectId::from_hex(&hash)?;
                         let submod_repo_name = Self::get_submod_repo_name(
                             dot_gitmodules,
                             thin_parents.first(),
@@ -1091,7 +1092,7 @@ impl<'a> CommitLoader<'a> {
                 match &fc.change {
                     FileChange::Modified { mode, hash } => {
                         let dot_gitmodules =
-                            gix::ObjectId::from_hex(hash).context("Bad blob id for .gitmodules")?;
+                            ObjectId::from_hex(hash).context("Bad blob id for .gitmodules")?;
                         // Cannot do proper error reporting for bad modes here,
                         // as that is a fixable warning.
                         let mode_str = std::str::from_utf8(mode)
