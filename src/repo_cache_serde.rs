@@ -44,7 +44,7 @@ pub struct SerdeTopRepoCache {
     repos: SerdeRepoStates,
     monorepo_commits: Vec<SerdeMonoRepoCommit>,
     #[serde_as(serialize_as = "serde_with::IfIsHumanReadable<OrderedHashMap<_, _>>")]
-    top_to_mono_map: HashMap<TopRepoCommitId, MonoRepoCommitId>,
+    top_to_mono_commit_map: HashMap<TopRepoCommitId, MonoRepoCommitId>,
     dedup: GitFastExportImportDedupCache,
 }
 
@@ -199,8 +199,8 @@ impl SerdeTopRepoCache {
             .iter()
             .map(|(commit_id, commit)| (RcKey::new(commit), *commit_id))
             .collect();
-        let top_to_mono_map = self
-            .top_to_mono_map
+        let top_to_mono_commit_map = self
+            .top_to_mono_commit_map
             .into_iter()
             .map(|(top_commit_id, mono_commit_id)| {
                 let mono_commit = monorepo_commits.get(&mono_commit_id).with_context(|| {
@@ -208,7 +208,7 @@ impl SerdeTopRepoCache {
                         "Top commit {top_commit_id} refers to unknown monorepo commit {mono_commit_id}"
                     )
                 })?;
-                Ok((top_commit_id, mono_commit.clone()))
+                Ok((top_commit_id, (mono_commit_id, mono_commit.clone())))
             })
             .collect::<Result<HashMap<_, _>>>()?;
 
@@ -217,7 +217,7 @@ impl SerdeTopRepoCache {
             repos,
             monorepo_commits,
             monorepo_commit_ids,
-            top_to_mono_map,
+            top_to_mono_commit_map,
             dedup: self.dedup,
         })
     }
@@ -232,17 +232,11 @@ impl SerdeTopRepoCache {
             .sorted_by_key(|commit| commit.depth)
             .map(|commit| SerdeMonoRepoCommit::pack(&cache.monorepo_commit_ids, commit))
             .collect_vec();
-        let top_to_mono_map = cache
-            .top_to_mono_map
+        let top_to_mono_commit_map = cache
+            .top_to_mono_commit_map
             .iter()
-            .map(|(top_commit_id, mono_commit)| {
-                (
-                    *top_commit_id,
-                    *cache
-                        .monorepo_commit_ids
-                        .get(&RcKey::new(mono_commit))
-                        .unwrap(),
-                )
+            .map(|(top_commit_id, (mono_commit_id, _mono_commit))| {
+                (*top_commit_id, *mono_commit_id)
             })
             .collect();
         log::debug!(
@@ -253,7 +247,7 @@ impl SerdeTopRepoCache {
             config_checksum,
             repos,
             monorepo_commits,
-            top_to_mono_map,
+            top_to_mono_commit_map,
             dedup: cache.dedup.clone(),
         }
     }
