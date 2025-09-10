@@ -1279,24 +1279,45 @@ impl SingleRepoLoader<'_> {
             .references()?
             .prefixed(BStr::new(ref_prefix.as_bytes()))?
         {
-            let mut r = r.map_err(|err| anyhow::anyhow!("Failed while iterating refs: {err:#}"))?;
-            let commit_id = r
-                .peel_to_commit()
-                .with_context(|| format!("Failed to peel to commit: {r:?}"))?
-                .id;
-            tips.push(commit_id);
+            let r = r.map_err(|err| anyhow::anyhow!("Failed while iterating refs: {err:#}"))?;
+            let Some(object_id) = r.try_id() else {
+                // Skip symbolic refs, there is no more information in them
+                // to load. Can they might even point to something outside
+                // the namespace?
+                continue;
+            };
+            let resolved_object = object_id.object()?.peel_tags_to_end()?;
+            let commit_id: CommitId = match resolved_object.kind {
+                gix::object::Kind::Commit => resolved_object.id,
+                gix::object::Kind::Tag => unreachable!("Tags already peeled"),
+                gix::object::Kind::Blob => {
+                    log::warn!(
+                        "Ignoring {} which points to a blob {object_id}, not to a commit",
+                        r.name().as_bstr(),
+                    );
+                    continue;
+                }
+                gix::object::Kind::Tree => {
+                    log::warn!(
+                        "Ignoring {} which points to a tree {object_id}, not to a commit",
+                        r.name().as_bstr(),
+                    );
+                    continue;
+                }
+            };
             let ref_suffix = r
                 .name()
                 .as_bstr()
                 .strip_prefix(ref_prefix.as_bytes())
                 .expect("ref has prefix");
+            tips.push(commit_id);
+            // Only remotes can be expected to be updated, not refs/tags/,
+            // refs/notes/, refs/pull/ etc. which are ignored.
+            //
+            // Also allowing refs/heads/ in case someone puts their remote branches there.
             if ref_suffix.starts_with("refs/remotes/".as_bytes())
                 || ref_suffix.starts_with("refs/heads/".as_bytes())
             {
-                // Only remotes can be expected to be updated, not . refs/tags/,
-                // refs/notes/, refs/pull/ etc. are ignored.
-                //
-                // Also allowing refs/heads/ in case someone puts their remote branches there.
                 let ref_suffix_name = FullName::try_from(ref_suffix.as_bstr())
                     .expect("The ref suffix should be a valid full name");
                 active_tips_map
