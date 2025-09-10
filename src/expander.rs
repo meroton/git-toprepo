@@ -1561,6 +1561,7 @@ fn refilter(
     let mut update_actions = BTreeMap::new();
     let mut final_monorefs = Vec::with_capacity(top_refs.len());
     let mut todo_commit_tips = Vec::with_capacity(top_refs.len());
+    let mut todo_annotated_tags = Vec::with_capacity(top_refs.len());
     let mut toprepo_commit_ids_to_filter = Vec::with_capacity(top_refs.len());
     for r in top_refs {
         let monorepo_ref_name = strip_ref_prefix(&r.name, top_ref_prefix.as_str())
@@ -1606,8 +1607,40 @@ fn refilter(
                         continue;
                     }
                     gix::object::Kind::Tag => {
-                        log::warn!("Skipping ref {} that points to a tag", r.name.as_bstr());
-                        continue;
+                        let tag_target =
+                            processor.gix_repo.find_object(object_id).with_context(|| {
+                                format!("Failed to read tag object {}", r.name.as_bstr())
+                            })?;
+                        let ultimate_target = tag_target.peel_tags_to_end().with_context(|| {
+                            format!(
+                                "Failed to peel tag {} to the ultimate target",
+                                r.name.as_bstr()
+                            )
+                        })?;
+                        match ultimate_target.kind {
+                            gix::object::Kind::Blob => {
+                                log::warn!(
+                                    "Skipping tag {} that (ultimately) points to a blob",
+                                    r.name.as_bstr()
+                                );
+                            }
+                            gix::object::Kind::Tree => {
+                                log::warn!(
+                                    "Skipping tag {} that (ultimately) points to a tree",
+                                    r.name.as_bstr()
+                                );
+                            }
+                            gix::object::Kind::Tag => unreachable!("peeled to non-tag target"),
+                            gix::object::Kind::Commit => {
+                                todo_annotated_tags.push((
+                                    monorepo_ref_name.clone(),
+                                    object_id.to_owned(),
+                                    old_target,
+                                ));
+                                toprepo_commit_ids_to_filter
+                                    .push(TopRepoCommitId::new(ultimate_target.id));
+                            }
+                        }
                     }
                     gix::object::Kind::Commit => {
                         let commit_id = TopRepoCommitId::new(object_id.to_owned());
@@ -1704,6 +1737,25 @@ fn refilter(
             .unwrap(),
         );
     }
+    // Convert all the tags.
+    for (monorepo_ref_name, annotated_tag_id, old_target) in todo_annotated_tags {
+        let _log_scope_guard = crate::log::scope(format!("Writing mono tag {monorepo_ref_name:?}"));
+        let target_mono_id = match write_mono_tag_chain(processor, annotated_tag_id) {
+            Ok(id) => id,
+            Err(err) => {
+                log::warn!("{err:#}");
+                continue;
+            }
+        };
+        update_actions.insert(
+            monorepo_ref_name,
+            MonoRefUpdateAction::new(
+                old_target.cloned(),
+                Some(gix::refs::Target::Object(target_mono_id)),
+            )
+            .unwrap(),
+        );
+    }
     // Find out which old refs are deleted.
     if remove_refs {
         for (old_name, old_target) in old_monorepo_refs {
@@ -1727,6 +1779,100 @@ fn refilter(
         write_monorepo_refs_log(processor.gix_repo, remaining_monorefs.as_slice())?;
     }
     Ok(())
+}
+
+/// Translates a chain of top-repo tags, starting at `annotated_tag_id`, into
+/// mono-repo tags where the ultimate target must be a commit that has already
+/// been translated to a corresponding mono-repo commit.
+///
+/// In case of a badly encoded intermediate tag, a warning is logged and the tag
+/// is skipped.
+///
+/// The id of the last written mono tag in the the chain, or potentially the
+/// target mono commit, will be returned.
+fn write_mono_tag_chain(
+    processor: &MonoRepoProcessor,
+    annotated_tag_id: gix::ObjectId,
+) -> Result<gix::ObjectId> {
+    let mut nested_top_tags = Vec::with_capacity(1);
+    let mut top_tag_id = annotated_tag_id;
+    let mut top_tag = processor.gix_repo.find_object(annotated_tag_id)?.into_tag();
+    let mut target_mono_id = loop {
+        let target_object_id = top_tag
+            .target_id()
+            .with_context(|| format!("Failed to peel previously peeled tag {top_tag_id}"))?;
+        let target_object = target_object_id.object().with_context(|| {
+            format!("Failed to resolve previously resolved tag target object {target_object_id}")
+        })?;
+        nested_top_tags.push((top_tag_id, top_tag));
+        match target_object.kind {
+            gix::objs::Kind::Blob => {
+                unreachable!(
+                    "Already skipped tag {} that (ultimately) points to a blob",
+                    top_tag_id.to_hex()
+                );
+            }
+            gix::objs::Kind::Tree => {
+                unreachable!(
+                    "Already skipped tag {} that (ultimately) points to a tree",
+                    top_tag_id.to_hex()
+                );
+            }
+            gix::objs::Kind::Tag => {
+                // Nested tag, continue.
+                top_tag_id = target_object.id;
+                top_tag = target_object.into_tag();
+            }
+            gix::objs::Kind::Commit => {
+                // Found the commit, done.
+                let target_top_id = target_object.id;
+                let (target_mono_id, _target_mono_commit) = processor
+                    .top_repo_cache
+                    .top_to_mono_commit_map
+                    .get(&TopRepoCommitId::new(target_top_id))
+                    .expect("mono commit was cached or just filtered and must therefore exist");
+                break *target_mono_id.deref();
+            }
+        }
+    };
+    // Recreate all the nested tags, but pointing to the mono commits.
+    let mut target_kind = gix::objs::Kind::Commit;
+    for (top_tag_id, top_tag) in nested_top_tags.into_iter().rev() {
+        let decoded_top_tag = match top_tag.decode() {
+            Ok(tag) => tag,
+            Err(err) => {
+                log::warn!(
+                    "Ignoring intermediate tag {top_tag_id} that cannot be decoded: {err:#}"
+                );
+                continue;
+            }
+        };
+        let tagger = match decoded_top_tag
+            .tagger
+            .map(|tagger| tagger.to_owned())
+            .transpose()
+        {
+            Ok(tagger) => tagger,
+            Err(err) => {
+                log::warn!("Ignoring intermediate tag {top_tag_id} with bad tagger: {err:#}");
+                continue;
+            }
+        };
+        // Create an identical tag object but pointing to the mono commit instead.
+        let mono_tag = gix::objs::Tag {
+            target: target_mono_id,
+            target_kind,
+            name: decoded_top_tag.name.to_owned(),
+            tagger,
+            message: decoded_top_tag.message.to_owned(),
+            // The PGP signature is impossible to recreate as the target has changed to a mono target.
+            pgp_signature: None,
+        };
+        // Repository::write_object() ensures that existing objects are not written again.
+        target_mono_id = processor.gix_repo.write_object(&mono_tag)?.detach();
+        target_kind = gix::objs::Kind::Tag;
+    }
+    Ok(target_mono_id)
 }
 
 /// Prints the resulting ref updates, in the same fashion like git-fetch.
@@ -1777,7 +1923,6 @@ fn short_ref_target_description(repo: &gix::Repository, target: &gix::refs::Targ
         gix::refs::Target::Symbolic(target) => format!("link:{target}"),
     }
 }
-
 /// An action to perform on a mono-repo reference.
 enum MonoRefUpdateAction {
     Create {
