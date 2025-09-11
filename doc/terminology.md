@@ -42,7 +42,7 @@ then those must be manipulated with `git-submodule` as in the first case.
 it does not typically have _submodules_.
 This makes it easy to make changes across different components
 with a regular `git` workflow,
-Generally without_submodule_ bumps and binary deliveries/integration
+generally without _submodule_ bumps and binary deliveries/integration
 of first party code.
 Gives unparalleled reproducibility
 and understanding of the full product.
