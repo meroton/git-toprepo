@@ -117,14 +117,14 @@ ignored_warnings = [
 > The following section describes the data model and the concepts involved in
 > working with git-toprepo. Some of the functionality is not yet released.
 
-### Commits, Topics and Supercommits
+### Commits, Topics and Monocommits
 
 When working with changes that should be merged together (a Gerrit topic)
 there are multiple parts to keep track of.
 Those are explained here.
 
-A topic contains supercommits,
-a supercommit contains commits within projects
+A topic contains monocommits,
+a monocommit contains commits within projects
 those projects are combined into a monorepo
 through git-toprepo's history filter.
 
@@ -132,8 +132,8 @@ A picture is worth a thousand words:
 
 ![Concept overview](doc/static/toprepo-concepts.drawio.png)
 
-This shows a purple topic that contains two supercommits: A and B.
-The A supercommit spans two projects
+This shows a purple topic that contains two monocommits: A and B.
+The A monocommit spans two projects
 and the internal model keeps track of them individually.
 Git-toprepo then pushes the _four_ commits to Gerrit
 and tracks A1, A2 and B as one topic.
@@ -169,17 +169,17 @@ if they are very large and not actively developed, for instance.
 Commits are the bedrock of working with git.
 These are created in the individual _subprojects_ or _submodules_
 but multiple commits across different subprojects can form one coherent
-_supercommit_.
+_monocommit_.
 To form these is git-toprepo's core purpose.
 So cross-cutting changes across subprojects can be handled as individual commits
 during development and in the filtered history.
 
-#### Supercommits
-Supercommits is what we call commits created in the emulated monorepo
+#### Monocommits
+Monocommits is what we call commits created in the emulated monorepo
 either from the filtered history
 where merges from the review system are bunched into one atomic unit
 or on-going work that may span multiple subprojects.
-It is not so simple that a supercommit is always a Gerrit topic,
+It is not so simple that a monocommit is always a Gerrit topic,
 though that is often the case.
 A topic in Gerrit may under certain circumstances be merged with additional commits
 that were (or were not) reviewed to be merged together.
@@ -187,7 +187,7 @@ As the review system owns the canonical git history
 we follow its merge flow
 (autobump commits, submit-whole-topic, etc).
 
-Supercommits are fundamentally a client-side construct.
+Monocommits are fundamentally a client-side construct.
 They are created either when committing new work with `git-commit`,
 after fetching new history from the remote,
 or by fetching on-going work from a colleague.
@@ -206,22 +206,22 @@ The goal here is to try to thread that needle
 and communicate the subtleties of large scale collaboration.
 
 The merged history is always the simplest:
-whatever was submitted together is one supercommit,
+whatever was submitted together is one monocommit,
 or a single commit if it was submitted independently,
 though with __manual submission__ there are __rare exceptions__.
-So the split of one topic into multiple supercommits is not performed
+So the split of one topic into multiple monocommits is not performed
 in the filtered history.
 
 Recall that a commit may be merged to the development branch
 but still be in-review for a release branch.
 Then the filtered history on the client-side contains
 both merged commits (master branch) and unmerged (development branch).
-The developer may want to treat a given topic as multiple supercommits
+The developer may want to treat a given topic as multiple monocommits
 during review for the development branch
-but they are originally one supercommit when fetched from master.
+but they are originally one monocommit when fetched from master.
 
 #### Collaboration
-There is a simple convention to communicate the supercommits meant to form a topic in Gerrit:
+There is a simple convention to communicate the monocommits meant to form a topic in Gerrit:
 
 * Use the same commit message and change-id
 
@@ -230,15 +230,15 @@ the [`recreate`] strategy can be used to recreate the original working state.
 But if the individual commits in the topic were not created with git-toprepo
 it is unlikely that they would have the same change-id
 then the choice of [fetch strategy] is less clear.
-To recreate supercommits means to treat each commit as their own supercommit,
+To recreate monocommits means to treat each commit as their own monocommit,
 allowing the developer to squash them manually after the fetch.
-Instead to squash the topic into one supercommit
+Instead to squash the topic into one monocommit
 there are two other options:
 
-* squash-if-possible: squash the topic into a single supercommit if it is possible.
+* squash-if-possible: squash the topic into a single monocommit if it is possible.
     If there are multiple commits within a project this will instead give an error
     and the user will need to decide how to proceed.
-* force-squash: squash the entire topic into a single supercommit.
+* force-squash: squash the entire topic into a single monocommit.
     If there were multiple commits within a project their provenance will be tracked
     within the squashed commit message.
     But it is no longer possible to push changes to the original commits in Gerrit.
@@ -256,19 +256,19 @@ The topic is a way to indicate that many (super)commits should be _merged_ toget
 That means that all of the commits in a topic should be submitted as one atomic unit
 to the history.
 As the review platform is the canonical history
-one merged topic will create one supercommit in the filtered history of the super repository.
+one merged topic will create one monocommit in the filtered history of the super repository.
 
 🚧 Gerrit topic integration is coming soon. https://github.com/meroton/git-toprepo/issues/121
 
 ### Commit messages and footers
 
 Just like the distinction between a regular _commit_ that belongs to a _subproject_
-and a filtered _supercommit_ that have slightly different behavior
+and a filtered _monocommit_ that have slightly different behavior
 we should also point out that the commit message will vary.
 When filtering the history to create the emulated monorepo
-each supercommit is given a commit message.
+each monocommit is given a commit message.
 For simple stand alone commits this is the same as the original commit
-but supercommits that combine multiple commits will contain information of how they were created.
+but monocommits that combine multiple commits will contain information of how they were created.
 
 The format is not guaranteed to be stable
 but the information contained is meant to reflect constituents:
@@ -293,7 +293,7 @@ https://zuul-ci.org/docs/zuul/latest/gating.html#cross-project-dependencies
 There are also a few footers used on the *client side* with git-toprepo
 to help the tool operate.
 
-* Topic: When committing "Topic:" can be used to create a topic for one or multiple supercommits.
+* Topic: When committing "Topic:" can be used to create a topic for one or multiple monocommits.
   This will not be pushed in the commit to the Gerrit backend.
   But other review system backends,
   when they are implemented,
