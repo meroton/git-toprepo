@@ -48,6 +48,7 @@ fn test_dump_git_modules() {
 
     let project = "main/project";
     let temp_dir = temp_dir.path().join("top");
+    let child_dir = temp_dir.join("subx");
 
     Command::cargo_bin("git-toprepo")
         .unwrap()
@@ -77,6 +78,17 @@ fn test_dump_git_modules() {
         .assert()
         .success()
         .stdout(contains(project));
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&child_dir)
+        // An arbitrary subcommand that requires it to be initialized
+        .arg("dump")
+        .arg("git-modules")
+        .assert()
+        // dump modules only works in the root · Issue #163 · meroton/git-toprepo
+        // https://github.com/meroton/git-toprepo/issues/163
+        .failure();
 }
 
 #[test]
@@ -94,7 +106,7 @@ fn test_wrong_cache_prelude() {
     std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
     std::fs::write(&cache_path, "wrong-#cache-format").unwrap();
 
-    // Look for a sance warning message.
+    // Look for a sane warning message.
     Command::cargo_bin("git-toprepo")
         .unwrap()
         .current_dir(&temp_dir)
