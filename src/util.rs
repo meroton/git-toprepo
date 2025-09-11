@@ -28,6 +28,8 @@ lazy_static::lazy_static! {
     pub static ref EMPTY_GIX_URL: gix::Url = new_empty_gix_url();
 }
 
+/// Find the current git worktree of the current repository.
+/// The returned path may not be managed by git-toprepo.
 pub fn find_current_worktree(relative_to: &Path) -> Result<PathBuf> {
     let path = upwards(relative_to)?
         .0
@@ -41,6 +43,8 @@ pub fn find_current_worktree(relative_to: &Path) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// Find the main git worktree of the current repository.
+/// The returned path may not be managed by git-toprepo.
 pub fn find_main_worktree(relative_to: &Path) -> Result<PathBuf> {
     let dotgit = upwards(relative_to)?
         .0

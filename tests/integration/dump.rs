@@ -41,10 +41,13 @@ fn test_dump_outside_git_repo() {
 fn test_dump_git_modules() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
-            "../integration/fixtures/make_merge_with_one_submodule_a.sh",
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
         )
         .unwrap(),
     );
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
     let project = "main/project";
     let temp_dir = temp_dir.path().join("top");
