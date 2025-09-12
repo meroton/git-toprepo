@@ -272,7 +272,7 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
     Ok(config)
 }
 
-fn dump_modules() -> Result<()> {
+fn dump_modules(monorepo_root: &Option<PathBuf>) -> Result<()> {
     /// The main repo is not technically a submodule.
     /// But it is very convenient to have transparent handling of the main
     /// project in code that iterates over projects provided by the users.
@@ -280,7 +280,8 @@ fn dump_modules() -> Result<()> {
         project: String,
         path: git_toprepo::git::GitPath,
     }
-    let toprepo = repo::TopRepo::open(&PathBuf::from("."))?;
+    let monorepo_root = monorepo_root.as_ref().ok_or_else(|| NotAMonorepo)?;
+    let toprepo = repo::TopRepo::open(&monorepo_root)?;
 
     let main_project = toprepo
         .gerrit_project()
@@ -676,10 +677,10 @@ fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> 
 }
 
 #[tracing::instrument]
-fn dump(dump_args: &cli::Dump, /* relative_path_to_monorepo_root: Option<PathBuf> */) -> Result<()> {
+fn dump(dump_args: &cli::Dump, monorepo_root: &Option<PathBuf>) -> Result<()> {
     match dump_args {
         cli::Dump::ImportCache => dump_import_cache(),
-        cli::Dump::GitModules => dump_modules(),
+        cli::Dump::GitModules => dump_modules(monorepo_root),
     }
 }
 
@@ -831,7 +832,7 @@ where
             monorepo_root = Some(directory);
         }
         Commands::Config(config_args) => return config(config_args, &monorepo_root),
-        Commands::Dump(dump_args) => return dump(dump_args),
+        Commands::Dump(dump_args) => return dump(dump_args, &monorepo_root),
         Commands::Version => return print_version(),
         Commands::IsMonorepo => {
             return match monorepo_root.is_some() {
@@ -842,16 +843,7 @@ where
         _ => {}
     }
 
-    if monorepo_root.is_none() {
-        return Err(NotAMonorepo)
-            // TODO: Does this error print the right thing?
-            // TODO: Test that this works when running in a regular submodule of
-            // a toprepo.
-            .with_context(|| format!("{repo_root:?} is not managed by git-toprepo"))
-            ;
-    }
-    // TODO: `ok_or()`.
-    let toprepo_root = monorepo_root.unwrap();
+    let toprepo_root = monorepo_root.as_ref().ok_or_else(|| NotAMonorepo)?;
 
     // Now when the working directory is set, we can persist the tracing.
     if let Some(logger) = logger {
