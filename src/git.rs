@@ -7,7 +7,6 @@ use bstr::BString;
 use bstr::ByteSlice as _;
 use serde_with::serde_as;
 use std::collections::HashMap;
-use std::fmt::Display;
 use std::ops::Deref;
 use std::path::Path;
 use std::path::PathBuf;
@@ -110,7 +109,7 @@ impl Deref for GitPath {
     }
 }
 
-impl Display for GitPath {
+impl std::fmt::Display for GitPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }

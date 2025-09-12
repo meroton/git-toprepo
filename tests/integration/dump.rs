@@ -39,40 +39,26 @@ fn test_dump_outside_git_repo() {
 
 #[test]
 fn test_dump_git_modules() {
-    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
-        gix_testtools::scripted_fixture_writable(
-            "../integration/fixtures/make_merge_with_one_submodule_a.sh",
-        )
-        .unwrap(),
-    );
+    #[allow(unused)]
+    let mut monorepo = std::path::PathBuf::new();
+    {
+        let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+            gix_testtools::scripted_fixture_writable(
+                "../integration/fixtures/make_minimal_with_two_submodules.sh",
+            )
+            .unwrap(),
+        );
+        let toprepo = temp_dir.join("top");
+        monorepo = temp_dir.join("mono");
+        crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    }
 
-    let project = "main/project";
-    let temp_dir = temp_dir.path().join("top");
-    let child_dir = temp_dir.join("subx");
-
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
-        .current_dir(&temp_dir)
-        // An arbitrary subcommand that requires it to be initialized
-        .arg("dump")
-        .arg("git-modules")
-        .assert()
-        .failure()
-        .stderr(contains("Loading the main repo Gerrit project"));
-
-    Command::new("git")
-        .current_dir(&temp_dir)
-        .arg("remote")
-        .arg("add")
-        .arg("origin")
-        .arg(format!("ssh://gerrit.example/{project}.git"))
-        .assert()
-        .success();
+    let project = "top";
+    let child_dir = monorepo.join("subx");
 
     Command::cargo_bin("git-toprepo")
         .unwrap()
-        .current_dir(&temp_dir)
-        // An arbitrary subcommand that requires it to be initialized
+        .current_dir(&monorepo)
         .arg("dump")
         .arg("git-modules")
         .assert()
@@ -82,13 +68,11 @@ fn test_dump_git_modules() {
     Command::cargo_bin("git-toprepo")
         .unwrap()
         .current_dir(&child_dir)
-        // An arbitrary subcommand that requires it to be initialized
         .arg("dump")
         .arg("git-modules")
         .assert()
-        // dump modules only works in the root · Issue #163 · meroton/git-toprepo
-        // https://github.com/meroton/git-toprepo/issues/163
-        .failure();
+        .success()
+        .stdout(contains(project));
 }
 
 #[test]
