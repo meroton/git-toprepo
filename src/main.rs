@@ -265,7 +265,7 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
     Ok(config)
 }
 
-fn dump_modules() -> Result<()> {
+fn dump_modules(monorepo_root: &Option<PathBuf>) -> Result<()> {
     /// The main repo is not technically a submodule.
     /// But it is very convenient to have transparent handling of the main
     /// project in code that iterates over projects provided by the users.
@@ -273,7 +273,8 @@ fn dump_modules() -> Result<()> {
         project: String,
         path: git_toprepo::git::GitPath,
     }
-    let toprepo = repo::TopRepo::open(&PathBuf::from("."))?;
+    let monorepo_root = monorepo_root.as_ref().ok_or(NotAMonorepo)?;
+    let toprepo = repo::TopRepo::open(monorepo_root)?;
 
     let main_project = toprepo
         .gerrit_project()
@@ -623,7 +624,6 @@ where
 }
 
 fn is_monorepo(path: &Path) -> Result<bool> {
-    // TODO: Add/Use the -C flag.
     let key = &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY);
     let maybe = git_config_get(path, key)?;
     Ok(maybe.is_some())
@@ -674,12 +674,10 @@ fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> 
 }
 
 #[tracing::instrument]
-fn dump(
-    dump_args: &cli::Dump, /* relative_path_to_monorepo_root: Option<PathBuf> */
-) -> Result<()> {
+fn dump(dump_args: &cli::Dump, monorepo_root: &Option<PathBuf>) -> Result<()> {
     match dump_args {
         cli::Dump::ImportCache => dump_import_cache(),
-        cli::Dump::GitModules => dump_modules(),
+        cli::Dump::GitModules => dump_modules(monorepo_root),
     }
 }
 
@@ -729,7 +727,7 @@ fn with_termination_signal_handler<T>(
                         if let Some(signal) = signal_iter.peek() {
                             let signal_str = signal_hook::low_level::signal_name(*signal)
                                 .map(|name| name.to_owned())
-                                .unwrap_or_else(|| signal.to_string());
+                                .unwrap_or(signal.to_string());
                             tracing::info!("Received termination signal {signal_str}");
                         }
                         // Stop listening for signals and run the shutdown function.
@@ -831,7 +829,7 @@ where
             monorepo_root = Some(directory);
         }
         Commands::Config(config_args) => return config(config_args, &monorepo_root),
-        Commands::Dump(dump_args) => return dump(dump_args),
+        Commands::Dump(dump_args) => return dump(dump_args, &monorepo_root),
         Commands::Version => return print_version(),
         Commands::IsMonorepo => {
             return match monorepo_root.is_some() {
@@ -842,19 +840,11 @@ where
         _ => {}
     }
 
-    if monorepo_root.is_none() {
-        return Err(NotAMonorepo)
-            // TODO: Does this error print the right thing?
-            // TODO: Test that this works when running in a regular submodule of
-            // a toprepo.
-            .with_context(|| format!("{repo_root:?} is not managed by git-toprepo"));
-    }
-    // TODO: `ok_or()`.
-    let toprepo_root = monorepo_root.unwrap();
+    let toprepo_root = monorepo_root.as_ref().ok_or(NotAMonorepo)?;
 
     // Now when the working directory is set, we can persist the tracing.
     if let Some(logger) = logger {
-        logger.write_to_git_dir(gix::open(&toprepo_root)?.git_dir())?;
+        logger.write_to_git_dir(gix::open(toprepo_root)?.git_dir())?;
     }
 
     git_toprepo::repo::MonoRepoProcessor::run(Path::new(&toprepo_root), |processor| {
