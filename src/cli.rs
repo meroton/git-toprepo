@@ -106,7 +106,6 @@ pub enum Commands {
     /// Push commits to the respective remotes of each filtered submodule.
     Push(Push),
     /// Check if a repo is managed by `git-toprepo`.
-    // TODO: Add/Use the -C flag.
     IsMonorepo,
 
     #[command(subcommand)]
