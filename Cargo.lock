@@ -680,6 +680,7 @@ dependencies = [
  "chrono",
  "clap",
  "colored",
+ "encoding_rs",
  "git-toprepo-testtools",
  "gix",
  "gix-testtools",
