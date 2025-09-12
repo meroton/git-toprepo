@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -eu
 
 if [ $# -eq 1 ] && [ "$1" == "ci" ]; then

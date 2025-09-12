@@ -63,6 +63,9 @@ sub_rev_5=$(commit sub "5")
 sub_rev__=$(commit sub "6")
 sub_rev_7=$(commit sub "7")
 
+# shellcheck disable=SC2269
+sub_rev__=$sub_rev__  # unused
+
 commit top "A"
 git -C top -c protocol.file.allow=always submodule add --force ../sub/ sub
 git -C top submodule deinit -f sub
