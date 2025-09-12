@@ -16,6 +16,9 @@ const GENERIC_CONFIG: &str = r#"
 // subcommand. `toprepo-fetch` typically fails for a missing toprepo config file
 // (or git-config for it) but at some point it could try to access the git
 // information if really cajoled and would then have this error as well.
+// TODO: Create a specific error message for no git.
+//       Though it is mostly important that it is a NotAMonorepo error.
+//       Whether it is git or not is actually secondary here.
 #[test]
 fn test_dump_outside_git_repo() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
@@ -49,33 +52,12 @@ fn test_dump_git_modules() {
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
-    let project = "main/project";
-    let temp_dir = temp_dir.path().join("top");
-    let child_dir = temp_dir.join("subx");
+    let project = "top";
+    let child_dir = monorepo.join("subx");
 
     Command::cargo_bin("git-toprepo")
         .unwrap()
-        .current_dir(&temp_dir)
-        // An arbitrary subcommand that requires it to be initialized
-        .arg("dump")
-        .arg("git-modules")
-        .assert()
-        .failure()
-        .stderr(contains("Loading the main repo Gerrit project"));
-
-    Command::new("git")
-        .current_dir(&temp_dir)
-        .arg("remote")
-        .arg("add")
-        .arg("origin")
-        .arg(format!("ssh://gerrit.example/{project}.git"))
-        .assert()
-        .success();
-
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
-        .current_dir(&temp_dir)
-        // An arbitrary subcommand that requires it to be initialized
+        .current_dir(&monorepo)
         .arg("dump")
         .arg("git-modules")
         .assert()
@@ -85,13 +67,22 @@ fn test_dump_git_modules() {
     Command::cargo_bin("git-toprepo")
         .unwrap()
         .current_dir(&child_dir)
-        // An arbitrary subcommand that requires it to be initialized
         .arg("dump")
         .arg("git-modules")
         .assert()
-        // dump modules only works in the root · Issue #163 · meroton/git-toprepo
-        // https://github.com/meroton/git-toprepo/issues/163
-        .failure();
+        .success()
+        .stdout(contains(project));
+
+    // TODO: Make sure the inner and outer call have different paths.
+    //       Recent refactorings have partially solved
+    //           dump modules only works in the root · Issue #163 · meroton/git-toprepo
+    //           https://github.com/meroton/git-toprepo/issues/163
+    //       It can now run in sub directories and gives the root-relative paths
+    //       for the module. We'd rather have it have relative paths from the current
+    //       working directory.
+    /*
+     * assert!(outer != inner);
+     */
 }
 
 #[test]
