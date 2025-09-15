@@ -13,6 +13,8 @@ mod fetch;
 #[cfg(test)]
 mod init;
 #[cfg(test)]
+mod is_monorepo;
+#[cfg(test)]
 mod log;
 #[cfg(test)]
 mod push;
