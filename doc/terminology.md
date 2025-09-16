@@ -29,15 +29,6 @@ and some of its _submodules_
 into a _toprepo_, an _emulated monorepo_.
 Takes care to push _assimilated submodules_ to their remote server.
 
-**rootrepo**: Emergent from core git concepts,
-a _repository_ that is not a _submodule_ to another _repository_.
-This is the main development _repository_ for a developer,
-it often has _submodules_.
-
-It may either be checked out with _regular submodules_:
-`git-submodule init --recursive`
-or as a _toprepo_ with `git-toprepo`.
-
 **monorepo**: A _repository_ with all the code,
 it does not typically have _submodules_.
 This makes it easy to make changes across different components
@@ -87,8 +78,8 @@ This allows the _toprepo_ to _emulate_ a _monorepo_ and have a shared gate.
 
 ### Verbs
 
-**combine**: `git-toprepo` combines the history of one _rootrepo_ and (some of) its _submodules_
-into _toprepo_ with a combined history for code in the _rootrepo_ itself and its _assimilated submodules_.
+**combine**: `git-toprepo` combines the history of one _superrepo_ and (some of) its _submodules_
+into _toprepo_ with a combined history for code in the _superrepo_ itself and its _assimilated submodules_.
 
 **assimilate**: `git-toprepo` has _assimilated_ a _submodule_ into the _combined_ history.
 
@@ -103,26 +94,37 @@ For power users and _repository_ maintainers there are a few overlapping concept
 `git` runs external subcommands like `git-<sub>` as `git <commit>`
 to make it easy to create custom tools for `git`.
 
+### Technical terms in the code
+
+**rootrepo**: Emergent from core git concepts,
+a _repository_ that is not a _submodule_ to another _repository_.
+This is the main development _repository_ for a developer,
+it often has _submodules_.
+
+It may either be checked out with _regular submodules_:
+`git-submodule init --recursive`
+or as a _toprepo_ with `git-toprepo`.
+
 ## Examples
 
-### Initialization: Create a toprepo for a rootrepo
+### Initialization: Create a toprepo for a repository
 
-A _rootrepo_ can be initialized to become a _toprepo_ with `git-toprepo`.
-The configuration of the _toprepo_ is often managed in the _rootrepo_ and is already checked in.
+A _repository_ can be initialized to become a _toprepo_ with `git-toprepo`.
+The configuration of the _toprepo_ is often managed in the _repository_ and is already checked in.
 
 Short-form initialization of a _toprepo_.
 ```
-$ toprepo $ git toprepo clone ssh://gerrit.example/rootrepo.git toprepo
+$ toprepo $ git toprepo clone ssh://gerrit.example/substrate.git toprepo
 $ cd toprepo
 toprepo $ # This is a toprepo.
 ```
 
 However, the code can also be checked out with regular git _submodules_.
 ```
-$ git clone ssh://gerrit.example/rootrepo.git
-$ cd rootrepo
-rootrepo $ git submodule init --recursive
-rootrepo $ # This is not a toprepo.
+$ git clone ssh://gerrit.example/substrate.git
+$ cd substrate
+substrate $ git submodule init --recursive
+substrate $ # This is not a toprepo.
 ```
 
 ### Initialization: Some submodules are not assimilated
@@ -133,14 +135,14 @@ Then it is often not _assimilated_ into the _toprepo_.
 
 _toprepo_:
 ```
-$ toprepo $ git toprepo clone ssh://gerrit.example/rootrepo.git toprepo
+$ toprepo $ git toprepo clone ssh://gerrit.example/substrate.git toprepo
 $ cd toprepo
 toprepo $ # This is a toprepo.
 toprepo $ git submodule status
 -4e04771fcf658500987d0be5a9a63f8e77d5e386 binary_data_module
 ```
 
-regular _rootrepo_:
+regular _repository_:
 ```
 $ git clone ssh://gerrit.example/rootrepo.git
 $ cd rootrepo
