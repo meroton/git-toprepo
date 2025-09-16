@@ -198,6 +198,33 @@ then the _toprepo_ must also bump its _submodule_ pointers to the new commits wi
 > If a _submodule_'s history is not relevant to _filter_ into the combined history
 > it is unlikely that developers need to modify the code and make changes.
 
+### Rebasing: git-toprepo gives a shared history that is easy to work with
+
+With `git-toprepo`, rebasing _commits_ in any of the _filtered submodules_
+is as easy as working in a single _repository_.
+
+```
+monorepo $ git-toprepo fetch origin
+monorepo $ git rebase -i origin/main
+```
+
+However when using _regular submodules_ in an _unmanaged_ _toprepo_
+one needs to automate the workflow within individual _submodules_.
+
+```
+toprepo $ git fetch origin
+toprepo $ git rebase -i origin/main
+toprepo $ submod_commit_hash=$(git ls-files --stage -- one | cut -d' ' -f2)
+toprepo $ git -C one rebase -i "$submod_commit_hash"
+toprepo $ submod_commit_hash=$(git ls-files --stage -- two | cut -d' ' -f2)
+toprepo $ git -C two rebase -i "$submod_commit_hash"
+```
+
+In the example, two _submodules_ does not look too bad at the face of it,
+but note that the rebasing is not synchronized between the _submodules_.
+Therefore, building and testing the code after resolving a merge conflict,
+which may have only occurred in one _submodule_, is not trivial.
+
 ### Pushing: Push all submodules of an emulated monorepo
 
 As an _emulated monorepo_ may not have _expanded_ all _submodules_ into the combined history
