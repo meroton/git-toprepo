@@ -160,7 +160,8 @@ fn resolve_push_repo(
     mono_commit: &gix::Commit,
     path: GitPath,
     mut push_url: gix::Url,
-    config: &mut crate::config::GitTopRepoConfig,
+    config: &crate::config::GitTopRepoConfig,
+    ledger: &mut crate::loader::SubRepoLedger,
 ) -> Result<(RepoName, GitPath, GitPath, gix::Url)> {
     let mut repo_name = RepoName::Top;
     let mut repo_path = GitPath::new(b"".into());
@@ -207,7 +208,7 @@ fn resolve_push_repo(
         generic_url = generic_url.join(sub_url);
         push_url = push_url.join(sub_url);
         // Update the return value.
-        let sub_repo_name = match config.get_or_insert_from_url(&generic_url)? {
+        let sub_repo_name = match ledger.get_or_insert_from_url(&generic_url)? {
             crate::config::GetOrInsertOk::Found((name, _)) => name,
             crate::config::GetOrInsertOk::Missing(_)
             | crate::config::GetOrInsertOk::MissingAgain(_) => {
@@ -283,7 +284,8 @@ fn split_for_push_impl(
                         &gix_mono_commit,
                         GitPath::new(fc.path),
                         top_push_url.clone(),
-                        processor.config,
+                        &processor.config,
+                        processor.ledger,
                     )?;
                     grouped_file_changes
                         .entry((submod_path, repo_name, push_url))

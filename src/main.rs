@@ -26,6 +26,7 @@ use git_toprepo::git::GitModulesInfo;
 use git_toprepo::git::git_command;
 use git_toprepo::git::git_config_get;
 use git_toprepo::gitreview::parse_git_review;
+use git_toprepo::loader::SubRepoLedger;
 use git_toprepo::log::CommandSpanExt as _;
 use git_toprepo::log::ErrorMode;
 use git_toprepo::log::ErrorObserver;
@@ -38,6 +39,7 @@ use git_toprepo::util::CommandExtension as _;
 use gix::refs::FullName;
 use gix::refs::FullNameRef;
 use itertools::Itertools as _;
+use std::collections::HashSet;
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -208,15 +210,20 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
         dot_gitmodules_bytes,
         PathBuf::from(".gitmodules"),
     )?;
-    let mut config = GitTopRepoConfig::default();
+    let config = GitTopRepoConfig::default();
     let mut top_repo_cache = git_toprepo::repo::TopRepoCache::default();
 
-    git_toprepo::log::get_global_logger().with_progress(|progress| {
+    let ledger = git_toprepo::log::get_global_logger().with_progress(|progress| {
+        let mut ledger = SubRepoLedger{
+            subrepos: config.subrepos.clone(),
+            missing_subrepos: HashSet::new(),
+        };
         ErrorObserver::run(ErrorMode::KeepGoing, |error_observer| {
             let mut commit_loader = git_toprepo::loader::CommitLoader::new(
                 &gix_repo,
                 &mut top_repo_cache.repos,
-                &mut config,
+                &config,
+                &mut ledger,
                 progress.clone(),
                 error_observer,
                 threadpool::ThreadPool::new(1),
@@ -254,13 +261,13 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
             };
             // TODO: Refactor to not use missing_subrepos.clear() for
             // accessing the submodule configs.
-            config.missing_subrepos.clear();
-            match config
+            ledger.missing_subrepos.clear();
+            match ledger
                 .get_name_from_url(submod_url)
                 .with_context(|| format!("Submodule {submod_path}"))
             {
                 Ok(Some(name)) => {
-                    config
+                    ledger
                         .subrepos
                         .get_mut(&name)
                         .expect("valid subrepo name")
@@ -273,11 +280,18 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
                 }
             }
         }
-        Ok(())
+        Ok(ledger)
     })?;
     // Skip printing the warnings in the initial configuration.
     // config.log = log_config;
-    Ok(config)
+
+    // TODO: Refine the config with info from the ledger here.
+    Ok(GitTopRepoConfig {
+        checksum: config.checksum,
+        fetch: config.fetch,
+        subrepos: ledger.subrepos,
+        missing_subrepos: ledger.missing_subrepos,
+    })
 }
 
 /// Checkout topics from Gerrit.
@@ -461,7 +475,7 @@ fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) ->
 fn fetch(fetch_args: &cli::Fetch, processor: &mut MonoRepoProcessor) -> Result<()> {
     if let Some(refspecs) = &fetch_args.refspecs {
         let resolved_args =
-            cli::resolve_remote_and_path(fetch_args, processor.gix_repo, processor.config)?;
+            cli::resolve_remote_and_path(fetch_args, processor.gix_repo, &processor.config)?;
         let detailed_refspecs = detail_refspecs(refspecs, &resolved_args.repo, &resolved_args.url)?;
         let mut result =
             fetch_with_refspec(fetch_args, resolved_args, &detailed_refspecs, processor);
@@ -753,7 +767,8 @@ where
     let mut commit_loader = git_toprepo::loader::CommitLoader::new(
         processor.gix_repo,
         &mut processor.top_repo_cache.repos,
-        processor.config,
+        &processor.config,
+        processor.ledger,
         processor.progress.clone(),
         error_observer,
         threadpool::ThreadPool::new(job_count.get()),

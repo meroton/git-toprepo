@@ -9,6 +9,7 @@ use crate::git::git_command;
 use crate::git::git_global_command;
 use crate::git_fast_export_import::WithoutCommitterId;
 use crate::git_fast_export_import_dedup::GitFastExportImportDedupCache;
+use crate::loader::SubRepoLedger;
 use crate::log::CommandSpanExt as _;
 use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
@@ -286,7 +287,11 @@ Initial empty git-toprepo configuration
 
 pub struct MonoRepoProcessor<'a> {
     pub gix_repo: &'a gix::Repository,
-    pub config: &'a mut crate::config::GitTopRepoConfig,
+    // NB: To keep it in a mutable reference would save some time and space
+    // but pollutes the code with all the `muts` that are only meant to happen
+    // through the reload function.
+    pub config: crate::config::GitTopRepoConfig,
+    pub ledger: &'a mut crate::loader::SubRepoLedger,
     pub top_repo_cache: &'a mut crate::repo::TopRepoCache,
     pub progress: &'a mut indicatif::MultiProgress,
 }
@@ -298,7 +303,7 @@ impl MonoRepoProcessor<'_> {
     {
         let gix_repo =
             gix::open(directory).context("Could not open directory for MonoRepoProcessor")?;
-        let mut config = crate::config::GitTopRepoConfig::load_config_from_repo(
+        let config = crate::config::GitTopRepoConfig::load_config_from_repo(
             gix_repo
                 .worktree()
                 .with_context(|| {
@@ -309,6 +314,10 @@ impl MonoRepoProcessor<'_> {
                 })?
                 .base(),
         )?;
+        let mut ledger = SubRepoLedger{
+            subrepos: config.subrepos.clone(),
+            missing_subrepos: HashSet::new(),
+        };
         let mut top_repo_cache = crate::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
             gix_repo.git_dir(),
             Some(&config.checksum),
@@ -318,7 +327,8 @@ impl MonoRepoProcessor<'_> {
         let mut progress = indicatif::MultiProgress::new();
         let mut processor = MonoRepoProcessor {
             gix_repo: &gix_repo,
-            config: &mut config,
+            config: config,
+            ledger: &mut ledger,
             top_repo_cache: &mut top_repo_cache,
             progress: &mut progress,
         };
@@ -354,7 +364,7 @@ impl MonoRepoProcessor<'_> {
     /// Reload the git-toprepo configuration in case anything has changed. Also
     /// check if the top repo cache is still valid given the new configuration.
     pub fn reload_config(&mut self) -> Result<()> {
-        *self.config = crate::config::GitTopRepoConfig::load_config_from_repo(
+        self.config = crate::config::GitTopRepoConfig::load_config_from_repo(
             self.gix_repo
                 .worktree()
                 .with_context(|| {

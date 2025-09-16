@@ -1705,7 +1705,7 @@ fn refilter(
         let mut expander = TopRepoExpander {
             gix_repo: processor.gix_repo,
             storage: processor.top_repo_cache,
-            config: processor.config,
+            config: &processor.config,
             progress,
             fast_importer,
             imported_commits: HashMap::new(),
@@ -2180,7 +2180,7 @@ pub fn expand_submodule_ref_onto_head(
     let mut expander = TopRepoExpander {
         gix_repo: processor.gix_repo,
         storage: processor.top_repo_cache,
-        config: processor.config,
+        config: &processor.config,
         progress: processor.progress.clone(),
         fast_importer,
         imported_commits: HashMap::new(),

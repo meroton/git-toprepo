@@ -53,8 +53,8 @@ type CommitToRefMap = HashMap<CommitId, Vec<FullName>>;
 /// submodules in here.
 // TODO: Split the shared `SubRepoConfig` to be specific to the two different
 // usecases.
-struct SubRepoLedger {
-    subrepos: BTreeMap<SubRepoName, SubRepoConfig>,
+pub struct SubRepoLedger {
+    pub subrepos: BTreeMap<SubRepoName, SubRepoConfig>,
 
     /// List of subrepos that are missing in the configuration and have
     /// automatically been added to `suprepos`.
@@ -262,8 +262,9 @@ pub struct CommitLoader<'a> {
     repos: HashMap<RepoName, RepoFetcher>,
     /// Repositories that have been loaded from the cache.
     cached_repo_states: &'a mut RepoStates,
-    // TODO: Why is this mutated?
+    // TODO: remove config.
     config: &'a GitTopRepoConfig,
+    ledger: &'a mut SubRepoLedger,
 
     tx: std::sync::mpsc::Sender<TaskResult>,
     rx: std::sync::mpsc::Receiver<TaskResult>,
@@ -295,7 +296,8 @@ impl<'a> CommitLoader<'a> {
     pub fn new(
         toprepo: &'a gix::Repository,
         cached_repo_states: &'a mut RepoStates,
-        config: &'a mut GitTopRepoConfig,
+        config: &'a GitTopRepoConfig,
+        ledger: &'a mut SubRepoLedger,
         progress: indicatif::MultiProgress,
         error_observer: &'a crate::log::ErrorObserver,
         thread_pool: threadpool::ThreadPool,
@@ -338,6 +340,7 @@ impl<'a> CommitLoader<'a> {
             repos: HashMap::new(),
             cached_repo_states,
             config,
+            ledger,
             tx,
             rx,
             event_queue: VecDeque::new(),
@@ -863,7 +866,7 @@ impl<'a> CommitLoader<'a> {
                 Self::verify_cached_commit(
                     &repo_fetcher.repo_data,
                     thin_commit.as_ref(),
-                    self.config,
+                    self.ledger,
                     &mut self.dot_gitmodules_cache,
                     commit_log_level,
                 )
@@ -935,7 +938,7 @@ impl<'a> CommitLoader<'a> {
             repo_data,
             exported_commit,
             tree_id,
-            self.config,
+            self.ledger,
             &mut self.dot_gitmodules_cache,
             CommitLogLevel {
                 is_tip,
@@ -972,7 +975,7 @@ impl<'a> CommitLoader<'a> {
     fn verify_cached_commit(
         repo_storage: &RepoData,
         commit: &ThinCommit,
-        config: &GitTopRepoConfig,
+        ledger: &mut SubRepoLedger,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
     ) -> Result<()> {
@@ -1006,7 +1009,7 @@ impl<'a> CommitLoader<'a> {
                         commit.parents.first(),
                         path,
                         &repo_storage.url,
-                        config,
+                        ledger,
                         dot_gitmodules_cache,
                         commit_log_level,
                     );
@@ -1286,7 +1289,7 @@ impl<'a> CommitLoader<'a> {
         first_parent: Option<&Rc<ThinCommit>>,
         path: &GitPath,
         base_url: &gix::Url,
-        ledger: &SubRepoLedger,
+        ledger: &mut SubRepoLedger,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
     ) -> Option<SubRepoName> {
