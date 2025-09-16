@@ -105,6 +105,11 @@ It may either be checked out with _regular submodules_:
 `git-submodule init --recursive`
 or as a _toprepo_ with `git-toprepo`.
 
+**rootcommit**: Commits in the _rootrepo_'s remote git server
+they are part of _topcommit_s.
+These are fetched in `git-toprepo fetch`
+these are formed when pushing new work with `git-toprepo push`.
+
 ## Examples
 
 ### Initialization: Create a toprepo for a repository
@@ -220,3 +225,16 @@ So to always push changes to all _submodules_ the following invocation is needed
 toprepo $ git-toprepo push HEAD:refs/for/main
 toprepo $ git submodule for each push HEAD:refs/for/main
 ```
+### Combination algorithm:
+
+This birefly outlines the _combination_ algorithm that creates the _toprepo_.
+To further contextualize the pieces and their relationships.
+
+#### Fetch a rootrepo commit and create a topcommit
+
+`git-toprepo fetch` first fetches the _regular_ _commit_ (_rootcommit_) for the _rootrepo_ itself
+`git fetch ...`.
+Then finds any _submodules_ that are bumped through Gerrit's _superproject subscription_
+and fetches their _regular_ _commits_.
+All the _regular_ _commits_ in the _rootrepo_ and the _assimilated submodules_
+are _combined_ into one _topcommit_.
