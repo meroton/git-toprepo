@@ -9,7 +9,6 @@ use bstr::BStr;
 use clap::Args;
 use clap::Parser;
 use clap::Subcommand;
-use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::git::GitPath;
 use git_toprepo::git::repo_relative_path;

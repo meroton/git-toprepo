@@ -370,7 +370,7 @@ impl MonoRepoProcessor<'_> {
     /// Reload the git-toprepo configuration in case anything has changed. Also
     /// check if the top repo cache is still valid given the new configuration.
     pub fn reload_config(&mut self) -> Result<()> {
-        self.config = crate::config::GitTopRepoConfig::load_config_from_repo(
+        let new_config = crate::config::GitTopRepoConfig::load_config_from_repo(
             self.gix_repo
                 .worktree()
                 .with_context(|| {
@@ -381,6 +381,19 @@ impl MonoRepoProcessor<'_> {
                 })?
                 .base(),
         )?;
+
+        // Preserve any missing_subrepos from current ledger state
+        let preserved_missing_subrepos = std::mem::take(&mut self.ledger.missing_subrepos);
+
+        self.ledger.subrepos = new_config.subrepos.clone();
+        self.ledger.missing_subrepos = preserved_missing_subrepos;
+
+        self.config = crate::config::GitTopRepoConfig {
+            checksum: new_config.checksum,
+            fetch: new_config.fetch,
+            subrepos: self.ledger.subrepos.clone(),
+        };
+        
         Ok(())
     }
 }

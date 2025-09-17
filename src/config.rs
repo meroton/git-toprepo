@@ -1,9 +1,7 @@
 use crate::git::CommitId;
 use crate::git::git_command;
 use crate::git::git_config_get;
-use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::log::CommandSpanExt as _;
-use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::util::CommandExtension as _;
 use crate::util::OrderedHashSet;
@@ -14,7 +12,6 @@ use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 use bstr::ByteSlice as _;
-use itertools::Itertools;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_with::serde_as;
