@@ -28,3 +28,11 @@ impl std::fmt::Display for NotAMonorepo {
 }
 
 impl std::error::Error for NotAMonorepo {}
+
+/// Checks if a directory contains a configured git-toprepo
+/// This is the canonical detection logic used throughout the codebase
+pub fn is_monorepo(path: &std::path::Path) -> anyhow::Result<bool> {
+    let key = &config::toprepo_git_config(config::TOPREPO_CONFIG_FILE_KEY);
+    let maybe = git::git_config_get(path, key)?;
+    Ok(maybe.is_some())
+}

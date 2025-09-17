@@ -20,19 +20,16 @@ use git_gr_lib::gerrit::HTTPPasswordPolicy;
 use git_gr_lib::query::QueryOptions;
 use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
-use git_toprepo::config::TOPREPO_CONFIG_FILE_KEY;
-use git_toprepo::config::toprepo_git_config;
 use git_toprepo::NotAMonorepo;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::git::git_command;
-use git_toprepo::git::git_config_get;
 use git_toprepo::gitreview::parse_git_review;
 use git_toprepo::loader::SubRepoLedger;
 use git_toprepo::log::CommandSpanExt as _;
 use git_toprepo::log::ErrorMode;
 use git_toprepo::log::ErrorObserver;
 use git_toprepo::repo;
-use git_toprepo::repo::MonoRepoProcessor;
+use git_toprepo::repo::ConfiguredTopRepo;
 use git_toprepo::repo_name::RepoName;
 use git_toprepo::submitted_together::order_submitted_together;
 use git_toprepo::submitted_together::split_by_supercommits;
@@ -787,11 +784,6 @@ where
         Ok(())
     }
 
-fn is_monorepo(path: &Path) -> Result<bool> {
-    let key = &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY);
-    let maybe = git_config_get(path, key)?;
-    Ok(maybe.is_some())
-}
 
 #[tracing::instrument(skip(configured_repo))]
 fn push(push_args: &cli::Push, configured_repo: &mut ConfiguredTopRepo) -> Result<()> {
