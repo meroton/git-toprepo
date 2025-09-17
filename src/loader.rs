@@ -1,5 +1,4 @@
 use crate::config::GetOrInsertOk;
-use crate::config::GitTopRepoConfig;
 use crate::config::SubRepoConfig;
 use crate::git::BlobId;
 use crate::git::CommitId;
@@ -51,13 +50,12 @@ type CommitToRefMap = HashMap<CommitId, Vec<FullName>>;
 /// This will be mutated during the filter/expansion algorithm
 /// and the `monorepo` object will have implementation details tracked for
 /// submodules in here.
-// TODO: Split the shared `SubRepoConfig` to be specific to the two different
-// usecases.
 pub struct SubRepoLedger {
     pub subrepos: BTreeMap<SubRepoName, SubRepoConfig>,
 
     /// List of subrepos that are missing in the configuration and have
-    /// automatically been added to `suprepos`.
+    /// automatically been added to `suprepos`. This is only used to limit
+    /// warning and log statements.
     pub missing_subrepos: HashSet<SubRepoName>,
 }
 
@@ -271,8 +269,7 @@ pub struct CommitLoader<'a> {
     repos: HashMap<RepoName, RepoFetcher>,
     /// Repositories that have been loaded from the cache.
     cached_repo_states: &'a mut RepoStates,
-    // TODO: refine/remove config: it is only used for general fetch information.
-    config: &'a GitTopRepoConfig,
+    fetch_config: &'a crate::config::GlobalFetchConfig,
     ledger: &'a mut SubRepoLedger,
 
     tx: std::sync::mpsc::Sender<TaskResult>,
@@ -305,7 +302,7 @@ impl<'a> CommitLoader<'a> {
     pub fn new(
         toprepo: &'a gix::Repository,
         cached_repo_states: &'a mut RepoStates,
-        config: &'a GitTopRepoConfig,
+        fetch_config: &'a crate::config::GlobalFetchConfig,
         ledger: &'a mut SubRepoLedger,
         progress: indicatif::MultiProgress,
         error_observer: &'a crate::log::ErrorObserver,
@@ -348,7 +345,7 @@ impl<'a> CommitLoader<'a> {
             toprepo,
             repos: HashMap::new(),
             cached_repo_states,
-            config,
+            fetch_config,
             ledger,
             tx,
             rx,
@@ -605,7 +602,7 @@ impl<'a> CommitLoader<'a> {
         let error_observer = self.error_observer.clone();
         let log_context = crate::log::current_scope();
         let parent_span = tracing::Span::current();
-        let idle_timeouts = self.config.fetch.get_idle_timeouts();
+        let idle_timeouts = self.fetch_config.get_idle_timeouts();
         self.thread_pool.execute(move || {
             let _log_scope_guard = crate::log::scope(log_context);
             let _span_guard =

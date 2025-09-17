@@ -222,7 +222,7 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
             let mut commit_loader = git_toprepo::loader::CommitLoader::new(
                 &gix_repo,
                 &mut top_repo_cache.repos,
-                &config,
+                &config.fetch,
                 &mut ledger,
                 progress.clone(),
                 error_observer,
@@ -285,12 +285,10 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
     // Skip printing the warnings in the initial configuration.
     // config.log = log_config;
 
-    // TODO: Refine the config with info from the ledger here.
     Ok(GitTopRepoConfig {
         checksum: config.checksum,
         fetch: config.fetch,
         subrepos: ledger.subrepos,
-        // missing_subrepos: ledger.missing_subrepos,
     })
 }
 
@@ -472,7 +470,6 @@ fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) ->
         checksum: processor.config.checksum.clone(),
         fetch: processor.config.fetch.clone(),
         subrepos: processor.ledger.subrepos.clone(),
-        // missing_subrepos: processor.ledger.missing_subrepos.clone(),
     };
     git_toprepo::expander::refilter_all_top_refs(processor)
 }
@@ -692,7 +689,6 @@ fn fetch_with_refspec(
             checksum: processor.config.checksum.clone(),
             fetch: processor.config.fetch.clone(),
             subrepos: processor.ledger.subrepos.clone(),
-            // missing_subrepos: processor.ledger.missing_subrepos.clone(),
         };
 
         match &resolved_args.repo {
@@ -779,7 +775,7 @@ where
         let mut commit_loader = git_toprepo::loader::CommitLoader::new(
             processor.gix_repo,
             &mut processor.top_repo_cache.repos,
-            &processor.config,
+            &processor.config.fetch,
             processor.ledger,
             processor.progress.clone(),
             error_observer,
