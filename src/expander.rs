@@ -6,6 +6,7 @@ use crate::git_fast_export_import::ChangedFile;
 use crate::git_fast_export_import::FastExportCommit;
 use crate::git_fast_export_import::FastImportCommit;
 use crate::git_fast_export_import::ImportCommitRef;
+use crate::loader::SubRepoLedger;
 use crate::repo::ExpandedOrRemovedSubmodule;
 use crate::repo::ExpandedSubmodule;
 use crate::repo::MonoRepoCommit;
@@ -49,7 +50,7 @@ use tracing::instrument;
 pub struct TopRepoExpander<'a> {
     pub gix_repo: &'a gix::Repository,
     pub storage: &'a mut TopRepoCache,
-    pub config: &'a GitTopRepoConfig,
+    pub ledger: &'a SubRepoLedger,
     pub progress: indicatif::MultiProgress,
     pub fast_importer: crate::git_fast_export_import::FastImportRepo,
     pub imported_commits:
@@ -297,9 +298,9 @@ impl TopRepoExpander<'_> {
                 ThinSubmodule::AddedOrModified(bump) => {
                     let expanded_submod = if let Some(submod_repo_name) = &bump.repo_name {
                         let repo_name = RepoName::SubRepo(submod_repo_name.clone());
-                        if self.config.is_enabled(&repo_name) {
+                        if self.ledger.is_enabled(&repo_name) {
                             let subconfig = self
-                                .config
+                                .ledger
                                 .subrepos
                                 .get(submod_repo_name)
                                 .expect("submod name exists");
@@ -519,7 +520,7 @@ impl TopRepoExpander<'_> {
                         };
                         // The submodule is known.
                         if !self
-                            .config
+                            .ledger
                             .subrepos
                             .get(submod_repo_name)
                             .is_none_or(|repo_config| repo_config.enabled)
@@ -847,7 +848,7 @@ impl TopRepoExpander<'_> {
             if let Some(submod) = submod.get_known_submod() {
                 // The submodule is known.
                 if !self
-                    .config
+                    .ledger
                     .subrepos
                     .get(&submod.repo_name)
                     .is_none_or(|repo_config| repo_config.enabled)
@@ -1705,7 +1706,7 @@ fn refilter(
         let mut expander = TopRepoExpander {
             gix_repo: processor.gix_repo,
             storage: processor.top_repo_cache,
-            config: &processor.config,
+            ledger: &processor.ledger,
             progress,
             fast_importer,
             imported_commits: HashMap::new(),
@@ -2180,7 +2181,7 @@ pub fn expand_submodule_ref_onto_head(
     let mut expander = TopRepoExpander {
         gix_repo: processor.gix_repo,
         storage: processor.top_repo_cache,
-        config: &processor.config,
+        ledger: &processor.ledger,
         progress: processor.progress.clone(),
         fast_importer,
         imported_commits: HashMap::new(),

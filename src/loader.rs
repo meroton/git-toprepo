@@ -62,6 +62,15 @@ pub struct SubRepoLedger {
 }
 
 impl SubRepoLedger {
+    pub fn is_enabled(&self, repo_name: &RepoName) -> bool {
+        match repo_name {
+            RepoName::Top => true,
+            RepoName::SubRepo(sub_repo_name) => self
+                .subrepos
+                .get(sub_repo_name)
+                .is_none_or(|repo_config| repo_config.enabled),
+        }
+    }
     /// Gets a `SubRepoConfig` based on a URL using exact matching. If an URL is
     /// missing, the user should add it to the `SubRepoConfig::urls` list.
     pub fn get_name_from_url(&self, url: &gix::Url) -> Result<Option<SubRepoName>> {

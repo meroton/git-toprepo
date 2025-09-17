@@ -481,7 +481,7 @@ fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) ->
 fn fetch(fetch_args: &cli::Fetch, processor: &mut MonoRepoProcessor) -> Result<()> {
     if let Some(refspecs) = &fetch_args.refspecs {
         let resolved_args =
-            cli::resolve_remote_and_path(fetch_args, processor.gix_repo, &processor.config, &processor.ledger)?;
+            cli::resolve_remote_and_path(fetch_args, processor.gix_repo, &processor.ledger)?;
         let detailed_refspecs = detail_refspecs(refspecs, &resolved_args.repo, &resolved_args.url)?;
         let mut result =
             fetch_with_refspec(fetch_args, resolved_args, &detailed_refspecs, processor);

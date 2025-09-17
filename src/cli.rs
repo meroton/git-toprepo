@@ -275,10 +275,9 @@ pub struct Fetch {
 pub fn resolve_remote_and_path(
     args: &Fetch,
     repo: &gix::Repository,
-    config: &GitTopRepoConfig,
     ledger: &SubRepoLedger,
 ) -> Result<ResolvedFetchParams> {
-    FetchParamsResolver::new(repo, config, ledger)?
+    FetchParamsResolver::new(repo, ledger)?
         .resolve_remote_and_path(args.remote.as_deref(), args.path.as_deref())
 }
 
@@ -296,8 +295,6 @@ pub struct ResolvedFetchParams {
 struct FetchParamsResolver<'a> {
     /// The git repository to fetch from.
     repo: &'a gix::Repository,
-    /// The git-toprepo configuration.
-    config: &'a GitTopRepoConfig,
     /// Expansion ledger of subrepos.
     ledger: &'a SubRepoLedger,
     worktree: PathBuf,
@@ -307,14 +304,13 @@ struct FetchParamsResolver<'a> {
 }
 
 impl<'a> FetchParamsResolver<'a> {
-    pub fn new(repo: &'a gix::Repository, config: &'a GitTopRepoConfig, ledger: &'a SubRepoLedger) -> Result<Self> {
+    pub fn new(repo: &'a gix::Repository, ledger: &'a SubRepoLedger) -> Result<Self> {
         let worktree = repo
             .workdir()
             .context("Worktree missing in git repository")?;
         let gitmod_infos = GitModulesInfo::parse_dot_gitmodules_in_repo(repo)?;
         Ok(Self {
             repo,
-            config,
             ledger,
             worktree: worktree.to_owned(),
             gitmod_infos,
