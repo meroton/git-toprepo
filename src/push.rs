@@ -604,19 +604,35 @@ impl PushTask {
                 |line| current_push_item.pb_status.set_message(line),
             );
             let trimmed_stderr = permanent_stderr.trim_end();
-            let push_result =
-                SafeExitStatus::new(proc.wait().context("Failed to wait for git-push")?)
-                    .check_success()
-                    .map_err(|err| {
-                        let maybe_newline = if trimmed_stderr.is_empty() { "" } else { "\n" };
-                        anyhow::anyhow!(
-                            "Failed to {log_command}: {err:#}{maybe_newline}{trimmed_stderr}"
-                        )
-                    })
-                    .map(|_| ());
-            if push_result.is_ok() && !trimmed_stderr.is_empty() {
-                log::info!("Stderr from {log_command}\n{trimmed_stderr}");
-            }
+            let push_result = (|| {
+                let status =
+                    SafeExitStatus::new(proc.wait().context("Failed to wait for git-push")?);
+                if status.success() {
+                    return Ok(());
+                }
+                if status.code() == Some(1) {
+                    // Check for Gerrit 'no new changes' rejection which is not any problem.
+                    for line in permanent_stderr.lines() {
+                        if line.starts_with(" ! [remote rejected] ")
+                            && line.ends_with(" (no new changes)")
+                        {
+                            // Nothing to worry about.
+                            log::debug!(
+                                "During {log_command}: Ignoring 'no new changes' rejection"
+                            );
+                            return Ok(());
+                        }
+                    }
+                }
+                // Print stderr in the error message as well.
+                let maybe_newline = if trimmed_stderr.is_empty() { "" } else { "\n" };
+                anyhow::bail!("Failed to {log_command}: {status:#}{maybe_newline}{trimmed_stderr}");
+            })()
+            .map(|_| {
+                if !trimmed_stderr.is_empty() {
+                    log::info!("Stderr from {log_command}\n{trimmed_stderr}");
+                }
+            });
             self.context
                 .error_observer
                 .lock()

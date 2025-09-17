@@ -2,6 +2,7 @@ use assert_cmd::prelude::*;
 use git_toprepo::git::commit_env_for_testing;
 use git_toprepo::git::git_command;
 use git_toprepo::util::NewlineTrimmer as _;
+use itertools::Itertools as _;
 use predicates::prelude::*;
 use std::process::Command;
 
@@ -482,8 +483,6 @@ fn test_push_topic_is_used_as_push_option() {
         .args(["push", "origin", "HEAD:refs/heads/foo"])
         .assert()
         .success()
-        // Both pushes should have started in parallel before printing the
-        // "pre-receive hook continues" lines.
         .stderr(predicate::str::contains(
             "\nremote: GIT_PUSH_OPTION_0=topic=my-topic",
         ));
@@ -546,4 +545,35 @@ fn test_force_push() {
         .assert()
         .success()
         .stderr(predicates::str::contains(" -> other (forced update)"));
+}
+
+/// The following push error message from a Gerrit server should be ignored:
+/// ```text
+/// ! [remote rejected] HEAD -> refs/for/something (no new changes)
+/// ```
+#[test]
+fn test_ignore_gerrit_refusing_no_new_change() {
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    let failing_git_push_dir =
+        std::path::absolute("tests/integration/fixtures/git-push-gerrit-refuse-no-change").unwrap();
+
+    let old_path_env = std::env::var_os("PATH").unwrap_or_default();
+    let new_paths = [failing_git_push_dir]
+        .into_iter()
+        .chain(std::env::split_paths(&old_path_env))
+        .collect_vec();
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&monorepo)
+        .args(["push", "origin", "HEAD:refs/gerrit/fail-no-new-change"])
+        .env("OLD_PATH", &old_path_env)
+        .env("PATH", std::env::join_paths(new_paths).unwrap())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "\n ! [remote rejected] HEAD -> refs/for/something (no new changes)\n",
+        ));
 }
