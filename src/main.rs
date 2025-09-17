@@ -290,7 +290,7 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
         checksum: config.checksum,
         fetch: config.fetch,
         subrepos: ledger.subrepos,
-        missing_subrepos: ledger.missing_subrepos,
+        // missing_subrepos: ledger.missing_subrepos,
     })
 }
 
@@ -472,7 +472,7 @@ fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) ->
         checksum: processor.config.checksum.clone(),
         fetch: processor.config.fetch.clone(),
         subrepos: processor.ledger.subrepos.clone(),
-        missing_subrepos: processor.ledger.missing_subrepos.clone(),
+        // missing_subrepos: processor.ledger.missing_subrepos.clone(),
     };
     git_toprepo::expander::refilter_all_top_refs(processor)
 }
@@ -481,7 +481,7 @@ fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) ->
 fn fetch(fetch_args: &cli::Fetch, processor: &mut MonoRepoProcessor) -> Result<()> {
     if let Some(refspecs) = &fetch_args.refspecs {
         let resolved_args =
-            cli::resolve_remote_and_path(fetch_args, processor.gix_repo, &processor.config)?;
+            cli::resolve_remote_and_path(fetch_args, processor.gix_repo, &processor.config, &processor.ledger)?;
         let detailed_refspecs = detail_refspecs(refspecs, &resolved_args.repo, &resolved_args.url)?;
         let mut result =
             fetch_with_refspec(fetch_args, resolved_args, &detailed_refspecs, processor);
@@ -692,7 +692,7 @@ fn fetch_with_refspec(
             checksum: processor.config.checksum.clone(),
             fetch: processor.config.fetch.clone(),
             subrepos: processor.ledger.subrepos.clone(),
-            missing_subrepos: processor.ledger.missing_subrepos.clone(),
+            // missing_subrepos: processor.ledger.missing_subrepos.clone(),
         };
 
         match &resolved_args.repo {
