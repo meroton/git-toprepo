@@ -2,6 +2,7 @@ use crate::config::GitTopRepoConfig;
 use crate::config::SubRepoConfig;
 use crate::git::git_command;
 use crate::gitmodules::SubmoduleUrlExt as _;
+use crate::loader::SubRepoLedger;
 use crate::log::CommandSpanExt as _;
 use crate::repo_name::RepoName;
 use crate::util::CommandExtension;
@@ -36,15 +37,15 @@ impl RemoteFetcher {
         &mut self,
         gix_repo: &gix::Repository,
         repo_name: &RepoName,
-        config: &GitTopRepoConfig,
+        ledger: &SubRepoLedger,
     ) -> Result<()> {
         match repo_name {
             RepoName::Top => self.set_remote_as_top_repo(gix_repo)?,
             RepoName::SubRepo(sub_repo_name) => {
-                let subrepo_config = config
+                let subrepo_config = ledger
                     .subrepos
                     .get(sub_repo_name)
-                    .with_context(|| format!("Repo {repo_name} not found in config"))?;
+                    .with_context(|| format!("Repo {repo_name} not found in ledger"))?;
                 self.set_remote_from_subrepo_config(gix_repo, repo_name, subrepo_config)?;
             }
         };
@@ -101,7 +102,7 @@ impl RemoteFetcher {
         &mut self,
         gix_repo: &gix::Repository,
         name_or_url: &str,
-        config: &GitTopRepoConfig,
+        ledger: &SubRepoLedger,
     ) -> Result<()> {
         // Ignore any errors in the remote name.
         match gix_repo
@@ -120,7 +121,7 @@ impl RemoteFetcher {
             None => {
                 // Not the super repo, try to find the subrepo.
                 let url = gix::Url::from_bytes(name_or_url.into()).context("Invalid fetch URL")?;
-                match config.get_from_url(&url)? {
+                match ledger.get_from_url(&url)? {
                     Some((repo_name, subrepo_config)) => {
                         let repo_name = RepoName::from_str(&repo_name)
                             .map_err(|_| anyhow::anyhow!("Bad repo name {repo_name:#}"))?;

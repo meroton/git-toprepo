@@ -573,7 +573,7 @@ impl<'a> CommitLoader<'a> {
         repo_fetcher.fetch_state = RepoFetcherState::InProgress;
 
         let mut fetcher = crate::fetch::RemoteFetcher::new(self.toprepo);
-        fetcher.set_remote_from_repo_name(self.toprepo, &repo_name, self.config)?;
+        fetcher.set_remote_from_repo_name(self.toprepo, &repo_name, self.ledger)?;
 
         let pb_url = indicatif::ProgressBar::hidden()
             .with_style(

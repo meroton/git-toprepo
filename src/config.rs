@@ -257,46 +257,6 @@ impl GitTopRepoConfig {
         }
     }
 
-    /// Get a subrepo configuration or create a new entry if missing.
-    pub fn get_or_insert_from_url<'a>(
-        &'a mut self,
-        repo_url: &gix::Url,
-    ) -> Result<GetOrInsertOk<'a>> {
-        let Some(repo_name) = self.get_name_from_url(repo_url)? else {
-            let mut repo_name = self.default_name_from_url(repo_url).with_context(|| {
-                format!(
-                    "URL {repo_url} cannot be automatically converted to a valid repo name. \
-                    Please create a manual config entry with the URL."
-                )
-            })?;
-            // Instead of just self.subrepos.get(&repo_name), also check for
-            // case insensitive repo name uniqueness. It's confusing for the
-            // user to get multiple repos with the same name and not
-            // realising that it's just the casing that is different.
-            // Manually adding multiple entries with different casing is
-            // allowed but not recommended.
-            for existing_name in self.subrepos.keys() {
-                if repo_name.to_lowercase() == existing_name.to_lowercase() {
-                    repo_name = existing_name.clone();
-                }
-            }
-            let urls = &mut self.subrepos.entry(repo_name.clone()).or_default().urls;
-            if !urls.contains(repo_url) {
-                urls.push(repo_url.clone());
-            }
-            return Ok(if self.missing_subrepos.insert(repo_name.clone()) {
-                GetOrInsertOk::Missing(repo_name.clone())
-            } else {
-                GetOrInsertOk::MissingAgain(repo_name.clone())
-            });
-        };
-        let subrepo_config = self
-            .subrepos
-            .get_mut(&repo_name)
-            .expect("valid subrepo name");
-        Ok(GetOrInsertOk::Found((repo_name, subrepo_config)))
-    }
-
     /// Finds the location of the configuration to load.
     ///
     /// The location of the configuration file is set in the git-config of the
@@ -892,59 +852,59 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_get_repo_with_new_entry() -> Result<()> {
-        let mut config = GitTopRepoConfig::parse_config_toml_string("")?;
+    // #[test]
+    // fn test_get_repo_with_new_entry() -> Result<()> {
+    //     let mut config = GitTopRepoConfig::parse_config_toml_string("")?;
+    //
+    //     assert_eq!(config.subrepos.len(), 0);
+    //     assert_eq!(
+    //         config
+    //             .get_or_insert_from_url(&gix::Url::from_bytes(b"ssh://bar/baz.git".as_bstr())?)
+    //             .unwrap(),
+    //         GetOrInsertOk::Missing(SubRepoName::new("baz".to_owned()))
+    //     );
+    //     assert!(
+    //         config
+    //             .subrepos
+    //             .contains_key(&SubRepoName::new("baz".to_owned()))
+    //     );
+    //     // Second time, it should still report an error.
+    //     assert_eq!(
+    //         config
+    //             .get_or_insert_from_url(&gix::Url::from_bytes(b"ssh://bar/baz.git".as_bstr())?)
+    //             .unwrap(),
+    //         GetOrInsertOk::MissingAgain(SubRepoName::new("baz".to_owned()))
+    //     );
+    //     Ok(())
+    // }
 
-        assert_eq!(config.subrepos.len(), 0);
-        assert_eq!(
-            config
-                .get_or_insert_from_url(&gix::Url::from_bytes(b"ssh://bar/baz.git".as_bstr())?)
-                .unwrap(),
-            GetOrInsertOk::Missing(SubRepoName::new("baz".to_owned()))
-        );
-        assert!(
-            config
-                .subrepos
-                .contains_key(&SubRepoName::new("baz".to_owned()))
-        );
-        // Second time, it should still report an error.
-        assert_eq!(
-            config
-                .get_or_insert_from_url(&gix::Url::from_bytes(b"ssh://bar/baz.git".as_bstr())?)
-                .unwrap(),
-            GetOrInsertOk::MissingAgain(SubRepoName::new("baz".to_owned()))
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_get_repo_without_new_entry() -> Result<()> {
-        let config = GitTopRepoConfig::parse_config_toml_string(
-            r#"
-                [repo.foo]
-                urls = ["../bar/repo.git"]
-            "#,
-        );
-        assert!(config.is_ok(), "{config:?}");
-        let mut config = config.unwrap();
-
-        assert!(
-            config
-                .subrepos
-                .contains_key(&SubRepoName::new("foo".to_owned()))
-        );
-        assert_eq!(
-            config
-                .get_or_insert_from_url(&gix::Url::from_bytes(
-                    b"https://example.com/foo.git".as_bstr()
-                )?)
-                .unwrap(),
-            GetOrInsertOk::Missing(SubRepoName::new("foo".to_owned()))
-        );
-        assert_eq!(config.subrepos.len(), 1);
-        Ok(())
-    }
+    // #[test]
+    // fn test_get_repo_without_new_entry() -> Result<()> {
+    //     let config = GitTopRepoConfig::parse_config_toml_string(
+    //         r#"
+    //             [repo.foo]
+    //             urls = ["../bar/repo.git"]
+    //         "#,
+    //     );
+    //     assert!(config.is_ok(), "{config:?}");
+    //     let mut config = config.unwrap();
+    //
+    //     assert!(
+    //         config
+    //             .subrepos
+    //             .contains_key(&SubRepoName::new("foo".to_owned()))
+    //     );
+    //     assert_eq!(
+    //         config
+    //             .get_or_insert_from_url(&gix::Url::from_bytes(
+    //                 b"https://example.com/foo.git".as_bstr()
+    //             )?)
+    //             .unwrap(),
+    //         GetOrInsertOk::Missing(SubRepoName::new("foo".to_owned()))
+    //     );
+    //     assert_eq!(config.subrepos.len(), 1);
+    //     Ok(())
+    // }
 
     #[test]
     fn test_config_with_duplicate_urls() {

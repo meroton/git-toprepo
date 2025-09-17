@@ -468,6 +468,12 @@ fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) ->
             error_observer,
         )
     })?;
+    processor.config = GitTopRepoConfig {
+        checksum: processor.config.checksum.clone(),
+        fetch: processor.config.fetch.clone(),
+        subrepos: processor.ledger.subrepos.clone(),
+        missing_subrepos: processor.ledger.missing_subrepos.clone(),
+    };
     git_toprepo::expander::refilter_all_top_refs(processor)
 }
 
@@ -682,6 +688,12 @@ fn fetch_with_refspec(
             processor,
             error_observer,
         )?;
+        processor.config = GitTopRepoConfig {
+            checksum: processor.config.checksum.clone(),
+            fetch: processor.config.fetch.clone(),
+            subrepos: processor.ledger.subrepos.clone(),
+            missing_subrepos: processor.ledger.missing_subrepos.clone(),
+        };
 
         match &resolved_args.repo {
             RepoName::Top => {
@@ -763,20 +775,20 @@ fn load_commits<F>(
 ) -> Result<()>
 where
     F: FnOnce(&mut git_toprepo::loader::CommitLoader) -> Result<()>,
-{
-    let mut commit_loader = git_toprepo::loader::CommitLoader::new(
-        processor.gix_repo,
-        &mut processor.top_repo_cache.repos,
-        &processor.config,
-        processor.ledger,
-        processor.progress.clone(),
-        error_observer,
-        threadpool::ThreadPool::new(job_count.get()),
-    )?;
-    commit_loader_setup(&mut commit_loader).with_context(|| "Failed to setup the commit loader")?;
-    commit_loader.join()?;
-    Ok(())
-}
+    {
+        let mut commit_loader = git_toprepo::loader::CommitLoader::new(
+            processor.gix_repo,
+            &mut processor.top_repo_cache.repos,
+            &processor.config,
+            processor.ledger,
+            processor.progress.clone(),
+            error_observer,
+            threadpool::ThreadPool::new(job_count.get()),
+        )?;
+        commit_loader_setup(&mut commit_loader).with_context(|| "Failed to setup the commit loader")?;
+        commit_loader.join()?;
+        Ok(())
+    }
 
 fn is_monorepo(path: &Path) -> Result<bool> {
     let key = &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY);
