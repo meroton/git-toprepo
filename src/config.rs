@@ -378,8 +378,8 @@ impl GitTopRepoConfig {
     }
 
     /// Validates that the configuration is sane.
-    pub fn validate(&mut self) -> Result<()> {
-        for (repo_name, subrepo_config) in self.subrepos.iter_mut() {
+    pub fn validate(&self) -> Result<()> {
+        for (repo_name, subrepo_config) in self.subrepos.iter() {
             // Validate each subrepo config.
             subrepo_config
                 .validate()
