@@ -22,6 +22,7 @@ use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::config::TOPREPO_CONFIG_FILE_KEY;
 use git_toprepo::config::toprepo_git_config;
+use git_toprepo::NotAMonorepo;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::git::git_command;
 use git_toprepo::git::git_config_get;
@@ -51,16 +52,6 @@ use std::panic::resume_unwind;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
-
-#[derive(Debug, PartialEq)]
-struct NotAMonorepo;
-
-impl std::fmt::Display for NotAMonorepo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NotAMonorepo")
-    }
-}
-impl std::error::Error for NotAMonorepo {}
 
 #[derive(Debug, PartialEq)]
 struct ExitSilently;
