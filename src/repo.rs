@@ -353,7 +353,13 @@ impl MonoRepoProcessor<'_> {
         }
         const EFFECTIVE_TOPREPO_CONFIG: &str = "toprepo/last-effective-git-toprepo.toml";
         let config_path = processor.gix_repo.git_dir().join(EFFECTIVE_TOPREPO_CONFIG);
-        if let Err(err) = processor.config.save(&config_path)
+        // Create updated config with ledger mutations
+        let updated_config = crate::config::GitTopRepoConfig {
+            checksum: processor.config.checksum.clone(),
+            fetch: processor.config.fetch.clone(),
+            subrepos: processor.ledger.subrepos.clone(),
+        };
+        if let Err(err) = updated_config.save(&config_path)
             && result.is_ok()
         {
             result = Err(err);
