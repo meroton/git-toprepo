@@ -163,11 +163,11 @@ fn resolve_push_repo(
     config: &mut crate::config::GitTopRepoConfig,
 ) -> Result<(RepoName, GitPath, GitPath, gix::Url)> {
     let mut repo_name = RepoName::Top;
-    let mut repo_path = GitPath::new(b"".into());
+    let mut repo_path = GitPath::from("");
     let mut rel_path = path;
     let mut generic_url = EMPTY_GIX_URL.clone();
     loop {
-        let dot_gitmodules_path = repo_path.join(&GitPath::new(b".gitmodules".into()));
+        let dot_gitmodules_path = repo_path.join(&GitPath::from(".gitmodules"));
         let dot_gitmodules_bytes = match mono_commit
             .tree()?
             .lookup_entry_by_path(dot_gitmodules_path.to_path()?)?
@@ -191,13 +191,12 @@ fn resolve_push_repo(
             return Ok((repo_name, repo_path, rel_path.clone(), push_url));
         };
         // Apply one submodule level.
-        rel_path = GitPath::new(
+        rel_path = GitPath::from(
             rel_path
                 .strip_prefix(submod_path.as_bytes())
                 .expect("part of the submodule")
                 .strip_prefix(b"/")
-                .expect("part of the submodule")
-                .into(),
+                .expect("part of the submodule"),
         );
         repo_path = repo_path.join(submod_path);
         let sub_url = match sub_url {
