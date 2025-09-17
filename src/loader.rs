@@ -271,7 +271,7 @@ pub struct CommitLoader<'a> {
     repos: HashMap<RepoName, RepoFetcher>,
     /// Repositories that have been loaded from the cache.
     cached_repo_states: &'a mut RepoStates,
-    // TODO: remove config.
+    // TODO: refine/remove config: it is only used for general fetch information.
     config: &'a GitTopRepoConfig,
     ledger: &'a mut SubRepoLedger,
 
@@ -887,7 +887,7 @@ impl<'a> CommitLoader<'a> {
                         && let Some(submod_repo_name) = &bump.repo_name
                     {
                         let subconfig = self
-                            .config
+                            .ledger
                             .subrepos
                             .get(submod_repo_name)
                             .expect("subrepo name exists");
@@ -1057,7 +1057,7 @@ impl<'a> CommitLoader<'a> {
             RepoName::SubRepo(submod_repo_name) => {
                 // Check if the submodule is configured.
                 let submod_contig = self
-                    .config
+                    .ledger
                     .subrepos
                     .get(submod_repo_name)
                     .with_context(|| format!("Repo {repo_name} not found in config"))?;

@@ -160,7 +160,6 @@ fn resolve_push_repo(
     mono_commit: &gix::Commit,
     path: GitPath,
     mut push_url: gix::Url,
-    config: &crate::config::GitTopRepoConfig,
     ledger: &mut crate::loader::SubRepoLedger,
 ) -> Result<(RepoName, GitPath, GitPath, gix::Url)> {
     let mut repo_name = RepoName::Top;
@@ -284,7 +283,6 @@ fn split_for_push_impl(
                         &gix_mono_commit,
                         GitPath::new(fc.path),
                         top_push_url.clone(),
-                        &processor.config,
                         processor.ledger,
                     )?;
                     grouped_file_changes

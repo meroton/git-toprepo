@@ -1,4 +1,3 @@
-use crate::config::GitTopRepoConfig;
 use crate::git::CommitId;
 use crate::git::GitPath;
 use crate::git::TreeId;

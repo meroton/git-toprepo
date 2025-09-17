@@ -1,4 +1,3 @@
-use crate::config::GitTopRepoConfig;
 use crate::config::SubRepoConfig;
 use crate::git::git_command;
 use crate::gitmodules::SubmoduleUrlExt as _;
