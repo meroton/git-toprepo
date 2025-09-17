@@ -300,7 +300,7 @@ impl GitTopRepoConfig {
     /// super repository using
     ///    `git config --local toprepo.config <ref>:<git-repo-relative-path>`
     /// . This is initialized with `git-toprepo init` to
-    /// `ref:refs/remotes/origin/HEAD:.gittoprepo.toml`, which is managed for
+    /// `repo:refs/remotes/origin/HEAD:.gittoprepo.toml`, which is managed for
     /// the entire project by the maintainers.
     ///
     /// A developer can choose their own config file with a `worktree:` reference
