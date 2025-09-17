@@ -314,15 +314,15 @@ fn test_push_top_and_submodule_in_series() {
 INFO: Running git push .*/sub/? -o topic=my-topic [0-9a-f]+:refs/heads/foo
 INFO: Stderr from git push .*/sub/? -o topic=my-topic [0-9a-f]+:refs/heads/foo
 remote: GIT_PUSH_OPTION_0=topic=my-topic\\s*
-remote: prereceive hook sleeping\\s*
-remote: prereceive hook continues\\s*
+remote: pre-receive hook sleeping\\s*
+remote: pre-receive hook continues\\s*
 To .*/sub/?
  \\* \\[new branch\\]\\s+[0-9a-f]+ -> foo
 INFO: Running git push .*/top/? -o topic=my-topic [0-9a-f]+:refs/heads/foo
 INFO: Stderr from git push .*/top/? -o topic=my-topic [0-9a-f]+:refs/heads/foo
 remote: GIT_PUSH_OPTION_0=topic=my-topic\\s*
-remote: prereceive hook sleeping\\s*
-remote: prereceive hook continues\\s*
+remote: pre-receive hook sleeping\\s*
+remote: pre-receive hook continues\\s*
 To .*/top/?
  \\* \\[new branch\\]\\s+[0-9a-f]+ -> foo
 ",
@@ -382,14 +382,14 @@ INFO: Running git push .* -o topic=my-topic [0-9a-f]+:refs/heads/foo
 INFO: Running git push .* -o topic=my-topic [0-9a-f]+:refs/heads/foo
 INFO: Stderr from git push .* -o topic=my-topic [0-9a-f]+:refs/heads/foo
 remote: GIT_PUSH_OPTION_0=topic=my-topic\\s*
-remote: prereceive hook sleeping\\s*
-remote: prereceive hook continues\\s*
+remote: pre-receive hook sleeping\\s*
+remote: pre-receive hook continues\\s*
 To .*
  \\* \\[new branch\\]\\s+[0-9a-f]+ -> foo
 INFO: Stderr from git push .* -o topic=my-topic [0-9a-f]+:refs/heads/foo
 remote: GIT_PUSH_OPTION_0=topic=my-topic\\s*
-remote: prereceive hook sleeping\\s*
-remote: prereceive hook continues\\s*
+remote: pre-receive hook sleeping\\s*
+remote: pre-receive hook continues\\s*
 To .*
  \\* \\[new branch\\]\\s+[0-9a-f]+ -> foo
 ",

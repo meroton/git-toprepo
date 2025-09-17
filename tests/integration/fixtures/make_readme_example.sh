@@ -38,9 +38,9 @@ then
 	done
 fi
 # Allow observing interleaved output.
-echo "prereceive hook sleeping"
+echo "pre-receive hook sleeping"
 sleep 1
-echo "prereceive hook continues"
+echo "pre-receive hook continues"
 EOF
 chmod +x "$top_prereceive_hook_path"
 cp "$top_prereceive_hook_path" "$sub_prereceive_hook_path"
