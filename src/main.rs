@@ -89,8 +89,8 @@ fn init(init_args: &cli::Init) -> Result<PathBuf> {
     Ok(directory)
 }
 
-#[tracing::instrument(skip(processor))]
-fn clone_after_init(clone_args: &cli::Clone, processor: &mut MonoRepoProcessor) -> Result<()> {
+#[tracing::instrument(skip(configured_repo))]
+fn clone_after_init(clone_args: &cli::Clone, configured_repo: &mut repo::ConfiguredTopRepo) -> Result<()> {
     fetch(
         &cli::Fetch {
             keep_going: false,
@@ -101,12 +101,12 @@ fn clone_after_init(clone_args: &cli::Clone, processor: &mut MonoRepoProcessor) 
             path: None,
             refspecs: None,
         },
-        processor,
+        configured_repo,
     )?;
     verify_config_existence_after_clone()?;
     if !clone_args.minimal {
-        processor.reload_config()?;
-        refilter(&clone_args.refilter, processor)?;
+        configured_repo.reload_config()?;
+        refilter(&clone_args.refilter, configured_repo)?;
     }
     git_command(Path::new("."))
         .args(["checkout", "refs/remotes/origin/HEAD", "--"])
@@ -408,7 +408,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     Ok(())
 }
 
-fn dump_modules(monorepo_root: &Option<PathBuf>) -> Result<()> {
+fn dump_modules(repo: &repo::RepoHandle) -> Result<()> {
     /// The main repo is not technically a submodule.
     /// But it is very convenient to have transparent handling of the main
     /// project in code that iterates over projects provided by the users.
@@ -416,17 +416,27 @@ fn dump_modules(monorepo_root: &Option<PathBuf>) -> Result<()> {
         project: String,
         path: git_toprepo::git::GitPath,
     }
-    let monorepo_root = monorepo_root.as_ref().ok_or(NotAMonorepo)?;
-    let toprepo = repo::TopRepo::open(monorepo_root)?;
 
-    let main_project = toprepo
-        .gerrit_project()
-        .context(git_toprepo::repo::LOADING_THE_MAIN_PROJECT_CONTEXT)?;
-    let mut modules: Vec<Mod> = toprepo
-        .submodules()?
-        .into_iter()
-        .map(|(path, project)| Mod { project, path })
-        .collect();
+    // Use the unified repo interface that works with both basic and configured repos
+    let main_project = match repo {
+        repo::RepoHandle::Configured(configured) => configured.gerrit_project().to_string(),
+        repo::RepoHandle::Basic(basic) => basic
+            .gerrit_project()
+            .context(git_toprepo::repo::LOADING_THE_MAIN_PROJECT_CONTEXT)?,
+    };
+    
+    let mut modules: Vec<Mod> = match repo {
+        repo::RepoHandle::Configured(configured) => configured
+            .submodules()?
+            .into_iter()
+            .map(|(path, project)| Mod { project, path })
+            .collect(),
+        repo::RepoHandle::Basic(basic) => basic
+            .submodules()?
+            .into_iter()
+            .map(|(path, project)| Mod { project, path })
+            .collect(),
+    };
 
     modules.push(Mod {
         project: main_project,
@@ -441,10 +451,10 @@ fn dump_modules(monorepo_root: &Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(skip(processor))]
-fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) -> Result<()> {
+#[tracing::instrument(skip(configured_repo))]
+fn refilter(refilter_args: &cli::Refilter, configured_repo: &mut ConfiguredTopRepo) -> Result<()> {
     if !refilter_args.reuse_cache {
-        *processor.top_repo_cache = repo::TopRepoCache::default();
+        configured_repo.top_repo_cache = repo::TopRepoCache::default();
     }
     ErrorObserver::run_keep_going(refilter_args.keep_going, |error_observer| {
         load_commits(
@@ -453,26 +463,26 @@ fn refilter(refilter_args: &cli::Refilter, processor: &mut MonoRepoProcessor) ->
                 commit_loader.fetch_missing_commits = !refilter_args.no_fetch;
                 commit_loader.load_repo(&git_toprepo::repo_name::RepoName::Top)
             },
-            processor,
+            configured_repo,
             error_observer,
         )
     })?;
-    processor.config = GitTopRepoConfig {
-        checksum: processor.config.checksum.clone(),
-        fetch: processor.config.fetch.clone(),
-        subrepos: processor.ledger.subrepos.clone(),
+    configured_repo.config = GitTopRepoConfig {
+        checksum: configured_repo.config.checksum.clone(),
+        fetch: configured_repo.config.fetch.clone(),
+        subrepos: configured_repo.ledger.subrepos.clone(),
     };
-    git_toprepo::expander::refilter_all_top_refs(processor)
+    git_toprepo::expander::refilter_all_top_refs(configured_repo)
 }
 
-#[tracing::instrument(skip(processor))]
-fn fetch(fetch_args: &cli::Fetch, processor: &mut MonoRepoProcessor) -> Result<()> {
+#[tracing::instrument(skip(configured_repo))]
+fn fetch(fetch_args: &cli::Fetch, configured_repo: &mut repo::ConfiguredTopRepo) -> Result<()> {
     if let Some(refspecs) = &fetch_args.refspecs {
         let resolved_args =
-            cli::resolve_remote_and_path(fetch_args, processor.gix_repo, &processor.ledger)?;
+            cli::resolve_remote_and_path(fetch_args, &configured_repo.gix_repo, &configured_repo.ledger)?;
         let detailed_refspecs = detail_refspecs(refspecs, &resolved_args.repo, &resolved_args.url)?;
         let mut result =
-            fetch_with_refspec(fetch_args, resolved_args, &detailed_refspecs, processor);
+            fetch_with_refspec(fetch_args, resolved_args, &detailed_refspecs, configured_repo);
         // Delete temporary refs.
         let mut ref_edits = Vec::new();
         for refspec in detailed_refspecs {
@@ -505,7 +515,7 @@ fn fetch(fetch_args: &cli::Fetch, processor: &mut MonoRepoProcessor) -> Result<(
                 email: BStr::new(""),
                 time: &gix::date::Time::now_local_or_utc().format(gix::date::time::Format::Raw),
             };
-            if let Err(err) = processor
+            if let Err(err) = configured_repo
                 .gix_repo
                 .edit_references_as(ref_edits, Some(committer))
                 .context("Failed to update all the mono references")
@@ -516,22 +526,22 @@ fn fetch(fetch_args: &cli::Fetch, processor: &mut MonoRepoProcessor) -> Result<(
         }
         result
     } else {
-        fetch_with_default_refspecs(fetch_args, processor)
+        fetch_with_default_refspecs(fetch_args, configured_repo)
     }
 }
 
-#[tracing::instrument(skip(processor))]
+#[tracing::instrument(skip(configured_repo))]
 fn fetch_with_default_refspecs(
     fetch_args: &cli::Fetch,
-    processor: &mut MonoRepoProcessor,
+    configured_repo: &mut repo::ConfiguredTopRepo,
 ) -> Result<()> {
-    let mut fetcher = git_toprepo::fetch::RemoteFetcher::new(processor.gix_repo);
+    let mut fetcher = git_toprepo::fetch::RemoteFetcher::new(&configured_repo.gix_repo);
 
     // Fetch without a refspec.
     if fetch_args.path.is_some() {
         anyhow::bail!("Cannot use --path without specifying a refspec");
     }
-    let remote_names = processor.gix_repo.remote_names();
+    let remote_names = configured_repo.gix_repo.remote_names();
     if let Some(remote) = &fetch_args.remote
         && !remote_names.contains(BStr::new(remote))
     {
@@ -550,7 +560,7 @@ fn fetch_with_default_refspecs(
     fetcher.fetch_on_terminal()?;
 
     if !fetch_args.skip_filter {
-        processor.reload_config()?;
+        configured_repo.reload_config()?;
         refilter(
             &cli::Refilter {
                 keep_going: fetch_args.keep_going,
@@ -558,7 +568,7 @@ fn fetch_with_default_refspecs(
                 no_fetch: false,
                 reuse_cache: true,
             },
-            processor,
+            configured_repo,
         )?;
     }
     Ok(())
@@ -640,15 +650,15 @@ fn detail_refspecs(
         .collect::<Result<Vec<_>>>()
 }
 
-#[tracing::instrument(skip(processor))]
+#[tracing::instrument(skip(configured_repo))]
 fn fetch_with_refspec(
     fetch_args: &cli::Fetch,
     resolved_args: cli::ResolvedFetchParams,
     detailed_refspecs: &Vec<DetailedFetchRefspec>,
-    processor: &mut MonoRepoProcessor,
+    configured_repo: &mut ConfiguredTopRepo,
 ) -> Result<()> {
     ErrorObserver::run_keep_going(fetch_args.keep_going, |error_observer| {
-        let mut fetcher = git_toprepo::fetch::RemoteFetcher::new(processor.gix_repo);
+        let mut fetcher = git_toprepo::fetch::RemoteFetcher::new(&configured_repo.gix_repo);
 
         fetcher.remote = Some(
             resolved_args
@@ -668,18 +678,18 @@ fn fetch_with_refspec(
         if fetch_args.skip_filter {
             return Ok(());
         }
-        processor.reload_config()?;
+        configured_repo.reload_config()?;
 
         load_commits(
             fetch_args.job_count.into(),
             |commit_loader| commit_loader.load_repo(&resolved_args.repo),
-            processor,
+            configured_repo,
             error_observer,
         )?;
-        processor.config = GitTopRepoConfig {
-            checksum: processor.config.checksum.clone(),
-            fetch: processor.config.fetch.clone(),
-            subrepos: processor.ledger.subrepos.clone(),
+        configured_repo.config = GitTopRepoConfig {
+            checksum: configured_repo.config.checksum.clone(),
+            fetch: configured_repo.config.fetch.clone(),
+            subrepos: configured_repo.ledger.subrepos.clone(),
         };
 
         match &resolved_args.repo {
@@ -687,14 +697,14 @@ fn fetch_with_refspec(
                 let top_refs = detailed_refspecs
                     .iter()
                     .map(|refspec| &refspec.unfiltered_ref);
-                git_toprepo::expander::refilter_some_top_refspecs(processor, top_refs)?;
+                git_toprepo::expander::refilter_some_top_refspecs(configured_repo, top_refs)?;
             }
             RepoName::SubRepo(sub_repo_name) => {
                 for refspec in detailed_refspecs {
                     // TODO: Reuse the git-fast-import process for all refspecs.
                     let dest_ref = refspec.destination.get_filtered_ref();
                     if let Err(err) = git_toprepo::expander::expand_submodule_ref_onto_head(
-                        processor,
+                        configured_repo,
                         refspec.unfiltered_ref.as_ref(),
                         sub_repo_name,
                         &resolved_args.path,
@@ -718,7 +728,7 @@ fn fetch_with_refspec(
                     description_suffix,
                 } => {
                     // Special case for FETCH_HEAD.
-                    let mut r = processor
+                    let mut r = configured_repo
                         .gix_repo
                         .find_reference(filtered_ref.as_ref())
                         .with_context(|| {
@@ -746,7 +756,7 @@ fn fetch_with_refspec(
         }
         if !fetch_head_lines.is_empty() {
             // Update .git/FETCH_HEAD.
-            let fetch_head_path = processor.gix_repo.git_dir().join("FETCH_HEAD");
+            let fetch_head_path = configured_repo.gix_repo.git_dir().join("FETCH_HEAD");
             std::fs::write(&fetch_head_path, fetch_head_lines.join(""))?;
         }
         Ok(())
@@ -757,18 +767,18 @@ fn fetch_with_refspec(
 fn load_commits<F>(
     job_count: NonZeroUsize,
     commit_loader_setup: F,
-    processor: &mut MonoRepoProcessor,
+    configured_repo: &mut ConfiguredTopRepo,
     error_observer: &ErrorObserver,
 ) -> Result<()>
 where
     F: FnOnce(&mut git_toprepo::loader::CommitLoader) -> Result<()>,
     {
         let mut commit_loader = git_toprepo::loader::CommitLoader::new(
-            processor.gix_repo,
-            &mut processor.top_repo_cache.repos,
-            &processor.config.fetch,
-            processor.ledger,
-            processor.progress.clone(),
+            &configured_repo.gix_repo,
+            &mut configured_repo.top_repo_cache.repos,
+            &configured_repo.config.fetch,
+            &mut configured_repo.ledger,
+            configured_repo.progress.clone(),
             error_observer,
             threadpool::ThreadPool::new(job_count.get()),
         )?;
@@ -783,9 +793,9 @@ fn is_monorepo(path: &Path) -> Result<bool> {
     Ok(maybe.is_some())
 }
 
-#[tracing::instrument(skip(processor))]
-fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> {
-    let base_url = match processor
+#[tracing::instrument(skip(configured_repo))]
+fn push(push_args: &cli::Push, configured_repo: &mut ConfiguredTopRepo) -> Result<()> {
+    let base_url = match configured_repo
         .gix_repo
         .try_find_remote(push_args.top_remote.as_bytes())
     {
@@ -809,12 +819,12 @@ fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> 
         .with_context(|| format!("Bad remote ref {remote_ref}"))?;
     let local_rev = local_ref;
 
-    let push_metadatas = git_toprepo::push::split_for_push(processor, &base_url, local_rev)?;
+    let push_metadatas = git_toprepo::push::split_for_push(configured_repo, &base_url, local_rev)?;
 
     ErrorObserver::run_keep_going(!push_args.fail_fast, |error_observer| {
         let commit_pusher = git_toprepo::push::CommitPusher::new(
-            processor.gix_repo.clone(),
-            processor.progress.clone(),
+            configured_repo.gix_repo.clone(),
+            configured_repo.progress.clone(),
             error_observer.clone(),
             push_args.job_count.into(),
         );
@@ -822,11 +832,10 @@ fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> 
     })
 }
 
-#[tracing::instrument]
-fn dump(dump_args: &cli::Dump, monorepo_root: &Option<PathBuf>) -> Result<()> {
+fn dump(dump_args: &cli::Dump, repo: &repo::RepoHandle) -> Result<()> {
     match dump_args {
-        cli::Dump::ImportCache => dump_import_cache(),
-        cli::Dump::GitModules => dump_modules(monorepo_root),
+        cli::Dump::ImportCache => dump_import_cache(repo),
+        cli::Dump::GitModules => dump_modules(repo),
         cli::Dump::Gerrit(choice) if choice == &cli::DumpGerrit::Host => dump_gerrit(choice),
         cli::Dump::Gerrit(choice) if choice == &cli::DumpGerrit::UserOverride => {
             dump_gerrit(choice)
@@ -858,11 +867,14 @@ fn dump_gerrit(choice: &cli::DumpGerrit) -> Result<()> {
     Ok(())
 }
 
-fn dump_import_cache() -> Result<()> {
-    let toprepo = repo::TopRepo::open(&PathBuf::from("."))?;
+fn dump_import_cache(repo: &repo::RepoHandle) -> Result<()> {
+    let git_dir = match repo {
+        repo::RepoHandle::Configured(configured) => configured.gix_repo.git_dir(),
+        repo::RepoHandle::Basic(basic) => basic.gix_repo.path(),
+    };
 
     let serde_repo_states = git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
-        toprepo.gix_repo.git_dir(),
+        git_dir,
         None,
     )?;
     serde_repo_states.dump_as_json(std::io::stdout())?;
@@ -967,7 +979,7 @@ where
     //             If we refactor the first stage to fulfill `is_monorepo`
     //             we could probably refactor away the mutation.
     let mut monorepo_root = if let Ok(repo_root) = &repo_root {
-        match is_monorepo(repo_root)? {
+        match git_toprepo::is_monorepo(repo_root)? {
             true => Some(repo_root.clone()),
             false => None,
         }
@@ -1003,36 +1015,15 @@ where
             // NB: We have not set the marker in the initial clone
             // But this command is meant to create it.
             // So it is safe to proceed with the processor `clone_after_init`.
+            // TODO: We should now be in a ConfiguredTopRepo state,
+            // we should update that here.
             monorepo_root = Some(directory);
         }
         Commands::Config(config_args) => return config(config_args, &monorepo_root),
-        // TODO: Dump can run with a mis- or unconfigured repo.
-        //       But it would also be good if it did run on a configured repo
-        //       and could dump more information. Like the remotes of each
-        //       module. We can probably find it through `gix::Repository`,
-        //       but the main toprepo operations do it through `GitTopRepoConfig`
-        //       which is not available without the processor.
-        //
-        //       It strikes me as odd to have two completely different access
-        //       paths for the same information. And makes maintaining these
-        //       commands harder. I would prefer to have a richer representation
-        //       around the repo. And have it optionally contain more specific
-        //       toprepo configs, than to maintain them in two different data
-        //       structures without a less clear (shared) provenance.
-        //
-        //       Especially since some algorithms only operate on submodules
-        //       but others operate on all projects (including super)
-        //       using the same API. So to avoid placing an early exit that
-        //       checks for the main module before each submodule lookup
-        //       it would be better to have a datastructure that treat them as
-        //       interchangeable.
-        //
-        //       $ git-toprepo fetch ssh://gerrit.example/super 1046c7139f113ca82ccff86722707e089debf919
-        //       ERROR: No configured submodule URL matches "ssh://gerrit.example/super"
-        Commands::Dump(dump_args) => return dump(dump_args, &monorepo_root),
         Commands::Version => return print_version(),
         Commands::IsMonorepo => {
-            return match monorepo_root.is_some() {
+            let repo_root = repo_root.map_err(|_| ExitSilently)?;
+            return match git_toprepo::is_monorepo(&repo_root)? {
                 true => Ok(()),
                 false => Err(ExitSilently.into()),
             };
@@ -1042,35 +1033,53 @@ where
 
     let toprepo_root = monorepo_root.as_ref().ok_or(NotAMonorepo)?;
 
-    // Now when the working directory is set, we can persist the tracing.
+    // TODO(terminology #172):
+    // We can persist the tracing in the monorepo.
+    // TODO: Maybe move the logger into the `ConfiguredTopRepo` as we only want to log
+    // in that case.
     if let Some(logger) = logger {
         logger.write_to_git_dir(gix::open(toprepo_root)?.git_dir())?;
     }
 
-    git_toprepo::repo::MonoRepoProcessor::run(Path::new(&toprepo_root), |processor| {
-        match args.command {
-            // TODO: Why does the config belong to the processor?
-            // would it not make more sense in a richer repo representation,
-            // we do have the regular submodule info available in the gix::Repository
-            // that is customarily used for the toprepo itself.
-            // But that only contains the local paths, no remote information.
+    // Open repository once for all operations - this solves the "dual access paths" problem
+    let mut repo = repo::TopRepo::open_for_commands(Path::new(&toprepo_root))?;
 
-            // Main toprepo operations.
-            Commands::Init(_) => unreachable!("init is already processed."),
-            Commands::Clone(clone_args) => clone_after_init(&clone_args, processor),
-            Commands::Config(_) => unreachable!("config is already processed."),
-            Commands::Refilter(refilter_args) => refilter(&refilter_args, processor),
-            Commands::Fetch(fetch_args) => fetch(&fetch_args, processor),
-            Commands::Push(push_args) => push(&push_args, processor),
-            Commands::IsMonorepo => unreachable!("is-monorepo is already handled."),
-            // User friendly introspection into the tool itself.
-            Commands::Dump(_) => unreachable!("dump is already processed."),
-            Commands::Version => unreachable!("version is already processed."),
+    let result = match args.command {
+        // Commands that were already handled above
+        Commands::Init(_) => unreachable!("init is already processed."),
+        Commands::Config(_) => unreachable!("config is already processed."),
+        Commands::Version => unreachable!("version is already processed."),
+        Commands::IsMonorepo => unreachable!("is-monorepo is already handled."),
 
-            // Experimental and scaffolding commands.
-            Commands::Checkout(ref checkout_args) => checkout(&args, checkout_args),
+        // Operations that work with any repo type (basic or configured)
+        Commands::Dump(dump_args) => dump(&dump_args, &repo),
+
+        // Operations that require configured repo
+        Commands::Clone(clone_args) => {
+            let mut configured = repo.require_configured()?;
+            clone_after_init(&clone_args, &mut configured)
         }
-    })
+        Commands::Refilter(refilter_args) => {
+            let mut configured = repo.require_configured()?;
+            refilter(&refilter_args, &mut configured)
+        }
+        Commands::Fetch(fetch_args) => {
+            let mut configured = repo.require_configured()?;
+            fetch(&fetch_args, &mut configured)
+        }
+        Commands::Push(push_args) => {
+            let mut configured = repo.require_configured()?;
+            push(&push_args, &mut configured)
+        }
+
+        // Experimental and scaffolding commands.
+        Commands::Checkout(ref checkout_args) => checkout(&args, checkout_args),
+    };
+
+    // Auto-save configured repo state
+    repo.save_state_if_configured()?;
+    
+    result
 }
 
 fn main() -> ExitCode {

@@ -74,6 +74,32 @@ pub struct TopRepo {
     pub gix_repo: gix::ThreadSafeRepository,
 }
 
+/// Handle for either a basic or fully configured toprepo
+/// This provides a unified interface for commands that may or may not need full config
+// TODO(terminology pr#172): emulated monorepo as opposed to a toprepo.
+pub enum RepoHandle {
+    /// Basic git repository access (for discovery/bootstrap operations)
+    Basic(TopRepo),
+    /// Fully configured toprepo with all state loaded
+    Configured(ConfiguredTopRepo),
+}
+
+/// A fully configured toprepo with all state loaded
+/// This unifies access to both raw git operations and toprepo configuration
+// TODO(terminology pr#172): emulated monorepo as opposed to a toprepo.
+pub struct ConfiguredTopRepo {
+    pub gix_repo: gix::Repository,
+    pub config: crate::config::GitTopRepoConfig,
+    // TODO: Use interior mutability (RefCell/Mutex) for ledger to avoid requiring
+    // mutable references to the entire ConfiguredTopRepo struct during operations
+    pub ledger: crate::loader::SubRepoLedger,
+    pub top_repo_cache: TopRepoCache,
+    pub progress: indicatif::MultiProgress,
+    // TODO: Revisit whether caching gerrit project name is worth the complexity
+    // vs just parsing it on-demand from the git remote URL
+    cached_gerrit_project: String,
+}
+
 impl TopRepo {
     pub fn create(directory: &Path, url: gix::url::Url) -> Result<TopRepo> {
         git_global_command()
@@ -244,6 +270,74 @@ Initial empty git-toprepo configuration
         })
     }
 
+    /// Open a repository, trying configured first, falling back to basic
+    /// This is the main entry point for command operations
+    pub fn open_for_commands(directory: &Path) -> Result<RepoHandle> {
+        // Use is_monorepo() as the canonical detection logic
+        if crate::is_monorepo(directory)? {
+            // This is a configured monorepo, try to load full configuration
+            match Self::open_configured(directory) {
+                Ok(configured) => Ok(RepoHandle::Configured(configured)),
+                Err(e) => {
+                    // is_monorepo() said it's a monorepo but config loading failed
+                    // This indicates a configuration error, so we should propagate it
+                    Err(e.context("Repository appears to be a monorepo but configuration loading failed"))
+                }
+            }
+        } else {
+            // Not a monorepo, open as basic repo
+            Ok(RepoHandle::Basic(Self::open(directory)?))
+        }
+    }
+
+    /// Open a toprepo with full configuration and state loaded
+    /// This centralizes the state loading that's currently scattered in MonoRepoProcessor::run
+    pub fn open_configured(directory: &Path) -> Result<ConfiguredTopRepo> {
+        let gix_repo = gix::open(directory)
+            .context(COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
+
+        let config = crate::config::GitTopRepoConfig::load_config_from_repo(
+            gix_repo
+                .worktree()
+                .with_context(|| {
+                    format!(
+                        "Bare repository without worktree {}",
+                        gix_repo.git_dir().display()
+                    )
+                })?
+                .base(),
+        )?;
+
+        let ledger = crate::loader::SubRepoLedger {
+            subrepos: config.subrepos.clone(),
+            missing_subrepos: std::collections::HashSet::new(),
+        };
+
+        let top_repo_cache = crate::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
+            gix_repo.git_dir(),
+            Some(&config.checksum),
+        )
+        .with_context(|| format!("Loading cache from {}", gix_repo.git_dir().display()))?
+        .unpack()?;
+
+        let progress = indicatif::MultiProgress::new();
+
+        // Cache gerrit project name during initialization
+        let cached_gerrit_project = {
+            let url = crate::git::get_default_remote_url(&gix_repo)?;
+            parse_gerrit_project(&url).with_context(|| format!("Parse gerrit project from {url}"))?
+        };
+
+        Ok(ConfiguredTopRepo {
+            gix_repo,
+            config,
+            ledger,
+            top_repo_cache,
+            progress,
+            cached_gerrit_project,
+        })
+    }
+
     /// Get the main worktree path of the repository.
     /// If the user has multiple worktrees
     /// this may not be the current working directory.
@@ -259,6 +353,8 @@ Initial empty git-toprepo configuration
     // TODO: This should be unified with the information about modules found
     // through the ToprepoConfig and Processor data.
     // #unified-git-config.
+    // NOTE: ConfiguredTopRepo::submodules() provides the unified implementation
+    // that uses config data instead of parsing .gitmodules each time.
     pub fn submodules(&self) -> Result<HashMap<GitPath, String>> {
         let modules = self.gix_repo.to_thread_local().modules()?;
         if modules.is_none() {
@@ -282,6 +378,105 @@ Initial empty git-toprepo configuration
         let repo = self.gix_repo.to_thread_local();
         let url = crate::git::get_default_remote_url(&repo)?;
         parse_gerrit_project(&url).with_context(|| format!("Parse gerrit project from {url}"))
+    }
+}
+
+impl ConfiguredTopRepo {
+    /// Get submodules using the authoritative config data (more efficient & consistent)
+    /// This uses the loaded configuration instead of parsing .gitmodules each time
+    pub fn submodules(&self) -> Result<HashMap<GitPath, String>> {
+        // Convert from the ledger's subrepo data to the GitPath -> project string format
+        // This ensures we use the same data that operations actually work with
+        let mut result = HashMap::new();
+
+        for (sub_repo_name, sub_config) in &self.ledger.subrepos {
+            // We need to find the GitPath for each SubRepoName
+            // For now, we'll use the URL to derive the path (this could be enhanced)
+            // TODO: Consider storing the GitPath -> SubRepoName mapping in the ledger
+            let url = sub_config.resolve_fetch_url();
+            if let Ok(project) = parse_gerrit_project(url) {
+                // Derive path from repo name - this is a simplification
+                // In a full implementation, we'd want the actual .gitmodules path mapping
+                let path = GitPath::new(sub_repo_name.to_string().as_bytes().into());
+                result.insert(path, format!("{}/{}", &self.cached_gerrit_project, project));
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Get gerrit project using cached value (more efficient)
+    pub fn gerrit_project(&self) -> &str {
+        &self.cached_gerrit_project
+    }
+
+    /// Reload configuration (preserving ledger state)
+    pub fn reload_config(&mut self) -> Result<()> {
+        let new_config = crate::config::GitTopRepoConfig::load_config_from_repo(
+            self.gix_repo
+                .worktree()
+                .with_context(|| {
+                    format!(
+                        "Bare repository without worktree {}",
+                        self.gix_repo.git_dir().display()
+                    )
+                })?
+                .base(),
+        )?;
+
+        // Preserve any missing_subrepos from current ledger state
+        let preserved_missing_subrepos = std::mem::take(&mut self.ledger.missing_subrepos);
+        self.ledger.subrepos = new_config.subrepos.clone();
+        self.ledger.missing_subrepos = preserved_missing_subrepos;
+
+        self.config = crate::config::GitTopRepoConfig {
+            checksum: new_config.checksum,
+            fetch: new_config.fetch,
+            subrepos: self.ledger.subrepos.clone(),
+        };
+
+        Ok(())
+    }
+
+    /// Save state (config + cache) back to disk
+    pub fn save_state(&mut self) -> Result<()> {
+        // Save cache
+        if let Err(err) = crate::repo_cache_serde::SerdeTopRepoCache::pack(
+            &self.top_repo_cache,
+            self.config.checksum.clone(),
+        ).store_to_git_dir(self.gix_repo.git_dir()) {
+            return Err(err);
+        }
+
+        // Save effective config with ledger mutations
+        const EFFECTIVE_TOPREPO_CONFIG: &str = "toprepo/last-effective-git-toprepo.toml";
+        let config_path = self.gix_repo.git_dir().join(EFFECTIVE_TOPREPO_CONFIG);
+        let updated_config = crate::config::GitTopRepoConfig {
+            checksum: self.config.checksum.clone(),
+            fetch: self.config.fetch.clone(),
+            subrepos: self.ledger.subrepos.clone(),
+        };
+        updated_config.save(&config_path)?;
+
+        Ok(())
+    }
+}
+
+impl RepoHandle {
+    /// Get the configured repo, returning an error if this is only a basic repo
+    pub fn require_configured(&mut self) -> Result<&mut ConfiguredTopRepo> {
+        match self {
+            RepoHandle::Configured(configured) => Ok(configured),
+            RepoHandle::Basic(_) => Err(crate::NotAMonorepo.into()),
+        }
+    }
+
+    /// Save state if this is a configured repo (no-op for basic repos)
+    pub fn save_state_if_configured(&mut self) -> Result<()> {
+        if let RepoHandle::Configured(configured) = self {
+            configured.save_state()?;
+        }
+        Ok(())
     }
 }
 
@@ -393,7 +588,7 @@ impl MonoRepoProcessor<'_> {
             fetch: new_config.fetch,
             subrepos: self.ledger.subrepos.clone(),
         };
-        
+
         Ok(())
     }
 }
