@@ -901,12 +901,8 @@ mod tests {
         commit(&top_repo, &env, "B");
         commit(&top_repo, &env, "C");
         let sub_rev_3 = commit(&sub_repo, &env, "3");
-        crate::git::git_update_submodule_in_index(
-            &top_repo,
-            &GitPath::new("sub".into()),
-            &sub_rev_3,
-        )
-        .unwrap();
+        crate::git::git_update_submodule_in_index(&top_repo, &GitPath::from("sub"), &sub_rev_3)
+            .unwrap();
 
         commit(&top_repo, &env, "D");
         top_repo

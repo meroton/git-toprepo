@@ -1297,7 +1297,6 @@ impl Default for BumpCache {
 /// use git_toprepo::repo::ExpandedOrRemovedSubmodule;
 /// use git_toprepo::repo::ExpandedSubmodule;
 ///
-/// use bstr::B;
 /// use bstr::ByteSlice;
 /// use std::collections::HashMap;
 /// use std::rc::Rc;
@@ -1305,11 +1304,11 @@ impl Default for BumpCache {
 /// let mut submod_updates = HashMap::new();
 /// let subx_commit_id: CommitId = gix::ObjectId::from_hex(b"1234567890abcdef1234567890abcdef12345678").unwrap();
 /// submod_updates.insert(
-///     GitPath::new(B("subx").into()),
+///     GitPath::from("subx"),
 ///     ExpandedOrRemovedSubmodule::Expanded(ExpandedSubmodule::KeptAsSubmodule(subx_commit_id)),
 /// );
 /// submod_updates.insert(
-///     GitPath::new(B("suby").into()),
+///     GitPath::from("suby"),
 ///     ExpandedOrRemovedSubmodule::Removed,
 /// );
 ///

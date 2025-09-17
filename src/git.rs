@@ -47,13 +47,13 @@ impl GitPath {
     ///
     /// ```
     /// use git_toprepo::git::GitPath;
-    /// use bstr::ByteSlice as _;
-    /// let empty_path = GitPath::new(b"".into());
-    /// let foo = GitPath::new(b"foo".into());
-    /// let bar = GitPath::new(b"bar".into());
-    /// assert_eq!(foo.join(&bar), GitPath::new(b"foo/bar".into()));
-    /// assert_eq!(foo.join(&empty_path), GitPath::new(b"foo".into()));
-    /// assert_eq!(empty_path.join(&bar), GitPath::new(b"bar".into()));
+    ///
+    /// let empty_path = GitPath::from("");
+    /// let foo = GitPath::from("foo");
+    /// let bar = GitPath::from("bar");
+    /// assert_eq!(foo.join(&bar), GitPath::from("foo/bar"));
+    /// assert_eq!(foo.join(&empty_path), GitPath::from("foo"));
+    /// assert_eq!(empty_path.join(&bar), GitPath::from("bar"));
     /// ```
     pub fn join(&self, other: &GitPath) -> Self {
         if self.is_empty() {
@@ -73,14 +73,14 @@ impl GitPath {
     ///
     /// ```
     /// use git_toprepo::git::GitPath;
-    /// use bstr::ByteSlice as _;
-    /// let empty_path = GitPath::new(b"".into());
-    /// let foo_bar = GitPath::new(b"foo/bar".into());
-    /// let foo = GitPath::new(b"foo".into());
-    /// let bar = GitPath::new(b"bar".into());
-    /// assert_eq!(foo_bar.relative_to(&foo), Some(GitPath::new(b"bar".into())));
-    /// assert_eq!(foo_bar.relative_to(&foo_bar), Some(GitPath::new(b"".into())));
-    /// assert_eq!(foo_bar.relative_to(&empty_path), Some(GitPath::new(b"foo/bar".into())));
+    ///
+    /// let empty_path = GitPath::from("");
+    /// let foo_bar = GitPath::from("foo/bar");
+    /// let foo = GitPath::from("foo");
+    /// let bar = GitPath::from("bar");
+    /// assert_eq!(foo_bar.relative_to(&foo), Some(GitPath::from("bar")));
+    /// assert_eq!(foo_bar.relative_to(&foo_bar), Some(GitPath::from("")));
+    /// assert_eq!(foo_bar.relative_to(&empty_path), Some(GitPath::from("foo/bar")));
     /// assert_eq!(empty_path.relative_to(&bar), None);
     /// assert_eq!(foo_bar.relative_to(&bar), None);
     /// ```
@@ -319,9 +319,7 @@ pub fn repo_relative_path(worktree: &Path, cwd_relpath: &Path) -> Result<GitPath
     let worktree_path = wanted_path
         .strip_prefix(worktree)
         .context("Path is not relative to the worktree")?;
-    Ok(GitPath::new(
-        worktree_path.as_os_str().as_encoded_bytes().into(),
-    ))
+    Ok(GitPath::from(worktree_path.as_os_str().as_encoded_bytes()))
 }
 
 /// Scaffolding code to create deterministic commits.
