@@ -33,6 +33,35 @@ fn test_push_empty_commit_should_fail() {
 }
 
 #[test]
+fn test_push_duplicate_branch() {
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&monorepo)
+        .args(["push", "origin", "HEAD:refs/heads/new-branch"])
+        .assert()
+        .success();
+
+    // It is enough to push to the top repository, as the submodules are not
+    // changed and their commits are already present but potentially under a
+    // different ref.
+    Command::new("git")
+        .current_dir(&toprepo)
+        .args([
+            "diff",
+            "--exit-code",
+            "refs/heads/main",
+            "refs/heads/new-branch",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
 fn test_push_top() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
