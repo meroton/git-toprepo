@@ -1,7 +1,8 @@
 # Terminology overview
 
-This describes the terms involved in using `git-toprepo`, the tool,
-to emulate a monorepo for a toprepo and its submodules.
+This describes the terms involved in using the `git-toprepo` tool
+to _assemble_ an _emulated monorepo_ for a _toprepo_ and its _submodules_.
+this _combines_ the history of all _repositories_.
 
 ## Terms
 
@@ -9,46 +10,45 @@ to emulate a monorepo for a toprepo and its submodules.
 a _repository_. May be local or on a remote server.
 
 **git submodule**: A core `git` concept,
-a _submodule_ is a _repository_ with a child-parent relation ship to another.
+a _submodule_ is a _repository_ with a child-parent relationship to another.
 
 **regular submodule**: A core `git` concept,
 a regular _submodule_ that is entirely managed through `git-submodule` etc.
 
-**filtered submodule**: A `git-toprepo` concept,
-a _submodule_ that has been assimilated into one combined history in the filtered _monorepo_.
+**assimilated submodule**: A `git-toprepo` concept,
+a _submodule_ that has been _assembled_ into the _combined_ history in the _toprepo_.
 
 **superrepo**: Emergent from core git concepts,
 the parent _repository_ to a _submodule_.
 It may be a _submodule_ to another _superrepo_.
 
+**toprepo**: A regular _repository_ with special configuration and purpose.
+It is meant to be used together with `git-toprepo` to _assemble_ itself and its _submodules_
+to an _emulated monorepo_.
+This is generally configured by the organization
+but the user may have her own configuration for personal preferences.
+
+It can also be checked out with _regular submodules_:
+`git-submodule init --recursive`
+but it is not the preferred development workflow.
+
+There is generally only one such _repository_
+so it is often described in definite form: "the _toprepo_".
+
 **git-toprepo**: The tool itself.
-`git-toprepo` filters a _toprepo_
-and some of its _submodules_
-into a _monorepo_ (emulated).
-Takes care to push filtered _submodules_ to their remote server.
-
-**toprepo**: A _repository_ with _submodules_.
-This is the main development _repository_ for a developer.
-the _toprepo_ is the root level _superrepo_
-in a potential hierarchy of multiple levels of _submodules_.
-
-It may either be checked out with **regular** `git-submodule init --recursive`
-or with `git-toprepo` to create a _monorepo_.
-If it is checked out with `git-toprepo`
-some _soubmodules_ may not be filtered into the _monorepo_,
-then those must be manipulated with `git-submodule` as in the first case.
+`git-toprepo` _assembles_ a _toprepo_
+and (a choice of) its _submodules_
+into an _emulated monorepo_.
+Takes care to push _assimilated submodules_ to their remote server.
 
 **monorepo**: A _repository_ with all the code,
 it does not typically have _submodules_.
 This makes it easy to make changes across different components
 with a regular `git` workflow,
-Generally without_submodule_ bumps and binary deliveries/integration
+Generally without _submodule_ bumps and binary deliveries/integration
 of first party code.
 Gives unparalleled reproducibility
 and understanding of the full product.
-
-Throughout `git-toprepo`'s code and documentation
-_monorepo_ is often used to refer to an _emulated monorepo_, for conciseness.
 
 **pure monorepo**: A commonly sought concept,
 such a _repository_ does not have _submodules_ at all.
@@ -56,14 +56,15 @@ There is just one _repository_ on the remote `git` server.
 This realizes the full value of a _monorepo_,
 but has no clear _access control_.
 
-**emulated monorepo**: A client side construct
-that emulates a _monorepo_ for developer
-but still tracks code as _submodules_ with their own remote git _repositories_.
-This is created by `git-toprepo`.
+**emulated monorepo**: A client-side construct, _assembly_,
+that _emulates_ a _monorepo_ for a _toprepo_.
+The developer sees a joint history of all _submodules_ and can create _monocommits_
+that span multiple _submodules_ and push/fetch them with `git-toprepo`.
+The tool keeps track of the _assimilated submodules_ with their own remote git _repositories_.
 
 As a performance optimization a  _monorepo_ created by `git-toprepo`
-may still have _submodules_ though,
-if the user does not want to assimilate all _submodules_.
+may still have _regular submodules_ though,
+if the user does not want to _combine_ all _submodules_.
 
 **submodule access control**: One can easily apply
 access control to individual _submodules_ by restricting access to their git _repositories_.
@@ -72,31 +73,36 @@ Such access control is not possible for different directories in a _pure monorep
 **commit**: A core `git` concept.
 
 **monocommit**: A `git-toprepo` concept,
-a commit in the _emulated monorepo_ for the _toprepo_.
-May consist of multiple _commits_ in multiple _filtered submodules_.
+a commit in the _emulated monorepo_.
 
 `git-toprepo` shines when a developer wants to make one change across two _submodules_
-and can track that as one _supercommit_
--- one _commit_ in the _emulated monorepo_ that consists of one _commit_ in each of the two _submodules_.
+and can track that as one _monocommit_
+-- one _commit_ in the _emulated monorepo_ that consists of one _commit_ in each of the two _assimilated submodules_.
 Those are meant to be merged together
-through compatible CI systems that allow _shared gating_ between _repositories_.
+through compatible CI systems that allow _shared gating_ between the constituent _repositories_.
 
 **shared gating**: A CI system concept.
 CI systems like `Gerrit` allows an organization to merge code to multiple _repositories_
 atomically if all tests passes.
-This allows us to emaulate a _monorepo_ and have a shared gate.
-`Gerrit` uses [superproject subscription] for this
+This allows the shared gating of the constituent _submodules_.
+So the merged history is always compatible with an _emulated monorepo_,
+there are no race conditions between different _repository_ gates.
+`Gerrit` uses [superproject subscription] for this.
 
 [superproject subscription]: https://gerrit-review.googlesource.com/Documentation/user-submodules.html
 
 ### Verbs
 
-**filter**: `git-toprepo` filters the history of one _toprepo_ and its _regular submodules_
-into an _emulated monorepo_ with a combined history for all the _toprepo_ itself and its _filtered submodules_.
+**assemble**: `git-toprepo` _assembles_ a _toprepo_ and its _submodules_ into an _emulated monorepo_.
 
-**combined**: `git-toprepo` has _combined_ the history into an _emulated monorepo_ with combined history.
+**combine**: `git-toprepo` _combines_ the history of one _toprepo_ and (some of) its _submodules_
+into an _emulated monorepo_ with a _combined_ history for code in the _toprepo_ itself and its _assimilated submodules_.
 
-**manage**: `git-toprepo` manages a git _toprepo_ and has _expanded_ the history into an _emulated monorepo_.
+**assimilate**: `git-toprepo` has _assimilated_ a _submodule_ into the _combined_ _emulated monorepo_ history.
+
+**expand**: The _toprepo_ has been expanded to an _emulated monorepo_.
+This verb is not used often but avoids the mention of _submodules_.
+<!-- TODO: Can "assemble" be used in all the expansion contexts, without mention of the submodules? -->
 
 ### Technical details
 
@@ -109,75 +115,83 @@ For power users and _repository_ maintainers there are a few overlapping concept
 `git` runs external subcommands like `git-<sub>` as `git <commit>`
 to make it easy to create custom tools for `git`.
 
+### Technical terms in the code
+
+**topcommit**: Commits in the _toprepo_'s own remote git _repository_.
+These are fetched in `git-toprepo fetch`
+these are also formed when pushing new work with `git-toprepo push`
+if changes were made to the underlying _toprepo_,
+symmetric with _regular commits_ for the constituent _submodules_
+that are pushed to the _submodules_' remote git _repository_.
+
+**monorepo**: In the code we use "_monorepo_" as short-hand notation instead of
+"_emulated monorepo_". As the code has no use in a "_pure monorepo_" context.
+So the brevity is placed over preciseness of the term within the code.
+
 ## Examples
 
-### Initialization: The toprepo may be a monorepo
+### Initialization: expand the toprepo to an emulated monorepo
 
-The configuration of a _monorepo_ is often managed in the _toprepo_ and is already checked in.
+The _toprepo_ can be initialized to an _emulated monorepo_ with `git-toprepo`.
+The configuration of the _emulated monorepo_
+is often managed in the _toprepo_ itself and is already checked in.
 
-Short-form initialization of a _monorepo_.
+Short-form initialization of the _emulated monorepo_.
 ```
-$ monorepo $ git toprepo clone ssh://gerrit.example/toprepo.git monorepo
-$ cd monorepo
-monorepo $ # This is a monorepo.
+$ git toprepo clone ssh://gerrit.example/toprepo.git emulated-monorepo
+$ cd emulated-monorepo
+emulated-monorepo $ # This is an emulated monorepo.
 ```
-
-<!-- Long-form initialization of a _monorepo_. -->
-<!-- ``` -->
-<!-- $ mkdir monorepo -->
-<!-- $ cd monorepo -->
-<!-- monorepo $ git toprepo init ssh://gerrit.example/toprepo -->
-<!-- monorepo $ git toprepo fetch -->
-<!-- monorepo $ # This is a monorepo -->
-<!-- ``` -->
 
 However, the code can also be checked out with regular git _submodules_.
 ```
 $ git clone ssh://gerrit.example/toprepo.git
 $ cd toprepo
 toprepo $ git submodule init --recursive
-toprepo $ # This is not a monorepo
+toprepo $ # This is not an emulated monorepo.
 ```
 
-### Initialization: Some submodules are not filtered in
+### Initialization: Some submodules are not assimilated
 
 Now imagine that the _toprepo_ has one _submodule_ with a long and weird history,
 it may be binary data that takes a lot of space and is not relevant to the developer.
-Then it is often **not filtered** into the _emulated monorepo_.
+Then it is often not _assimilated_ into the _emulated monorepo_.
 
-_monorepo_:
+_emulated monorepo_:
 ```
-$ monorepo $ git toprepo clone ssh://gerrit.example/toprepo.git monorepo
-$ cd monorepo
-monorepo $ # This is a monorepo.
+$ git toprepo clone ssh://gerrit.example/toprepo.git emulated-monorepo
+$ cd emulated-monorepo
+emulated-monorepo $ # This is an emulated monorepo.
 monorepo $ git submodule status
 -4e04771fcf658500987d0be5a9a63f8e77d5e386 binary_data_module
 ```
 
-regular _toprepo_:
+regular _repository_:
 ```
 $ git clone ssh://gerrit.example/toprepo.git
 $ cd toprepo
+toprepo $ git submodule init --recursive
+toprepo $ # This is not an emulated monorepo.
 toprepo $ git submodule status
 -4e04771fcf658500987d0be5a9a63f8e77d5e386 binary_data_module
 -661c1b2d568693e3b6b631ae66f6872b194674f1 source_code_module
 ```
 
-### Pushing: git-toprepo pushes filtered submodules to their servers
+### Pushing: git-toprepo pushes assimilated submodules to their servers
 
 `git-toprepo` shines when a developer wants to make one change across two _submodules_
-in one _supercommit_.
+in one _topcommit_.
 
 ```
-monorepo $ # modify one/file and two/file
-monorepo $ git add one/file two/file; git commit
-monorepo $ git-toprepo push HEAD:refs/for/main
+emulated-monorepo $ # modify one/file and two/file
+emulated-monorepo $ git add one/file two/file; git commit
+emulated-monorepo $ git-toprepo push HEAD:refs/for/main
 ```
 
-This pushes the two paths inside the _monorepo_ to their constituent
+This pushes the two paths inside the _emulated monorepo_ to their constituent
 _repositories_ on the git server (gerrit.example/one.git and gerrit.example/two.git).
 
-The regular workflow with submodules, however, is more involved
+The regular workflow with _submodules_, however, is more involved
 
 ```
 toprepo $ # modify one/file and two/file
@@ -185,38 +199,36 @@ toprepo $ git -C one add file; git commit
 toprepo $ git -C two add file; git commit
 toprepo $ git -C one push HEAD:refs/for/main
 toprepo $ git -C two push HEAD:refs/for/main
-# As you use Gerrit's superproject subscription, you would not need a toprepo commit:
-# toprepo $ git add one two; git commit
-# toprepo $ git push HEAD:refs/for/main
+# Because you use Gerrit's superproject subscription (otherwise git-toprepo does not work),
+# you would not need a toprepo commit:
+#   toprepo $ git add one two; git commit
+#   toprepo $ git push HEAD:refs/for/main
 ```
 
-First the two _submodules_ are handled separately
-then the _toprepo_ must also bump its _submodule_ pointers to the new commits within them.
-
 > [!NOTE]
-> Though committing inside _regular submodules_ in a _monorepo_ is rare.
-> If a _submodule_'s history is not relevant to _filter_ into the combined history
+> Though committing inside _regular submodules_ in an _emulated monorepo_ is rare.
+> If a _submodule_'s history is not relevant to _assimilate_ into the _combined_ history
 > it is unlikely that developers need to modify the code and make changes.
 
 ### Rebasing: git-toprepo gives a shared history that is easy to work with
 
-With `git-toprepo`, rebasing _commits_ in any of the _filtered submodules_
+With `git-toprepo`, rebasing _commits_ in any of the _assimilated submodules_
 is as easy as working in a single _repository_.
 
 ```
-monorepo $ git-toprepo fetch origin
-monorepo $ git rebase -i origin/main
+emulated-monorepo $ git-toprepo fetch origin
+emulated-monorepo $ git rebase -i origin/main
 ```
 
-However when using _regular submodules_ in an _unmanaged_ _toprepo_
+However when using _regular submodules_ in an _repository_
 one needs to automate the workflow within individual _submodules_.
 
 ```
 toprepo $ git fetch origin
 toprepo $ git rebase -i origin/main
-toprepo $ submod_commit_hash=$(git ls-files --stage -- one | cut -d' ' -f2)
+toprepo $ submod_commit_hash="$(git ls-files --stage -- one | cut -d' ' -f2)"
 toprepo $ git -C one rebase -i "$submod_commit_hash"
-toprepo $ submod_commit_hash=$(git ls-files --stage -- two | cut -d' ' -f2)
+toprepo $ submod_commit_hash="$(git ls-files --stage -- two | cut -d' ' -f2)"
 toprepo $ git -C two rebase -i "$submod_commit_hash"
 ```
 
@@ -225,13 +237,31 @@ but note that the rebasing is not synchronized between the _submodules_.
 Therefore, building and testing the code after resolving a merge conflict,
 which may have only occurred in one _submodule_, is not trivial.
 
-### Pushing: Push all submodules of an emulated monorepo
+### Pushing: Push all submodules of a toprepo
 
-As an _emulated monorepo_ may not have _expanded_ all _submodules_ into the combined history
+As an _emulated monorepo_:_ may not have _combined_ all _submodules_ into the history
 some _submodules_ are left as _regular submodules_.
 So to always push changes to all _submodules_ the following invocation is needed:
 
 ```
-monorepo $ git-toprepo push HEAD:refs/for/main
-monorepo $ git submodule for each push HEAD:refs/for/main
+emulated-monorepo $ git-toprepo push HEAD:refs/for/main
+emulated-monorepo $ git submodule for each push HEAD:refs/for/main
 ```
+
+> [!NOTE]
+> Recall that  committing inside _regular submodules_ in an _emulated monorepo_ is rare.
+
+### Combination algorithm:
+
+This briefly outlines the _combination_ algorithm
+that creates the _shared history_ of the _emulated monorepo_
+to further contextualize the pieces and their relationships.
+
+#### Fetch a toprepo commit and create a monocommit
+
+`git-toprepo fetch` first fetches the _regular commit_ (_topcommit_) for the _toprepo_ itself
+`git fetch ...`.
+Then finds any _submodules_ that are bumped through Gerrit's _superproject subscription_
+and fetches their _regular commits_.
+All the _regular commits_ in the _rootrepo_ and the _assimilated submodules_
+are _combined_ into one _monocommit_.
