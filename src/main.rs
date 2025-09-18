@@ -160,7 +160,7 @@ fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
 fn config(config_args: &cli::Config, monorepo_root: Result<PathBuf>) -> Result<()> {
     match &config_args.config_command {
         cli::ConfigCommands::Location => {
-            let repo_dir = &monorepo_root?;
+            let repo_dir = &monorepo_root.map_err(|_| NotAMonorepo)?;
             let location = config::GitTopRepoConfig::find_configuration_location(repo_dir)?;
             if let Err(err) = location.validate_existence(repo_dir) {
                 log::warn!("{err:#}");
@@ -168,7 +168,7 @@ fn config(config_args: &cli::Config, monorepo_root: Result<PathBuf>) -> Result<(
             println!("{location}");
         }
         cli::ConfigCommands::Show => {
-            let repo_dir = &monorepo_root?;
+            let repo_dir = &monorepo_root.map_err(|_| NotAMonorepo)?;
             let config = config::GitTopRepoConfig::load_config_from_repo(repo_dir)?;
             print!("{}", toml::to_string(&config)?);
         }
@@ -898,6 +898,34 @@ fn print_version() -> Result<()> {
     Ok(())
 }
 
+/// Session manager that provides setup/teardown lifecycle for operations
+/// Replicates the MonoRepoProcessor::run() pattern without changing data structures
+struct ConfiguredRepoSession;
+
+impl ConfiguredRepoSession {
+    /// Run an operation with automatic setup and teardown
+    fn run<T, F>(directory: &Path, f: F) -> Result<T>
+    where
+        F: FnOnce(&mut repo::ConfiguredTopRepo) -> Result<T>,
+    {
+        // Setup: Open configured repo (loads cache from disk)
+        let mut configured_repo = repo::TopRepo::open_configured(directory)?;
+        
+        // Run the operation
+        let result = f(&mut configured_repo);
+        
+        // Teardown: Always save state (preserves partial work even on errors)
+        let save_result = configured_repo.save_state();
+        
+        // Return operation result, but if save failed and operation succeeded, return save error
+        match (result, save_result) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Ok(_), Err(save_err)) => Err(save_err),
+            (Err(op_err), _) => Err(op_err), // Operation error takes precedence
+        }
+    }
+}
+
 /// Executes `main_fn` with a signal handler that listens for termination
 /// signals. When `main_fn` returns or when a termination signal is received,
 /// the signal handler is stopped and `shutdown_fn` is called.
@@ -999,6 +1027,9 @@ where
             minimal: _,
         }) => {
             let directory = init(init_args)?;
+            // TODO: Instead communicate this directory to the second phase
+            // than to change directory. All references to "." are code smells
+            // and should be resolved later.
             std::env::set_current_dir(&directory).with_context(|| {
                 format!(
                     "Failed to change working directory to {}",
@@ -1031,7 +1062,7 @@ where
     // Open repository once for all operations - this solves the "dual access paths" problem
     let toprepo_root = gitrepo_root.map_err(|_| NotAMonorepo)
         .context(repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
-    let mut repo = repo::TopRepo::open_for_commands(Path::new(&toprepo_root))?;
+    let repo = repo::TopRepo::open_for_commands(Path::new(&toprepo_root))?;
 
     // TODO(terminology #172):
     // We can persist the tracing in the monorepo.
@@ -1057,28 +1088,33 @@ where
             // Special case: two-stage initialization
             // After init(), we changed directory but the unified repo was opened from the old directory
             // We need to open the configured repo from the current directory after init()
-            let mut configured = repo::TopRepo::open_configured(Path::new("."))?;
-            clone_after_init(&clone_args, &mut configured)
+            /*
+             * let mut configured = repo::TopRepo::open_configured(Path::new("."))?;
+             */
+            let directory = Path::new(".");
+            ConfiguredRepoSession::run(directory, |configured| {
+                clone_after_init(&clone_args, configured)
+            })
         }
         Commands::Refilter(refilter_args) => {
-            let mut configured = repo.require_configured()?;
-            refilter(&refilter_args, &mut configured)
+            ConfiguredRepoSession::run(&toprepo_root, |configured| {
+                refilter(&refilter_args, configured)
+            })
         }
         Commands::Fetch(fetch_args) => {
-            let mut configured = repo.require_configured()?;
-            fetch(&fetch_args, &mut configured)
+            ConfiguredRepoSession::run(&toprepo_root, |configured| {
+                fetch(&fetch_args, configured)
+            })
         }
         Commands::Push(push_args) => {
-            let mut configured = repo.require_configured()?;
-            push(&push_args, &mut configured)
+            ConfiguredRepoSession::run(&toprepo_root, |configured| {
+                push(&push_args, configured)
+            })
         }
 
         // Experimental and scaffolding commands.
         Commands::Checkout(ref checkout_args) => checkout(&args, checkout_args),
     };
-
-    // Auto-save configured repo state
-    repo.save_state_if_configured()?;
     
     result
 }
