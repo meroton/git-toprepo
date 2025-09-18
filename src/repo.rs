@@ -32,8 +32,10 @@ use std::ops::Deref;
 use std::path::Path;
 use std::rc::Rc;
 
+// TODO(terminology): see if the important part is the git repository itself and
+// the toprepo, or whether the important error is that it is not a monorepo.
 pub const COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY: &str =
-    "Could not open toprepo, it must be a git repository";
+    "Could not open toprepo";
 pub const LOADING_THE_MAIN_PROJECT_CONTEXT: &str = "Loading the main repo Gerrit project";
 
 pub fn parse_gerrit_project(url: &gix::url::Url) -> Result<String> {
