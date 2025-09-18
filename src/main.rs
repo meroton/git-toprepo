@@ -603,6 +603,11 @@ where
 
 #[tracing::instrument(skip(processor))]
 fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> {
+    let mut extra_args = Vec::new();
+    if push_args.force {
+        extra_args.push("--force".to_owned());
+    }
+
     let base_url = match processor
         .gix_repo
         .try_find_remote(push_args.top_remote.as_bytes())
@@ -636,7 +641,7 @@ fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> 
             error_observer.clone(),
             push_args.job_count.into(),
         );
-        commit_pusher.push(push_metadatas, &remote_ref, push_args.dry_run)
+        commit_pusher.push(push_metadatas, &remote_ref, &extra_args, push_args.dry_run)
     })
 }
 
