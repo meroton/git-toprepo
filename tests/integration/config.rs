@@ -211,6 +211,9 @@ fn test_config_commands_use_correct_working_directory() {
         .success();
 }
 
+// TODO: Create a bootstrap test inside a monorepo,
+// it should give an error then.
+
 #[test]
 fn test_config_bootstrap() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();

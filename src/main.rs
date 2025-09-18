@@ -149,10 +149,18 @@ fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
 }
 
 #[tracing::instrument]
-fn config(config_args: &cli::Config, monorepo_root: &Option<PathBuf>) -> Result<()> {
+// NB: This could also take an `Option<PathBuf>` but we know it is a result from
+// earlier, so this kind of smears the error handling between this function and
+// the caller. But it allows us to give correct errors for each case.
+//
+// In the `Normalize` and `Validate` cases the callee error is entirely
+// irrelevant and should not be contextualized.
+// In `Boostrap`, `Location` and `Show` the callee error is sufficient on its own
+// so we just return it.
+fn config(config_args: &cli::Config, monorepo_root: Result<PathBuf>) -> Result<()> {
     match &config_args.config_command {
         cli::ConfigCommands::Location => {
-            let repo_dir = monorepo_root.as_ref().ok_or(NotAMonorepo)?;
+            let repo_dir = &monorepo_root?;
             let location = config::GitTopRepoConfig::find_configuration_location(repo_dir)?;
             if let Err(err) = location.validate_existence(repo_dir) {
                 log::warn!("{err:#}");
@@ -160,12 +168,13 @@ fn config(config_args: &cli::Config, monorepo_root: &Option<PathBuf>) -> Result<
             println!("{location}");
         }
         cli::ConfigCommands::Show => {
-            let repo_dir = monorepo_root.as_ref().ok_or(NotAMonorepo)?;
+            let repo_dir = &monorepo_root?;
             let config = config::GitTopRepoConfig::load_config_from_repo(repo_dir)?;
             print!("{}", toml::to_string(&config)?);
         }
         cli::ConfigCommands::Bootstrap => {
-            let config = config_bootstrap()?;
+            let repo_dir = &monorepo_root?;
+            let config = config_bootstrap(repo_dir)?;
             print!("{}", toml::to_string(&config)?);
         }
         cli::ConfigCommands::Normalize(args) => {
@@ -179,10 +188,9 @@ fn config(config_args: &cli::Config, monorepo_root: &Option<PathBuf>) -> Result<
     Ok(())
 }
 
-fn config_bootstrap() -> Result<GitTopRepoConfig> {
+fn config_bootstrap(path: &PathBuf) -> Result<GitTopRepoConfig> {
     // TODO: See if the unified opener works.
-    let gix_repo = gix::open(PathBuf::from("."))
-        .context(repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
+    let gix_repo = gix::open(PathBuf::from(path))?;
     let default_remote_name = gix_repo
         .remote_default_name(gix::remote::Direction::Fetch)
         .with_context(|| "Failed to get the default remote name")?;
@@ -1002,10 +1010,12 @@ where
             // So it is safe to proceed with the processor `clone_after_init`.
             // TODO: We should now be in a ConfiguredTopRepo state,
             // we should update that here.
+            // TODO: When folding the two dispatchers we just need to make sure
+            // the logging works as expected. That is the only code between the
+            // two dispatchers.
         }
         Commands::Config(config_args) => {
-            let repo_root = gitrepo_root.map_err(|_| NotAMonorepo)?;
-            return config(config_args, &Some(repo_root));
+            return config(config_args, gitrepo_root);
         }
         Commands::Version => return print_version(),
         Commands::IsMonorepo => {
