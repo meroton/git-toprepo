@@ -1,7 +1,7 @@
 # Terminology overview
 
 This describes the terms involved in using the `git-toprepo` tool
-to create an _emulated monorepo_ for a _toprepo_ and its _submodules_.
+to _assemble_ an _emulated monorepo_ for a _toprepo_ and its _submodules_.
 this _combines_ the history of all _repositories_.
 
 ## Terms
@@ -16,28 +16,29 @@ a _submodule_ is a _repository_ with a child-parent relationship to another.
 a regular _submodule_ that is entirely managed through `git-submodule` etc.
 
 **assimilated submodule**: A `git-toprepo` concept,
-a _submodule_ that has been assimilated into the _combined_ history in the _toprepo_.
+a _submodule_ that has been _assembled_ into the _combined_ history in the _toprepo_.
 
 **superrepo**: Emergent from core git concepts,
 the parent _repository_ to a _submodule_.
 It may be a _submodule_ to another _superrepo_.
 
 **toprepo**: A regular _repository_ with special configuration and purpose.
-It is meant to be used together with `git-toprepo` to _combine_ its _submodules_
+It is meant to be used together with `git-toprepo` to _assemble_ itself and its _submodules_
 to an _emulated monorepo_.
 This is generally configured by the organization
 but the user may have her own configuration for personal preferences.
-There is generally only one such repo
-so it is often described in definite form: "the _toprepo_".
 
 It can also be checked out with _regular submodules_:
 `git-submodule init --recursive`
 but it is not the preferred development workflow.
 
+There is generally only one such _repository_
+so it is often described in definite form: "the _toprepo_".
+
 **git-toprepo**: The tool itself.
-`git-toprepo` combines a _repository_
+`git-toprepo` _assembles_ a _toprepo_
 and (a choice of) its _submodules_
-into a _toprepo_, an _emulated monorepo_.
+into an _emulated monorepo_.
 Takes care to push _assimilated submodules_ to their remote server.
 
 **monorepo**: A _repository_ with all the code,
@@ -55,7 +56,7 @@ There is just one _repository_ on the remote `git` server.
 This realizes the full value of a _monorepo_,
 but has no clear _access control_.
 
-**emulated monorepo**: A client-side construct
+**emulated monorepo**: A client-side construct, _assembly_,
 that _emulates_ a _monorepo_ for a _toprepo_.
 The developer sees a joint history of all _submodules_ and can create _monocommits_
 that span multiple _submodules_ and push/fetch them with `git-toprepo`.
@@ -76,7 +77,7 @@ a commit in the _emulated monorepo_.
 
 `git-toprepo` shines when a developer wants to make one change across two _submodules_
 and can track that as one _monocommit_
--- one _commit_ in the _emulated monorepo_ that consists of one _commit_ in each of the two _submodules_.
+-- one _commit_ in the _emulated monorepo_ that consists of one _commit_ in each of the two _assimilated submodules_.
 Those are meant to be merged together
 through compatible CI systems that allow _shared gating_ between the constituent _repositories_.
 
@@ -92,6 +93,8 @@ there are no race conditions between different _repository_ gates.
 
 ### Verbs
 
+**assemble**: `git-toprepo` _assembles_ a _toprepo_ and its _submodules_ into an _emulated monorepo_.
+
 **combine**: `git-toprepo` _combines_ the history of one _toprepo_ and (some of) its _submodules_
 into an _emulated monorepo_ with a _combined_ history for code in the _toprepo_ itself and its _assimilated submodules_.
 
@@ -99,6 +102,7 @@ into an _emulated monorepo_ with a _combined_ history for code in the _toprepo_ 
 
 **expand**: The _toprepo_ has been expanded to an _emulated monorepo_.
 This verb is not used often but avoids the mention of _submodules_.
+<!-- TODO: Can "assemble" be used in all the expansion contexts, without mention of the submodules? -->
 
 ### Technical details
 
@@ -113,12 +117,12 @@ to make it easy to create custom tools for `git`.
 
 ### Technical terms in the code
 
-**topcommit**: Commits in the _toprepo_'s own remote git server.
+**topcommit**: Commits in the _toprepo_'s own remote git _repository_.
 These are fetched in `git-toprepo fetch`
 these are also formed when pushing new work with `git-toprepo push`
 if changes were made to the underlying _toprepo_,
 symmetric with _regular commits_ for the constituent _submodules_
-that are pushed to the _submodules_' remote git servers.
+that are pushed to the _submodules_' remote git _repository_.
 
 **monorepo**: In the code we use "_monorepo_" as short-hand notation instead of
 "_emulated monorepo_". As the code has no use in a "_pure monorepo_" context.
