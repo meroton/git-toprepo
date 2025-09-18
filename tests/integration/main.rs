@@ -75,7 +75,7 @@ mod main {
     #[case::pwd_sub("repo", &[], "repo")]
     #[case::c_sub(".", &["-C", "repo"], "repo")]
     #[case::pwd_sub_c_dotdot("repo", &["-C", ".."], "")]
-    fn commands_outside_git_repos_fail(
+    fn commands_in_uninitialized_git_toprepo_fail(
         #[case] pwd_sub_dir: &str,
         #[case] dash_c: &[&str],
         #[case] final_dir: &str,
