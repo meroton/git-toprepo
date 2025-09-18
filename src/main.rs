@@ -21,6 +21,7 @@ use git_gr_lib::query::QueryOptions;
 use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::NotAMonorepo;
+use git_toprepo::AlreadyAMonorepo;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::git::git_command;
 use git_toprepo::gitreview::parse_git_review;
@@ -155,11 +156,13 @@ fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
 //
 // In the `Normalize` and `Validate` cases the callee error is entirely
 // irrelevant and should not be contextualized.
-// In `Boostrap`, `Location` and `Show` the callee error is sufficient on its own
+// In `Bootstrap`, `Location` and `Show` the callee error is sufficient on its own
 // so we just return it.
 fn config(config_args: &cli::Config, monorepo_root: Result<PathBuf>) -> Result<()> {
     match &config_args.config_command {
         cli::ConfigCommands::Location => {
+            // TODO: Print something that can easily be selected and opened in
+            // a terminal or VsCode or so. The "local:" prefix makes it harder.
             let repo_dir = &monorepo_root.map_err(|_| NotAMonorepo)?;
             let location = config::GitTopRepoConfig::find_configuration_location(repo_dir)?;
             if let Err(err) = location.validate_existence(repo_dir) {
@@ -189,8 +192,14 @@ fn config(config_args: &cli::Config, monorepo_root: Result<PathBuf>) -> Result<(
 }
 
 fn config_bootstrap(path: &PathBuf) -> Result<GitTopRepoConfig> {
-    // TODO: See if the unified opener works.
+    // TODO: See if the unified opener works and use the BasicToprepo directly.
+    // Then we can just give error on the pattern match.
+    if git_toprepo::is_monorepo(&path).is_ok() {
+        return Err(AlreadyAMonorepo.into());
+    }
     let gix_repo = gix::open(PathBuf::from(path))?;
+
+
     let default_remote_name = gix_repo
         .remote_default_name(gix::remote::Direction::Fetch)
         .with_context(|| "Failed to get the default remote name")?;

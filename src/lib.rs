@@ -16,6 +16,8 @@ pub mod submitted_together;
 pub mod ui;
 pub mod util;
 
+// TODO: Move errors to an error module.
+
 /// Error indicating that the current directory is not a configured git-toprepo
 /// TODO(terminology pr#172): This will be renamed when terminology is finalized
 #[derive(Debug, PartialEq)]
@@ -29,8 +31,43 @@ impl std::fmt::Display for NotAMonorepo {
 
 impl std::error::Error for NotAMonorepo {}
 
+#[derive(Debug, PartialEq)]
+pub struct AlreadyAMonorepo;
+
+impl std::fmt::Display for AlreadyAMonorepo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "AlreadyAMonorepo")
+    }
+}
+
+impl std::error::Error for AlreadyAMonorepo {}
+
 /// Checks if a directory contains a configured git-toprepo
 /// This is the canonical detection logic used throughout the codebase
+// TODO: We found a path when testing with an incomplete setup that hits this
+// but the code won't work anyway.
+// Maybe with the recent refactorings we can instead try to open it and if it
+// works it works?
+//
+//  The code below is sufficient for `is-monorepo` to return yes.
+//  But one can't load the config nor other data structures for the monorepo.
+/*
+      git_command(temp_dir)
+        .args(["init"])
+        .envs(&deterministic)
+        .check_success_with_stderr()
+        .unwrap();
+
+    git_command(temp_dir)
+        .args([
+            "config",
+            &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
+            &format!("local:{toprepo}"),
+        ])
+        .envs(&deterministic)
+        .check_success_with_stderr()
+        .unwrap();
+*/
 pub fn is_monorepo(path: &std::path::Path) -> anyhow::Result<bool> {
     let key = &config::toprepo_git_config(config::TOPREPO_CONFIG_FILE_KEY);
     let maybe = git::git_config_get(path, key)?;
