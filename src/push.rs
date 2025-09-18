@@ -85,51 +85,23 @@ pub fn split_for_push(
     fast_importer.wait()?;
     processor.top_repo_cache.dedup = dedup_cache;
 
-    to_push_metadata
-}
+    let mut to_push_metadata = to_push_metadata?;
+    if to_push_metadata.is_empty() {
+        // Everything exists upstream. Add a dummy entry of the toprepo to
+        // actually push something, e.g. if creating a new branch.
+        let top_commit_id = processor.top_repo_cache.monorepo_commits.get(&MonoRepoCommitId::new(local_rev.detach()))
+        .and_then(|mono_commit| mono_commit.top_bump)
+        .with_context(|| format!("All commits to push exist upstream, yet the mono commit {local_rev_or_ref} has not been assembled from upstream data. Please rerun `git toprepo refilter`"))?;
 
-/// Redundant pushes are pushes that can be part of a descendant commit. For
-/// example, the topic feature in Gerrit requires a git-push parameter `-o
-/// topic=` for the commit that should get the topic which means that all
-/// parents will get the same topic if uploaded in the same git-push command.
-///
-/// This function removes redundant pushes from the `push_metadata` vector, so
-/// that only the last push for each command line is kept.
-///
-/// The implementation assumes that the `push_metadata` is topologically sorted,
-/// i.e. parents are before descendants. Each remaining entry needs to be pushed
-/// before the following entries.
-pub fn remove_redundant_pushes(push_metadata: &mut Vec<PushMetadata>) {
-    // Go through the children before the parents. The branch tips need to be
-    // pushed, the question is if their parents have the same parameters and can
-    // be skipped.
-    push_metadata.reverse();
-    // redundant_pushes maps a push parameters that would make the git-push redundant, because a child would then do the job.to parameters that are not sent over with each individual commit,
-    // for example the `-o topic=` when pushing to Gerrit.
-    let mut redundant_pushes = HashMap::new();
-    push_metadata.retain(|push_info| {
-        // A---B---E
-        //  \     /
-        //   C'--D'
-        // E is needed, D' is needed, C' is not. Either A or B is needed, but
-        // not both because it depends if B is pushed before C' or not. If B and
-        // C' are pushed parallelly, then A is needed. Now, it is generally not
-        // possible to push to the same ref in parallel. Therefore, we can
-        // assume that B is pushed before C', so A is not needed.
-        let extra_args = push_info.extra_args();
-        let is_needed = redundant_pushes
-            .remove(&(push_info.push_url.clone(), push_info.commit_id))
-            .as_ref()
-            != Some(&extra_args);
-        for parent in &push_info.parents {
-            // Even if the entry exists, it should be replaced to show that the
-            // first push after `*parent` will be with `extra_args`. Later
-            // pushes will not affect anything anyway.
-            redundant_pushes.insert((push_info.push_url.clone(), *parent), extra_args.clone());
-        }
-        is_needed
-    });
-    push_metadata.reverse();
+        to_push_metadata.push(PushMetadata {
+            repo_name: RepoName::Top,
+            push_url: top_push_url.clone(),
+            topic: None,
+            commit_id: top_commit_id.into_inner(),
+            parents: Vec::new(), // Nothing else to push.
+        });
+    }
+    Ok(to_push_metadata)
 }
 
 fn rewrite_push_message(message: &str) -> (String, Option<String>) {
