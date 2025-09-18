@@ -426,13 +426,14 @@ impl CommitPusher {
         &self,
         push_metadata: Vec<PushMetadata>,
         remote_ref: &FullName,
+        extra_args: &[String],
         dry_run: bool,
     ) -> Result<()> {
         if push_metadata.is_empty() {
             log::info!("Nothing to push");
             return Ok(());
         }
-        self.push_to_remote_parallel(push_metadata, remote_ref, dry_run);
+        self.push_to_remote_parallel(push_metadata, remote_ref, extra_args, dry_run);
         self.context
             .error_observer
             .lock()
@@ -445,6 +446,7 @@ impl CommitPusher {
         &self,
         push_metadata: Vec<PushMetadata>,
         remote_ref: &FullName,
+        extra_args: &[String],
         dry_run: bool,
     ) {
         let splitted_metadata = push_metadata
@@ -460,9 +462,10 @@ impl CommitPusher {
         for (_push_url, url_push_metadata) in sorted_metadata {
             let mut task = PushTask::new(self.context.clone(), url_push_metadata);
             let remote_ref = remote_ref.clone();
+            let extra_args = extra_args.to_vec();
             let error_observer = self.context.error_observer.clone();
             thread_pool.execute(move || {
-                let result = task.push_all(&remote_ref, dry_run);
+                let result = task.push_all(&remote_ref, extra_args, dry_run);
                 error_observer.lock().unwrap().consume_interrupted(result);
             });
         }
@@ -512,7 +515,12 @@ impl PushTask {
         }
     }
 
-    pub fn push_all(&mut self, remote_ref: &FullName, dry_run: bool) -> InterruptedResult<()> {
+    pub fn push_all(
+        &mut self,
+        remote_ref: &FullName,
+        extra_args: Vec<String>,
+        dry_run: bool,
+    ) -> InterruptedResult<()> {
         while let Some(push_info) = self.reversed_push_metadata.pop() {
             self.context.push_progress.inc_queue_size(-1);
             if self
@@ -524,7 +532,7 @@ impl PushTask {
             {
                 return Err(InterruptedError::Interrupted);
             }
-            self.push_one(push_info, remote_ref, dry_run)?;
+            self.push_one(push_info, remote_ref, extra_args.clone(), dry_run)?;
         }
         Ok(())
     }
@@ -533,6 +541,7 @@ impl PushTask {
         &mut self,
         push_info: PushMetadata,
         remote_ref: &FullName,
+        mut extra_args: Vec<String>,
         dry_run: bool,
     ) -> Result<()> {
         // Update progress bars.
@@ -566,7 +575,7 @@ impl PushTask {
             .pb_url
             .set_message(push_info.push_url.to_string());
         // Log.
-        let extra_args = push_info.extra_args();
+        extra_args.extend(push_info.extra_args());
         let log_command = format!(
             "git push {}{} {}:{remote_ref}",
             push_info.push_url,

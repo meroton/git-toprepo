@@ -528,6 +528,10 @@ pub struct Push {
     #[arg(long("jobs"), name = "N", default_value = "7")]
     pub job_count: std::num::NonZero<u16>,
 
+    /// Forward `--force` to `git push`. `--force-with-lease` is unsupported.
+    #[arg(long, short = 'f')]
+    pub force: bool,
+
     /// A configured git remote in the mono repository or a URL of the top
     /// repository to push to. Submodules are calculated relative this remote.
     #[arg(name = "top-remote", verbatim_doc_comment)]
