@@ -36,7 +36,7 @@ tracing-chrome = "0.7.2"
 tracing-log = "0.2.0"
 tracing-subscriber = "0.3.19"
 wait-timeout = "0.2.1"
-git-gr = { path = "/home/nwirekli/gits/git-gr" }
+git-gr = { path = "/home/nils/gits/git-gr" }
 rust-netrc = "0.1.2"
 
 [dev-dependencies]
