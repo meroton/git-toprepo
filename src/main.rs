@@ -1135,7 +1135,7 @@ mod tests {
     #[test]
     fn test_main_in_uninitialized_git_toprepo() {
         let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-test_main_outside_git_toprepo",
+            "git_toprepo-test_main_in_uninitialized_git_toprepo",
         );
         let temp_dir_str = temp_dir.to_str().unwrap();
         let mut init_cmd = git_command(&temp_dir.to_path_buf().to_owned());
@@ -1153,7 +1153,7 @@ mod tests {
      * inside a proper checked out submodule fails.
      * In there regular git should be used.
     #[test]
-    fn test_main_insdie_a_proper_submodule_to_a_git_toprepo() {
+    fn test_main_inside_a_proper_submodule_to_a_git_toprepo() {
     }
     */
 }
