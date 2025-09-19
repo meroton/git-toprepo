@@ -1,8 +1,7 @@
 use assert_cmd::Command;
 use assert_cmd::assert::OutputAssertExt as _;
 use bstr::ByteSlice as _;
-use git_toprepo::git::commit_env_for_testing;
-use git_toprepo::git::git_command;
+use git_toprepo::git::git_command_for_testing;
 use itertools::Itertools as _;
 use predicates::prelude::PredicateBooleanExt as _;
 use std::path::Path;
@@ -368,7 +367,7 @@ fn test_refilter_moved_submodule() {
 }
 
 fn extract_log_graph(repo_path: &Path, extra_args: Vec<&str>) -> String {
-    let log_command = git_command(repo_path)
+    let log_command = git_command_for_testing(repo_path)
         .args(["log", "--graph", "--format=%s"])
         .args(extra_args)
         .assert()
@@ -403,13 +402,12 @@ fn test_warn_for_empty_submodule() {
     let monorepo = temp_dir.join("mono");
     let monorepo2 = temp_dir.join("mono2");
 
-    git_command(&subxrepo)
+    git_command_for_testing(&subxrepo)
         .args(["rm", "-rf", "."])
         .assert()
         .success();
-    git_command(&subxrepo)
+    git_command_for_testing(&subxrepo)
         .args(["commit", "-m", "Remove all files"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
     Command::cargo_bin("git-toprepo")
@@ -423,13 +421,12 @@ fn test_warn_for_empty_submodule() {
 
     // Fix the warning.
     std::fs::write(subxrepo.join("file.txt"), "content\n").unwrap();
-    git_command(&subxrepo)
+    git_command_for_testing(&subxrepo)
         .args(["add", "file.txt"])
         .assert()
         .success();
-    git_command(&subxrepo)
+    git_command_for_testing(&subxrepo)
         .args(["commit", "-m", "add a file"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
     Command::cargo_bin("git-toprepo")
@@ -466,7 +463,7 @@ fn test_refilter_prints_updates() {
  * [new] e1f32c7      -> origin/main
 ",
         );
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args([
             "symbolic-ref",
             "refs/namespaces/top/refs/symbolic/good",
@@ -474,7 +471,7 @@ fn test_refilter_prints_updates() {
         ])
         .assert()
         .success();
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args([
             "symbolic-ref",
             "refs/namespaces/top/refs/symbolic/outside-top",
@@ -482,7 +479,7 @@ fn test_refilter_prints_updates() {
         ])
         .assert()
         .success();
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args([
             "update-ref",
             "-d",
@@ -490,7 +487,7 @@ fn test_refilter_prints_updates() {
         ])
         .assert()
         .success();
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args([
             "update-ref",
             "refs/namespaces/top/refs/remotes/origin/other",
@@ -498,7 +495,7 @@ fn test_refilter_prints_updates() {
         ])
         .assert()
         .success();
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args([
             "update-ref",
             "refs/namespaces/top/refs/tags/v1.0",
@@ -506,7 +503,7 @@ fn test_refilter_prints_updates() {
         ])
         .assert()
         .success();
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args([
             "update-ref",
             "refs/namespaces/top/refs/tags/v2.0",
@@ -533,7 +530,7 @@ fn test_refilter_prints_updates() {
 "[1..]);
 
     // Symbolic refs are never pruned, so delete it manually.
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args([
             "update-ref",
             "-d",
@@ -542,20 +539,19 @@ fn test_refilter_prints_updates() {
         ])
         .assert()
         .success();
-    git_command(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["commit", "--allow-empty", "-m", "Empty commit"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
-    git_command(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["branch", "other", "HEAD"])
         .assert()
         .success();
-    git_command(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["reset", "HEAD~"])
         .assert()
         .success();
-    git_command(&toprepo)
+    git_command_for_testing(&toprepo)
         .args([
             "commit",
             "--amend",
@@ -563,18 +559,15 @@ fn test_refilter_prints_updates() {
             "-m",
             "Different message",
         ])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
-    git_command(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["tag", "-m", "Version 1.0", "v1.0", "HEAD"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
-    git_command(&toprepo)
+    git_command_for_testing(&toprepo)
         // If this tag would not be nested, it would get the same hash as v1.0.
         .args(["tag", "-m", "Version 1.0", "v1.0-nested", "v1.0"])
-        .envs(commit_env_for_testing())
         .assert()
         .stderr(predicates::str::contains("You have created a nested tag."))
         .success();

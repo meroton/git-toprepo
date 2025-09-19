@@ -1,5 +1,5 @@
 use assert_cmd::prelude::*;
-use git_toprepo::git::commit_env_for_testing;
+use git_toprepo::git::git_command_for_testing;
 use itertools::Itertools as _;
 use predicates::prelude::*;
 use rstest::rstest;
@@ -32,15 +32,12 @@ impl RepoWithTwoSubmodules {
         crate::fixtures::toprepo::clone(&toprepo, &monorepo);
         std::fs::create_dir(monorepo.join("subdir_part_of_top")).unwrap();
 
-        Command::new("git")
-            .current_dir(&toprepo)
+        git_command_for_testing(&toprepo)
             .args(["checkout", "-b", "foo"])
             .assert()
             .success();
-        Command::new("git")
-            .current_dir(&toprepo)
+        git_command_for_testing(&toprepo)
             .args(["commit", "--allow-empty", "-m", "Empty test commit in top"])
-            .envs(commit_env_for_testing())
             .assert()
             .success();
         // Make sure suby cannot be fetched, as it is not needed.
@@ -73,8 +70,7 @@ fn test_fetch_only_needed_commits() {
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
     const RANDOM_SHA1: &str = "0123456789abcdef0123456789abcdef01234567";
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args([
             "update-index",
             "--cacheinfo",
@@ -82,10 +78,8 @@ fn test_fetch_only_needed_commits() {
         ])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["commit", "-m", "Update submodule subx"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
     // Make sure suby cannot be fetched, as it is not needed.
@@ -104,8 +98,7 @@ fn test_fetch_only_needed_commits() {
         )));
 
     // Check the filter result.
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["ls-tree", "-r", "origin/main"])
         .assert()
         .success()
@@ -120,8 +113,7 @@ fn test_fetch_only_needed_commits() {
         );
 
     // After updating suby, fetch should fail as the suby remote is missing.
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args([
             "update-index",
             "--cacheinfo",
@@ -129,10 +121,8 @@ fn test_fetch_only_needed_commits() {
         ])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["commit", "-m", "Update submodule suby"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
     Command::cargo_bin("git-toprepo")
@@ -155,8 +145,7 @@ fn test_fetch_only_needed_commits() {
         ));
 
     // Check the filter result, suby should not be updated as fetching failed.
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["ls-tree", "-r", "origin/main"])
         .assert()
         .success()
@@ -182,8 +171,7 @@ fn test_fetch_no_refspec_success(#[case] remote: Option<&str>) {
         cmd.arg(remote);
     }
     cmd.assert().success();
-    Command::new("git")
-        .current_dir(&repo.monorepo)
+    git_command_for_testing(&repo.monorepo)
         .args(["show", "--format=%s", "--quiet", "origin/foo"])
         .assert()
         .success()
@@ -218,21 +206,18 @@ fn test_fetch_no_refspec_prunes_refs(#[case] remote: Option<&str>) {
         cmd.arg(remote);
     }
     cmd.assert().success();
-    Command::new("git")
-        .current_dir(&repo.monorepo)
+    git_command_for_testing(&repo.monorepo)
         .args(["show-ref"])
         .assert()
         .success()
         .stdout(predicate::str::contains("foo"));
 
     // Delete and prune foo.
-    Command::new("git")
-        .current_dir(&repo.toprepo)
+    git_command_for_testing(&repo.toprepo)
         .args(["checkout", "--detach"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&repo.toprepo)
+    git_command_for_testing(&repo.toprepo)
         .args(["update-ref", "-d", "refs/heads/foo"])
         .assert()
         .success();
@@ -242,8 +227,7 @@ fn test_fetch_no_refspec_prunes_refs(#[case] remote: Option<&str>) {
         cmd.arg(remote);
     }
     cmd.assert().success();
-    Command::new("git")
-        .current_dir(&repo.monorepo)
+    git_command_for_testing(&repo.monorepo)
         .args(["show-ref"])
         .assert()
         .success()
@@ -277,15 +261,13 @@ fn test_fetch_to_fetch_head_success(#[case] remote: &str) {
         .args(["fetch", remote, "refs/heads/foo"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&repo.monorepo)
+    git_command_for_testing(&repo.monorepo)
         .args(["show", "--format=%s", "--quiet", "FETCH_HEAD", "--"])
         .assert()
         .success()
         .stdout("Empty test commit in top\n");
     // Check that no extra temporary refs are available.
-    Command::new("git")
-        .current_dir(&repo.monorepo)
+    git_command_for_testing(&repo.monorepo)
         .args(["show-ref"])
         .assert()
         .success()
@@ -345,22 +327,18 @@ fn test_fetch_twice_should_keep_refs() {
         .args(["fetch"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&repo.monorepo)
+    git_command_for_testing(&repo.monorepo)
         .args(["show-ref"])
         .assert()
         .success()
         .stdout(expected_show_ref_output.clone());
 
     // Update main branch in the top repo.
-    Command::new("git")
-        .current_dir(&repo.toprepo)
+    git_command_for_testing(&repo.toprepo)
         .args(["checkout", "main"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&repo.toprepo)
-        .envs(commit_env_for_testing())
+    git_command_for_testing(&repo.toprepo)
         .args(["commit", "--allow-empty", "-m", "Commit A main branch"])
         .assert()
         .success();
@@ -372,17 +350,14 @@ fn test_fetch_twice_should_keep_refs() {
         .args(["fetch"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&repo.monorepo)
+    git_command_for_testing(&repo.monorepo)
         .args(["show-ref"])
         .assert()
         .success()
         .stdout(expected_show_ref_output.clone());
 
     // Update main branch in the top repo.
-    Command::new("git")
-        .current_dir(&repo.toprepo)
-        .envs(commit_env_for_testing())
+    git_command_for_testing(&repo.toprepo)
         .args(["commit", "--allow-empty", "-m", "Commit B main branch"])
         .assert()
         .success();
@@ -394,8 +369,7 @@ fn test_fetch_twice_should_keep_refs() {
         .args(["fetch", "origin", "refs/heads/main"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&repo.monorepo)
+    git_command_for_testing(&repo.monorepo)
         .args(["show-ref"])
         .assert()
         .success()
@@ -413,15 +387,13 @@ fn test_fetch_refspec_success(#[case] remote: &str) {
         .args(["fetch", remote, "refs/heads/foo:refs/heads/bar"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&repo.monorepo)
+    git_command_for_testing(&repo.monorepo)
         .args(["show", "--format=%s", "--quiet", "refs/heads/bar", "--"])
         .assert()
         .success()
         .stdout("Empty test commit in top\n");
     // Check that no extra temporary refs are available.
-    Command::new("git")
-        .current_dir(&repo.monorepo)
+    git_command_for_testing(&repo.monorepo)
         .args(["show-ref"])
         .assert()
         .success()
@@ -470,22 +442,18 @@ fn test_fetch_force_refspec_not_implemented_yet() {
         ])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&repo.monorepo)
+    git_command_for_testing(&repo.monorepo)
         .args(["show", "--format=%s", "--quiet", "refs/heads/bar", "--"])
         .assert()
         .success()
         .stdout("Empty test commit in top\n");
-    Command::new("git")
-        .current_dir(&repo.monorepo)
+    git_command_for_testing(&repo.monorepo)
         .args(["show", "--format=%s", "--quiet", "FETCH_HEAD", "--"])
         .assert()
         .success()
         .stdout("Empty test commit in top\n");
     // Amend so that force is needed.
-    Command::new("git")
-        .current_dir(&repo.toprepo)
-        .envs(commit_env_for_testing())
+    git_command_for_testing(&repo.toprepo)
         .args([
             "commit",
             "--amend",
@@ -521,21 +489,18 @@ fn test_fetch_force_refspec_not_implemented_yet() {
         ])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&repo.monorepo)
+    git_command_for_testing(&repo.monorepo)
         .args(["show", "--format=%s", "--quiet", "refs/heads/bar", "--"])
         .assert()
         .success()
         .stdout("Updated test commit\n");
-    Command::new("git")
-        .current_dir(&repo.monorepo)
+    git_command_for_testing(&repo.monorepo)
         .args(["show", "--format=%s", "--quiet", "FETCH_HEAD", "--"])
         .assert()
         .success()
         .stdout("Updated test commit\n");
     // Check that no extra temporary refs are available.
-    Command::new("git")
-        .current_dir(&repo.monorepo)
+    git_command_for_testing(&repo.monorepo)
         .args(["show-ref"])
         .assert()
         .success()
@@ -601,8 +566,7 @@ fn test_fetch_timeout(
     #[case] command_checker: impl Fn(assert_cmd::assert::Assert),
 ) {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
-    Command::new("git")
-        .current_dir(&repo.monorepo)
+    git_command_for_testing(&repo.monorepo)
         .args(["config", "toprepo.config", "local:.gittoprepo.toml"])
         .assert()
         .success();
@@ -616,8 +580,7 @@ fn test_fetch_timeout(
 
     // Force a submodule fetch.
     const RANDOM_SHA1: &str = "0123456789abcdef0123456789abcdef01234567";
-    Command::new("git")
-        .current_dir(&repo.toprepo)
+    git_command_for_testing(&repo.toprepo)
         .args([
             "update-index",
             "--cacheinfo",
@@ -625,16 +588,12 @@ fn test_fetch_timeout(
         ])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&repo.toprepo)
+    git_command_for_testing(&repo.toprepo)
         .args(["commit", "-m", "Update submodule subx"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&repo.subx_repo)
+    git_command_for_testing(&repo.subx_repo)
         .args(["commit", "--allow-empty", "-m", "Something to fetch"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
     let old_path_env = std::env::var_os("PATH").unwrap_or_default();

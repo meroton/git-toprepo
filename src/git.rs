@@ -227,14 +227,41 @@ impl GitModulesInfo {
     }
 }
 
-/// Run git without repository context.
-pub fn git_global_command() -> Command {
-    Command::new("git")
+pub(crate) fn git_command(repo: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut command = Command::new("git");
+    command.args([std::ffi::OsStr::new("-C"), repo.as_ref()]);
+    command
 }
 
-pub fn git_command(repo: &Path) -> Command {
-    let mut command = Command::new("git");
-    command.args([std::ffi::OsStr::new("-C"), repo.as_os_str()]);
+#[cfg(windows)]
+const NULL_DEVICE: &str = "NUL";
+#[cfg(not(windows))]
+const NULL_DEVICE: &str = "/dev/null";
+
+/// Like `git_command` but also sets environment variables for deterministic
+/// testing.
+pub fn git_command_for_testing(repo: impl AsRef<std::ffi::OsStr>) -> Command {
+    // Inspired by gix-testtools v0.16.1 configure_command().
+    let mut command = git_command(repo);
+    command
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_OBJECT_DIRECTORY")
+        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_COMMON_DIR")
+        .env_remove("GIT_ASKPASS")
+        .env_remove("SSH_ASKPASS")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", NULL_DEVICE)
+        .env("GIT_TERMINAL_PROMPT", "false")
+        .env("GIT_AUTHOR_NAME", "A Name")
+        .env("GIT_AUTHOR_EMAIL", "a@no.example")
+        .env("GIT_AUTHOR_DATE", "2023-01-02T03:04:05Z+01:00")
+        .env("GIT_COMMITTER_NAME", "C Name")
+        .env("GIT_COMMITTER_EMAIL", "c@no.example")
+        .env("GIT_COMMITTER_DATE", "2023-06-07T08:09:10Z+01:00")
+        .env("GIT_CONFIG_COUNT", "0");
     command
 }
 
@@ -320,19 +347,4 @@ pub fn repo_relative_path(worktree: &Path, cwd_relpath: &Path) -> Result<GitPath
         .strip_prefix(worktree)
         .context("Path is not relative to the worktree")?;
     Ok(GitPath::from(worktree_path.as_os_str().as_encoded_bytes()))
-}
-
-/// Scaffolding code to create deterministic commits.
-pub fn commit_env_for_testing() -> HashMap<String, String> {
-    HashMap::from(
-        [
-            ("GIT_AUTHOR_NAME", "A Name"),
-            ("GIT_AUTHOR_EMAIL", "a@no.example"),
-            ("GIT_AUTHOR_DATE", "2023-01-02T03:04:05Z+01:00"),
-            ("GIT_COMMITTER_NAME", "C Name"),
-            ("GIT_COMMITTER_EMAIL", "c@no.example"),
-            ("GIT_COMMITTER_DATE", "2023-06-07T08:09:10Z+01:00"),
-        ]
-        .map(|(k, v)| (k.to_string(), v.to_string())),
-    )
 }

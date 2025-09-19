@@ -1,7 +1,6 @@
 use assert_cmd::assert::OutputAssertExt as _;
 use bstr::ByteSlice as _;
-use git_toprepo::git::commit_env_for_testing;
-use git_toprepo::git::git_command;
+use git_toprepo::git::git_command_for_testing;
 use itertools::Itertools as _;
 use predicates::prelude::PredicateBooleanExt as _;
 use std::path::Path;
@@ -183,7 +182,7 @@ fn test_assemble_golden() {
 }
 
 fn extract_log_graph(repo_path: &Path, extra_args: Vec<&str>) -> String {
-    let log_command = git_command(repo_path)
+    let log_command = git_command_for_testing(repo_path)
         .args(["log", "--graph"])
         .args(extra_args)
         .assert()
@@ -216,11 +215,11 @@ fn test_split_example() {
     std::fs::write(monorepo.join("top.txt"), "top\n").unwrap();
     std::fs::write(monorepo.join("subx/file.txt"), "subx\n").unwrap();
     std::fs::write(monorepo.join("suby/file.txt"), "suby\n").unwrap();
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["add", "top.txt", "subx/file.txt", "suby/file.txt"])
         .assert()
         .success();
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "-m"])
         .arg(
             "Add files
@@ -239,7 +238,6 @@ Topic: remove-this-line
 subx-footer: keep-this-line
 ",
         )
-        .envs(commit_env_for_testing())
         .assert()
         .success();
     assert_cmd::Command::cargo_bin("git-toprepo")
@@ -282,11 +280,11 @@ fn test_split_where_one_repo_is_missing() {
     std::fs::write(monorepo.join("top.txt"), "top\n").unwrap();
     std::fs::write(monorepo.join("subx/file.txt"), "subx\n").unwrap();
     std::fs::write(monorepo.join("suby/file.txt"), "suby\n").unwrap();
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["add", "top.txt", "subx/file.txt", "suby/file.txt"])
         .assert()
         .success();
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "-m"])
         .arg(
             "Add files
@@ -300,7 +298,6 @@ Topic: my-topic
 Git-Toprepo-Ref: subx
 ",
         )
-        .envs(commit_env_for_testing())
         .assert()
         .success();
     assert_cmd::Command::cargo_bin("git-toprepo")
@@ -316,7 +313,7 @@ Git-Toprepo-Ref: subx
     assert_eq!(git_commit_message(&subyrepo, "other"), "Add files\n");
 
     // The same, but where the toprepo is missing a message.
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "--amend", "-m"])
         .arg(
             "suby subject
@@ -330,7 +327,6 @@ Git-Toprepo-Ref: subx
 Topic: my-topic
 ",
         )
-        .envs(commit_env_for_testing())
         .assert()
         .success();
     assert_cmd::Command::cargo_bin("git-toprepo")
@@ -347,7 +343,7 @@ Topic: my-topic
         );
 
     // The same, but with a residual message in the toprepo.
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "--amend", "-m"])
         .arg(
             "suby subject
@@ -360,7 +356,6 @@ Residual message
 Topic: other-topic
 ",
         )
-        .envs(commit_env_for_testing())
         .assert()
         .success();
     assert_cmd::Command::cargo_bin("git-toprepo")
@@ -376,9 +371,8 @@ Topic: other-topic
     assert_eq!(git_commit_message(&subyrepo, "other"), "suby subject\n");
 
     // No message assigned to specific paths.
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "--amend", "-m", "Subject\n\nTopic: my-topic"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
     assert_cmd::Command::cargo_bin("git-toprepo")
@@ -395,7 +389,7 @@ Topic: other-topic
 }
 
 fn git_commit_message(repo_path: &Path, revision: &str) -> String {
-    let show_command = git_command(repo_path)
+    let show_command = git_command_for_testing(repo_path)
         .args(["cat-file", "-p", revision])
         .assert()
         .success();

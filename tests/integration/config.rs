@@ -1,8 +1,7 @@
 use assert_cmd::prelude::*;
 use git_toprepo::config::TOPREPO_CONFIG_FILE_KEY;
 use git_toprepo::config::toprepo_git_config;
-use git_toprepo::git::commit_env_for_testing;
-use git_toprepo::git::git_command;
+use git_toprepo::git::git_command_for_testing;
 use predicates::prelude::*;
 use std::path::Path;
 use std::process::Command;
@@ -19,9 +18,6 @@ fn test_validate_external_file_in_corrupt_repository() {
         "git_toprepo-test_validate_external_file_in_corrupt_repository",
     );
 
-    // TODO: Set NO_COLOR here.
-    let deterministic = commit_env_for_testing();
-
     let invalid_toml = "invalid.t.o.m.l";
     std::fs::write(
         temp_dir.join(invalid_toml),
@@ -35,19 +31,17 @@ fn test_validate_external_file_in_corrupt_repository() {
     let okay_config = "okay.toml";
     std::fs::write(temp_dir.join(okay_config), GENERIC_CONFIG).unwrap();
 
-    git_command(&temp_dir)
+    git_command_for_testing(&temp_dir)
         .args(["init"])
-        .envs(&deterministic)
         .assert()
         .success();
 
-    git_command(&temp_dir)
+    git_command_for_testing(&temp_dir)
         .args([
             "config",
             &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
             &format!("worktree:{invalid_toml}"),
         ])
-        .envs(&deterministic)
         .assert()
         .success();
 
@@ -136,9 +130,8 @@ fn test_config_commands_use_correct_working_directory() {
         .success();
 
     // Try to run from a subdirectory inside a git repo.
-    Command::new("git")
-        .current_dir(&temp_dir)
-        .arg("init")
+    git_command_for_testing(&temp_dir)
+        .args(["init"])
         .assert()
         .success();
     let subdir = temp_dir.join("subdir");
@@ -159,15 +152,12 @@ fn test_config_bootstrap() {
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
 
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["rm", ".gittoprepo.toml"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["commit", "-m", "Remove toprepo config"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
 

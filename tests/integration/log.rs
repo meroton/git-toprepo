@@ -1,6 +1,7 @@
 use assert_cmd::Command;
+use assert_cmd::assert::OutputAssertExt as _;
 use bstr::ByteSlice as _;
-use git_toprepo::git::commit_env_for_testing;
+use git_toprepo::git::git_command_for_testing;
 use git_toprepo::util::NewlineTrimmer as _;
 use predicates::prelude::PredicateBooleanExt as _;
 use predicates::prelude::predicate;
@@ -12,19 +13,15 @@ fn test_log_only_fixable_missing_gitmodules_warnings() {
     let monorepo = temp_dir.join("mono");
 
     // Remove .gitmodules.
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["rm", ".gitmodules"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["commit", "-m", "No .gitmodules"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
-    let missing_gitmodules_rev = Command::new("git")
-        .current_dir(&toprepo)
+    let missing_gitmodules_rev = git_command_for_testing(&toprepo)
         .args(["rev-parse", "HEAD"])
         .assert()
         .success()
@@ -35,14 +32,11 @@ fn test_log_only_fixable_missing_gitmodules_warnings() {
         .trim_newline_suffix()
         .to_owned();
     // With another commit, the commit above is no longer fixable.
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["commit", "--allow-empty", "-m", "Still no .gitmodules"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
-    let still_missing_gitmodules_rev = Command::new("git")
-        .current_dir(&toprepo)
+    let still_missing_gitmodules_rev = git_command_for_testing(&toprepo)
         .args(["rev-parse", "HEAD"])
         .assert()
         .success()
@@ -67,22 +61,18 @@ fn test_log_only_fixable_missing_gitmodules_warnings() {
         }));
 
     // Tag the problematic revision. Tags should never be updated, so no point to give a warning.
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["tag", "bad"])
         .assert()
         .success();
 
     // Fix the problem, so no warning from the main branch either.
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["checkout", "HEAD~2", ".gitmodules"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["commit", "-m", "Restore .gitmodules"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
     Command::cargo_bin("git-toprepo")
@@ -101,8 +91,7 @@ fn test_log_only_fixable_missing_gitmodules_warnings() {
         .stderr(predicate::str::contains("WARN:").not());
 
     // Adding a branch to missing_gitmodules_rev makes it fixable again.
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args([
             "branch",
             "first-missing-gitmodules",
@@ -142,8 +131,7 @@ fn test_log_always_show_missing_submod_commit_warnings() {
     let monorepo = temp_dir.join("mono");
 
     // Make top.git/sub reference a non-existent commit.
-    let original_sub_rev = Command::new("git")
-        .current_dir(&subrepo)
+    let original_sub_rev = git_command_for_testing(&subrepo)
         .args(["rev-parse", "HEAD"])
         .assert()
         .success()
@@ -153,18 +141,14 @@ fn test_log_always_show_missing_submod_commit_warnings() {
         .unwrap()
         .trim_newline_suffix()
         .to_owned();
-    Command::new("git")
-        .current_dir(&subrepo)
+    git_command_for_testing(&subrepo)
         .args(["commit", "--amend", "-m", "Different message"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
     // Add another commit to toprepo which is still not pointing to the amended
     // commit in subrepo. Should warn in clone, fetch and refilter.
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["commit", "--allow-empty", "-m", "Still wrong pointer"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
 
@@ -210,8 +194,7 @@ fn test_log_always_show_missing_submod_commit_warnings() {
         }));
 
     // Reference it so that warnings are removed.
-    Command::new("git")
-        .current_dir(&subrepo)
+    git_command_for_testing(&subrepo)
         .args(["tag", "original-commit", &original_sub_rev])
         .assert()
         .success();

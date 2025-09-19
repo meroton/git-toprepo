@@ -621,7 +621,7 @@ pub struct PushConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::super::git::commit_env_for_testing;
+    use super::super::git::git_command_for_testing;
     use super::*;
     use assert_cmd::assert::OutputAssertExt as _;
 
@@ -639,21 +639,18 @@ mod tests {
         let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
             "git_toprepo-test_create_config_from_invalid_ref",
         );
-        let env = commit_env_for_testing();
 
-        git_command(&tmp_path)
+        git_command_for_testing(&tmp_path)
             .args(["init"])
-            .envs(&env)
             .assert()
             .success();
 
-        git_command(&tmp_path)
+        git_command_for_testing(&tmp_path)
             .args([
                 "config",
                 &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
                 "worktree:foobar.toml",
             ])
-            .envs(&env)
             .assert()
             .success();
 
@@ -671,11 +668,9 @@ mod tests {
         let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
             "git_toprepo-test_create_config_from_worktree",
         );
-        let env = commit_env_for_testing();
 
-        git_command(&tmp_path)
+        git_command_for_testing(&tmp_path)
             .args(["init"])
-            .envs(&env)
             .assert()
             .success();
 
@@ -683,19 +678,17 @@ mod tests {
 
         writeln!(tmp_file, "{BAR_BAZ}").unwrap();
 
-        git_command(&tmp_path)
+        git_command_for_testing(&tmp_path)
             .args(["add", "foobar.toml"])
-            .envs(&env)
             .assert()
             .success();
 
-        git_command(&tmp_path)
+        git_command_for_testing(&tmp_path)
             .args([
                 "config",
                 &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
                 "worktree:foobar.toml",
             ])
-            .envs(&env)
             .assert()
             .success();
 
@@ -728,22 +721,19 @@ mod tests {
         let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
             "git_toprepo-test_missing_config",
         );
-        let env = commit_env_for_testing();
 
-        git_command(&tmp_path)
+        git_command_for_testing(&tmp_path)
             .args(["init"])
-            .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(&tmp_path)
+        git_command_for_testing(&tmp_path)
             .args(["commit", "--allow-empty", "-m", "Initial commit"])
-            .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
         // Try a path in the repository.
-        git_command(&tmp_path)
+        git_command_for_testing(&tmp_path)
             .args([
                 "config",
                 &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
@@ -762,7 +752,7 @@ mod tests {
         );
 
         // Try the worktree.
-        git_command(&tmp_path)
+        git_command_for_testing(&tmp_path)
             .args([
                 "config",
                 &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
@@ -811,52 +801,45 @@ mod tests {
         let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
             "git_toprepo-test_create_config_from_head",
         );
-        let env = commit_env_for_testing();
 
-        git_command(&tmp_path)
+        git_command_for_testing(&tmp_path)
             .args(["init"])
-            .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
         let mut tmp_file = std::fs::File::create(tmp_path.join(".gittoprepo.toml")).unwrap();
         writeln!(tmp_file, "{BAR_BAZ}").unwrap();
 
-        git_command(&tmp_path)
+        git_command_for_testing(&tmp_path)
             .args(["add", ".gittoprepo.toml"])
-            .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(&tmp_path)
+        git_command_for_testing(&tmp_path)
             .args(["commit", "-m", "Initial commit"])
-            .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(&tmp_path)
+        git_command_for_testing(&tmp_path)
             .args([
                 "update-ref",
                 "refs/namespaces/top/refs/remotes/origin/HEAD",
                 "HEAD",
             ])
-            .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(&tmp_path)
+        git_command_for_testing(&tmp_path)
             .args(["rm", ".gittoprepo.toml"])
-            .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(&tmp_path)
+        git_command_for_testing(&tmp_path)
             .args(["commit", "-m", "Remove .gittoprepo.toml"])
-            .envs(&env)
             .check_success_with_stderr()
             .unwrap();
 
-        git_command(&tmp_path)
+        git_command_for_testing(&tmp_path)
             .args([
                 "config",
                 &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),

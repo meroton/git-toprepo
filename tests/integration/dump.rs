@@ -1,5 +1,5 @@
 use assert_cmd::prelude::*;
-use git_toprepo::git::git_command;
+use git_toprepo::git::git_command_for_testing;
 use predicate::str::contains;
 use predicates::prelude::*;
 use std::process::Command;
@@ -60,8 +60,7 @@ fn test_dump_git_modules() {
         .failure()
         .stderr(contains("Loading the main repo Gerrit project"));
 
-    Command::new("git")
-        .current_dir(&temp_dir)
+    git_command_for_testing(&temp_dir)
         .arg("remote")
         .arg("add")
         .arg("origin")
@@ -97,7 +96,7 @@ fn test_wrong_cache_prelude() {
         "git_toprepo-test_wrong_cache_prelude",
     );
 
-    git_command(&temp_dir)
+    git_command_for_testing(&temp_dir)
         .args(["init", "--quiet"])
         .assert()
         .success();
