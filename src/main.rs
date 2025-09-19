@@ -22,7 +22,7 @@ use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::repo::RepoHandle;
 use git_toprepo::repo::TopRepo;
-use git_toprepo::AlreadyAMonorepo;
+use git_toprepo::error::AlreadyAMonorepo;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::git::git_command;
 use git_toprepo::gitreview::parse_git_review;
@@ -36,7 +36,7 @@ use git_toprepo::repo_name::RepoName;
 use git_toprepo::submitted_together::order_submitted_together;
 use git_toprepo::submitted_together::split_by_supercommits;
 use git_toprepo::util::CommandExtension as _;
-use git_toprepo::NotAMonorepo;
+use git_toprepo::error::NotAMonorepo;
 use gix::refs::FullName;
 use gix::refs::FullNameRef;
 use itertools::Itertools as _;
@@ -1146,7 +1146,7 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use git_toprepo::NotAMonorepo;
+    use git_toprepo::error::NotAMonorepo;
 
     #[test]
     fn test_main_outside_git_toprepo() {

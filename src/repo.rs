@@ -17,7 +17,7 @@ use crate::util::CommandExtension as _;
 use crate::util::NewlineTrimmer as _;
 use crate::util::RcKey;
 use crate::util::normalize;
-use crate::NotAMonorepo;
+use crate::error::NotAMonorepo;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
