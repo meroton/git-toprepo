@@ -1,9 +1,12 @@
+# Test fixture cache
 /tests/fixtures/generated-archives/
 /tests/fixtures/generated-do-not-edit/
 
 /.bacon-locations
 
 # Cargo artifacts
-/target
+/target/
 # nix artifacts
-/result
+/result/
+# VS Code
+/.vscode/
