@@ -804,6 +804,8 @@ impl<'a> CommitLoader<'a> {
         Ok(())
     }
 
+    /// Verifies that the submodule repositories for a cached commit have not
+    /// been invalidated due to configuration change.
     fn verify_cached_commit(
         repo_storage: &RepoData,
         commit: &ThinCommit,
@@ -952,6 +954,13 @@ impl<'a> CommitLoader<'a> {
         commit_log_level: CommitLogLevel,
     ) -> Result<(Rc<ThinCommit>, Vec<NeededCommit>)> {
         let commit_id: CommitId = exported_commit.original_id;
+        if tree_id.is_empty_tree() {
+            log::log!(
+                commit_log_level.level,
+                "With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear. To avoid this problem, commit a file.",
+            );
+        }
+
         let thin_parents = exported_commit
             .parents
             .iter()

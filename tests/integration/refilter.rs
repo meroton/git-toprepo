@@ -382,6 +382,68 @@ fn extract_log_graph(repo_path: &Path, extra_args: Vec<&str>) -> String {
         .replace('\t', " ")
 }
 
+/// git-submodule creates an empty directory for each submodule. In case a
+/// submodule is substituted for an empty tree with git-toprepo, that directory
+/// will disappear. User tooling might depend on the existance of that empty
+/// directory, e.g. for each submodule mentioned in .gitmodules.
+///
+/// Verify that git-toprepo prints a warning to make the user aware of the
+/// problem, so that a dummy file can be added to the submodule as a fix.
+#[test]
+fn test_warn_for_empty_submodule() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let temp_dir = temp_dir.path();
+    let toprepo = temp_dir.join("top");
+    let subxrepo = temp_dir.join("subx");
+    let monorepo = temp_dir.join("mono");
+    let monorepo2 = temp_dir.join("mono2");
+
+    git_command(&subxrepo)
+        .args(["rm", "-rf", "."])
+        .assert()
+        .success();
+    git_command(&subxrepo)
+        .args(["commit", "-m", "Remove all files"])
+        .envs(commit_env_for_testing())
+        .assert()
+        .success();
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .arg("clone")
+        .arg(&toprepo)
+        .arg(&monorepo)
+        .assert()
+        .success()
+        .stderr(    predicates::str::is_match(r"\nWARN: Commit [0-9a-f]+ in subx \(refs/heads/main\): With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\. To avoid this problem, commit a file\.\n").unwrap());
+
+    // Fix the warning.
+    std::fs::write(subxrepo.join("file.txt"), "content\n").unwrap();
+    git_command(&subxrepo)
+        .args(["add", "file.txt"])
+        .assert()
+        .success();
+    git_command(&subxrepo)
+        .args(["commit", "-m", "add a file"])
+        .envs(commit_env_for_testing())
+        .assert()
+        .success();
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .args(["clone", "-vv"])
+        .arg(&toprepo)
+        .arg(&monorepo2)
+        .assert()
+        .success()
+        // Note that the trace message does not include any branch name.
+        .stderr(    predicates::str::is_match(r"\nTRACE: Commit [0-9a-f]+ in subx: With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\. To avoid this problem, commit a file\.\n").unwrap())
+        .stderr(predicates::str::contains("WARN:").not());
+}
+
 #[test]
 fn test_refilter_prints_updates() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
