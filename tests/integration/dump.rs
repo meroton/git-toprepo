@@ -86,9 +86,11 @@ fn test_dump_git_modules() {
 }
 
 #[test]
-fn test_wrong_cache_prelude() {
+// The code should not attempt to read git-toprepo's cache if the directory is
+// not a monorepo.
+fn test_dumping_cache_data_from_a_basic_repo() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-        "git_toprepo-test_wrong_cache_prelude",
+        "git_toprepo-dumping-cache-data-from-a-basic-repo",
     );
 
     git_command(&temp_dir)
@@ -97,13 +99,45 @@ fn test_wrong_cache_prelude() {
         .success();
     let git_dir = temp_dir.join(".git");
     let cache_path = git_toprepo::repo_cache_serde::SerdeTopRepoCache::get_cache_path(&git_dir);
+
+    std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+    std::fs::write(&cache_path, "arbitrary content; we expect an error before reading this file").unwrap();
+
+    // Look for a sane warning message.
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&temp_dir)
+        .arg("dump")
+        .arg("import-cache")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "Not a monorepo"
+        ));
+}
+
+#[test]
+fn test_wrong_cache_prelude() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+
+    let git_dir = monorepo.join(".git");
+    let cache_path = git_toprepo::repo_cache_serde::SerdeTopRepoCache::get_cache_path(&git_dir);
+
     std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
     std::fs::write(&cache_path, "wrong-#cache-format").unwrap();
 
     // Look for a sane warning message.
     Command::cargo_bin("git-toprepo")
         .unwrap()
-        .current_dir(&temp_dir)
+        .current_dir(&monorepo)
         .arg("dump")
         .arg("import-cache")
         .assert()
