@@ -220,6 +220,12 @@ fn test_config_bootstrap() {
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
 
+    const EXPECTED_BOOTSTRAP_CONFIG: &str = "\
+[repo.sub]
+urls = [\"../sub/\"]
+skip_expanding = []
+";
+
     Command::new("git")
         .current_dir(&toprepo)
         .args(["rm", ".gittoprepo.toml"])
@@ -241,11 +247,6 @@ fn test_config_bootstrap() {
         .code(1)
         .stderr(predicate::str::contains("git-toprepo config bootstrap"));
 
-    const EXPECTED_BOOTSTRAP_CONFIG: &str = "\
-[repo.sub]
-urls = [\"../sub/\"]
-skip_expanding = []
-";
     Command::cargo_bin("git-toprepo")
         .unwrap()
         .current_dir(&monorepo)

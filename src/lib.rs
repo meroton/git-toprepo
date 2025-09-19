@@ -44,6 +44,10 @@ impl std::error::Error for AlreadyAMonorepo {}
 
 /// Checks if a directory contains a configured git-toprepo
 /// This is the canonical detection logic used throughout the codebase
+pub fn is_monorepo(path: &std::path::Path) -> anyhow::Result<bool> {
+    Ok(crate::repo::TopRepo::open_configured(path).is_ok())
+}
+
 // TODO: We found a path when testing with an incomplete setup that hits this
 // but the code won't work anyway.
 // Maybe with the recent refactorings we can instead try to open it and if it
@@ -68,8 +72,12 @@ impl std::error::Error for AlreadyAMonorepo {}
         .check_success_with_stderr()
         .unwrap();
 */
-pub fn is_monorepo(path: &std::path::Path) -> anyhow::Result<bool> {
-    let key = &config::toprepo_git_config(config::TOPREPO_CONFIG_FILE_KEY);
-    let maybe = git::git_config_get(path, key)?;
-    Ok(maybe.is_some())
-}
+// According to issue #21 this would be sufficient, but we have seen counter
+// examples.
+/*
+ * pub fn is_monorepo(path: &std::path::Path) -> anyhow::Result<bool> {
+ *     let key = &config::toprepo_git_config(config::TOPREPO_CONFIG_FILE_KEY);
+ *     let maybe = git::git_config_get(path, key)?;
+ *     Ok(maybe.is_some())
+ * }
+ */

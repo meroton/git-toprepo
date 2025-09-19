@@ -275,21 +275,12 @@ Initial empty git-toprepo configuration
     /// Open a repository, trying configured first, falling back to basic
     /// This is the main entry point for command operations
     pub fn open_for_commands(directory: &Path) -> Result<RepoHandle> {
-        // Use is_monorepo() as the canonical detection logic
-        if crate::is_monorepo(directory)? {
-            // This is a configured monorepo, try to load full configuration
-            match Self::open_configured(directory) {
-                Ok(configured) => Ok(RepoHandle::Configured(configured)),
-                Err(e) => {
-                    // is_monorepo() said it's a monorepo but config loading failed
-                    // This indicates a configuration error, so we should propagate it
-                    Err(e.context("Repository appears to be a monorepo but configuration loading failed"))
-                }
-            }
-        } else {
-            // Not a monorepo, open as basic repo
-            Ok(RepoHandle::Basic(Self::open(directory)?))
-        }
+        let gix_repo = gix::open(directory)
+            .context(COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
+        Ok(match Self::open_configured(directory) {
+            Ok(monorepo) => RepoHandle::Configured(monorepo),
+            Err(_) => RepoHandle::Basic(TopRepo{gix_repo: gix_repo.into()}),
+        })
     }
 
     /// Open a toprepo with full configuration and state loaded

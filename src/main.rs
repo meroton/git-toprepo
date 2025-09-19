@@ -194,7 +194,7 @@ fn config(config_args: &cli::Config, monorepo_root: Result<PathBuf>) -> Result<(
 fn config_bootstrap(path: &PathBuf) -> Result<GitTopRepoConfig> {
     // TODO: See if the unified opener works and use the BasicToprepo directly.
     // Then we can just give error on the pattern match.
-    if git_toprepo::is_monorepo(&path).is_ok() {
+    if git_toprepo::is_monorepo(&path)? {
         return Err(AlreadyAMonorepo.into());
     }
     let gix_repo = gix::open(PathBuf::from(path))?;
@@ -1023,6 +1023,12 @@ where
      * let up_to_root = Path::new();
      */
 
+    // Open repository once for all operations - this solves the "dual access paths" problem
+    let toprepo_root = gitrepo_root.as_ref().map_err(|_| NotAMonorepo)
+        .context(repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
+    let repo = repo::TopRepo::open_for_commands(Path::new(&toprepo_root))?;
+
+
     // First run subcommands that can run with a mis- or unconfigured repo.
     match &args.command {
         Commands::Init(init_args) => {
@@ -1068,11 +1074,6 @@ where
         _ => {}
     }
 
-    // Open repository once for all operations - this solves the "dual access paths" problem
-    let toprepo_root = gitrepo_root.map_err(|_| NotAMonorepo)
-        .context(repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
-    let repo = repo::TopRepo::open_for_commands(Path::new(&toprepo_root))?;
-
     // TODO(terminology #172):
     // We can persist the tracing in the monorepo.
     // TODO: Maybe move the logger into the `ConfiguredTopRepo` as we only want to log
@@ -1081,8 +1082,7 @@ where
         logger.write_to_git_dir(gix::open(&toprepo_root)?.git_dir())?;
     }
 
-
-    let result = match args.command {
+    match args.command {
         // Commands that were already handled above
         Commands::Init(_) => unreachable!("init is already processed."),
         Commands::Config(_) => unreachable!("config is already processed."),
@@ -1123,9 +1123,7 @@ where
 
         // Experimental and scaffolding commands.
         Commands::Checkout(ref checkout_args) => checkout(&args, checkout_args),
-    };
-    
-    result
+    }
 }
 
 fn main() -> ExitCode {
