@@ -152,7 +152,7 @@ fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
 }
 
 #[tracing::instrument(skip(repo))]
-// NB: This could also take an `Option<PathBuf>` but we know it is a result from
+// NB: This could also take an `Option<RepoHandle>` but we know it is a result from
 // earlier, so this kind of smears the error handling between this function and
 // the caller. But it allows us to give correct errors for each case.
 //
@@ -160,9 +160,6 @@ fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
 // irrelevant and should not be contextualized.
 // In `Bootstrap`, `Location` and `Show` the callee error is sufficient on its own
 // so we just return it.
-// TODO: instead of the root path, use the RepoHandle here
-// and enforce the Configured/Basic invariants through it.
-// That too ought to clean up the convoluted error handling, I presume.
 fn config(config_args: &cli::Config, repo: Result<RepoHandle>) -> Result<()> {
     match &config_args.config_command {
         cli::ConfigCommands::Location => {
@@ -439,28 +436,28 @@ fn dump_modules(repo: repo::RepoHandle) -> Result<()> {
         path: git_toprepo::git::GitPath,
     }
 
-    // TODO: Refactor this to more cleanly Use the unified repo interface that works with both basic and configured repos
-    // Avoide the two stage match.
-    let main_project = match repo {
-        repo::RepoHandle::Configured(ref configured) => configured.gerrit_project().to_string(),
+    let (main_project, mut modules) = match repo {
+        repo::RepoHandle::Configured(configured) => {
+            let main_project = configured.gerrit_project().to_string();
+            let modules: Vec<Mod> = configured
+                .submodules()?
+                .into_iter()
+                .map(|(path, project)| Mod { project, path })
+                .collect();
+            (main_project, modules)
+        }
         // NB: Don't care if there were errors loading the monorepo
-        repo::RepoHandle::Basic(ref basic, _) => basic
-            .gerrit_project()
-            .context(git_toprepo::repo::LOADING_THE_MAIN_PROJECT_CONTEXT)?,
-    };
-    
-    let mut modules: Vec<Mod> = match repo {
-        repo::RepoHandle::Configured(configured) => configured
-            .submodules()?
-            .into_iter()
-            .map(|(path, project)| Mod { project, path })
-            .collect(),
-        // NB: Don't care if there were errors loading the monorepo
-        repo::RepoHandle::Basic(basic, _) => basic
-            .submodules()?
-            .into_iter()
-            .map(|(path, project)| Mod { project, path })
-            .collect(),
+        repo::RepoHandle::Basic(basic, _) => {
+            let main_project = basic
+                .gerrit_project()
+                .context(git_toprepo::repo::LOADING_THE_MAIN_PROJECT_CONTEXT)?;
+            let modules: Vec<Mod> = basic
+                .submodules()?
+                .into_iter()
+                .map(|(path, project)| Mod { project, path })
+                .collect();
+            (main_project, modules)
+        }
     };
 
     modules.push(Mod {
@@ -1041,54 +1038,6 @@ where
      * let up_to_root = Path::new();
      */
 
-    // First run subcommands that can run with a mis- or unconfigured repo.
-    match &args.command {
-        Commands::Init(init_args) => {
-            init(init_args).map(|_path| ())?;
-            log::info!("The next step is to run 'git-toprepo fetch'.");
-            return Ok(());
-        }
-        Commands::Clone(cli::Clone {
-            init: init_args,
-            refilter: _,
-            minimal: _,
-        }) => {
-            let directory = init(init_args)?;
-            // TODO: Instead communicate this directory to the second phase
-            // than to change directory. All references to "." are code smells
-            // and should be resolved later.
-            std::env::set_current_dir(&directory).with_context(|| {
-                format!(
-                    "Failed to change working directory to {}",
-                    directory.display()
-                )
-            })?;
-            // NB: We have not set the marker in the initial clone
-            // But this command is meant to create it.
-            // So it is safe to proceed with the processor `clone_after_init`.
-            // TODO: We should now be in a ConfiguredTopRepo state,
-            // we should update that here.
-            // TODO: When folding the two dispatchers we just need to make sure
-            // the logging works as expected. That is the only code between the
-            // two dispatchers.
-        }
-        Commands::Config(config_args) => {
-            return config(config_args, repo);
-        }
-        Commands::Version => return print_version(),
-        Commands::IsMonorepo => {
-            // NB: There is no possible way to know if it is a monorepo a
-            // priori: We currently only try to open it and if it works it
-            // works. We should document when it is a monorepo and implement a
-            // static `is_monorepo`: function.
-            return match repo {
-                Ok(RepoHandle::Configured(_)) => Ok(()),
-                _ => Err(ExitSilently.into()),
-            };
-        }
-        _ => {}
-    }
-
     // TODO(terminology #172):
     // We can persist the tracing in the monorepo.
     // TODO: Maybe move the logger into the `ConfiguredTopRepo` as we only want to log
@@ -1100,22 +1049,61 @@ where
         _ => {}
     };
 
-    match args.command {
-        // Commands that were already handled above
-        Commands::Init(_) => unreachable!("init is already processed."),
-        Commands::Config(_) => unreachable!("config is already processed."),
-        Commands::Version => unreachable!("version is already processed."),
-        Commands::IsMonorepo => unreachable!("is-monorepo is already handled."),
+    // Handle Clone's special init step
+    if let Commands::Clone(cli::Clone {
+        init: init_args,
+        // NB: The `refilter` and `minimal` options are used in the second
+        // filtering stage. They are not relevant for the initial cloning.
+        refilter: _,
+        minimal: _,
+    }) = &args.command {
+        let directory = init(init_args)?;
+        // TODO: Instead communicate this directory to the second phase
+        // than to change directory. All references to "." are code smells
+        // and should be resolved later.
+        std::env::set_current_dir(&directory).with_context(|| {
+            format!(
+                "Failed to change working directory to {}",
+                directory.display()
+            )
+        })?;
+        // NB: We have not set the marker in the initial clone
+        // But this command is meant to create it.
+        // So it is safe to proceed with the processor `clone_after_init`.
+        // TODO: We should now be in a ConfiguredTopRepo state,
+        // we should update that here.
+        let toprepo = TopRepo::open_configured(&directory).expect("We just created the monorepo");
+        logger.map(|logger| logger.write_to_git_dir(toprepo.gix_repo.git_dir())).transpose()?;
+    }
 
-        // Operations that require configured repo
+    match args.command {
+        // Early exit commands
+        Commands::Version => return print_version(),
+        Commands::IsMonorepo => {
+            // NB: There is no possible way to know if it is a monorepo a
+            // priori: We currently only try to open it and if it works it
+            // works. We should document when it is a monorepo and implement a
+            // static `is_monorepo`: function.
+            return match repo {
+                Ok(RepoHandle::Configured(_)) => Ok(()),
+                _ => Err(ExitSilently.into()),
+            };
+        }
+
+        Commands::Init(init_args) => {
+            init(&init_args).map(|_path| ())?;
+            log::info!("The next step is to run 'git-toprepo fetch'.");
+            return Ok(());
+        }
+
+        Commands::Config(config_args) => {
+            return config(&config_args, repo);
+        }
         Commands::Dump(dump_args) => dump(&dump_args, repo.map_err(|e| anyhow::Error::from(NotAMonorepo::new(e)))?),
         Commands::Clone(clone_args) => {
             // Special case: two-stage initialization
             // After init(), we changed directory but the unified repo was opened from the old directory
             // We need to open the configured repo from the current directory after init()
-            /*
-             * let mut configured = repo::TopRepo::open_configured(Path::new("."))?;
-             */
             let directory = Path::new(".");
             let mut toprepo = repo::TopRepo::open_configured(directory)?;
             ConfiguredRepoSession::run(&mut toprepo, |configured| {
