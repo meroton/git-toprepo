@@ -103,12 +103,13 @@ fn clone_after_init(clone_args: &cli::Clone, configured_repo: &mut repo::Configu
         },
         configured_repo,
     )?;
-    verify_config_existence_after_clone()?;
+    let repo_dir = configured_repo.gix_repo.workdir().expect("ConfiguredTopRepo should have a working directory");
+    verify_config_existence_after_clone(repo_dir)?;
     if !clone_args.minimal {
         configured_repo.reload_config()?;
         refilter(&clone_args.refilter, configured_repo)?;
     }
-    git_command(Path::new("."))
+    git_command(configured_repo.gix_repo.workdir().expect("ConfiguredTopRepo should have a working directory"))
         .args(["checkout", "refs/remotes/origin/HEAD", "--"])
         .trace_command(git_toprepo::command_span!("git checkout"))
         .check_success_with_stderr()?;
@@ -116,8 +117,7 @@ fn clone_after_init(clone_args: &cli::Clone, configured_repo: &mut repo::Configu
 }
 
 #[tracing::instrument(skip_all)]
-fn verify_config_existence_after_clone() -> Result<()> {
-    let repo_dir = git_toprepo::util::find_current_worktree(Path::new("."))?;
+fn verify_config_existence_after_clone(repo_dir: &Path) -> Result<()> {
     let location = config::GitTopRepoConfig::find_configuration_location(&repo_dir)?;
     if location.validate_existence(&repo_dir).is_err() {
         // Fetch from the default remote to get all the direct submodules.
@@ -1049,32 +1049,6 @@ where
         _ => {}
     };
 
-    // Handle Clone's special init step
-    if let Commands::Clone(cli::Clone {
-        init: init_args,
-        // NB: The `refilter` and `minimal` options are used in the second
-        // filtering stage. They are not relevant for the initial cloning.
-        refilter: _,
-        minimal: _,
-    }) = &args.command {
-        let directory = init(init_args)?;
-        // TODO: Instead communicate this directory to the second phase
-        // than to change directory. All references to "." are code smells
-        // and should be resolved later.
-        std::env::set_current_dir(&directory).with_context(|| {
-            format!(
-                "Failed to change working directory to {}",
-                directory.display()
-            )
-        })?;
-        // NB: We have not set the marker in the initial clone
-        // But this command is meant to create it.
-        // So it is safe to proceed with the processor `clone_after_init`.
-        // TODO: We should now be in a ConfiguredTopRepo state,
-        // we should update that here.
-        let toprepo = TopRepo::open_configured(&directory).expect("We just created the monorepo");
-        logger.map(|logger| logger.write_to_git_dir(toprepo.gix_repo.git_dir())).transpose()?;
-    }
 
     match args.command {
         // Early exit commands
@@ -1101,11 +1075,11 @@ where
         }
         Commands::Dump(dump_args) => dump(&dump_args, repo.map_err(|e| anyhow::Error::from(NotAMonorepo::new(e)))?),
         Commands::Clone(clone_args) => {
-            // Special case: two-stage initialization
-            // After init(), we changed directory but the unified repo was opened from the old directory
-            // We need to open the configured repo from the current directory after init()
-            let directory = Path::new(".");
-            let mut toprepo = repo::TopRepo::open_configured(directory)?;
+            // Two-stage initialization: init + clone_after_init
+            let directory = init(&clone_args.init)?;
+            let mut toprepo = TopRepo::open_configured(&directory)?;
+            logger.map(|logger| logger.write_to_git_dir(toprepo.gix_repo.git_dir())).transpose()?;
+            
             ConfiguredRepoSession::run(&mut toprepo, |configured| {
                 clone_after_init(&clone_args, configured)
             })
