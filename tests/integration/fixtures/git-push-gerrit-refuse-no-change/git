@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+export PATH=$OLD_PATH
+if test "$#" -gt 3 && test "$1" = "-C" && test "$3" = "push"; then
+    cat 1>&2 <<EOF
+remote: Processing changes: refs: 1, done
+To ssh://gerrit.example/path/to/repo.git
+ ! [remote rejected] HEAD -> refs/for/something (no new changes)
+error: failed to push some refs to 'ssh://gerrit.example/path/to/repo.git'
+EOF
+    exit 1
+fi
+exec git "$@"
