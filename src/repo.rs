@@ -6,7 +6,6 @@ use crate::git::GitModulesInfo;
 use crate::git::GitPath;
 use crate::git::TreeId;
 use crate::git::git_command;
-use crate::git::git_global_command;
 use crate::git_fast_export_import::WithoutCommitterId;
 use crate::git_fast_export_import_dedup::GitFastExportImportDedupCache;
 use crate::log::CommandSpanExt as _;
@@ -75,7 +74,7 @@ pub struct TopRepo {
 
 impl TopRepo {
     pub fn create(directory: &Path, url: gix::url::Url) -> Result<TopRepo> {
-        git_global_command()
+        std::process::Command::new("git")
             .arg("init")
             .arg("--quiet")
             .arg(directory.as_os_str())

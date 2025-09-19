@@ -1,6 +1,5 @@
 use assert_cmd::prelude::*;
-use git_toprepo::git::commit_env_for_testing;
-use git_toprepo::git::git_command;
+use git_toprepo::git::git_command_for_testing;
 use git_toprepo::util::NewlineTrimmer as _;
 use itertools::Itertools as _;
 use predicates::prelude::*;
@@ -13,10 +12,8 @@ fn test_push_empty_commit_should_fail() {
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "--allow-empty", "-m", "Empty commit"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
 
@@ -51,8 +48,7 @@ fn test_push_duplicate_branch() {
     // It is enough to push to the top repository, as the submodules are not
     // changed and their commits are already present but potentially under a
     // different ref.
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args([
             "diff",
             "--exit-code",
@@ -71,15 +67,12 @@ fn test_push_top() {
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
     std::fs::write(monorepo.join("file.txt"), "text\n").unwrap();
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["add", "file.txt"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "-m", "Add file"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
 
@@ -95,8 +88,7 @@ fn test_push_top() {
         )))
         .stderr(predicate::str::is_match(r"\n \* \[new branch\]\s+[0-9a-f]+ -> foo\n").unwrap());
 
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["show", "refs/heads/foo:file.txt"])
         .assert()
         .success()
@@ -111,15 +103,12 @@ fn test_push_submodule() {
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
     std::fs::write(monorepo.join("sub/file.txt"), "text\n").unwrap();
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["add", "sub/file.txt"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "-m", "Add file"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
 
@@ -135,8 +124,7 @@ fn test_push_submodule() {
         )))
         .stderr(predicate::str::is_match(r"\n \* \[new branch\]\s+[0-9a-f]+ -> foo\n").unwrap());
 
-    Command::new("git")
-        .current_dir(toprepo.join("../sub"))
+    git_command_for_testing(toprepo.join("../sub"))
         .args(["show", "refs/heads/foo:file.txt"])
         .assert()
         .success()
@@ -151,20 +139,16 @@ fn test_push_revision() {
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
     std::fs::write(monorepo.join("file.txt"), "text\n").unwrap();
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["add", "file.txt"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "-m", "Add file"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
 
-    let cmd = Command::new("git")
-        .current_dir(&monorepo)
+    let cmd = git_command_for_testing(&monorepo)
         .args(["rev-parse", "HEAD"])
         .assert()
         .success();
@@ -195,15 +179,12 @@ fn test_push_from_sub_directory() {
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
     std::fs::write(monorepo.join("file.txt"), "text\n").unwrap();
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["add", "file.txt"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "-m", "Add file"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
 
@@ -220,8 +201,7 @@ fn test_push_from_sub_directory() {
         )))
         .stderr(predicate::str::is_match(r"\n \* \[new branch\]\s+[0-9a-f]+ -> foo\n").unwrap());
 
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["show", "refs/heads/foo:file.txt"])
         .assert()
         .success()
@@ -236,22 +216,17 @@ fn test_push_shortrev() {
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
     std::fs::write(monorepo.join("file.txt"), "text\n").unwrap();
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["add", "file.txt"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "-m", "Add file"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
 
-    let cmd = Command::new("git")
-        .current_dir(&monorepo)
+    let cmd = git_command_for_testing(&monorepo)
         .args(["rev-parse", "--short", "HEAD"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
     let output = cmd.get_output();
@@ -270,8 +245,7 @@ fn test_push_shortrev() {
         )))
         .stderr(predicate::str::is_match(r"\n \* \[new branch\]\s+[0-9a-f]+ -> foo\n").unwrap());
 
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["show", "refs/heads/foo:file.txt"])
         .assert()
         .success()
@@ -289,15 +263,12 @@ fn test_push_top_and_submodule_in_series() {
     std::fs::write(monorepo.join("file.txt"), "top\n").unwrap();
     std::fs::write(monorepo.join("sub/file.txt"), "submodule\n").unwrap();
 
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["add", "file.txt", "sub/file.txt"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "-m", "Add files\n\nTopic: my-topic"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
 
@@ -330,14 +301,12 @@ To .*/top/?
             .unwrap(),
         );
 
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["show", "refs/heads/foo:file.txt"])
         .assert()
         .success()
         .stdout("top\n");
-    Command::new("git")
-        .current_dir(&subrepo)
+    git_command_for_testing(&subrepo)
         .args(["show", "refs/heads/foo:file.txt"])
         .assert()
         .success()
@@ -355,15 +324,12 @@ fn test_push_top_and_submodule_in_parallel() {
     std::fs::write(monorepo.join("file.txt"), "top\n").unwrap();
     std::fs::write(monorepo.join("sub/file.txt"), "submodule\n").unwrap();
 
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["add", "file.txt", "sub/file.txt"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "-m", "Add files\n\nTopic: my-topic"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
 
@@ -397,14 +363,12 @@ To .*
             .unwrap(),
         );
 
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["show", "refs/heads/foo:file.txt"])
         .assert()
         .success()
         .stdout("top\n");
-    Command::new("git")
-        .current_dir(&subrepo)
+    git_command_for_testing(&subrepo)
         .args(["show", "refs/heads/foo:file.txt"])
         .assert()
         .success()
@@ -422,15 +386,12 @@ fn test_push_topic_removed_from_commit_message() {
     std::fs::write(monorepo.join("file.txt"), "top\n").unwrap();
     std::fs::write(monorepo.join("sub/file.txt"), "submodule\n").unwrap();
 
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["add", "file.txt", "sub/file.txt"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "-m", "Add files\n\nTopic: my-topic"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
 
@@ -442,14 +403,12 @@ fn test_push_topic_removed_from_commit_message() {
         .success();
 
     // Check for missing topic and a single LF at the end.
-    Command::new("git")
-        .current_dir(&toprepo)
+    git_command_for_testing(&toprepo)
         .args(["cat-file", "-p", "refs/heads/foo"])
         .assert()
         .success()
         .stdout(predicate::str::ends_with("\n\nAdd files\n"));
-    Command::new("git")
-        .current_dir(&subrepo)
+    git_command_for_testing(&subrepo)
         .args(["cat-file", "-p", "refs/heads/foo"])
         .assert()
         .success()
@@ -465,15 +424,12 @@ fn test_push_topic_is_used_as_push_option() {
 
     std::fs::write(monorepo.join("file.txt"), "top\n").unwrap();
 
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["add", "file.txt"])
         .assert()
         .success();
-    Command::new("git")
-        .current_dir(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "-m", "Add file\n\nTopic: my-topic"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
 
@@ -504,13 +460,12 @@ fn test_topic_is_required_for_multi_repo_push() {
     std::fs::write(monorepo.join("top.txt"), "top\n").unwrap();
     std::fs::write(monorepo.join("subx/file.txt"), "subx\n").unwrap();
     std::fs::write(monorepo.join("suby/file.txt"), "suby\n").unwrap();
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["add", "top.txt", "subx/file.txt", "suby/file.txt"])
         .assert()
         .success();
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "-m", "Add files"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
     assert_cmd::Command::cargo_bin("git-toprepo")
@@ -538,13 +493,12 @@ fn test_force_push() {
     std::fs::write(monorepo.join("top.txt"), "top\n").unwrap();
     std::fs::write(monorepo.join("subx/file.txt"), "subx\n").unwrap();
     std::fs::write(monorepo.join("suby/file.txt"), "suby\n").unwrap();
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["add", "top.txt"])
         .assert()
         .success();
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "-m", "Add file"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
     assert_cmd::Command::cargo_bin("git-toprepo")
@@ -555,9 +509,8 @@ fn test_force_push() {
         .success();
 
     // --force
-    git_command(&monorepo)
+    git_command_for_testing(&monorepo)
         .args(["commit", "--amend", "-m", "Force"])
-        .envs(commit_env_for_testing())
         .assert()
         .success();
     assert_cmd::Command::cargo_bin("git-toprepo")

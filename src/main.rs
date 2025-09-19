@@ -12,7 +12,6 @@ use colored::Colorize;
 use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::GitModulesInfo;
-use git_toprepo::git::git_command;
 use git_toprepo::log::CommandSpanExt as _;
 use git_toprepo::log::ErrorMode;
 use git_toprepo::log::ErrorObserver;
@@ -78,7 +77,7 @@ fn clone_after_init(clone_args: &cli::Clone, processor: &mut MonoRepoProcessor) 
         processor.reload_config()?;
         refilter(&clone_args.refilter, processor)?;
     }
-    git_command(Path::new("."))
+    std::process::Command::new("git")
         .args(["checkout", "refs/remotes/origin/HEAD", "--"])
         .trace_command(git_toprepo::command_span!("git checkout"))
         .check_success_with_stderr()?;
@@ -849,6 +848,7 @@ mod tests {
     use super::*;
     use crate::config::TOPREPO_CONFIG_FILE_KEY;
     use crate::config::toprepo_git_config;
+    use git_toprepo::git::git_command_for_testing;
 
     #[test]
     fn test_main_outside_git_toprepo() {
@@ -873,7 +873,7 @@ mod tests {
             "git_toprepo-test_main_outside_git_toprepo",
         );
         let temp_dir_str = temp_dir.to_str().unwrap();
-        let mut init_cmd = git_command(&temp_dir.to_path_buf().to_owned());
+        let mut init_cmd = git_command_for_testing(&temp_dir);
         let _ = init_cmd.arg("init").output();
         let argv = vec!["git-toprepo", "-C", temp_dir_str, "config", "show"];
         let argv = argv.into_iter().map(|s| s.into());
