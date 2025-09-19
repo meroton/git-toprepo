@@ -20,7 +20,8 @@ use git_gr_lib::gerrit::HTTPPasswordPolicy;
 use git_gr_lib::query::QueryOptions;
 use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
-use git_toprepo::NotAMonorepo;
+use git_toprepo::repo::RepoHandle;
+use git_toprepo::repo::TopRepo;
 use git_toprepo::AlreadyAMonorepo;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::git::git_command;
@@ -35,6 +36,7 @@ use git_toprepo::repo_name::RepoName;
 use git_toprepo::submitted_together::order_submitted_together;
 use git_toprepo::submitted_together::split_by_supercommits;
 use git_toprepo::util::CommandExtension as _;
+use git_toprepo::NotAMonorepo;
 use gix::refs::FullName;
 use gix::refs::FullNameRef;
 use itertools::Itertools as _;
@@ -149,7 +151,7 @@ fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
     }
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(repo))]
 // NB: This could also take an `Option<PathBuf>` but we know it is a result from
 // earlier, so this kind of smears the error handling between this function and
 // the caller. But it allows us to give correct errors for each case.
@@ -158,12 +160,16 @@ fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
 // irrelevant and should not be contextualized.
 // In `Bootstrap`, `Location` and `Show` the callee error is sufficient on its own
 // so we just return it.
-fn config(config_args: &cli::Config, monorepo_root: Result<PathBuf>) -> Result<()> {
+// TODO: instead of the root path, use the RepoHandle here
+// and enforce the Configured/Basic invariants through it.
+// That too ought to clean up the convoluted error handling, I presume.
+fn config(config_args: &cli::Config, repo: Result<RepoHandle>) -> Result<()> {
     match &config_args.config_command {
         cli::ConfigCommands::Location => {
             // TODO: Print something that can easily be selected and opened in
             // a terminal or VsCode or so. The "local:" prefix makes it harder.
-            let repo_dir = &monorepo_root.map_err(|_| NotAMonorepo)?;
+            let repo = &ConfiguredTopRepo::try_from(repo)?.gix_repo;
+            let repo_dir = repo.git_dir();
             let location = config::GitTopRepoConfig::find_configuration_location(repo_dir)?;
             if let Err(err) = location.validate_existence(repo_dir) {
                 log::warn!("{err:#}");
@@ -171,15 +177,21 @@ fn config(config_args: &cli::Config, monorepo_root: Result<PathBuf>) -> Result<(
             println!("{location}");
         }
         cli::ConfigCommands::Show => {
-            let repo_dir = &monorepo_root.map_err(|_| NotAMonorepo)?;
+            let repo = &ConfiguredTopRepo::try_from(repo)?.gix_repo;
+            let repo_dir = repo.git_dir();
             let config = config::GitTopRepoConfig::load_config_from_repo(repo_dir)?;
             print!("{}", toml::to_string(&config)?);
         }
         cli::ConfigCommands::Bootstrap => {
-            let repo_dir = &monorepo_root?;
-            let config = config_bootstrap(repo_dir)?;
-            print!("{}", toml::to_string(&config)?);
-        }
+            match repo {
+                Ok(RepoHandle::Basic(repo)) => {
+                    let config = config_bootstrap(&repo)?;
+                    print!("{}", toml::to_string(&config)?);
+                },
+                Ok(RepoHandle::Configured(_)) => return Err(AlreadyAMonorepo.into()),
+                Err(e) => return Err(e),
+            };
+        },
         cli::ConfigCommands::Normalize(args) => {
             let config = load_config_from_file(args.file.as_path())?;
             print!("{}", toml::to_string(&config)?);
@@ -191,23 +203,15 @@ fn config(config_args: &cli::Config, monorepo_root: Result<PathBuf>) -> Result<(
     Ok(())
 }
 
-fn config_bootstrap(path: &PathBuf) -> Result<GitTopRepoConfig> {
-    // TODO: See if the unified opener works and use the BasicToprepo directly.
-    // Then we can just give error on the pattern match.
-    if git_toprepo::is_monorepo(&path)? {
-        return Err(AlreadyAMonorepo.into());
-    }
-    let gix_repo = gix::open(PathBuf::from(path))?;
-
-
-    let default_remote_name = gix_repo
+fn config_bootstrap(repo: &TopRepo) -> Result<GitTopRepoConfig> {
+    let default_remote_name = repo.gix_repo
         .remote_default_name(gix::remote::Direction::Fetch)
         .with_context(|| "Failed to get the default remote name")?;
     let bootstrap_ref = FullName::try_from(format!(
         "{}refs/remotes/{default_remote_name}/HEAD",
         RepoName::Top.to_ref_prefix()
     ))?;
-    let head_commit = gix_repo.find_reference(&bootstrap_ref)?.peel_to_commit()?;
+    let head_commit = repo.gix_repo.find_reference(&bootstrap_ref)?.peel_to_commit()?;
     let dot_gitmodules_bytes = match head_commit.tree()?.find_entry(".gitmodules") {
         Some(entry) => &entry.object()?.data,
         None => &Vec::new(),
@@ -226,7 +230,7 @@ fn config_bootstrap(path: &PathBuf) -> Result<GitTopRepoConfig> {
         };
         ErrorObserver::run(ErrorMode::KeepGoing, |error_observer| {
             let mut commit_loader = git_toprepo::loader::CommitLoader::new(
-                &gix_repo,
+                &repo.gix_repo,
                 &mut top_repo_cache.repos,
                 &config.fetch,
                 &mut ledger,
@@ -913,18 +917,19 @@ struct ConfiguredRepoSession;
 
 impl ConfiguredRepoSession {
     /// Run an operation with automatic setup and teardown
-    fn run<T, F>(directory: &Path, f: F) -> Result<T>
+    fn run<T, F>(toprepo: &mut ConfiguredTopRepo, f: F) -> Result<T>
     where
         F: FnOnce(&mut repo::ConfiguredTopRepo) -> Result<T>,
     {
         // Setup: Open configured repo (loads cache from disk)
-        let mut configured_repo = repo::TopRepo::open_configured(directory)?;
+        // let mut configured_repo = repo::TopRepo::open_configured(directory)?;
+        toprepo.reload_config()?;
         
         // Run the operation
-        let result = f(&mut configured_repo);
+        let result = f(toprepo);
         
         // Teardown: Always save state (preserves partial work even on errors)
-        let save_result = configured_repo.save_state();
+        let save_result = toprepo.save_state();
         
         // Return operation result, but if save failed and operation succeeded, return save error
         match (result, save_result) {
@@ -1016,18 +1021,20 @@ where
     // First find whether we are in a git repo at all.
     // It is used as the anchor to later detect if it is a monorepo.
     let gitrepo_root = git_toprepo::util::find_current_worktree(&current_dir);
+    // NB: Flatten the `Result<Result<RepoHandle, Error>, Error>`
+    //     note: see issue #70142 <https://github.com/rust-lang/rust/issues/70142> for more information
+    //     help: add `#![feature(result_flattening)]` to the crate attributes to enable
+    let repo = match gitrepo_root {
+        Ok(repo_root) => repo::TopRepo::open_for_commands(Path::new(&repo_root)),
+        Err(e) => Err(e),
+    };
+
     /*
      * // TODO: `dump` would like to have the relative path to the root
      * // for it to calculate relative paths correctly.
      * let down_from_root = current_dir.strip_prefix(&toprepo_root);
      * let up_to_root = Path::new();
      */
-
-    // Open repository once for all operations - this solves the "dual access paths" problem
-    let toprepo_root = gitrepo_root.as_ref().map_err(|_| NotAMonorepo)
-        .context(repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
-    let repo = repo::TopRepo::open_for_commands(Path::new(&toprepo_root))?;
-
 
     // First run subcommands that can run with a mis- or unconfigured repo.
     match &args.command {
@@ -1061,14 +1068,17 @@ where
             // two dispatchers.
         }
         Commands::Config(config_args) => {
-            return config(config_args, gitrepo_root);
+            return config(config_args, repo);
         }
         Commands::Version => return print_version(),
         Commands::IsMonorepo => {
-            let repo_root = gitrepo_root.map_err(|_| ExitSilently)?;
-            return match git_toprepo::is_monorepo(&repo_root)? {
-                true => Ok(()),
-                false => Err(ExitSilently.into()),
+            // NB: There is no possible way to know if it is a monorepo a
+            // priori: We currently only try to open it and if it works it
+            // works. We should document when it is a monorepo and implement a
+            // static `is_monorepo`: function.
+            return match repo {
+                Ok(RepoHandle::Configured(_)) => Ok(()),
+                _ => Err(ExitSilently.into()),
             };
         }
         _ => {}
@@ -1078,9 +1088,12 @@ where
     // We can persist the tracing in the monorepo.
     // TODO: Maybe move the logger into the `ConfiguredTopRepo` as we only want to log
     // in that case.
-    if let Some(logger) = logger {
-        logger.write_to_git_dir(gix::open(&toprepo_root)?.git_dir())?;
-    }
+    match (logger, &repo) {
+        (Some(logger), Ok(RepoHandle::Configured(toprepo))) => {
+            logger.write_to_git_dir(toprepo.gix_repo.git_dir())?;
+        }
+        _ => {}
+    };
 
     match args.command {
         // Commands that were already handled above
@@ -1089,10 +1102,10 @@ where
         Commands::Version => unreachable!("version is already processed."),
         Commands::IsMonorepo => unreachable!("is-monorepo is already handled."),
 
-        // Operations that work with any repo type (basic or configured)
-        Commands::Dump(dump_args) => dump(&dump_args, &repo),
-
         // Operations that require configured repo
+        Commands::Dump(dump_args) => dump(&dump_args, &repo.map_err(|e| e.context(NotAMonorepo))?),
+        // Commands::Dump(dump_args) => dump(&dump_args, &repo?),
+
         Commands::Clone(clone_args) => {
             // Special case: two-stage initialization
             // After init(), we changed directory but the unified repo was opened from the old directory
@@ -1101,22 +1114,23 @@ where
              * let mut configured = repo::TopRepo::open_configured(Path::new("."))?;
              */
             let directory = Path::new(".");
-            ConfiguredRepoSession::run(directory, |configured| {
+            let mut toprepo = repo::TopRepo::open_configured(directory)?;
+            ConfiguredRepoSession::run(&mut toprepo, |configured| {
                 clone_after_init(&clone_args, configured)
             })
         }
         Commands::Refilter(refilter_args) => {
-            ConfiguredRepoSession::run(&toprepo_root, |configured| {
+            ConfiguredRepoSession::run(&mut ConfiguredTopRepo::try_from(repo)?, |configured| {
                 refilter(&refilter_args, configured)
             })
         }
         Commands::Fetch(fetch_args) => {
-            ConfiguredRepoSession::run(&toprepo_root, |configured| {
+            ConfiguredRepoSession::run(&mut ConfiguredTopRepo::try_from(repo)?, |configured| {
                 fetch(&fetch_args, configured)
             })
         }
         Commands::Push(push_args) => {
-            ConfiguredRepoSession::run(&toprepo_root, |configured| {
+            ConfiguredRepoSession::run(&mut ConfiguredTopRepo::try_from(repo)?, |configured| {
                 push(&push_args, configured)
             })
         }
@@ -1167,6 +1181,7 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use git_toprepo::NotAMonorepo;
 
     #[test]
     fn test_main_outside_git_toprepo() {
@@ -1193,9 +1208,7 @@ mod tests {
         let argv = vec!["git-toprepo", "-C", temp_dir_str, "config", "show"];
         let argv = argv.into_iter().map(|s| s.into());
         let err = main_impl(argv, None).unwrap_err();
-        // TODO: This should be NotAMonorepo but currently gets git-config error
-        // Need to fix the two-stage initialization issue first
-        assert!(err.to_string().contains("git-config 'toprepo.config' is missing"));
+        assert!(err.root_cause().downcast_ref() == Some(&NotAMonorepo));
 
         // TODO: Should there be distinctly different error messages in a
         // unassembled gitrepo, or without a git repo entirely?

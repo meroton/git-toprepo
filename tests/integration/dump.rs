@@ -36,7 +36,7 @@ fn test_dump_outside_git_repo() {
         .assert()
         .failure()
         .stderr(contains(
-            git_toprepo::repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY,
+            "NotAMonorepo",
         ));
 }
 

@@ -17,6 +17,7 @@ use crate::util::CommandExtension as _;
 use crate::util::NewlineTrimmer as _;
 use crate::util::RcKey;
 use crate::util::normalize;
+use crate::NotAMonorepo;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
@@ -73,7 +74,7 @@ pub fn resolve_subprojects(
 
 #[derive(Debug)]
 pub struct TopRepo {
-    pub gix_repo: gix::ThreadSafeRepository,
+    pub gix_repo: gix::Repository,
 }
 
 /// Handle for either a basic or fully configured toprepo
@@ -85,6 +86,42 @@ pub enum RepoHandle {
     /// Fully configured toprepo with all state loaded
     Configured(ConfiguredTopRepo),
 }
+
+impl<E> TryFrom<Result<RepoHandle, E>> for ConfiguredTopRepo
+where
+    E: Display + Send + Sync + 'static {
+    type Error = NotAMonorepo;
+
+    fn try_from(value: Result<RepoHandle, E>) -> std::result::Result<Self, Self::Error> {
+        match value {
+            Ok(RepoHandle::Basic(_)) => Err(NotAMonorepo),
+            Ok(RepoHandle::Configured(toprepo)) => Ok(toprepo),
+            // TODO: I want to contextualize the other error in here.
+            // Err(e) => Err(NotAMonorepo).context(e),
+            Err(_) => Err(NotAMonorepo),
+        }
+    }
+}
+
+/*
+ * // TODO: TopRepo is decidedly a bad term form this!
+ * // It is a plain not-monorepo git repo.
+ * impl<E> TryFrom<Result<RepoHandle, E>> for TopRepo
+ * where
+ *     E: Display + Send + Sync + 'static {
+ *     type Error = NotAMonorepo;
+ *
+ *     fn try_from(value: Result<RepoHandle, E>) -> std::result::Result<Self, Self::Error> {
+ *         match value {
+ *             Ok(RepoHandle::Basic(repo)) => Ok(repo),
+ *             Ok(RepoHandle::Configured(toprepo)) => Err(AlreadyAMonorepo),
+ *             // TODO: I want to contextualize the other error in here.
+ *             // Err(e) => Err(NotAMonorepo).context(e),
+ *             Err(e) => Err(e),
+ *         }
+ *     }
+ * }
+ */
 
 /// A fully configured toprepo with all state loaded
 /// This unifies access to both raw git operations and toprepo configuration
@@ -268,7 +305,7 @@ Initial empty git-toprepo configuration
         let gix_repo =
             gix::open(directory).context(COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
         Ok(TopRepo {
-            gix_repo: gix_repo.into_sync(),
+            gix_repo: gix_repo,
         })
     }
 
@@ -335,7 +372,7 @@ Initial empty git-toprepo configuration
     /// If the user has multiple worktrees
     /// this may not be the current working directory.
     pub fn main_worktree(&self) -> Result<&Path> {
-        self.gix_repo.work_dir().with_context(|| {
+        self.gix_repo.workdir().with_context(|| {
             format!(
                 "Bare repository without worktree {}",
                 self.gix_repo.git_dir().display()
@@ -349,7 +386,7 @@ Initial empty git-toprepo configuration
     // NOTE: ConfiguredTopRepo::submodules() provides the unified implementation
     // that uses config data instead of parsing .gitmodules each time.
     pub fn submodules(&self) -> Result<HashMap<GitPath, String>> {
-        let modules = self.gix_repo.to_thread_local().modules()?;
+        let modules = self.gix_repo.modules()?;
         if modules.is_none() {
             return Ok(HashMap::new());
         }
@@ -368,8 +405,7 @@ Initial empty git-toprepo configuration
     }
 
     pub fn gerrit_project(&self) -> Result<String> {
-        let repo = self.gix_repo.to_thread_local();
-        let url = crate::git::get_default_remote_url(&repo)?;
+        let url = crate::git::get_default_remote_url(&self.gix_repo)?;
         parse_gerrit_project(&url).with_context(|| format!("Parse gerrit project from {url}"))
     }
 }

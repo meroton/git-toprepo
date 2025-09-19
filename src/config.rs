@@ -26,6 +26,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+pub const COULD_NOT_PARSE_TOML_STRING: &str = "Could not parse TOML string";
+
 // NB: We can't seem to curry this into a const function
 // https://docs.rs/const-str/latest/const_str/index.html#const-context-only
 // So we can either use a single variable for the full string
@@ -201,7 +203,7 @@ impl GitTopRepoConfig {
     /// Parse a TOML configuration string.
     pub fn parse_config_toml_string(config_toml: &str) -> Result<Self> {
         let mut config: Self =
-            toml::from_str(config_toml).context("Could not parse TOML string")?;
+            toml::from_str(config_toml).context(COULD_NOT_PARSE_TOML_STRING)?;
         let checksum = sha2::Sha256::digest(config_toml.as_bytes());
         config.checksum = hex::encode(checksum);
         config.validate()?;

@@ -1,4 +1,5 @@
 use assert_cmd::prelude::*;
+use git_toprepo::config::COULD_NOT_PARSE_TOML_STRING;
 use git_toprepo::config::TOPREPO_CONFIG_FILE_KEY;
 use git_toprepo::config::toprepo_git_config;
 use git_toprepo::git::commit_env_for_testing;
@@ -118,8 +119,11 @@ fn test_validate_external_file_in_corrupt_repository() {
         .arg("show")
         .assert()
         .failure()
+        .stderr(predicate::str::contains(
+            COULD_NOT_PARSE_TOML_STRING,
+        ))
         .stderr(predicate::str::contains(format!(
-            "ERROR: Parsing worktree:{invalid_toml}: Could not parse TOML string",
+            "ERROR: Parsing worktree:{invalid_toml}:",
         )));
 
     // TODO: Rephrase the namespace in the error message. It looks ugly.
