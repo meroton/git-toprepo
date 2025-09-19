@@ -39,16 +39,9 @@ impl Default for NotAMonorepo {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(thiserror::Error, Debug, PartialEq)]
+#[error("Already a monorepo")]
 pub struct AlreadyAMonorepo;
-
-impl std::fmt::Display for AlreadyAMonorepo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "AlreadyAMonorepo")
-    }
-}
-
-impl std::error::Error for AlreadyAMonorepo {}
 
 /// Checks if a directory contains a configured git-toprepo
 /// This is the canonical detection logic used throughout the codebase
