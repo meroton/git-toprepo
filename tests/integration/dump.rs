@@ -36,7 +36,7 @@ fn test_dump_outside_git_repo() {
         .assert()
         .failure()
         .stderr(contains(
-            "NotAMonorepo",
+            "Not a monorepo",
         ));
 }
 

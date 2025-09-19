@@ -123,7 +123,7 @@ fn test_validate_external_file_in_corrupt_repository() {
             COULD_NOT_PARSE_TOML_STRING,
         ))
         .stderr(predicate::str::contains(format!(
-            "ERROR: Parsing worktree:{invalid_toml}:",
+            "Parsing worktree:{invalid_toml}:",
         )));
 
     // TODO: Rephrase the namespace in the error message. It looks ugly.

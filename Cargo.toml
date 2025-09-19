@@ -29,6 +29,7 @@ serde_path_to_error = "0.1.17"
 serde_with = { version = "3.11.0", features = ["macros"] }
 sha2 = "0.10.9"
 signal-hook = "0.3.18"
+thiserror = "1.0"
 threadpool = "1.8.1"
 toml = "0.8.19"
 tracing = "0.1.41"

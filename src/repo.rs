@@ -82,23 +82,35 @@ pub struct TopRepo {
 // TODO(terminology pr#172): emulated monorepo as opposed to a toprepo.
 pub enum RepoHandle {
     /// Basic git repository access (for discovery/bootstrap operations)
-    Basic(TopRepo),
+    /// Includes an error to explain why it could not be opened as a Toprepo.
+    Basic(TopRepo, Option<anyhow::Error>),
     /// Fully configured toprepo with all state loaded
     Configured(ConfiguredTopRepo),
 }
 
 impl<E> TryFrom<Result<RepoHandle, E>> for ConfiguredTopRepo
 where
-    E: Display + Send + Sync + 'static {
+    E: Into<anyhow::Error> + Send + Sync + 'static {
     type Error = NotAMonorepo;
 
     fn try_from(value: Result<RepoHandle, E>) -> std::result::Result<Self, Self::Error> {
         match value {
-            Ok(RepoHandle::Basic(_)) => Err(NotAMonorepo),
+            Ok(RepoHandle::Basic(_, Some(err))) => Err(NotAMonorepo::new(err)),
+            Ok(RepoHandle::Basic(_, None)) => Err(NotAMonorepo::default()),
             Ok(RepoHandle::Configured(toprepo)) => Ok(toprepo),
-            // TODO: I want to contextualize the other error in here.
-            // Err(e) => Err(NotAMonorepo).context(e),
-            Err(_) => Err(NotAMonorepo),
+            Err(e) => Err(NotAMonorepo::new(e.into())),
+        }
+    }
+}
+
+impl TryFrom<RepoHandle> for ConfiguredTopRepo {
+    type Error = NotAMonorepo;
+
+    fn try_from(value: RepoHandle) -> std::result::Result<Self, Self::Error> {
+        match value {
+            RepoHandle::Basic(_, Some(err)) => Err(NotAMonorepo::new(err)),
+            RepoHandle::Basic(_, None) => Err(NotAMonorepo::default()),
+            RepoHandle::Configured(toprepo) => Ok(toprepo),
         }
     }
 }
@@ -316,7 +328,7 @@ Initial empty git-toprepo configuration
             .context(COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
         Ok(match Self::open_configured(directory) {
             Ok(monorepo) => RepoHandle::Configured(monorepo),
-            Err(_) => RepoHandle::Basic(TopRepo{gix_repo: gix_repo.into()}),
+            Err(err) => RepoHandle::Basic(TopRepo{gix_repo: gix_repo.into()}, Some(err)),
         })
     }
 
@@ -492,14 +504,6 @@ impl ConfiguredTopRepo {
 }
 
 impl RepoHandle {
-    /// Get the configured repo, returning an error if this is only a basic repo
-    pub fn require_configured(&mut self) -> Result<&mut ConfiguredTopRepo> {
-        match self {
-            RepoHandle::Configured(configured) => Ok(configured),
-            RepoHandle::Basic(_) => Err(crate::NotAMonorepo.into()),
-        }
-    }
-
     /// Save state if this is a configured repo (no-op for basic repos)
     pub fn save_state_if_configured(&mut self) -> Result<()> {
         if let RepoHandle::Configured(configured) = self {

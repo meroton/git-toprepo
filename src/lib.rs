@@ -20,16 +20,24 @@ pub mod util;
 
 /// Error indicating that the current directory is not a configured git-toprepo
 /// TODO(terminology pr#172): This will be renamed when terminology is finalized
-#[derive(Debug, PartialEq)]
-pub struct NotAMonorepo;
+#[derive(thiserror::Error, Debug)]
+#[error("Not a monorepo")]
+pub struct NotAMonorepo {
+    #[source]
+    pub source: Option<anyhow::Error>,
+}
 
-impl std::fmt::Display for NotAMonorepo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NotAMonorepo")
+impl NotAMonorepo {
+    pub fn new(source: anyhow::Error) -> Self {
+        Self { source: Some(source) }
     }
 }
 
-impl std::error::Error for NotAMonorepo {}
+impl Default for NotAMonorepo {
+    fn default() -> Self {
+        Self { source: None }
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub struct AlreadyAMonorepo;

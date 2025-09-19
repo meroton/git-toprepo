@@ -184,7 +184,10 @@ fn config(config_args: &cli::Config, repo: Result<RepoHandle>) -> Result<()> {
         }
         cli::ConfigCommands::Bootstrap => {
             match repo {
-                Ok(RepoHandle::Basic(repo)) => {
+                Ok(RepoHandle::Basic(repo, err)) => {
+                    if let Some(ref error) = err {
+                        log::trace!("Config loading error in basic repo during bootstrap: {error:#}");
+                    }
                     let config = config_bootstrap(&repo)?;
                     print!("{}", toml::to_string(&config)?);
                 },
@@ -427,7 +430,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     Ok(())
 }
 
-fn dump_modules(repo: &repo::RepoHandle) -> Result<()> {
+fn dump_modules(repo: repo::RepoHandle) -> Result<()> {
     /// The main repo is not technically a submodule.
     /// But it is very convenient to have transparent handling of the main
     /// project in code that iterates over projects provided by the users.
@@ -436,10 +439,12 @@ fn dump_modules(repo: &repo::RepoHandle) -> Result<()> {
         path: git_toprepo::git::GitPath,
     }
 
-    // Use the unified repo interface that works with both basic and configured repos
+    // TODO: Refactor this to more cleanly Use the unified repo interface that works with both basic and configured repos
+    // Avoide the two stage match.
     let main_project = match repo {
-        repo::RepoHandle::Configured(configured) => configured.gerrit_project().to_string(),
-        repo::RepoHandle::Basic(basic) => basic
+        repo::RepoHandle::Configured(ref configured) => configured.gerrit_project().to_string(),
+        // NB: Don't care if there were errors loading the monorepo
+        repo::RepoHandle::Basic(ref basic, _) => basic
             .gerrit_project()
             .context(git_toprepo::repo::LOADING_THE_MAIN_PROJECT_CONTEXT)?,
     };
@@ -450,7 +455,8 @@ fn dump_modules(repo: &repo::RepoHandle) -> Result<()> {
             .into_iter()
             .map(|(path, project)| Mod { project, path })
             .collect(),
-        repo::RepoHandle::Basic(basic) => basic
+        // NB: Don't care if there were errors loading the monorepo
+        repo::RepoHandle::Basic(basic, _) => basic
             .submodules()?
             .into_iter()
             .map(|(path, project)| Mod { project, path })
@@ -846,7 +852,7 @@ fn push(push_args: &cli::Push, configured_repo: &mut ConfiguredTopRepo) -> Resul
     })
 }
 
-fn dump(dump_args: &cli::Dump, repo: &repo::RepoHandle) -> Result<()> {
+fn dump(dump_args: &cli::Dump, repo: repo::RepoHandle) -> Result<()> {
     match dump_args {
         cli::Dump::ImportCache => dump_import_cache(repo),
         cli::Dump::GitModules => dump_modules(repo),
@@ -859,10 +865,11 @@ fn dump(dump_args: &cli::Dump, repo: &repo::RepoHandle) -> Result<()> {
     }
 }
 
-fn dump_gerrit(choice: &cli::DumpGerrit, repo: &repo::RepoHandle) -> Result<()> {
+fn dump_gerrit(choice: &cli::DumpGerrit, repo: repo::RepoHandle) -> Result<()> {
     let git_dir = match repo {
-        repo::RepoHandle::Configured(configured) => configured.gix_repo.git_dir(),
-        repo::RepoHandle::Basic(basic) => basic.gix_repo.path(),
+        repo::RepoHandle::Configured(ref configured) => configured.gix_repo.git_dir(),
+        // NB: Don't care if there were errors loading the monorepo
+        repo::RepoHandle::Basic(ref basic, _) => basic.gix_repo.path(),
     };
 
     let mut git_review_file = git_dir.parent().unwrap().to_owned();
@@ -884,14 +891,12 @@ fn dump_gerrit(choice: &cli::DumpGerrit, repo: &repo::RepoHandle) -> Result<()> 
     Ok(())
 }
 
-fn dump_import_cache(repo: &repo::RepoHandle) -> Result<()> {
-    let git_dir = match repo {
-        repo::RepoHandle::Configured(configured) => configured.gix_repo.git_dir(),
-        repo::RepoHandle::Basic(basic) => basic.gix_repo.path(),
-    };
+fn dump_import_cache(repo: repo::RepoHandle) -> Result<()> {
+    let repo = &ConfiguredTopRepo::try_from(repo)?.gix_repo;
+    let repo_dir = repo.git_dir();
 
     let serde_repo_states = git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
-        git_dir,
+        repo_dir,
         None,
     )?;
     serde_repo_states.dump_as_json(std::io::stdout())?;
@@ -1103,9 +1108,7 @@ where
         Commands::IsMonorepo => unreachable!("is-monorepo is already handled."),
 
         // Operations that require configured repo
-        Commands::Dump(dump_args) => dump(&dump_args, &repo.map_err(|e| e.context(NotAMonorepo))?),
-        // Commands::Dump(dump_args) => dump(&dump_args, &repo?),
-
+        Commands::Dump(dump_args) => dump(&dump_args, repo.map_err(|e| anyhow::Error::from(NotAMonorepo::new(e)))?),
         Commands::Clone(clone_args) => {
             // Special case: two-stage initialization
             // After init(), we changed directory but the unified repo was opened from the old directory
@@ -1194,7 +1197,7 @@ mod tests {
         let err = main_impl(argv, None).unwrap_err();
         // NB: This is linked to     dump::test_dump_outside_git_repo
         // The error is now wrapped with context, so we need to find the root cause
-        assert!(err.root_cause().downcast_ref() == Some(&NotAMonorepo));
+        assert!(err.downcast_ref::<NotAMonorepo>().is_some());
     }
 
     #[test]
@@ -1208,7 +1211,7 @@ mod tests {
         let argv = vec!["git-toprepo", "-C", temp_dir_str, "config", "show"];
         let argv = argv.into_iter().map(|s| s.into());
         let err = main_impl(argv, None).unwrap_err();
-        assert!(err.root_cause().downcast_ref() == Some(&NotAMonorepo));
+        assert!(err.downcast_ref::<NotAMonorepo>().is_some());
 
         // TODO: Should there be distinctly different error messages in a
         // unassembled gitrepo, or without a git repo entirely?
