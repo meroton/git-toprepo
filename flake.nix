@@ -23,7 +23,11 @@
             name = "rust-toolchain";
             path = ./rust-toolchain.toml;
           };
-          sha256 = "sha256-pw28Lw1M3clAtMjkE/wry0WopX0qvzxeKaPUFoupC00=";
+          # Need to manually update the hash to get the correct toolchain. It
+          # does not re-evaluate just on changed rust-toolchain.toml.
+          # curl https://static.rust-lang.org/dist/2025-09-20/channel-rust-nightly.toml |
+          #   sha256sum | cut -f1 -d' ' | xxd -r -p | base64
+          sha256 = "sha256-qvgL9thRqOhiZX1xdkm4TlOm7TTEglHT6NumEJJWzdc=";
         };
         rustPlatform = pkgs.makeRustPlatform {
             cargo = toolchain;
