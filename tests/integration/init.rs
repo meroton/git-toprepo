@@ -3,7 +3,7 @@ use predicates::prelude::*;
 use std::process::Command;
 
 #[test]
-fn test_toprepo_init() {
+fn toprepo_init() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
@@ -23,7 +23,7 @@ fn test_toprepo_init() {
 }
 
 #[test]
-fn test_toprepo_force_init() {
+fn toprepo_force_init() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");

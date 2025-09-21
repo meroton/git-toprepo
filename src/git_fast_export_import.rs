@@ -909,7 +909,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_fast_export_output() {
+    fn parse_fast_export_output() {
         let tmp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
             "git_toprepo_test_parse_fast_export_output",
         );
@@ -991,7 +991,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fast_import() {
+    fn fast_import() {
         let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
             "git_toprepo-test_fast_import",
         );

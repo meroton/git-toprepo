@@ -13,7 +13,7 @@ const GENERIC_CONFIG: &str = r#"
 "#;
 
 #[test]
-fn test_validate_external_file_in_corrupt_repository() {
+fn validate_external_file_in_corrupt_repository() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
         "git_toprepo-test_validate_external_file_in_corrupt_repository",
     );
@@ -102,7 +102,7 @@ fn test_validate_external_file_in_corrupt_repository() {
 }
 
 #[test]
-fn test_config_commands_use_correct_working_directory() {
+fn config_commands_use_correct_working_directory() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
         "git_toprepo-test_config_commands_use_correct_working_directory",
     );
@@ -147,7 +147,7 @@ fn test_config_commands_use_correct_working_directory() {
 }
 
 #[test]
-fn test_config_bootstrap() {
+fn config_bootstrap() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");

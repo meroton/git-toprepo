@@ -34,10 +34,7 @@ mod main {
     #[case::pwd_sub("sub", &[])]
     #[case::c_sub(".", &["-C", "sub"])]
     #[case::pwd_sub_c_dotdot("sub", &["-C", ".."])]
-    fn test_commands_in_not_initialized_repo_fails(
-        #[case] pwd_sub_dir: &str,
-        #[case] dash_c: &[&str],
-    ) {
+    fn commands_in_not_initialized_repo_fails(#[case] pwd_sub_dir: &str, #[case] dash_c: &[&str]) {
         let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
             "git_toprepo-test_commands_in_not_initialized_repo_fails",
         );
@@ -107,7 +104,7 @@ mod main {
     #[case::pwd_sub("sub", &[], "sub")]
     #[case::c_sub(".", &["-C", "sub"], "sub")]
     #[case::pwd_sub_c_dotdot("sub", &["-C", ".."], "")]
-    fn test_commands_outside_git_repos_fail(
+    fn commands_outside_git_repos_fail(
         #[case] pwd_sub_dir: &str,
         #[case] dash_c: &[&str],
         #[case] final_dir: &str,
