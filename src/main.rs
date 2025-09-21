@@ -104,7 +104,7 @@ fn verify_config_existence_after_clone() -> Result<()> {
 
 #[tracing::instrument]
 fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
-    if file == PathBuf::from("-") {
+    if file == "-" {
         || -> Result<GitTopRepoConfig> {
             let mut toml_string = String::new();
             std::io::stdin().read_to_string(&mut toml_string)?;
