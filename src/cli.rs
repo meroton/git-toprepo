@@ -105,8 +105,6 @@ pub enum Commands {
     Fetch(Fetch),
     /// Push commits to the respective remotes of each filtered submodule.
     Push(Push),
-    /// Check if a repo is managed by `git-toprepo`.
-    IsMonorepo,
 
     #[command(subcommand)]
     Dump(Dump),

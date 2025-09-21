@@ -7,6 +7,7 @@ use bstr::BString;
 use bstr::ByteSlice as _;
 use serde_with::serde_as;
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::ops::Deref;
 use std::path::Path;
 use std::path::PathBuf;
@@ -109,7 +110,7 @@ impl Deref for GitPath {
     }
 }
 
-impl std::fmt::Display for GitPath {
+impl Display for GitPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
@@ -229,6 +230,12 @@ impl GitModulesInfo {
 pub(crate) fn git_command(repo: impl AsRef<std::ffi::OsStr>) -> Command {
     let mut command = Command::new("git");
     command.args([std::ffi::OsStr::new("-C"), repo.as_ref()]);
+    command.env_remove("GIT_DIR");
+    command.env_remove("GIT_COMMON_DIR");
+    command.env_remove("GIT_WORK_TREE");
+    command.env_remove("GIT_INDEX_FILE");
+    command.env_remove("GIT_OBJECT_DIRECTORY");
+    // Let GIT_ALTERNATE_OBJECT_DIRECTORIES be set, if the user really wants that.
     command
 }
 

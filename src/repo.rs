@@ -30,8 +30,6 @@ use std::ops::Deref;
 use std::path::Path;
 use std::rc::Rc;
 
-pub const COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY: &str =
-    "Could not open toprepo, it must be a git repository";
 pub const LOADING_THE_MAIN_PROJECT_CONTEXT: &str = "Loading the main repo Gerrit project";
 
 pub fn parse_gerrit_project(url: &gix::url::Url) -> Result<String> {
@@ -65,6 +63,24 @@ pub fn resolve_subprojects(
     }
 
     Ok(resolved)
+}
+
+/// Open the git repository in the working directory or its parents.
+pub fn gix_discover() -> Result<gix::ThreadSafeRepository> {
+    Ok(
+        gix::ThreadSafeRepository::discover_with_environment_overrides(
+            // Using working directory instead of "." to get better error messages.
+            std::env::current_dir()?,
+        )?,
+    )
+}
+
+/// Open the git repository in the current working directory, without looking in the parents.
+pub fn gix_open() -> Result<gix::ThreadSafeRepository> {
+    Ok(gix::ThreadSafeRepository::open(
+        // Using working directory instead of "." to get better error messages.
+        std::env::current_dir()?,
+    )?)
 }
 
 #[derive(Debug)]
@@ -231,15 +247,14 @@ Initial empty git-toprepo configuration
             .safe_status()?
             .check_success()
             .with_context(|| format!("Failed to reset {first_time_config_ref}"))?;
-        Self::open(directory)
+        Ok(TopRepo {
+            gix_repo: gix::ThreadSafeRepository::open(directory)?,
+        })
     }
 
-    pub fn open(directory: &Path) -> Result<TopRepo> {
-        let gix_repo =
-            gix::open(directory).context(COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
-        Ok(TopRepo {
-            gix_repo: gix_repo.into_sync(),
-        })
+    pub fn discover() -> Result<TopRepo> {
+        let gix_repo = gix_discover()?;
+        Ok(TopRepo { gix_repo })
     }
 
     /// Get the main worktree path of the repository.
@@ -291,23 +306,12 @@ pub struct MonoRepoProcessor<'a> {
 }
 
 impl MonoRepoProcessor<'_> {
-    pub fn run<T, F>(directory: &Path, f: F) -> Result<T>
+    pub fn run<T, F>(f: F) -> Result<T>
     where
         F: FnOnce(&mut MonoRepoProcessor) -> Result<T>,
     {
-        let gix_repo =
-            gix::open(directory).context("Could not open directory for MonoRepoProcessor")?;
-        let mut config = crate::config::GitTopRepoConfig::load_config_from_repo(
-            gix_repo
-                .worktree()
-                .with_context(|| {
-                    format!(
-                        "Bare repository without worktree {}",
-                        gix_repo.git_dir().display()
-                    )
-                })?
-                .base(),
-        )?;
+        let gix_repo = gix_discover()?.to_thread_local();
+        let mut config = crate::config::GitTopRepoConfig::load_config_from_repo(&gix_repo)?;
         let mut top_repo_cache = crate::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
             gix_repo.git_dir(),
             Some(&config.checksum),
@@ -353,17 +357,7 @@ impl MonoRepoProcessor<'_> {
     /// Reload the git-toprepo configuration in case anything has changed. Also
     /// check if the top repo cache is still valid given the new configuration.
     pub fn reload_config(&mut self) -> Result<()> {
-        *self.config = crate::config::GitTopRepoConfig::load_config_from_repo(
-            self.gix_repo
-                .worktree()
-                .with_context(|| {
-                    format!(
-                        "Bare repository without worktree {}",
-                        self.gix_repo.git_dir().display()
-                    )
-                })?
-                .base(),
-        )?;
+        *self.config = crate::config::GitTopRepoConfig::load_config_from_repo(self.gix_repo)?;
         Ok(())
     }
 }

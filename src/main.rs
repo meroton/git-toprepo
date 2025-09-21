@@ -11,10 +11,7 @@ use clap::Parser;
 use colored::Colorize;
 use git_toprepo::config;
 use git_toprepo::config::GitTopRepoConfig;
-use git_toprepo::config::TOPREPO_CONFIG_FILE_KEY;
-use git_toprepo::config::toprepo_git_config;
 use git_toprepo::git::GitModulesInfo;
-use git_toprepo::git::git_config_get;
 use git_toprepo::log::CommandSpanExt as _;
 use git_toprepo::log::ErrorMode;
 use git_toprepo::log::ErrorObserver;
@@ -35,26 +32,6 @@ use std::panic::resume_unwind;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
-
-#[derive(Debug, PartialEq)]
-struct NotAMonorepo;
-
-impl std::fmt::Display for NotAMonorepo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NotAMonorepo")
-    }
-}
-impl std::error::Error for NotAMonorepo {}
-
-#[derive(Debug, PartialEq)]
-struct ExitSilently;
-
-impl std::fmt::Display for ExitSilently {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ExitSilently")
-    }
-}
-impl std::error::Error for ExitSilently {}
 
 #[tracing::instrument]
 fn init(init_args: &cli::Init) -> Result<PathBuf> {
@@ -109,12 +86,12 @@ fn clone_after_init(clone_args: &cli::Clone, processor: &mut MonoRepoProcessor) 
 
 #[tracing::instrument(skip_all)]
 fn verify_config_existence_after_clone() -> Result<()> {
-    let repo_dir = git_toprepo::util::find_current_worktree(Path::new("."))?;
-    let location = config::GitTopRepoConfig::find_configuration_location(&repo_dir)?;
-    if location.validate_existence(&repo_dir).is_err() {
+    let gix_repo = git_toprepo::repo::gix_open()
+        .context("Could not open the newly cloned repository")?
+        .to_thread_local();
+    let location = config::GitTopRepoConfig::find_configuration_location(&gix_repo)?;
+    if location.validate_existence(&gix_repo).is_err() {
         // Fetch from the default remote to get all the direct submodules.
-        let gix_repo =
-            gix::open(&repo_dir).context("Could not open the newly cloned repository")?;
         log::error!("Config file .gittoprepo.toml does not exist in {location}");
         git_toprepo::fetch::RemoteFetcher::new(&gix_repo).fetch_on_terminal()?;
         log::info!(
@@ -144,19 +121,19 @@ fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
 }
 
 #[tracing::instrument]
-fn config(config_args: &cli::Config, monorepo_root: &Option<PathBuf>) -> Result<()> {
+fn config(config_args: &cli::Config) -> Result<()> {
     match &config_args.config_command {
         cli::ConfigCommands::Location => {
-            let repo_dir = monorepo_root.as_ref().ok_or(NotAMonorepo)?;
-            let location = config::GitTopRepoConfig::find_configuration_location(repo_dir)?;
-            if let Err(err) = location.validate_existence(repo_dir) {
+            let repo = git_toprepo::repo::gix_discover()?.to_thread_local();
+            let location = config::GitTopRepoConfig::find_configuration_location(&repo)?;
+            if let Err(err) = location.validate_existence(&repo) {
                 log::warn!("{err:#}");
             }
             println!("{location}");
         }
         cli::ConfigCommands::Show => {
-            let repo_dir = monorepo_root.as_ref().ok_or(NotAMonorepo)?;
-            let config = config::GitTopRepoConfig::load_config_from_repo(repo_dir)?;
+            let repo = git_toprepo::repo::gix_discover()?.to_thread_local();
+            let config = config::GitTopRepoConfig::load_config_from_repo(&repo)?;
             print!("{}", toml::to_string(&config)?);
         }
         cli::ConfigCommands::Bootstrap => {
@@ -175,8 +152,7 @@ fn config(config_args: &cli::Config, monorepo_root: &Option<PathBuf>) -> Result<
 }
 
 fn config_bootstrap() -> Result<GitTopRepoConfig> {
-    let gix_repo = gix::open(PathBuf::from("."))
-        .context(repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
+    let gix_repo = git_toprepo::repo::gix_open()?.to_thread_local();
     let default_remote_name = gix_repo
         .remote_default_name(gix::remote::Direction::Fetch)
         .with_context(|| "Failed to get the default remote name")?;
@@ -263,39 +239,6 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
     // Skip printing the warnings in the initial configuration.
     // config.log = log_config;
     Ok(config)
-}
-
-fn dump_modules(monorepo_root: &Option<PathBuf>) -> Result<()> {
-    /// The main repo is not technically a submodule.
-    /// But it is very convenient to have transparent handling of the main
-    /// project in code that iterates over projects provided by the users.
-    struct Mod {
-        project: String,
-        path: git_toprepo::git::GitPath,
-    }
-    let monorepo_root = monorepo_root.as_ref().ok_or(NotAMonorepo)?;
-    let toprepo = repo::TopRepo::open(monorepo_root)?;
-
-    let main_project = toprepo
-        .gerrit_project()
-        .context(git_toprepo::repo::LOADING_THE_MAIN_PROJECT_CONTEXT)?;
-    let mut modules: Vec<Mod> = toprepo
-        .submodules()?
-        .into_iter()
-        .map(|(path, project)| Mod { project, path })
-        .collect();
-
-    modules.push(Mod {
-        project: main_project,
-        // TODO: What is the path to the repo? May be upwards.
-        path: ".".into(),
-    });
-
-    for module in modules {
-        println!("{} {}", module.project, module.path);
-    }
-
-    Ok(())
 }
 
 #[tracing::instrument(skip(processor))]
@@ -623,12 +566,6 @@ where
     Ok(())
 }
 
-fn is_monorepo(path: &Path) -> Result<bool> {
-    let key = &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY);
-    let maybe = git_config_get(path, key)?;
-    Ok(maybe.is_some())
-}
-
 #[tracing::instrument(skip(processor))]
 fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> {
     let mut extra_args = Vec::new();
@@ -674,21 +611,55 @@ fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> 
 }
 
 #[tracing::instrument]
-fn dump(dump_args: &cli::Dump, monorepo_root: &Option<PathBuf>) -> Result<()> {
+fn dump(dump_args: &cli::Dump) -> Result<()> {
+    // TODO: Verify that the repo is initialized in a better way.
+    let repo = git_toprepo::repo::gix_discover()?.to_thread_local();
+    let _config = config::GitTopRepoConfig::load_config_from_repo(&repo)?;
+
     match dump_args {
         cli::Dump::ImportCache => dump_import_cache(),
-        cli::Dump::GitModules => dump_modules(monorepo_root),
+        cli::Dump::GitModules => dump_git_modules(),
     }
 }
 
 fn dump_import_cache() -> Result<()> {
-    let toprepo = repo::TopRepo::open(&PathBuf::from("."))?;
+    let repo = repo::gix_discover()?;
 
-    let serde_repo_states = git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
-        toprepo.gix_repo.git_dir(),
-        None,
-    )?;
+    let serde_repo_states =
+        git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(repo.git_dir(), None)?;
     serde_repo_states.dump_as_json(std::io::stdout())?;
+    Ok(())
+}
+
+fn dump_git_modules() -> Result<()> {
+    /// The main repo is not technically a submodule.
+    /// But it is very convenient to have transparent handling of the main
+    /// project in code that iterates over projects provided by the users.
+    #[derive(Eq, PartialEq, Ord, PartialOrd)]
+    struct Mod {
+        project: String,
+        path: git_toprepo::git::GitPath,
+    }
+    let toprepo = repo::TopRepo::discover()?;
+
+    let main_project = toprepo
+        .gerrit_project()
+        .context(git_toprepo::repo::LOADING_THE_MAIN_PROJECT_CONTEXT)?;
+    let mut modules: Vec<Mod> = toprepo
+        .submodules()?
+        .into_iter()
+        .map(|(path, project)| Mod { project, path })
+        .collect();
+
+    modules.push(Mod {
+        project: main_project,
+        path: ".".into(),
+    });
+    modules.sort();
+
+    for module in modules {
+        println!("{} {}", module.project, module.path);
+    }
     Ok(())
 }
 
@@ -727,7 +698,7 @@ fn with_termination_signal_handler<T>(
                         if let Some(signal) = signal_iter.peek() {
                             let signal_str = signal_hook::low_level::signal_name(*signal)
                                 .map(|name| name.to_owned())
-                                .unwrap_or(signal.to_string());
+                                .unwrap_or_else(|| signal.to_string());
                             tracing::info!("Received termination signal {signal_str}");
                         }
                         // Stop listening for signals and run the shutdown function.
@@ -779,30 +750,9 @@ where
     }
 
     if let Some(path) = &args.working_directory {
-        std::env::set_current_dir(path)?;
+        std::env::set_current_dir(path)
+            .with_context(|| format!("Failed to change working directory to {}", path.display()))?;
     }
-
-    let current_dir = std::env::current_dir()?;
-    // First find whether we are in a git repo at all.
-    // It is used as the anchor to later detect if it is a monorepo.
-    let repo_root = git_toprepo::util::find_current_worktree(&current_dir);
-    // TODO(nils): it is `mut` only for the two-stage `init`.
-    //             If we refactor the first stage to fulfill `is_monorepo`
-    //             we could probably refactor away the mutation.
-    let mut monorepo_root = if let Ok(repo_root) = &repo_root {
-        match is_monorepo(repo_root)? {
-            true => Some(repo_root.clone()),
-            false => None,
-        }
-    } else {
-        None
-    };
-    /*
-     * // TODO: `dump` would like to have the relative path to the root
-     * // for it to calculate relative paths correctly.
-     * let down_from_root = current_dir.strip_prefix(&toprepo_root);
-     * let up_to_root = Path::new();
-     */
 
     // First run subcommands that can run with a mis- or unconfigured repo.
     match &args.command {
@@ -823,31 +773,19 @@ where
                     directory.display()
                 )
             })?;
-            // NB: We have not set the marker in the initial clone
-            // But this command is meant to create it.
-            // So it is safe to proceed with the processor `clone_after_init`.
-            monorepo_root = Some(directory);
         }
-        Commands::Config(config_args) => return config(config_args, &monorepo_root),
-        Commands::Dump(dump_args) => return dump(dump_args, &monorepo_root),
+        Commands::Config(config_args) => return config(config_args),
+        Commands::Dump(dump_args) => return dump(dump_args),
         Commands::Version => return print_version(),
-        Commands::IsMonorepo => {
-            return match monorepo_root.is_some() {
-                true => Ok(()),
-                false => Err(ExitSilently.into()),
-            };
-        }
         _ => {}
     }
 
-    let toprepo_root = monorepo_root.as_ref().ok_or(NotAMonorepo)?;
-
     // Now when the working directory is set, we can persist the tracing.
     if let Some(logger) = logger {
-        logger.write_to_git_dir(gix::open(toprepo_root)?.git_dir())?;
+        logger.write_to_git_dir(git_toprepo::repo::gix_discover()?.git_dir())?;
     }
 
-    git_toprepo::repo::MonoRepoProcessor::run(Path::new(&toprepo_root), |processor| {
+    git_toprepo::repo::MonoRepoProcessor::run(|processor| {
         match args.command {
             // Main toprepo operations.
             Commands::Init(_) => unreachable!("init is already processed."),
@@ -856,7 +794,6 @@ where
             Commands::Refilter(refilter_args) => refilter(&refilter_args, processor),
             Commands::Fetch(fetch_args) => fetch(&fetch_args, processor),
             Commands::Push(push_args) => push(&push_args, processor),
-            Commands::IsMonorepo => unreachable!("is-monorepo is already handled."),
             // User friendly introspection into the tool itself.
             Commands::Dump(_) => unreachable!("dump is already processed."),
             Commands::Version => unreachable!("version is already processed."),
@@ -883,13 +820,6 @@ fn main() -> ExitCode {
         || match main_impl(std::env::args_os(), Some(global_logger)) {
             Ok(_) => Ok(ExitCode::SUCCESS),
             Err(err) => {
-                // NB: downcast of error is discouraged
-                // and we need to do it more we should look into more structured
-                // custom errors for our code base, like the `thiserror` crate.
-                // https://www.reddit.com/r/learnrust/comments/zovj2x/how_to_match_on_underlying_error_when_using_anyhow/
-                if let Some(ExitSilently) = err.downcast_ref() {
-                    return Ok(ExitCode::FAILURE);
-                }
                 log::error!("{err:#}");
                 Ok(ExitCode::FAILURE)
             }
@@ -900,46 +830,4 @@ fn main() -> ExitCode {
         eprintln!("{}: {err:#}", "ERROR".red().bold());
         ExitCode::FAILURE
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use git_toprepo::git::git_command_for_testing;
-
-    #[test]
-    fn test_main_outside_git_toprepo() {
-        let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-test_main_outside_git_toprepo",
-        );
-        let temp_dir_str = temp_dir.to_str().unwrap();
-        let argv = vec!["git-toprepo", "-C", temp_dir_str, "config", "show"];
-        let argv = argv.into_iter().map(|s| s.into());
-        let err = main_impl(argv, None).unwrap_err();
-        assert!(err.downcast_ref() == Some(&NotAMonorepo));
-    }
-
-    #[test]
-    fn test_main_in_uninitialized_git_toprepo() {
-        let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-test_main_outside_git_toprepo",
-        );
-        let temp_dir_str = temp_dir.to_str().unwrap();
-        let mut init_cmd = git_command_for_testing(&temp_dir);
-        let _ = init_cmd.arg("init").output();
-        let argv = vec!["git-toprepo", "-C", temp_dir_str, "config", "show"];
-        let argv = argv.into_iter().map(|s| s.into());
-        let err = main_impl(argv, None).unwrap_err();
-        assert!(err.downcast_ref() == Some(&NotAMonorepo));
-    }
-
-    // TODO: Check that the formatting of the NotAMonorepo is visually appealing.
-
-    /* TODO: We should also make sure that a running git-toprepo
-     * inside a proper checked out submodule fails.
-     * In there regular git should be used.
-    #[test]
-    fn test_main_insdie_a_proper_submodule_to_a_git_toprepo() {
-    }
-    */
 }
