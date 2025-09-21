@@ -267,7 +267,7 @@ fn get_and_decode_commit_message(repo: &gix::Repository, commit_id: CommitId) ->
 
 /// Best effort decoding the commit message, logging any error.
 ///
-/// TODO: FRME How to only log at tips?
+// TODO: How to only log at tips? Fix that later if an issue arises.
 fn decode_commit_message(commit: &gix::objs::CommitRef<'_>) -> String {
     let encoding = if let Some(encoding_name) = commit.encoding {
         encoding_rs::Encoding::for_label_no_replacement(encoding_name).unwrap_or_else(|| {
