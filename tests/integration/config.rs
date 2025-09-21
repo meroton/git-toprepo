@@ -72,7 +72,7 @@ fn validate_external_file_in_corrupt_repository() {
         .stderr(predicate::str::contains(format!(
             "ERROR: Loading config file {invalid_toml}: Could not parse TOML string",
         )))
-        .stderr(predicate::str::contains("expected `.`, `=`"));
+        .stderr(predicate::str::contains("key with no value, expected `=`"));
 
     // TODO: Verify that a TOML-parse-error exit code is used.
 

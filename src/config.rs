@@ -406,10 +406,7 @@ impl GitTopRepoConfig {
                     std::collections::hash_map::Entry::Occupied(entry) => {
                         let existing_repo_name = entry.get();
                         bail!(
-                            "URLs must be unique across all repos, found {} in {} and {}",
-                            url,
-                            existing_repo_name,
-                            repo_name
+                            "URLs must be unique across all repos, found {url} in {existing_repo_name} and {repo_name}"
                         );
                     }
                 }

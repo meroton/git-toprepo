@@ -8,33 +8,33 @@ edition = "2024"
 members = ["lib/testtools"]
 
 [dependencies]
-anyhow = "1.0.86"
+anyhow = "1.0.100"
 bincode = { version = "2.0.1", features = ["serde"] }
-bstr = { version = "1.11.0", features = ["serde"] }
-chrono = { version = "0.4.39", features = ["serde"] }
-clap = { version = "4.5.8", features = ["derive", "string"] }
-colored = "2.1.0"
+bstr = { version = "1.12.0", features = ["serde"] }
+chrono = { version = "0.4.42", features = ["serde"] }
+clap = { version = "4.5.48", features = ["derive", "string"] }
+colored = "3.0.0"
 encoding_rs = "0.8.35"
-gix = { version = "0.72.1", features = ["serde"] }
+gix = { version = "0.73.0", features = ["serde"] }
 hex = "0.4.3"
-indicatif = "0.17.9"
-itertools = "0.13.0"
+indicatif = "0.18.0"
+itertools = "0.14.0"
 lazy_static = "1.5.0"
-log = "0.4.27"
-lru = "0.13.0"
+log = "0.4.28"
+lru = "0.16.1"
 oneshot = "0.1.11"
-serde = { version = "1.0.214", features = ["default", "derive", "std"] }
-serde_json = "1.0.140"
-serde_path_to_error = "0.1.17"
-serde_with = { version = "3.11.0", features = ["macros"] }
+serde = { version = "1.0.226", features = ["default", "derive", "std"] }
+serde_json = "1.0.145"
+serde_path_to_error = "0.1.20"
+serde_with = { version = "3.14.1", features = ["macros"] }
 sha2 = "0.10.9"
 signal-hook = "0.3.18"
 threadpool = "1.8.1"
-toml = "0.8.19"
+toml = "0.9.7"
 tracing = "0.1.41"
 tracing-chrome = "0.7.2"
 tracing-log = "0.2.0"
-tracing-subscriber = "0.3.19"
+tracing-subscriber = "0.3.20"
 wait-timeout = "0.2.1"
 
 [dev-dependencies]
@@ -43,8 +43,8 @@ git-toprepo-testtools = { path = "lib/testtools" }
 gix-testtools = "0.16.1"
 predicates = "3.1.3"
 pretty_assertions = "1.4.1"
-rstest = "0.25.0"
-tempfile = "3.13.0"
+rstest = "0.26.1"
+tempfile = "3.22.0"
 
 [[bin]]
 name = "git-toprepo"
