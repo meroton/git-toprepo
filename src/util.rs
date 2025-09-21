@@ -1,4 +1,3 @@
-use crate::git::CommitId;
 use anyhow::Context as _;
 use anyhow::Result;
 use anyhow::bail;
@@ -618,23 +617,6 @@ impl NewlineTrimmer for [u8] {
     }
 }
 
-pub fn annotate_message(message: &str, subdir: &str, orig_commit_hash: &CommitId) -> String {
-    let mut res = message.trim_end_matches("\n").to_string() + "\n";
-    if !res.contains("\n\n") {
-        // Single-line message. Only a subject.
-        res.push('\n');
-    }
-
-    format!("{res}^-- {subdir} {orig_commit_hash}\n")
-}
-
-pub fn iter_to_string<'a, I>(items: I) -> Vec<String>
-where
-    I: IntoIterator<Item = &'a str>,
-{
-    items.into_iter().map(|s| s.to_string()).collect()
-}
-
 #[derive(Debug, Clone)]
 pub struct PtrKey<T> {
     phantom: std::marker::PhantomData<T>,
@@ -673,88 +655,5 @@ impl<T> RcKey<T> {
             phantom: std::marker::PhantomData,
             key: std::rc::Rc::as_ptr(value).addr(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::git::CommitId;
-    use anyhow::Result;
-
-    #[test]
-    fn test_annotate_message() -> Result<()> {
-        let commit_id = CommitId::from_hex(b"0123456789abcdef0123456789abcdef01234567")?;
-        // Don't fold the footer into the subject line, leave an empty line.
-        assert_eq!(
-            annotate_message("Subject line\n", "sub/dir", &commit_id),
-            "\
-Subject line
-
-^-- sub/dir 0123456789abcdef0123456789abcdef01234567
-"
-        );
-
-        assert_eq!(
-            annotate_message("Subject line, no LF", "sub/dir", &commit_id),
-            "\
-Subject line, no LF
-
-^-- sub/dir 0123456789abcdef0123456789abcdef01234567
-"
-        );
-
-        assert_eq!(
-            annotate_message("Double subject line\n", "sub/dir", &commit_id),
-            "\
-Double subject line
-
-^-- sub/dir 0123456789abcdef0123456789abcdef01234567
-"
-        );
-
-        assert_eq!(
-            annotate_message("Subject line, extra LFs\n\n\n", "sub/dir", &commit_id),
-            "\
-Subject line, extra LFs
-
-^-- sub/dir 0123456789abcdef0123456789abcdef01234567
-",
-        );
-
-        assert_eq!(
-            annotate_message("Multi line\n\nmessage\n", "sub/dir", &commit_id),
-            "\
-Multi line
-
-message
-^-- sub/dir 0123456789abcdef0123456789abcdef01234567
-",
-        );
-
-        assert_eq!(
-            annotate_message("Multi line\n\nmessage, no LF", "sub/dir", &commit_id),
-            "\
-Multi line
-
-message, no LF
-^-- sub/dir 0123456789abcdef0123456789abcdef01234567
-",
-        );
-
-        assert_eq!(
-            annotate_message(
-                "Multi line\n\nmessage, extra LFs\n\n\n",
-                "sub/dir",
-                &commit_id,
-            ),
-            "\
-Multi line
-
-message, extra LFs
-^-- sub/dir 0123456789abcdef0123456789abcdef01234567
-",
-        );
-        Ok(())
     }
 }
