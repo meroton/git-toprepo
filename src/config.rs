@@ -640,7 +640,7 @@ mod tests {
     #[test]
     fn create_config_from_invalid_ref() {
         let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-test_create_config_from_invalid_ref",
+            "git_toprepo-create_config_from_invalid_ref",
         );
 
         git_command_for_testing(&tmp_path)
@@ -670,7 +670,7 @@ mod tests {
         use std::io::Write;
 
         let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-test_create_config_from_worktree",
+            "git_toprepo-create_config_from_worktree",
         );
 
         git_command_for_testing(&tmp_path)
@@ -724,7 +724,7 @@ mod tests {
     #[test]
     fn missing_config() {
         let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-test_missing_config",
+            "git_toprepo-missing_config",
         );
 
         git_command_for_testing(&tmp_path)
@@ -805,7 +805,7 @@ mod tests {
         use std::io::Write;
 
         let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-test_create_config_from_head",
+            "git_toprepo-create_config_from_head",
         );
 
         git_command_for_testing(&tmp_path)
