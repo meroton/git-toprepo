@@ -610,3 +610,66 @@ fn fetch_timeout(
         .assert();
     command_checker(cmd);
 }
+
+#[test]
+fn fetch_unaffected_by_dot_gitmodules_recurse_true() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let toprepo = temp_dir.join("top");
+
+    std::fs::write(
+        toprepo.join(".gitmodules"),
+        &r#"
+[submodule "subx"]
+	path = subx
+	url = ../subx/
+    recurse = true
+[submodule "suby"]
+	path = suby
+	url = ../suby/
+"#[1..],
+    )
+    .unwrap();
+    git_command_for_testing(&toprepo)
+        .args(["add", ".gitmodules"])
+        .assert()
+        .success();
+    git_command_for_testing(&toprepo)
+        .args(["commit", "-m", "Set recurse=true in .gitmodules"])
+        .assert()
+        .success();
+
+    let monorepo = temp_dir.join("mono");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&monorepo)
+        .args(["fetch"])
+        .assert()
+        .success();
+
+    assert!(std::fs::exists(toprepo.join(".git/modules")).unwrap());
+    assert!(!std::fs::exists(monorepo.join(".git/modules")).unwrap());
+
+    git_command_for_testing(&monorepo)
+        .args(["show-ref"])
+        .assert()
+        .success()
+        .stdout(
+            predicates::str::is_match(
+                "^\
+[0-9a-f]+ refs/namespaces/subx/refs/heads/main
+[0-9a-f]+ refs/namespaces/suby/refs/heads/main
+[0-9a-f]+ refs/namespaces/top/refs/remotes/origin/HEAD
+[0-9a-f]+ refs/namespaces/top/refs/remotes/origin/main
+[0-9a-f]+ refs/remotes/origin/HEAD
+[0-9a-f]+ refs/remotes/origin/main
+",
+            )
+            .unwrap(),
+        );
+}
