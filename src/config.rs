@@ -641,7 +641,7 @@ mod tests {
     const BAR_BAZ_FETCH: &str = r#"url = "ssh://bar/baz.git""#;
 
     #[test]
-    fn test_create_config_from_invalid_ref() {
+    fn create_config_from_invalid_ref() {
         let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
             "git_toprepo-test_create_config_from_invalid_ref",
         );
@@ -669,7 +669,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_config_from_worktree() {
+    fn create_config_from_worktree() {
         use std::io::Write;
 
         let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
@@ -725,7 +725,7 @@ mod tests {
     }
 
     #[test]
-    fn test_missing_config() {
+    fn missing_config() {
         let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
             "git_toprepo-test_missing_config",
         );
@@ -777,7 +777,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_fetch_url() {
+    fn parse_fetch_url() {
         let table = BAR_BAZ_FETCH.parse::<toml::Table>();
         assert!(table.is_ok(), "{table:?}");
         let table = table.unwrap();
@@ -793,7 +793,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_config() {
+    fn parse_config() {
         let table = BAR_BAZ.parse::<toml::Table>();
         assert!(table.is_ok(), "{table:?}");
         let table = table.unwrap();
@@ -803,7 +803,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_config_from_head() {
+    fn create_config_from_head() {
         // TODO: Move to integration tests.
         use std::io::Write;
 
@@ -883,7 +883,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_repo_with_new_entry() -> Result<()> {
+    fn get_repo_with_new_entry() -> Result<()> {
         let mut config = GitTopRepoConfig::parse_config_toml_string("")?;
 
         assert_eq!(config.subrepos.len(), 0);
@@ -909,7 +909,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_repo_without_new_entry() -> Result<()> {
+    fn get_repo_without_new_entry() -> Result<()> {
         let config = GitTopRepoConfig::parse_config_toml_string(
             r#"
                 [repo.foo]
@@ -937,7 +937,7 @@ mod tests {
     }
 
     #[test]
-    fn test_config_with_duplicate_urls() {
+    fn config_with_duplicate_urls() {
         let err = GitTopRepoConfig::parse_config_toml_string(
             r#"
                 [repo.foo]

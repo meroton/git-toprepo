@@ -6,7 +6,7 @@ use predicates::prelude::*;
 use std::process::Command;
 
 #[test]
-fn test_toprepo_clone() {
+fn toprepo_clone() {
     let base_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
         "git_toprepo-test_toprepo_clone",
     );
@@ -87,7 +87,7 @@ fn test_toprepo_clone() {
 }
 
 #[test]
-fn test_double_clone_should_fail() {
+fn double_clone_should_fail() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");

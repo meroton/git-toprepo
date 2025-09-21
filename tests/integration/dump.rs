@@ -5,7 +5,7 @@ use predicates::prelude::*;
 use std::process::Command;
 
 #[test]
-fn test_dump_git_modules() {
+fn dump_git_modules() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
             "../integration/fixtures/make_merge_with_one_submodule_a.sh",
@@ -71,7 +71,7 @@ fn test_dump_git_modules() {
 }
 
 #[test]
-fn test_wrong_cache_prelude() {
+fn wrong_cache_prelude() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
         "git_toprepo-test_wrong_cache_prelude",
     );

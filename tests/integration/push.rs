@@ -6,7 +6,7 @@ use predicates::prelude::*;
 use std::process::Command;
 
 #[test]
-fn test_push_empty_commit_should_fail() {
+fn push_empty_commit_should_fail() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -32,7 +32,7 @@ fn test_push_empty_commit_should_fail() {
 }
 
 #[test]
-fn test_push_duplicate_branch() {
+fn push_duplicate_branch() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -60,7 +60,7 @@ fn test_push_duplicate_branch() {
 }
 
 #[test]
-fn test_push_top() {
+fn push_top() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -96,7 +96,7 @@ fn test_push_top() {
 }
 
 #[test]
-fn test_push_submodule() {
+fn push_submodule() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -132,7 +132,7 @@ fn test_push_submodule() {
 }
 
 #[test]
-fn test_push_revision() {
+fn push_revision() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -172,7 +172,7 @@ fn test_push_revision() {
 }
 
 #[test]
-fn test_push_from_subdirectories() {
+fn push_from_subdirectories() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -222,7 +222,7 @@ fn test_push_from_subdirectories() {
 }
 
 #[test]
-fn test_push_shortrev() {
+fn push_shortrev() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -266,7 +266,7 @@ fn test_push_shortrev() {
 }
 
 #[test]
-fn test_push_top_and_submodule_in_series() {
+fn push_top_and_submodule_in_series() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let subrepo = temp_dir.join("sub");
@@ -327,7 +327,7 @@ To .*/top/?
 }
 
 #[test]
-fn test_push_top_and_submodule_in_parallel() {
+fn push_top_and_submodule_in_parallel() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let subrepo = temp_dir.join("sub");
@@ -389,7 +389,7 @@ To .*
 }
 
 #[test]
-fn test_push_topic_removed_from_commit_message() {
+fn push_topic_removed_from_commit_message() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let subrepo = temp_dir.join("sub");
@@ -429,7 +429,7 @@ fn test_push_topic_removed_from_commit_message() {
 }
 
 #[test]
-fn test_push_topic_is_used_as_push_option() {
+fn push_topic_is_used_as_push_option() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -458,7 +458,7 @@ fn test_push_topic_is_used_as_push_option() {
 }
 
 #[test]
-fn test_topic_is_required_for_multi_repo_push() {
+fn topic_is_required_for_multi_repo_push() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
             "../integration/fixtures/make_minimal_with_two_submodules.sh",
@@ -491,7 +491,7 @@ fn test_topic_is_required_for_multi_repo_push() {
 }
 
 #[test]
-fn test_force_push() {
+fn force_push() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
             "../integration/fixtures/make_minimal_with_two_submodules.sh",
@@ -552,7 +552,7 @@ fn test_force_push() {
 /// ! [remote rejected] HEAD -> refs/for/something (no new changes)
 /// ```
 #[test]
-fn test_ignore_gerrit_refusing_no_new_change() {
+fn ignore_gerrit_refusing_no_new_change() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");

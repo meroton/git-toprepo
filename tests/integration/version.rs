@@ -3,7 +3,7 @@ use predicates::prelude::predicate;
 use std::process::Command;
 
 #[test]
-fn test_toprepo_version() {
+fn toprepo_version() {
     let validate_stdout = predicate::str::is_match("^git-toprepo .*~.*-.*\n$").unwrap();
     Command::cargo_bin("git-toprepo")
         .unwrap()
@@ -15,7 +15,7 @@ fn test_toprepo_version() {
 }
 
 #[test]
-fn test_toprepo_dash_dash_version() {
+fn toprepo_dash_dash_version() {
     let validate_stdout = predicate::str::is_match("^git-toprepo .*~.*-.*\n$").unwrap();
     Command::cargo_bin("git-toprepo")
         .unwrap()
@@ -27,7 +27,7 @@ fn test_toprepo_dash_dash_version() {
 }
 
 #[test]
-fn test_toprepo_short_flag_version() {
+fn toprepo_short_flag_version() {
     let validate_stdout = predicate::str::is_match("^git-toprepo .*~.*-.*\n$").unwrap();
     Command::cargo_bin("git-toprepo")
         .unwrap()

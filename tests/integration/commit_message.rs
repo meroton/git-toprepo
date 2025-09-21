@@ -6,7 +6,7 @@ use predicates::prelude::PredicateBooleanExt as _;
 use std::path::Path;
 
 #[test]
-fn test_assemble_golden() {
+fn assemble_golden() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
             "../integration/fixtures/make_golden_commit_message.sh",
@@ -197,7 +197,7 @@ fn extract_log_graph(repo_path: &Path, extra_args: Vec<&str>) -> String {
 }
 
 #[test]
-fn test_split_example() {
+fn split_example() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
             "../integration/fixtures/make_minimal_with_two_submodules.sh",
@@ -263,7 +263,7 @@ subx-footer: keep-this-line
 }
 
 #[test]
-fn test_split_where_one_repo_is_missing() {
+fn split_where_one_repo_is_missing() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
             "../integration/fixtures/make_minimal_with_two_submodules.sh",

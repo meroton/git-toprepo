@@ -100,7 +100,7 @@ mod tests {
     #[case::env_set_to_true(Some("true".into()))]
     #[case::env_set_to_yes(Some("yes".into()))]
     #[case::env_set_to_on(Some("on".into()))]
-    fn test_discard_tempdir(#[case] env_var: Option<OsString>) {
+    fn discard_tempdir(#[case] env_var: Option<OsString>) {
         let tmp_dir = tempfile::TempDir::new().unwrap();
         let tmp_dir = maybe_keep_tempdir_impl(tmp_dir, env_var);
         let tmp_path = tmp_dir.path().to_owned();
@@ -112,7 +112,7 @@ mod tests {
 
     /// Test that the temporary directory can be kept.
     #[test]
-    fn test_keep_tempdir() {
+    fn keep_tempdir() {
         let tmp_dir = tempfile::TempDir::new().unwrap();
         let tmp_dir = maybe_keep_tempdir_impl(tmp_dir, Some("1".into()));
         let tmp_path = tmp_dir.path().to_owned();

@@ -484,7 +484,7 @@ mod tests {
     // Key-value pairs (e.g. `path` and `branch`) are tested in the doc test for `append_inner_submodule_config`.
 
     #[test]
-    fn test_urls() {
+    fn urls() {
         let outer_gitmodules_relative = r#"
 [submodule "submod-outer"]
     path = submod/outer
@@ -561,7 +561,7 @@ mod tests {
     }
 
     #[test]
-    fn test_append_existing_section() {
+    fn append_existing_section() {
         let outer_gitmodules = r#"
 [submodule "submod-outer"]
     path = submod/outer
@@ -597,7 +597,7 @@ mod tests {
     }
 
     #[test]
-    fn test_append_missing_submodule_path() {
+    fn append_missing_submodule_path() {
         let outer_gitmodules = r#"
 [submodule "submod-outer"]
     path = submod/outer
@@ -626,7 +626,7 @@ mod tests {
     }
 
     #[test]
-    fn test_append_existing_path() {
+    fn append_existing_path() {
         let outer_gitmodules = r#"
 [submodule "submod-outer"]
     path = submod/outer
@@ -656,7 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn test_append_unused_section() {
+    fn append_unused_section() {
         let outer_gitmodules = r#"
 [submodule "submod-outer"]
     path = submod/outer
