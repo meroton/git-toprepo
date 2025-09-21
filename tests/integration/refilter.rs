@@ -4,6 +4,7 @@ use bstr::ByteSlice as _;
 use git_toprepo::git::git_command_for_testing;
 use itertools::Itertools as _;
 use predicates::prelude::PredicateBooleanExt as _;
+use rstest::rstest;
 use std::path::Path;
 
 #[test]
@@ -379,6 +380,61 @@ fn extract_log_graph(repo_path: &Path, extra_args: Vec<&str>) -> String {
         .map(str::trim_end)
         .join("\n")
         .replace('\t', " ")
+}
+
+#[rstest]
+#[case::duplicated_key(&r#"
+[submodule "subx"]
+	path = subx
+	url = ../subx/
+# Duplicate the entry, same key.
+# https://github.com/meroton/git-toprepo/issues/31
+[submodule "subx"]
+	path = suby
+	url = ../suby/
+"#[1..], r#"Missing path "subx" in .gitmodules\n"#)]
+#[case::bad_syntax(&r#"
+[submodule "subx"
+"#[1..], "Failed to parse .gitmodules: Got an unexpected token on line 1 while trying to parse a section header: ")]
+fn copes_with_bad_dot_gitmodules_content(
+    #[case] gitmodules_content: &str,
+    #[case] expected_warning: &str,
+) {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let toprepo = temp_dir.join("top");
+
+    std::fs::write(toprepo.join(".gitmodules"), gitmodules_content).unwrap();
+    git_command_for_testing(&toprepo)
+        .args(["add", ".gitmodules"])
+        .assert()
+        .success();
+    git_command_for_testing(&toprepo)
+        .args(["commit", "-m", "Bad .gitmodules"])
+        .assert()
+        .success();
+
+    let monorepo = temp_dir.join("mono");
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .arg("clone")
+        .arg(&toprepo)
+        .arg(&monorepo)
+        .assert()
+        .success()
+        .stderr(
+            predicates::str::is_match(format!(
+                r#"\nWARN: Commit [0-9a-f]+ in top \(refs/[^)]+\): {expected_warning}"#
+            ))
+            .unwrap(),
+        )
+        .stderr(predicates::function::function(|stderr: &str| {
+            stderr.matches("WARN:").count() == 1
+        }));
 }
 
 /// git-submodule creates an empty directory for each submodule. In case a

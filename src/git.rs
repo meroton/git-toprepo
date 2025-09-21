@@ -20,16 +20,7 @@ pub type BlobId = gix::ObjectId;
 
 #[serde_as]
 #[derive(
-    Default,
-    Debug,
-    Clone,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-    serde::Serialize,
-    serde::Deserialize,
+    Default, Clone, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
 )]
 pub struct GitPath(
     /// The serialized human readable form is a string, so non-UTF8 will panic.
@@ -110,9 +101,15 @@ impl Deref for GitPath {
     }
 }
 
+impl std::fmt::Debug for GitPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.0, f)
+    }
+}
+
 impl Display for GitPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        std::fmt::Display::fmt(&self.0, f)
     }
 }
 
@@ -191,7 +188,7 @@ impl GitModulesInfo {
         let mut info = GitModulesInfo::default();
         for name in config.names() {
             // Skip misconfigured paths, they might not even be used.
-            // TODO: Warn about them?
+            // TODO: Warn about them? Warn about duplicate values?
             let Ok(path) = config.path(name) else {
                 continue;
             };

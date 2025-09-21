@@ -1158,7 +1158,8 @@ impl<'a> CommitLoader<'a> {
         };
 
         let gitmodules_info = match dot_gitmodules_cache.get_from_blob_id(dot_gitmodules) {
-            Ok(gitmodules_info) => gitmodules_info,
+            Ok(Some(gitmodules_info)) => gitmodules_info,
+            Ok(None) => return None, // Error already logged.
             Err(err) => {
                 if do_log() {
                     log::log!(commit_log_level.level, "{err:#}");
@@ -1177,7 +1178,10 @@ impl<'a> CommitLoader<'a> {
             }
             None => {
                 if do_log() {
-                    log::log!(commit_log_level.level, "Missing {path} in .gitmodules");
+                    log::log!(
+                        commit_log_level.level,
+                        "Missing path {path:?} in .gitmodules"
+                    );
                 }
                 return None;
             }
@@ -1513,22 +1517,32 @@ impl RepoFetcher {
 /// that is read directly from blobs in a git repository. file by given a blob `id`.
 struct DotGitModulesCache<'a> {
     repo: &'a gix::Repository,
-    cache: HashMap<BlobId, Result<GitModulesInfo>>,
+    cache: HashMap<BlobId, Option<GitModulesInfo>>,
 }
 
 impl DotGitModulesCache<'_> {
     /// Parse the `.gitmodules` file given by the `BlobId` and return the map
     /// from path to url.
-    pub fn get_from_blob_id(&mut self, entry: ExportedFileEntry) -> Result<&GitModulesInfo> {
+    pub fn get_from_blob_id(
+        &mut self,
+        entry: ExportedFileEntry,
+    ) -> Result<Option<&GitModulesInfo>> {
         if entry.mode != 0o100644 && entry.mode != 0o100755 {
             anyhow::bail!("Bad mode {:o} for .gitmodules", entry.mode);
         }
-        self.cache
-            .entry(entry.id)
-            .or_insert_with(|| Self::get_from_blob_id_impl(self.repo, entry.id))
-            .as_ref()
-            // anyhow::Error doesn't implement clone, simply format it to create a copy.
-            .map_err(|err| anyhow::anyhow!("{err:#}"))
+        match self.cache.entry(entry.id) {
+            std::collections::hash_map::Entry::Occupied(o) => Ok(o.into_mut().as_ref()),
+            std::collections::hash_map::Entry::Vacant(v) => {
+                match Self::get_from_blob_id_impl(self.repo, entry.id) {
+                    Ok(info) => Ok(v.insert(Some(info)).as_ref()),
+                    Err(err) => {
+                        v.insert(None);
+                        // anyhow::Error doesn't implement clone, simply format it to create a copy.
+                        Err(anyhow::anyhow!("{err:#}"))
+                    }
+                }
+            }
+        }
     }
 
     fn get_from_blob_id_impl(repo: &gix::Repository, id: BlobId) -> Result<GitModulesInfo> {
