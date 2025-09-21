@@ -1,9 +1,9 @@
 use crate::git::CommitId;
+use anyhow::Context as _;
 use anyhow::Result;
 use anyhow::bail;
 use bstr::ByteSlice as _;
 use bstr::ByteVec;
-use gix::discover::upwards;
 use itertools::Itertools;
 use serde::Deserialize as _;
 use serde::Serialize as _;
@@ -14,7 +14,6 @@ use std::collections::HashSet;
 use std::hash::Hash;
 use std::ops::Deref;
 use std::ops::DerefMut;
-use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::ExitStatus;
@@ -28,35 +27,24 @@ lazy_static::lazy_static! {
     pub static ref EMPTY_GIX_URL: gix::Url = new_empty_gix_url();
 }
 
-pub fn find_current_worktree(relative_to: &Path) -> Result<PathBuf> {
-    let path = upwards(relative_to)?
-        .0
-        .into_repository_and_work_tree_directories()
-        .1
-        .ok_or(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "Couldn't find git directory",
-        ))?
-        .to_owned();
-    Ok(path)
-}
-
-pub fn find_main_worktree(relative_to: &Path) -> Result<PathBuf> {
-    let dotgit = upwards(relative_to)?
-        .0
-        .into_repository_and_work_tree_directories()
-        .0
-        .to_path_buf();
-    let dotgit_parent = dotgit
-        .parent()
-        .ok_or(anyhow::anyhow!("Git repository has no worktree"))?;
-    let main_worktree = upwards(dotgit_parent)?
-        .0
-        .into_repository_and_work_tree_directories()
-        .1
-        .ok_or(anyhow::anyhow!("Git repository has no worktree"))?
-        .to_path_buf();
-    Ok(main_worktree)
+/// Find the main git worktree of a repository. The returned path might not be
+/// managed by git-toprepo.
+pub fn find_main_worktree_path(repo: &gix::Repository) -> Result<PathBuf> {
+    // Get the common .git directory for a linked worktree or the .git directory
+    // for a normal repository.
+    let main_workdir = if repo.worktree().is_none_or(|worktree| worktree.is_main()) {
+        repo.workdir().context("Bare repository")?.to_path_buf()
+    } else {
+        let main_git_dir = repo.common_dir();
+        // Unfortunately, the common_dir variable is private.
+        if main_git_dir == repo.git_dir() {
+            bail!("Missing common .git directory for linked worktree");
+        }
+        let main_repo = gix::ThreadSafeRepository::open(main_git_dir)
+            .context("Common .git directory for linked worktree")?;
+        main_repo.work_tree.context("A linked main worktree cannot be resolved from a linked worktree, there is no such information in the main linked .git directory")?
+    };
+    Ok(main_workdir)
 }
 
 /// Creates a `gix::Url` that serializes to an empty string.

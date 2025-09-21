@@ -86,12 +86,12 @@ fn clone_after_init(clone_args: &cli::Clone, processor: &mut MonoRepoProcessor) 
 
 #[tracing::instrument(skip_all)]
 fn verify_config_existence_after_clone() -> Result<()> {
-    let repo_dir = git_toprepo::util::find_current_worktree(Path::new("."))?;
-    let location = config::GitTopRepoConfig::find_configuration_location(&repo_dir)?;
-    if location.validate_existence(&repo_dir).is_err() {
+    let gix_repo = git_toprepo::repo::gix_open()
+        .context("Could not open the newly cloned repository")?
+        .to_thread_local();
+    let location = config::GitTopRepoConfig::find_configuration_location(&gix_repo)?;
+    if location.validate_existence(&gix_repo).is_err() {
         // Fetch from the default remote to get all the direct submodules.
-        let gix_repo =
-            gix::open(&repo_dir).context("Could not open the newly cloned repository")?;
         log::error!("Config file .gittoprepo.toml does not exist in {location}");
         git_toprepo::fetch::RemoteFetcher::new(&gix_repo).fetch_on_terminal()?;
         log::info!(
@@ -122,19 +122,18 @@ fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
 
 #[tracing::instrument]
 fn config(config_args: &cli::Config) -> Result<()> {
-    let repo_dir = env::current_dir()?;
     match &config_args.config_command {
         cli::ConfigCommands::Location => {
-            let repo_dir = git_toprepo::util::find_current_worktree(&repo_dir)?;
-            let location = config::GitTopRepoConfig::find_configuration_location(&repo_dir)?;
-            if let Err(err) = location.validate_existence(&repo_dir) {
+            let repo = git_toprepo::repo::gix_discover()?.to_thread_local();
+            let location = config::GitTopRepoConfig::find_configuration_location(&repo)?;
+            if let Err(err) = location.validate_existence(&repo) {
                 log::warn!("{err:#}");
             }
             println!("{location}");
         }
         cli::ConfigCommands::Show => {
-            let repo_dir = git_toprepo::util::find_current_worktree(&repo_dir)?;
-            let config = config::GitTopRepoConfig::load_config_from_repo(&repo_dir)?;
+            let repo = git_toprepo::repo::gix_discover()?.to_thread_local();
+            let config = config::GitTopRepoConfig::load_config_from_repo(&repo)?;
             print!("{}", toml::to_string(&config)?);
         }
         cli::ConfigCommands::Bootstrap => {
@@ -153,8 +152,7 @@ fn config(config_args: &cli::Config) -> Result<()> {
 }
 
 fn config_bootstrap() -> Result<GitTopRepoConfig> {
-    let gix_repo = gix::open(PathBuf::from("."))
-        .context(repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY)?;
+    let gix_repo = git_toprepo::repo::gix_open()?.to_thread_local();
     let default_remote_name = gix_repo
         .remote_default_name(gix::remote::Direction::Fetch)
         .with_context(|| "Failed to get the default remote name")?;
@@ -241,38 +239,6 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
     // Skip printing the warnings in the initial configuration.
     // config.log = log_config;
     Ok(config)
-}
-
-fn dump_modules() -> Result<()> {
-    /// The main repo is not technically a submodule.
-    /// But it is very convenient to have transparent handling of the main
-    /// project in code that iterates over projects provided by the users.
-    struct Mod {
-        project: String,
-        path: git_toprepo::git::GitPath,
-    }
-    let toprepo = repo::TopRepo::open(&PathBuf::from("."))?;
-
-    let main_project = toprepo
-        .gerrit_project()
-        .context(git_toprepo::repo::LOADING_THE_MAIN_PROJECT_CONTEXT)?;
-    let mut modules: Vec<Mod> = toprepo
-        .submodules()?
-        .into_iter()
-        .map(|(path, project)| Mod { project, path })
-        .collect();
-
-    modules.push(Mod {
-        project: main_project,
-        // TODO: What is the path to the repo? May be upwards.
-        path: ".".into(),
-    });
-
-    for module in modules {
-        println!("{} {}", module.project, module.path);
-    }
-
-    Ok(())
 }
 
 #[tracing::instrument(skip(processor))]
@@ -646,20 +612,54 @@ fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> 
 
 #[tracing::instrument]
 fn dump(dump_args: &cli::Dump) -> Result<()> {
+    // TODO: Verify that the repo is initialized in a better way.
+    let repo = git_toprepo::repo::gix_discover()?.to_thread_local();
+    let _config = config::GitTopRepoConfig::load_config_from_repo(&repo)?;
+
     match dump_args {
         cli::Dump::ImportCache => dump_import_cache(),
-        cli::Dump::GitModules => dump_modules(),
+        cli::Dump::GitModules => dump_git_modules(),
     }
 }
 
 fn dump_import_cache() -> Result<()> {
-    let toprepo = repo::TopRepo::open(&PathBuf::from("."))?;
+    let repo = repo::gix_discover()?;
 
-    let serde_repo_states = git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
-        toprepo.gix_repo.git_dir(),
-        None,
-    )?;
+    let serde_repo_states =
+        git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(repo.git_dir(), None)?;
     serde_repo_states.dump_as_json(std::io::stdout())?;
+    Ok(())
+}
+
+fn dump_git_modules() -> Result<()> {
+    /// The main repo is not technically a submodule.
+    /// But it is very convenient to have transparent handling of the main
+    /// project in code that iterates over projects provided by the users.
+    #[derive(Eq, PartialEq, Ord, PartialOrd)]
+    struct Mod {
+        project: String,
+        path: git_toprepo::git::GitPath,
+    }
+    let toprepo = repo::TopRepo::discover()?;
+
+    let main_project = toprepo
+        .gerrit_project()
+        .context(git_toprepo::repo::LOADING_THE_MAIN_PROJECT_CONTEXT)?;
+    let mut modules: Vec<Mod> = toprepo
+        .submodules()?
+        .into_iter()
+        .map(|(path, project)| Mod { project, path })
+        .collect();
+
+    modules.push(Mod {
+        project: main_project,
+        path: ".".into(),
+    });
+    modules.sort();
+
+    for module in modules {
+        println!("{} {}", module.project, module.path);
+    }
     Ok(())
 }
 
@@ -777,26 +777,15 @@ where
         Commands::Config(config_args) => return config(config_args),
         Commands::Dump(dump_args) => return dump(dump_args),
         Commands::Version => return print_version(),
-        _ => {
-            if args.working_directory.is_none() {
-                let current_dir = std::env::current_dir()?;
-                let working_directory = git_toprepo::util::find_current_worktree(&current_dir)?;
-                std::env::set_current_dir(&working_directory).with_context(|| {
-                    format!(
-                        "Failed to change working directory to {}",
-                        &working_directory.display()
-                    )
-                })?;
-            }
-        }
+        _ => {}
     }
 
     // Now when the working directory is set, we can persist the tracing.
     if let Some(logger) = logger {
-        logger.write_to_git_dir(gix::open(".")?.git_dir())?;
+        logger.write_to_git_dir(git_toprepo::repo::gix_discover()?.git_dir())?;
     }
 
-    git_toprepo::repo::MonoRepoProcessor::run(Path::new("."), |processor| {
+    git_toprepo::repo::MonoRepoProcessor::run(|processor| {
         match args.command {
             // Main toprepo operations.
             Commands::Init(_) => unreachable!("init is already processed."),
@@ -841,46 +830,4 @@ fn main() -> ExitCode {
         eprintln!("{}: {err:#}", "ERROR".red().bold());
         ExitCode::FAILURE
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::TOPREPO_CONFIG_FILE_KEY;
-    use crate::config::toprepo_git_config;
-    use git_toprepo::git::git_command_for_testing;
-
-    #[test]
-    fn test_main_outside_git_toprepo() {
-        let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-test_main_outside_git_toprepo",
-        );
-        let temp_dir_str = temp_dir.to_str().unwrap();
-        let argv = vec!["git-toprepo", "-C", temp_dir_str, "config", "show"];
-        let argv = argv.into_iter().map(|s| s.into());
-        assert_eq!(
-            format!("{:#}", main_impl(argv, None).unwrap_err()),
-            format!(
-                "Could not find a git repository in '{}' or in any of its parents",
-                temp_dir_str
-            )
-        );
-    }
-
-    #[test]
-    fn test_main_in_uninitialized_git_toprepo() {
-        let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-test_main_outside_git_toprepo",
-        );
-        let temp_dir_str = temp_dir.to_str().unwrap();
-        let mut init_cmd = git_command_for_testing(&temp_dir);
-        let _ = init_cmd.arg("init").output();
-        let argv = vec!["git-toprepo", "-C", temp_dir_str, "config", "show"];
-        let argv = argv.into_iter().map(|s| s.into());
-        let key = toprepo_git_config(TOPREPO_CONFIG_FILE_KEY);
-        assert_eq!(
-            format!("{:#}", main_impl(argv, None).unwrap_err()),
-            format!("git-config '{key}' is missing. Is this an initialized git-toprepo?"),
-        );
-    }
 }

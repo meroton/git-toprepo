@@ -172,7 +172,7 @@ fn test_push_revision() {
 }
 
 #[test]
-fn test_push_from_sub_directory() {
+fn test_push_from_subdirectories() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -188,10 +188,11 @@ fn test_push_from_sub_directory() {
         .assert()
         .success();
 
+    // Initial push to seed the remote. This makes sure all the other pushes
+    // have the same behavior as pushing is idempotent.
     Command::cargo_bin("git-toprepo")
         .unwrap()
-        // Don't push from the worktree root.
-        .current_dir(monorepo.join("sub"))
+        .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:refs/heads/foo"])
         .assert()
         .success()
@@ -201,11 +202,23 @@ fn test_push_from_sub_directory() {
         )))
         .stderr(predicate::str::is_match(r"\n \* \[new branch\]\s+[0-9a-f]+ -> foo\n").unwrap());
 
-    git_command_for_testing(&toprepo)
-        .args(["show", "refs/heads/foo:file.txt"])
-        .assert()
-        .success()
-        .stdout("text\n");
+    // Push again, this is the reference behavior and should be repeated in subdirectories.
+    for (wd, flags) in [
+        (&monorepo, vec![]),
+        (&monorepo.join("sub"), vec![]),
+        // `-C .` should trivially give the same result.
+        (&monorepo, vec!["-C", "sub"]),
+        (&monorepo.join("sub"), vec!["-C", "."]),
+    ] {
+        Command::cargo_bin("git-toprepo")
+            .unwrap()
+            .current_dir(wd)
+            .args(flags)
+            .args(["push", "origin", "HEAD:refs/heads/foo"])
+            .assert()
+            .success()
+            .stderr(predicate::str::contains("Everything up-to-date"));
+    }
 }
 
 #[test]

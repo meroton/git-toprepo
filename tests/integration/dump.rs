@@ -4,39 +4,6 @@ use predicate::str::contains;
 use predicates::prelude::*;
 use std::process::Command;
 
-const GENERIC_CONFIG: &str = r#"
-    [repo]
-    [repo.foo.fetch]
-    url = "ssh://generic/repo.git"
-"#;
-
-// TODO: Keep this test in mind when refactoring top-repo creations in the all
-// code paths and subcommands. This is the first error that `toprepo-dump`
-// encounters in a directory without git. But it is not unique to the dump
-// subcommand. `toprepo-fetch` typically fails for a missing toprepo config file
-// (or git-config for it) but at some point it could try to access the git
-// information if really cajoled and would then have this error as well.
-#[test]
-fn test_dump_outside_git_repo() {
-    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-        "git_toprepo-test_dump_outside_git_repo",
-    );
-
-    std::fs::write(temp_dir.join(".gittoprepo.toml"), GENERIC_CONFIG).unwrap();
-
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
-        .current_dir(&temp_dir)
-        // An arbitrary subcommand that requires it to be initialized
-        .arg("dump")
-        .arg("import-cache")
-        .assert()
-        .failure()
-        .stderr(contains(
-            git_toprepo::repo::COULD_NOT_OPEN_TOPREPO_MUST_BE_GIT_REPOSITORY,
-        ));
-}
-
 #[test]
 fn test_dump_git_modules() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
@@ -46,48 +13,61 @@ fn test_dump_git_modules() {
         .unwrap(),
     );
 
-    let project = "main/project";
-    let temp_dir = temp_dir.path().join("top");
-    let child_dir = temp_dir.join("subx");
+    let monorepo = temp_dir.join("mono");
+    let toprepo = temp_dir.path().join("top");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    std::fs::create_dir(monorepo.join("subdir")).unwrap();
 
+    // Only update the fetch url, which is not possible with one call to
+    // git-remote.
+    git_command_for_testing(&monorepo)
+        .arg("config")
+        .arg("remote.origin.url")
+        .arg("ssh://gerrit.example/main/project.git")
+        .assert()
+        .success();
     Command::cargo_bin("git-toprepo")
         .unwrap()
-        .current_dir(&temp_dir)
-        // An arbitrary subcommand that requires it to be initialized
+        .current_dir(&monorepo)
+        .arg("dump")
+        .arg("git-modules")
+        .assert()
+        .success()
+        .stdout("main/project.git .\nmain/subx subx\n");
+    // Test a subdirectory which is not a submodule.
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(monorepo.join("subdir"))
+        .arg("dump")
+        .arg("git-modules")
+        .assert()
+        .success()
+        .stdout("main/project.git .\nmain/subx subx\n");
+    // Test a subdirectory which is not an integrated submodule.
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(monorepo.join("subx"))
+        .arg("dump")
+        .arg("git-modules")
+        .assert()
+        .success()
+        .stdout("main/project.git .\nmain/subx subx\n");
+
+    // Without any remote, dumping git-modules will fail.
+    git_command_for_testing(&monorepo)
+        .arg("remote")
+        .arg("remove")
+        .arg("origin")
+        .assert()
+        .success();
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(&monorepo)
         .arg("dump")
         .arg("git-modules")
         .assert()
         .failure()
         .stderr(contains("Loading the main repo Gerrit project"));
-
-    git_command_for_testing(&temp_dir)
-        .arg("remote")
-        .arg("add")
-        .arg("origin")
-        .arg(format!("ssh://gerrit.example/{project}.git"))
-        .assert()
-        .success();
-
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
-        .current_dir(&temp_dir)
-        // An arbitrary subcommand that requires it to be initialized
-        .arg("dump")
-        .arg("git-modules")
-        .assert()
-        .success()
-        .stdout(contains(project));
-
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
-        .current_dir(&child_dir)
-        // An arbitrary subcommand that requires it to be initialized
-        .arg("dump")
-        .arg("git-modules")
-        .assert()
-        // dump modules only works in the root · Issue #163 · meroton/git-toprepo
-        // https://github.com/meroton/git-toprepo/issues/163
-        .failure();
 }
 
 #[test]
@@ -100,6 +80,12 @@ fn test_wrong_cache_prelude() {
         .args(["init", "--quiet"])
         .assert()
         .success();
+    git_command_for_testing(&temp_dir)
+        .args(["config", "toprepo.config", "worktree:.gittoprepo.toml"])
+        .assert()
+        .success();
+    std::fs::write(temp_dir.join(".gittoprepo.toml"), "").unwrap();
+
     let git_dir = temp_dir.join(".git");
     let cache_path = git_toprepo::repo_cache_serde::SerdeTopRepoCache::get_cache_path(&git_dir);
     std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
