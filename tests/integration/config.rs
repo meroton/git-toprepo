@@ -15,7 +15,7 @@ const GENERIC_CONFIG: &str = r#"
 #[test]
 fn validate_external_file_in_corrupt_repository() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-        "git_toprepo-test_validate_external_file_in_corrupt_repository",
+        "git_toprepo-validate_external_file_in_corrupt_repository",
     );
 
     let invalid_toml = "invalid.t.o.m.l";
@@ -104,7 +104,7 @@ fn validate_external_file_in_corrupt_repository() {
 #[test]
 fn config_commands_use_correct_working_directory() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-        "git_toprepo-test_config_commands_use_correct_working_directory",
+        "git_toprepo-config_commands_use_correct_working_directory",
     );
 
     let okay_config = "okay.toml";
