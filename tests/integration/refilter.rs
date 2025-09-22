@@ -107,7 +107,7 @@ fn init_and_refilter_example() {
 }
 
 #[test]
-fn refilter_merge_with_one_submodule_a() {
+fn merge_with_one_submodule_a() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
             "../integration/fixtures/make_merge_with_one_submodule_a.sh",
@@ -152,7 +152,7 @@ fn refilter_merge_with_one_submodule_a() {
 }
 
 #[test]
-fn refilter_merge_with_one_submodule_b() {
+fn merge_with_one_submodule_b() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
             "../integration/fixtures/make_merge_with_one_submodule_b.sh",
@@ -211,7 +211,7 @@ fn refilter_merge_with_one_submodule_b() {
 }
 
 #[test]
-fn refilter_merge_with_two_submodules() {
+fn merge_with_two_submodules() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
             "../integration/fixtures/make_merge_with_two_submodules.sh",
@@ -270,7 +270,7 @@ fn refilter_merge_with_two_submodules() {
 }
 
 #[test]
-fn refilter_submodule_removal() {
+fn submodule_removal() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
             "../integration/fixtures/make_submodule_removal.sh",
@@ -314,7 +314,7 @@ fn refilter_submodule_removal() {
 }
 
 #[test]
-fn refilter_moved_submodule() {
+fn moved_submodule() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable("../integration/fixtures/make_moved_submodule.sh")
             .unwrap(),
@@ -498,7 +498,7 @@ fn warn_for_empty_submodule() {
 }
 
 #[test]
-fn refilter_prints_updates() {
+fn print_updates() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
             "../integration/fixtures/make_minimal_with_two_submodules.sh",
