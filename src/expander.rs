@@ -347,7 +347,6 @@ impl TopRepoExpander<'_> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn emit_mono_commit(
         &mut self,
         path: &GitPath,

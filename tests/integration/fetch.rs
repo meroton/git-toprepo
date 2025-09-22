@@ -5,16 +5,12 @@ use predicates::prelude::*;
 use rstest::rstest;
 use std::process::Command;
 
-// TODO: Using #[allow(unused)] because the members will probably be used in the
-// near future.
 struct RepoWithTwoSubmodules {
     pub toprepo: std::path::PathBuf,
     pub monorepo: std::path::PathBuf,
-    #[allow(unused)]
     pub subx_repo: std::path::PathBuf,
-    #[allow(unused)]
-    pub suby_repo: std::path::PathBuf,
 
+    /// Keep during the lifetime of the struct to let the directory exist.
     #[allow(unused)]
     temp_dir: git_toprepo_testtools::test_util::MaybePermanentTempDir,
 }
@@ -49,7 +45,6 @@ impl RepoWithTwoSubmodules {
             toprepo,
             monorepo,
             subx_repo: temp_dir.join("subx"),
-            suby_repo: temp_dir.join("suby"),
             temp_dir,
         }
     }
