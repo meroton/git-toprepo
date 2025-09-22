@@ -384,7 +384,8 @@ impl FetchDestinationRef {
 #[derive(Debug)]
 struct DetailedFetchRefspec {
     /// Whether the refspec sets force-fetch (starts with `+`).
-    #[allow(unused)] // Currently unused.
+    // TODO: Implement force fetch with + refspec.
+    #[allow(unused)]
     force: bool,
     remote_ref: String,
     unfiltered_ref: FullName,
