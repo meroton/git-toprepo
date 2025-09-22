@@ -14,7 +14,7 @@ fn dump_git_modules() {
     );
 
     let monorepo = temp_dir.join("mono");
-    let toprepo = temp_dir.path().join("top");
+    let toprepo = temp_dir.join("top");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     std::fs::create_dir(monorepo.join("subdir")).unwrap();
 
