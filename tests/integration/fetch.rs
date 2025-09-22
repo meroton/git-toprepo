@@ -51,7 +51,7 @@ impl RepoWithTwoSubmodules {
 }
 
 #[test]
-fn fetch_only_needed_commits() {
+fn download_only_for_needed_commits() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
             "../integration/fixtures/make_minimal_with_two_submodules.sh",
@@ -158,7 +158,7 @@ fn fetch_only_needed_commits() {
 #[rstest]
 #[case::no_remote(None)]
 #[case::origin(Some("origin"))]
-fn fetch_no_refspec_success(#[case] remote: Option<&str>) {
+fn origin_without_refspec_arg(#[case] remote: Option<&str>) {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     let mut cmd = Command::cargo_bin("git-toprepo").unwrap();
     cmd.current_dir(&repo.monorepo).arg("fetch");
@@ -176,7 +176,7 @@ fn fetch_no_refspec_success(#[case] remote: Option<&str>) {
 #[rstest]
 #[case::local_root_dir(".")]
 #[case::local_subdir("subdir_part_of_top")]
-fn fetch_no_refspec_fail(#[case] remote: &str) {
+fn top_dir_without_refspec_arg_fails(#[case] remote: &str) {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     Command::cargo_bin("git-toprepo")
         .unwrap()
@@ -193,7 +193,7 @@ fn fetch_no_refspec_fail(#[case] remote: &str) {
 #[rstest]
 #[case::no_remote(None)]
 #[case::origin(Some("origin"))]
-fn fetch_no_refspec_prunes_refs(#[case] remote: Option<&str>) {
+fn without_refspec_arg_prunes_refs(#[case] remote: Option<&str>) {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     let mut cmd = Command::cargo_bin("git-toprepo").unwrap();
     cmd.current_dir(&repo.monorepo).arg("fetch");
@@ -231,7 +231,7 @@ fn fetch_no_refspec_prunes_refs(#[case] remote: Option<&str>) {
 
 /// It is not possible to fetch a refspec without a remote.
 #[test]
-fn fetch_refspec_without_remote_fails() {
+fn refspec_arg_without_remote_fails() {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     Command::cargo_bin("git-toprepo")
         .unwrap()
@@ -248,7 +248,7 @@ fn fetch_refspec_without_remote_fails() {
 #[rstest]
 #[case::origin("origin")]
 #[case::local_root_dir(".")]
-fn fetch_to_fetch_head_success(#[case] remote: &str) {
+fn info_fetch_head(#[case] remote: &str) {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     Command::cargo_bin("git-toprepo")
         .unwrap()
@@ -284,7 +284,7 @@ fn fetch_to_fetch_head_success(#[case] remote: &str) {
 
 #[rstest]
 #[case::local_subdir("subdir_part_of_top")]
-fn fetch_to_fetch_head_fail(#[case] remote: &str) {
+fn top_dir_into_fetch_head_fails(#[case] remote: &str) {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     Command::cargo_bin("git-toprepo").unwrap()
     .current_dir(&repo.monorepo).args(["fetch", remote, "refs/heads/foo"])
@@ -299,7 +299,7 @@ fn fetch_to_fetch_head_fail(#[case] remote: &str) {
 
 /// This regression test ensures that fetching twice does not remove the refs.
 #[test]
-fn fetch_twice_should_keep_refs() {
+fn two_times_should_keep_refs() {
     let expected_show_ref_output = predicate::str::is_match(
         [
             ".* refs/namespaces/subx/refs/heads/main\n",
@@ -374,7 +374,7 @@ fn fetch_twice_should_keep_refs() {
 #[rstest]
 #[case::origin("origin")]
 #[case::local_root_dir(".")]
-fn fetch_refspec_success(#[case] remote: &str) {
+fn with_refspec_arg_success(#[case] remote: &str) {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     Command::cargo_bin("git-toprepo")
         .unwrap()
@@ -410,7 +410,7 @@ fn fetch_refspec_success(#[case] remote: &str) {
 
 #[rstest]
 #[case::local_subdir("subdir_part_of_top")]
-fn fetch_refspec_fail(#[case] remote: &str) {
+fn top_dir_with_refspec_arg_fails(#[case] remote: &str) {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     Command::cargo_bin("git-toprepo").unwrap()
     .current_dir(&repo.monorepo).args(["fetch", remote, "refs/heads/foo:refs/heads/bar"])
@@ -424,7 +424,7 @@ fn fetch_refspec_fail(#[case] remote: &str) {
 }
 
 #[test]
-fn fetch_force_refspec_not_implemented_yet() {
+fn force_with_refspec_arg_not_implemented_yet() {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     Command::cargo_bin("git-toprepo")
         .unwrap()
@@ -556,7 +556,7 @@ WARN: Fetching subx: git fetch .* timed out, was silent 1s, retrying
 #[case::does_not_timeout_with_progress("[3]", no_timeout_with_progress_checker)]
 #[case::idle_progress("[1, 3]", idle_progress_with_successful_retry_checker)]
 #[case::exceeds_retries("[1, 1]", too_many_timeouts_checker)]
-fn fetch_timeout(
+fn timeout(
     #[case] idle_timeouts: &str,
     #[case] command_checker: impl Fn(assert_cmd::assert::Assert),
 ) {
@@ -607,7 +607,7 @@ fn fetch_timeout(
 }
 
 #[test]
-fn fetch_unaffected_by_dot_gitmodules_recurse_true() {
+fn unaffected_by_dot_gitmodules_recurse_true() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
             "../integration/fixtures/make_minimal_with_two_submodules.sh",

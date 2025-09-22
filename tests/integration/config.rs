@@ -102,9 +102,9 @@ fn validate_external_file_in_corrupt_repository() {
 }
 
 #[test]
-fn config_commands_use_correct_working_directory() {
+fn validate_use_correct_working_directory() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-        "git_toprepo-config_commands_use_correct_working_directory",
+        "git_toprepo-validate_use_correct_working_directory",
     );
 
     let okay_config = "okay.toml";
@@ -147,7 +147,7 @@ fn config_commands_use_correct_working_directory() {
 }
 
 #[test]
-fn config_bootstrap() {
+fn bootstrap() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");

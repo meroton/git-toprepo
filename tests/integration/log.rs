@@ -7,7 +7,7 @@ use predicates::prelude::PredicateBooleanExt as _;
 use predicates::prelude::predicate;
 
 #[test]
-fn log_only_fixable_missing_gitmodules_warnings() {
+fn only_fixable_missing_gitmodules_warnings() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
@@ -124,7 +124,7 @@ fn log_only_fixable_missing_gitmodules_warnings() {
 }
 
 #[test]
-fn log_always_show_missing_submod_commit_warnings() {
+fn always_show_missing_submod_commit_warnings() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
     let subrepo = temp_dir.join("sub");

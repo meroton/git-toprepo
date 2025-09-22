@@ -3,7 +3,7 @@ use predicates::prelude::*;
 use std::process::Command;
 
 #[test]
-fn toprepo_init() {
+fn into_non_existing_dir() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
@@ -23,7 +23,28 @@ fn toprepo_init() {
 }
 
 #[test]
-fn toprepo_force_init() {
+fn into_empty_dir() {
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
+    let temp_dir = temp_dir.path();
+    let toprepo = temp_dir.join("top");
+
+    let clone_name = "my-clone";
+    std::fs::create_dir(temp_dir.join(clone_name)).unwrap();
+    Command::cargo_bin("git-toprepo")
+        .unwrap()
+        .current_dir(temp_dir)
+        .arg("init")
+        .arg(&toprepo)
+        .arg(clone_name)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(format!(
+            "Initialized git-toprepo in {clone_name}",
+        )));
+}
+
+#[test]
+fn force_into_non_empty_dir() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
