@@ -185,7 +185,7 @@ impl GitTopRepoConfig {
     }
 
     pub fn default_name_from_url(&self, repo_url: &gix::Url) -> Option<SubRepoName> {
-        // TODO: UTF-8 validation.
+        // TODO: 2025-09-22 UTF-8 validation.
         let mut name: &str = &repo_url.path.to_str_lossy();
         if name.ends_with(".git") {
             name = &name[..name.len() - 4];
@@ -795,7 +795,7 @@ mod tests {
 
     #[test]
     fn create_config_from_head() {
-        // TODO: Move to integration tests.
+        // TODO: 2025-09-22 Move to integration tests.
         use std::io::Write;
 
         let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();

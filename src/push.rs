@@ -223,8 +223,8 @@ fn split_for_push_impl(
                 // correct. Note that inner submodules might be
                 // mentioned, but there should not be any submodule
                 // mentioned that is a valid path in the repository.
-                // TODO: Handle updated URLs in the .gitmodules file.
-                // TODO: How to handle added and removed submodules from the .gitmodules file?
+                // TODO: 2025-09-22 Handle updated URLs in the .gitmodules file.
+                // TODO: 2025-09-22 How to handle added and removed submodules from the .gitmodules file?
                 let mut grouped_file_changes: BTreeMap<(GitPath, RepoName, gix::Url), Vec<_>> =
                     BTreeMap::new();
                 for fc in exported_mono_commit.file_changes {
@@ -599,7 +599,7 @@ impl PushTask {
                 .arg(push_info.push_url.to_bstring().to_os_str()?)
                 .args(&extra_args)
                 .arg(format!("{}:{remote_ref}", push_info.commit_id))
-                // TODO: Collect stdout (use a thread to avoid backpressure deadlock).
+                // TODO: 2025-09-22 Collect stdout (use a thread to avoid backpressure deadlock).
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::piped())
                 .trace_command(crate::command_span!("git push"))

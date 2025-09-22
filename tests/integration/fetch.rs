@@ -458,7 +458,7 @@ fn force_with_refspec_arg_not_implemented_yet() {
         .assert()
         .success();
     // git-fetch without force should fail.
-    // TODO: Not implemented yet.
+    // TODO: 2025-09-22 Not implemented yet.
     // Command::cargo_bin("git-toprepo")
     //     .unwrap()
     //     .current_dir(&repo.monorepo)

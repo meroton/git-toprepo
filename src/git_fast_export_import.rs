@@ -271,7 +271,7 @@ impl FastExportRepo {
         };
         self.must_advance_line()?;
 
-        // TODO: Convert to a GitFastExportMark struct.
+        // TODO: 2025-09-22 Convert to a GitFastExportMark struct.
         let opt_mark = self
             .current_line
             .strip_prefix(b"mark :")
@@ -886,7 +886,7 @@ mod tests {
                 "protocol.file.allow=always",
                 "submodule",
                 "add",
-                "../sub/", // TODO: Absolute or relative path?
+                "../sub/", // TODO: 2025-09-22 Absolute or relative path?
                            // sub_repo.to_str().unwrap(),
             ])
             .envs(&env)
@@ -906,7 +906,7 @@ mod tests {
     fn parse_fast_export_output() {
         let tmp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
         let example_repo = setup_example_repo(&tmp_dir);
-        // TODO: If we find this test case to be cumbersome with changes to the
+        // TODO: 2025-09-22 If we find this test case to be cumbersome with changes to the
         // hashes we could probably use a library for snapshot testing to make
         // it easier to work with.
 

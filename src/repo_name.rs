@@ -44,7 +44,7 @@ impl RepoName {
     }
 
     pub fn to_ref_prefix(&self) -> String {
-        // TODO: Start using gix::refs::Namespace?
+        // TODO: 2025-09-22 Start using gix::refs::Namespace?
         format!("refs/namespaces/{self}/")
     }
 

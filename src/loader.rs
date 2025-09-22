@@ -87,7 +87,7 @@ struct CommitLogLevel {
     /// Used for a branch tip which can be fixed.
     pub is_tip: bool,
     /// Hide warnings that config-bootstrap should not log.
-    // TODO: Can this be refactored somewhere else?
+    // TODO: 2025-09-22 Can this be refactored somewhere else?
     pub log_missing_repo_configs: bool,
     /// The log level for messages that belong to a commit.
     pub level: log::Level,
@@ -722,7 +722,7 @@ impl<'a> CommitLoader<'a> {
                         }
                     }
                 }
-                // TODO: The without_committer_id for thin_commit might not be
+                // TODO: 2025-09-22 The without_committer_id for thin_commit might not be
                 // loaded if the duplicate is not loaded. Should
                 // without_committer_id be part of thin_commit instead?
                 if let Some(without_committer_id) = reverse_dedup_cache.get(&thin_commit.commit_id)
@@ -990,7 +990,7 @@ impl<'a> CommitLoader<'a> {
         };
         let mut new_submodule_commits = Vec::new();
         for fc in exported_commit.file_changes {
-            // TODO: Implement borrow between BStr and GitPath to delay
+            // TODO: 2025-09-22 Implement borrow between BStr and GitPath to delay
             // construction of a GitPath.
             let path = GitPath::new(fc.path);
             match fc.change {

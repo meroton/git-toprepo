@@ -56,8 +56,8 @@ fn validate_external_file_in_corrupt_repository() {
             "ERROR: Parsing worktree:{invalid_toml}: Could not parse TOML string",
         )));
 
-    // TODO: Rephrase the namespace in the error message. It looks ugly.
-    // TODO: Verify that a TOML-parse-error exit code is used.
+    // TODO: 2025-09-22 Rephrase the namespace in the error message. It looks ugly.
+    // TODO: 2025-09-22 Verify that a TOML-parse-error exit code is used.
 
     Command::cargo_bin("git-toprepo")
         .unwrap()
@@ -72,7 +72,7 @@ fn validate_external_file_in_corrupt_repository() {
         )))
         .stderr(predicate::str::contains("key with no value, expected `=`"));
 
-    // TODO: Verify that a TOML-parse-error exit code is used.
+    // TODO: 2025-09-22 Verify that a TOML-parse-error exit code is used.
 
     Command::cargo_bin("git-toprepo")
         .unwrap()

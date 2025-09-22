@@ -43,7 +43,7 @@ pub fn parse_gerrit_project(url: &gix::url::Url) -> Result<String> {
     Ok(sans_slash)
 }
 
-// TODO: A specific type for the resolved subprojects?
+// TODO: 2025-09-22 A specific type for the resolved subprojects?
 pub fn resolve_subprojects(
     subs: &GitModulesInfo,
     main_project: String,
@@ -136,7 +136,7 @@ impl TopRepo {
             .safe_status()?
             .check_success()
             .context("Failed to set git-config remote.origin.fetch (tags)")?;
-        // TODO: Does HEAD always exist on the remote? Is `git ls-remote` needed
+        // TODO: 2025-09-22 Does HEAD always exist on the remote? Is `git ls-remote` needed
         // to prioritize HEAD, main, master, etc.
         git_command(directory)
             .args([
@@ -268,7 +268,7 @@ Initial empty git-toprepo configuration
         })
     }
 
-    // TODO: This should be unified with the information about modules found
+    // TODO: 2025-09-22 This should be unified with the information about modules found
     // through the ToprepoConfig and Processor data.
     // #unified-git-config.
     pub fn submodules(&self) -> Result<HashMap<GitPath, String>> {
@@ -556,7 +556,7 @@ pub enum ExpandedSubmodule {
         #[serde_as(serialize_as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
         CommitId,
     ),
-    // TODO: MovedAndBumped(MovedSubmodule),
+    // TODO: 2025-09-22 MovedAndBumped(MovedSubmodule),
     /// If a submodule has regressed to an earlier or unrelated commit, it
     /// should be expanded with a different set of parents submodules. The
     /// reason is that there should not be merge lines over a revert point as
@@ -598,7 +598,7 @@ pub enum ExpandedSubmodule {
     /// |/
     /// * A with y
     /// ```
-    // TODO: Implement this in the
+    // TODO: 2025-09-22 Implement this in the
     // TopRepoExpander::get_recursive_submodule_bumps() or extract the
     // information from TopRepoExpander::expand_inner_submodules().
     RegressedNotFullyImplemented(SubmoduleContent),

@@ -158,7 +158,7 @@ impl TopRepoExpander<'_> {
         )?;
 
         for entry in fast_exporter {
-            let entry = entry?; // TODO: error handling
+            let entry = entry?; // TODO: 2025-09-22 error handling
             match entry {
                 crate::git_fast_export_import::FastExportEntry::Commit(commit) => {
                     let commit_id = TopRepoCommitId::new(commit.original_id);
@@ -318,7 +318,7 @@ impl TopRepoExpander<'_> {
                                         submod_updates,
                                         tree_updates,
                                     );
-                                    // TODO: This might be a regression, but the caller
+                                    // TODO: 2025-09-22 This might be a regression, but the caller
                                     // is not interested in that information anyway.
                                     ExpandedSubmodule::Expanded(SubmoduleContent {
                                         repo_name: submod_repo_name.clone(),
@@ -440,7 +440,7 @@ impl TopRepoExpander<'_> {
             .into()
         });
         let importer_mark = self.fast_importer.write_commit(&FastImportCommit {
-            // TODO: FullNameRef::try_from() doesn't work for some reason.
+            // TODO: 2025-09-22 FullNameRef::try_from() doesn't work for some reason.
             branch: FullName::try_from(Self::TOPREPO_IMPORT_REF)
                 .unwrap()
                 .as_ref(),
@@ -705,7 +705,7 @@ impl TopRepoExpander<'_> {
         mut non_descendants: Vec<CommitId>,
     ) -> Result<Rc<MonoRepoCommit>> {
         // Going backwards in history, add he original submod_commit as parent instead.
-        // TODO: Make it configurable per commit what to do.
+        // TODO: 2025-09-22 Make it configurable per commit what to do.
         // 1. Use no history = noop
         // 2. Use submodule history.
         // extra_parents_due_to_submods.push(MonoRepoParent::OriginalSubmod(
@@ -774,7 +774,7 @@ impl TopRepoExpander<'_> {
             file_changes,
             Some(commit_message),
         )?;
-        // TODO: What to record in extra_mono_commit.submodule_bumps[abs_sub_path]?
+        // TODO: 2025-09-22 What to record in extra_mono_commit.submodule_bumps[abs_sub_path]?
         Ok(extra_mono_commit)
     }
 
@@ -953,7 +953,7 @@ impl TopRepoExpander<'_> {
         let parents_for_submodules =
             self.expand_inner_submodules(&expanded_parents, abs_sub_path, wanted_sub_commit)?;
         all_parents.extend(parents_for_submodules);
-        // TODO: Can this code be cleaner in some way?
+        // TODO: 2025-09-22 Can this code be cleaner in some way?
         const TREE_MODE: &[u8] = b"040000";
         let mut tree_id_hex = gix::hash::Kind::hex_buf();
         let _len = wanted_sub_commit.tree_id.hex_to_buf(&mut tree_id_hex);
@@ -1130,7 +1130,7 @@ impl BumpCache {
     }
 
     pub fn get_top_bump(&self, mut mono_commit: &Rc<MonoRepoCommit>) -> Option<TopRepoCommitId> {
-        // TODO: Is caching needed?
+        // TODO: 2025-09-22 Is caching needed?
         loop {
             if let Some(top_bump) = &mono_commit.top_bump {
                 return Some(*top_bump);
@@ -1333,7 +1333,7 @@ pub fn strip_ref_prefix<'a>(
     }
 }
 
-// TODO: Let Gitoxide implement try_find_full_reference().
+// TODO: 2025-09-22 Let Gitoxide implement try_find_full_reference().
 fn try_find_full_reference(
     repo: &gix::Repository,
     name: &FullNameRef,
@@ -1937,7 +1937,7 @@ fn update_refs(
             MonoRefUpdateAction::Delete { old_target: _ } => {
                 ref_edits.push(gix::refs::transaction::RefEdit {
                     change: gix::refs::transaction::Change::Delete {
-                        // TODO: Is MustExistAndMatch possible? Should the previous
+                        // TODO: 2025-09-22 Is MustExistAndMatch possible? Should the previous
                         // filter result be stored in the log file?
                         expected: gix::refs::transaction::PreviousValue::Any,
                         log: gix::refs::transaction::RefLog::AndReference,
