@@ -72,9 +72,7 @@ fn dump_git_modules() {
 
 #[test]
 fn wrong_cache_prelude() {
-    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-        "git_toprepo-wrong_cache_prelude",
-    );
+    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
 
     git_command_for_testing(&temp_dir)
         .args(["init", "--quiet"])

@@ -35,9 +35,7 @@ mod main {
     #[case::c_sub(".", &["-C", "sub"])]
     #[case::pwd_sub_c_dotdot("sub", &["-C", ".."])]
     fn commands_in_not_initialized_repo_fails(#[case] pwd_sub_dir: &str, #[case] dash_c: &[&str]) {
-        let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-commands_in_not_initialized_repo_fails",
-        );
+        let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
         std::fs::create_dir(temp_dir.join("sub")).unwrap();
         let expected_stderr = "ERROR: git-config \'toprepo.config\' is missing. Is this an initialized git-toprepo?\n";
 
@@ -109,9 +107,7 @@ mod main {
         #[case] dash_c: &[&str],
         #[case] final_dir: &str,
     ) {
-        let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-commands_outside_git_repos_fail",
-        );
+        let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
         std::fs::create_dir_all(temp_dir.join("sub")).unwrap();
         let expected_stderr = predicates::str::is_match(format!(
             "^ERROR: Could not find a git repository in '{}' or in any of its parents\n$",

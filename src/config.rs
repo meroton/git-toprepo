@@ -639,9 +639,7 @@ mod tests {
 
     #[test]
     fn create_config_from_invalid_ref() {
-        let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-create_config_from_invalid_ref",
-        );
+        let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
 
         git_command_for_testing(&tmp_path)
             .args(["init"])
@@ -669,9 +667,7 @@ mod tests {
     fn create_config_from_worktree() {
         use std::io::Write;
 
-        let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-create_config_from_worktree",
-        );
+        let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
 
         git_command_for_testing(&tmp_path)
             .args(["init"])
@@ -723,9 +719,7 @@ mod tests {
 
     #[test]
     fn missing_config() {
-        let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-missing_config",
-        );
+        let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
 
         git_command_for_testing(&tmp_path)
             .args(["init"])
@@ -804,9 +798,7 @@ mod tests {
         // TODO: Move to integration tests.
         use std::io::Write;
 
-        let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-create_config_from_head",
-        );
+        let tmp_path = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
 
         git_command_for_testing(&tmp_path)
             .args(["init"])

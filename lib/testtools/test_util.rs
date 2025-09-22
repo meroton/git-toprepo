@@ -8,12 +8,19 @@ pub enum MaybePermanentTempDir {
 }
 
 impl MaybePermanentTempDir {
-    /// Creates a new temporary directory, that may be kept permanently,
-    /// with a certain prefix.
+    /// Creates a new temporary directory, that may be kept permanently.
+    ///
+    /// The thread name is used because rust test sets the thread name to the
+    /// test name, so why not use that for test purpose.
     ///
     /// See also [`maybe_keep_tempdir`].
-    pub fn new_with_prefix(prefix: &str) -> Self {
-        let tempdir = tempfile::TempDir::with_prefix(format!("{prefix}-"))
+    pub fn create() -> Self {
+        let prefix = if let Some(name) = std::thread::current().name() {
+            &format!("git_toprepo-{}", name.replace("::", "-"))
+        } else {
+            "git_toprepo"
+        };
+        let tempdir = tempfile::TempDir::with_prefix(prefix)
             .expect("successful temporary directory creation");
         maybe_keep_tempdir(tempdir)
     }
@@ -60,14 +67,14 @@ impl From<tempfile::TempDir> for MaybePermanentTempDir {
 }
 
 /// Persist a temporary directory to disk if the environment variable
-/// `GIT_TOPREPO_KEEP_TEMP_DIR` is set to `1`,
+/// `GIT_TOPREPO_KEEP_TEMP_DIR` is set to `1`.
+///
+/// To find the temporary directory, run one test at a time or make it fail and find
+/// the path on stderr.
 ///
 /// # Examples
 ///
 /// See the unit tests.
-// TODO: Maybe we should also require a name.
-// When reusing fixtures between multiple integration tests we don't have a good
-// way to see which is which on the filesystem.
 pub fn maybe_keep_tempdir(tempdir: tempfile::TempDir) -> MaybePermanentTempDir {
     MaybePermanentTempDir::from(tempdir)
 }

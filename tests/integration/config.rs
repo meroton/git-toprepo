@@ -14,9 +14,7 @@ const GENERIC_CONFIG: &str = r#"
 
 #[test]
 fn validate_external_file_in_corrupt_repository() {
-    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-        "git_toprepo-validate_external_file_in_corrupt_repository",
-    );
+    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
 
     let invalid_toml = "invalid.t.o.m.l";
     std::fs::write(
@@ -103,9 +101,7 @@ fn validate_external_file_in_corrupt_repository() {
 
 #[test]
 fn validate_use_correct_working_directory() {
-    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-        "git_toprepo-validate_use_correct_working_directory",
-    );
+    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
 
     let okay_config = "okay.toml";
     std::fs::write(temp_dir.join(okay_config), GENERIC_CONFIG).unwrap();

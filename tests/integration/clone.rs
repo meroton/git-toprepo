@@ -7,9 +7,7 @@ use std::process::Command;
 
 #[test]
 fn toprepo_clone() {
-    let base_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-        "git_toprepo-toprepo_clone",
-    );
+    let base_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
     let from_path = &base_dir.path().join("from");
     std::fs::create_dir(from_path).unwrap();
     let to_path = &base_dir.path().join("to");
