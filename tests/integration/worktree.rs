@@ -9,8 +9,6 @@ fn local_config_resolution_in_worktree() {
         )
         .unwrap(),
     );
-
-    let temp_dir = temp_dir.path();
     let worktree = temp_dir.join("worktree");
 
     Command::cargo_bin("git-toprepo")

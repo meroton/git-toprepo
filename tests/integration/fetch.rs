@@ -59,7 +59,6 @@ fn download_only_for_needed_commits() {
         .unwrap(),
     );
 
-    let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);

@@ -13,7 +13,6 @@ fn assemble_golden() {
         )
         .unwrap(),
     );
-    let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
 
@@ -204,7 +203,6 @@ fn split_example() {
         )
         .unwrap(),
     );
-    let temp_dir = temp_dir.path();
     let monorepo = temp_dir.join("mono");
     let toprepo = temp_dir.join("top");
     let subxrepo = temp_dir.join("subx");
@@ -270,7 +268,6 @@ fn split_where_one_repo_is_missing() {
         )
         .unwrap(),
     );
-    let temp_dir = temp_dir.path();
     let monorepo = temp_dir.join("mono");
     let toprepo = temp_dir.join("top");
     let subxrepo = temp_dir.join("subx");

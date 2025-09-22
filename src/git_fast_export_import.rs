@@ -995,7 +995,7 @@ mod tests {
         let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
             "git_toprepo-fast_import",
         );
-        let from_repo_path = setup_example_repo(&temp_dir.path().join("from"));
+        let from_repo_path = setup_example_repo(&temp_dir.join("from"));
 
         let to_repo_path = temp_dir.join("to");
         std::fs::create_dir(&to_repo_path).unwrap();

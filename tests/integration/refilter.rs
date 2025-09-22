@@ -13,7 +13,6 @@ fn init_and_refilter_example() {
         gix_testtools::scripted_fixture_writable("../integration/fixtures/make_readme_example.sh")
             .unwrap(),
     );
-    let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
 
@@ -114,7 +113,6 @@ fn merge_with_one_submodule_a() {
         )
         .unwrap(),
     );
-    let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
 
@@ -159,7 +157,6 @@ fn merge_with_one_submodule_b() {
         )
         .unwrap(),
     );
-    let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
 
@@ -218,7 +215,6 @@ fn merge_with_two_submodules() {
         )
         .unwrap(),
     );
-    let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
 
@@ -277,7 +273,6 @@ fn submodule_removal() {
         )
         .unwrap(),
     );
-    let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
 
@@ -319,7 +314,6 @@ fn moved_submodule() {
         gix_testtools::scripted_fixture_writable("../integration/fixtures/make_moved_submodule.sh")
             .unwrap(),
     );
-    let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
 
@@ -452,7 +446,6 @@ fn warn_for_empty_submodule() {
         )
         .unwrap(),
     );
-    let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
     let subxrepo = temp_dir.join("subx");
     let monorepo = temp_dir.join("mono");

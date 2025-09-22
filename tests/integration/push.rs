@@ -465,7 +465,6 @@ fn topic_is_required_for_multi_repo_push() {
         )
         .unwrap(),
     );
-    let temp_dir = temp_dir.path();
     let monorepo = temp_dir.join("mono");
     let toprepo = temp_dir.join("top");
 
@@ -498,7 +497,6 @@ fn force_push() {
         )
         .unwrap(),
     );
-    let temp_dir = temp_dir.path();
     let monorepo = temp_dir.join("mono");
     let toprepo = temp_dir.join("top");
 

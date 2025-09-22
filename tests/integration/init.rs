@@ -5,13 +5,12 @@ use std::process::Command;
 #[test]
 fn into_non_existing_dir() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
-    let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
 
     let clone_name = "my-clone";
     Command::cargo_bin("git-toprepo")
         .unwrap()
-        .current_dir(temp_dir)
+        .current_dir(&temp_dir)
         .arg("init")
         .arg(&toprepo)
         .arg(clone_name)
@@ -25,14 +24,13 @@ fn into_non_existing_dir() {
 #[test]
 fn into_empty_dir() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
-    let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
 
     let clone_name = "my-clone";
     std::fs::create_dir(temp_dir.join(clone_name)).unwrap();
     Command::cargo_bin("git-toprepo")
         .unwrap()
-        .current_dir(temp_dir)
+        .current_dir(&temp_dir)
         .arg("init")
         .arg(&toprepo)
         .arg(clone_name)
@@ -46,7 +44,6 @@ fn into_empty_dir() {
 #[test]
 fn force_into_non_empty_dir() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
-    let temp_dir = temp_dir.path();
     let toprepo = temp_dir.join("top");
 
     let clone_name = "my-clone";
@@ -56,7 +53,7 @@ fn force_into_non_empty_dir() {
 
     Command::cargo_bin("git-toprepo")
         .unwrap()
-        .current_dir(temp_dir)
+        .current_dir(&temp_dir)
         .arg("init")
         .arg(&toprepo)
         .arg(clone_name)
@@ -68,7 +65,7 @@ fn force_into_non_empty_dir() {
 
     Command::cargo_bin("git-toprepo")
         .unwrap()
-        .current_dir(temp_dir)
+        .current_dir(&temp_dir)
         .arg("init")
         .arg("--force")
         .arg(&toprepo)
