@@ -185,7 +185,7 @@ impl GlobalLogger {
     /// and makes sure the progress bar does not interfere with the
     /// logging output.
     ///
-    /// TODO: This implementation creates an extra thread for logging,
+    /// TODO: 2025-09-22 This implementation creates an extra thread for logging,
     /// which is not ideal.
     pub fn with_progress<F, T>(&self, task: F) -> Result<T>
     where
@@ -595,7 +595,7 @@ impl ErrorObserver {
 
 /// Macro version of `pub fn command_span<T>(name: &'static str, cmd: &mut std::process::Command) -> &mut std::process::Command`
 /// to allow for constant name.
-// TODO: What module?
+// TODO: 2025-09-22 What module?
 #[macro_export]
 macro_rules! command_span {
     ($span_name: expr) => {

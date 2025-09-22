@@ -127,7 +127,7 @@ impl RemoteFetcher {
                         self.set_remote_from_subrepo_config(gix_repo, &repo_name, subrepo_config)?;
                     }
                     None => {
-                        // TODO: Give command line or config suggestions to the user.
+                        // TODO: 2025-09-22 Give command line or config suggestions to the user.
                         anyhow::bail!("No remote found for {name_or_url}");
                     }
                 }
@@ -166,7 +166,7 @@ impl RemoteFetcher {
             let _timeout_span_guard = tracing::debug_span!("idle-timeout", ?idle_timeout).entered();
             let (proc, _span_guard) = self
                 .create_command()
-                // TODO: Collect stdout (use a thread to avoid backpressure deadlock).
+                // TODO: 2025-09-22 Collect stdout (use a thread to avoid backpressure deadlock).
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::piped())
                 .trace_command(crate::command_span!("git fetch"))

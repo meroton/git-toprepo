@@ -60,7 +60,7 @@ pub fn calculate_mono_commit_message_from_commits(
                 )) => {
                     // Normal submodule bumps are not recorded, the subrepo has not
                     // even been resolved so cannot find the commit message.
-                    // TODO: Should we try to load the commit message from the subrepo if available?
+                    // TODO: 2025-09-22 Should we try to load the commit message from the subrepo if available?
                     (None, format!("{submod_commit_id} (submodule)"))
                 }
                 ExpandedOrRemovedSubmodule::Expanded(
@@ -267,7 +267,7 @@ fn get_and_decode_commit_message(repo: &gix::Repository, commit_id: CommitId) ->
 
 /// Best effort decoding the commit message, logging any error.
 ///
-// TODO: How to only log at tips? Fix that later if an issue arises.
+// TODO: 2025-09-22 How to only log at tips? Fix that later if an issue arises.
 fn decode_commit_message(commit: &gix::objs::CommitRef<'_>) -> String {
     let encoding = if let Some(encoding_name) = commit.encoding {
         encoding_rs::Encoding::for_label_no_replacement(encoding_name).unwrap_or_else(|| {

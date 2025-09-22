@@ -185,8 +185,8 @@ pub enum Dump {
     /// Dump the repository import cache as JSON to stdout.
     ImportCache,
     /// Dump the git submodule path mappings to remote projects.
-    // TODO: Take individual modules and paths as arguments?
-    // TODO: Take a full path for a file and convert it to its remote repo, or
+    // TODO: 2025-09-22 Take individual modules and paths as arguments?
+    // TODO: 2025-09-22 Take a full path for a file and convert it to its remote repo, or
     // url path?
     GitModules,
 }
@@ -297,7 +297,7 @@ impl<'a> FetchParamsResolver<'a> {
     ) -> Result<ResolvedFetchParams> {
         // Convert from working directory relative `Path` to worktree relative
         // `GitPath`.
-        // TODO: why does this not have a git-toprepo object?
+        // TODO: 2025-09-22 why does this not have a git-toprepo object?
         let override_path = match override_path {
             Some(path) => Some(repo_relative_path(&self.worktree, path)?),
             None => None,
@@ -324,7 +324,7 @@ impl<'a> FetchParamsResolver<'a> {
             return Ok(ret);
         }
         let url = gix::Url::from_bytes(remote_bstr)?;
-        // TODO: If we refactor the repo view to contain a list of all
+        // TODO: 2025-09-22 If we refactor the repo view to contain a list of all
         // *projects* including super itself. We do not need tiered access here.
         // #unified-git-config.
         if let Some(ret) = self.try_resolve_as_remote_url(&url, &override_path)? {

@@ -24,7 +24,7 @@ pub type BlobId = gix::ObjectId;
 )]
 pub struct GitPath(
     /// The serialized human readable form is a string, so non-UTF8 will panic.
-    // TODO: Maybe '::<hex>' as paths don't contain (or starts with) ':'.
+    // TODO: 2025-09-22 Maybe '::<hex>' as paths don't contain (or starts with) ':'.
     #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
     pub BString,
 );
@@ -167,7 +167,7 @@ impl GitModulesInfo {
     /// Parses the `.gitmodules` content.
     ///
     /// The `path` argument is used for error reporting only.
-    // TODO: The caller should use context with the path instead.
+    // TODO: 2025-09-22 The caller should use context with the path instead.
     //       This function don't need the path for its error.
     pub fn parse_dot_gitmodules_bytes(bytes: &[u8], path: PathBuf) -> Result<Self> {
         let config = gix::submodule::File::from_bytes(bytes, Some(path), &Default::default())
@@ -175,7 +175,7 @@ impl GitModulesInfo {
         let mut info = GitModulesInfo::default();
         for name in config.names() {
             // Skip misconfigured paths, they might not even be used.
-            // TODO: Warn about them? Warn about duplicate values?
+            // TODO: 2025-09-22 Warn about them? Warn about duplicate values?
             let Ok(path) = config.path(name) else {
                 continue;
             };
@@ -306,7 +306,7 @@ where
     }
 
     let walk = repo.rev_walk(start_commit_ids);
-    // TODO: The commit graph cannot be reused. Until fixed upstream,
+    // TODO: 2025-09-22 The commit graph cannot be reused. Until fixed upstream,
     // use the default behaviour of reloading it for each walk.
     // walk.with_commit_graph(cache);
     let mut stop_commit_ids: Vec<CommitId> = Vec::new();

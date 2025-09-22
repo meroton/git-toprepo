@@ -213,7 +213,7 @@ fn config_bootstrap() -> Result<GitTopRepoConfig> {
                     continue;
                 }
             };
-            // TODO: Refactor to not use missing_subrepos.clear() for
+            // TODO: 2025-09-22 Refactor to not use missing_subrepos.clear() for
             // accessing the submodule configs.
             config.missing_subrepos.clear();
             match config
@@ -384,7 +384,7 @@ impl FetchDestinationRef {
 #[derive(Debug)]
 struct DetailedFetchRefspec {
     /// Whether the refspec sets force-fetch (starts with `+`).
-    // TODO: Implement force fetch with + refspec.
+    // TODO: 2025-09-22 Implement force fetch with + refspec.
     #[allow(unused)]
     force: bool,
     remote_ref: String,
@@ -454,7 +454,7 @@ fn fetch_with_refspec(
                 .context("Bad UTF-8 defualt remote URL")?
                 .to_owned(),
         );
-        // TODO: Should the + force be possible to remove?
+        // TODO: 2025-09-22 Should the + force be possible to remove?
         fetcher.refspecs = detailed_refspecs
             .iter()
             .map(|refspec| format!("+{}:{}", refspec.remote_ref, refspec.unfiltered_ref))
@@ -482,7 +482,7 @@ fn fetch_with_refspec(
             }
             RepoName::SubRepo(sub_repo_name) => {
                 for refspec in detailed_refspecs {
-                    // TODO: Reuse the git-fast-import process for all refspecs.
+                    // TODO: 2025-09-22 Reuse the git-fast-import process for all refspecs.
                     let dest_ref = refspec.destination.get_filtered_ref();
                     if let Err(err) = git_toprepo::expander::expand_submodule_ref_onto_head(
                         processor,
@@ -579,7 +579,7 @@ fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> 
         .try_find_remote(push_args.top_remote.as_bytes())
     {
         Some(Ok(remote)) => remote
-            // TODO: Support push URL config.
+            // TODO: 2025-09-22 Support push URL config.
             .url(gix::remote::Direction::Fetch)
             .with_context(|| format!("Missing push URL for {}", push_args.top_remote))?
             .clone(),
@@ -593,7 +593,7 @@ fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> 
     let [(local_ref, remote_ref)] = refspecs else {
         unimplemented!("Handle multiple refspecs");
     };
-    // TODO: This assumes a single ref in the refspec. What about patterns?
+    // TODO: 2025-09-22 This assumes a single ref in the refspec. What about patterns?
     let remote_ref = FullName::try_from(remote_ref.as_bytes().as_bstr())
         .with_context(|| format!("Bad remote ref {remote_ref}"))?;
     let local_rev = local_ref;
@@ -613,7 +613,7 @@ fn push(push_args: &cli::Push, processor: &mut MonoRepoProcessor) -> Result<()> 
 
 #[tracing::instrument]
 fn dump(dump_args: &cli::Dump) -> Result<()> {
-    // TODO: Verify that the repo is initialized in a better way.
+    // TODO: 2025-09-22 Verify that the repo is initialized in a better way.
     let repo = git_toprepo::repo::gix_discover()?.to_thread_local();
     let _config = config::GitTopRepoConfig::load_config_from_repo(&repo)?;
 
