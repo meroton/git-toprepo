@@ -910,9 +910,7 @@ mod tests {
 
     #[test]
     fn parse_fast_export_output() {
-        let tmp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo_test_parse_fast_export_output",
-        );
+        let tmp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
         let example_repo = setup_example_repo(&tmp_dir);
         // TODO: If we find this test case to be cumbersome with changes to the
         // hashes we could probably use a library for snapshot testing to make
@@ -992,9 +990,7 @@ mod tests {
 
     #[test]
     fn fast_import() {
-        let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::new_with_prefix(
-            "git_toprepo-fast_import",
-        );
+        let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
         let from_repo_path = setup_example_repo(&temp_dir.join("from"));
 
         let to_repo_path = temp_dir.join("to");
