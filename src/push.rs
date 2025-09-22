@@ -195,10 +195,9 @@ fn split_for_push_impl(
     let mut imported_mono_commits = HashMap::new();
     let mut imported_submod_commits = HashMap::new();
     for entry in fast_exporter {
-        let entry = entry?; // TODO: error handling
+        let entry = entry?;
         match entry {
             crate::git_fast_export_import::FastExportEntry::Commit(exported_mono_commit) => {
-                // TODO: Should we check if exported_mono_commit.original_id exists in the top_repo_cache?
                 let mono_commit_id = MonoRepoCommitId::new(exported_mono_commit.original_id);
                 let gix_mono_commit = processor.gix_repo.find_commit(*mono_commit_id)?;
                 let mono_parents = exported_mono_commit

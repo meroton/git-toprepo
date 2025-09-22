@@ -51,7 +51,6 @@ pub fn resolve_subprojects(
     let mut resolved = HashMap::<GitPath, String>::default();
 
     for (path, url) in subs.submodules.iter() {
-        // TODO: Nightly `as_str`: https://docs.rs/bstr/latest/bstr/struct.BString.html#deref-methods-%5BT%5D-1
         let relative = parse_gerrit_project(url.as_ref().unwrap())?;
         let relative = match relative.strip_prefix("/") {
             None => relative,
@@ -396,8 +395,6 @@ impl Display for TopRepoCommitId {
 
 pub type RepoStates = HashMap<RepoName, RepoData>;
 
-// TODO: Use `Rc` to all the `GitPath`s and `ObjectId`s to avoid memory duplication.
-// Is it really more efficient to use `Rc`?
 #[derive(Default)]
 pub struct TopRepoCache {
     pub repos: RepoStates,
@@ -409,11 +406,12 @@ pub struct TopRepoCache {
     pub dedup: GitFastExportImportDedupCache,
 }
 
+/// The parent is a commit in the original submodule.
+///
+/// Note that the path to the submodule is available to not used right now.
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct OriginalSubmodParent {
-    // TODO: Unused?
-    pub path: GitPath,
     #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
     pub commit_id: CommitId,
 }

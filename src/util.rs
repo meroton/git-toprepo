@@ -431,7 +431,6 @@ impl SafeOutput {
     /// Checks that the command was successful and otherwise returns an error
     /// with the exit status together with the stderr content.
     pub fn check_success_with_stderr(&self) -> anyhow::Result<&Self> {
-        // TODO: Print the command line as well?
         if !self.status.success() {
             if self.stderr.is_empty() {
                 bail!("{}", self.status);

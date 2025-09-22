@@ -1235,7 +1235,7 @@ impl SingleRepoLoader<'_> {
         callback: &impl SingleLoadRepoCallback,
     ) -> InterruptedResult<()> {
         let (tips, active_tips_map) = self.get_tips().context("Failed to resolve refs")?;
-        let (mut refs_arg, cached_commit_ids_to_load, mut unknown_commit_count) = self
+        let (mut refs_arg, cached_commit_ids_to_load, _unknown_commit_count) = self
             .get_refs_to_load_arg(&tips, existing_commits, cached_commits)
             .context("Failed to find refs to load")?;
         // Map from commit id to ref names of branch tips for that commit.
@@ -1260,14 +1260,15 @@ impl SingleRepoLoader<'_> {
             // should be rare so it is not worth updating existing_commits.
             log::warn!("Discarding cache for {}: {err:#}", self.repo_name);
             let cached_commit_ids_to_load;
-            (refs_arg, cached_commit_ids_to_load, unknown_commit_count) = self
+            let _unknown_commit_count;
+            (refs_arg, cached_commit_ids_to_load, _unknown_commit_count) = self
                 .get_refs_to_load_arg(&tips, existing_commits, &HashSet::new())
                 .context("Failed to find refs to load")
                 .map_err(InterruptedError::Normal)?;
             assert!(cached_commit_ids_to_load.is_empty());
         }
         if !refs_arg.is_empty() {
-            match self.load_from_refs(&active_tips_map, refs_arg, unknown_commit_count, callback) {
+            match self.load_from_refs(&active_tips_map, refs_arg, callback) {
                 Ok(()) => Ok(()),
                 Err(InterruptedError::Interrupted) => Err(InterruptedError::Interrupted),
                 Err(InterruptedError::Normal(err)) => {
@@ -1404,11 +1405,10 @@ impl SingleRepoLoader<'_> {
         &self,
         tips: &CommitToRefMap,
         refs_arg: Vec<String>,
-        _unknown_commit_count: usize, // TODO: Remove.
         callback: &impl SingleLoadRepoCallback,
     ) -> InterruptedResult<()> {
-        // TODO: The super repository will get an empty URL, which is exactly
-        // what is wanted. Does the rest of the code handle that?
+        // The top repository will get an empty URL, which is exactly
+        // what is wanted.
         let toprepo_git_dir = self.toprepo.git_dir();
         for export_entry in FastExportRepo::load_from_path(toprepo_git_dir, Some(refs_arg))? {
             if self.error_observer.should_interrupt() {

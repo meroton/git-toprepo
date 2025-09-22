@@ -512,8 +512,6 @@ impl FastImportRepo {
     ) -> Result<Self> {
         // If the upstream repository has been force updated, then this import
         // should also force update.
-        //
-        // TODO: Add --force and --quiet as parameters?
         let (mut process, span_guard) = git_command(repo_dir)
             .args(["fast-import", "--done", "--force", "--quiet"])
             .stdin(Stdio::piped())
@@ -842,15 +840,11 @@ mod tests {
             .envs(env)
             .assert()
             .success();
-
-        // Returns commit hash as String.
-        // TODO: Return Result<String> instead?
         let cmd = git_command(repo)
             .args(["rev-parse", "HEAD"])
             .envs(env)
             .assert()
             .success();
-
         let commit_id_hex = cmd
             .get_output()
             .stdout
