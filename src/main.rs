@@ -673,6 +673,80 @@ fn push(push_args: &cli::Push, configured_repo: &mut ConfiguredTopRepo) -> Resul
     })
 }
 
+#[tracing::instrument]
+fn print_info(info_args: &cli::Info) -> Result<()> {
+    let repo = gix_discover_current_dir()?;
+    let config_location_str_result = GitTopRepoConfig::find_configuration_location_str(&repo);
+
+    let collect_key = |key: &str| {
+        if info_args.key.as_ref().is_none_or(|k| k == key) {
+            Some(key.to_owned())
+        } else {
+            None
+        }
+    };
+
+    let mut keys_and_values = Vec::new();
+    if let Some(key) = collect_key("config-location") {
+        keys_and_values.push((
+            key,
+            match &config_location_str_result {
+                Ok(s) => s.clone(),
+                Err(err) => {
+                    log::warn!("No main worktree: {err}");
+                    String::new()
+                }
+            },
+        ));
+    }
+    if let Some(key) = collect_key("current-worktree") {
+        keys_and_values.push((
+            key,
+            match repo.workdir() {
+                Some(path) => path.to_string_lossy().to_string(),
+                None => "<bare repository>".to_string(),
+            },
+        ));
+    }
+    if let Some(key) = collect_key("cwd") {
+        keys_and_values.push((key, env::current_dir()?.to_string_lossy().to_string()));
+    }
+    if let Some(key) = collect_key("git-dir") {
+        keys_and_values.push((key, repo.git_dir().to_string_lossy().to_string()));
+    }
+    if let Some(key) = collect_key("main-worktree") {
+        keys_and_values.push((
+            key,
+            match git_toprepo::util::find_main_worktree_path(&repo) {
+                Ok(path) => path.to_string_lossy().to_string(),
+                Err(err) => {
+                    log::warn!("No main worktree: {err}");
+                    String::new()
+                }
+            },
+        ));
+    }
+    if let Some(key) = collect_key("version") {
+        keys_and_values.push((key, get_version()));
+    }
+
+    if let Some(key) = &info_args.key {
+        if keys_and_values.is_empty() {
+            bail!("Unknown key {key:?}");
+        }
+        // Should only be one value.
+        for (_key, value) in keys_and_values {
+            println!("{value}");
+        }
+    } else {
+        for (key, value) in keys_and_values {
+            println!("{key} {value}");
+        }
+    }
+    Ok(())
+}
+
+#[tracing::instrument]
 fn dump(dump_args: &cli::Dump) -> Result<()> {
     match dump_args {
         cli::Dump::ImportCache(args) => dump_import_cache(args),
@@ -732,16 +806,15 @@ fn dump_git_modules() -> Result<()> {
 }
 
 #[tracing::instrument]
-/// Print the version of the git-toprepo to stdout.
-fn print_version() -> Result<()> {
-    println!(
+/// Creates a human readable version string for git-toprepo.
+fn get_version() -> String {
+    format!(
         "{} {}~{}-{}",
         env!("CARGO_PKG_NAME"),
         option_env!("BUILD_SCM_TAG").unwrap_or("0.0.0"),
         option_env!("BUILD_SCM_TIMESTAMP").unwrap_or("timestamp"),
         option_env!("BUILD_SCM_REVISION").unwrap_or("git-hash"),
-    );
-    Ok(())
+    )
 }
 
 /// Run an operation with automatic setup and teardown lifecycle for operations.
@@ -880,7 +953,11 @@ where
         Commands::Push(push_args) => run_session(logger, |configured| push(&push_args, configured))
             .map(|()| ExitCode::SUCCESS),
 
-        Commands::Version => print_version().map(|()| ExitCode::SUCCESS),
+        Commands::Info(info_args) => print_info(&info_args).map(|()| ExitCode::SUCCESS),
+        Commands::Version => {
+            println!("git-toprepo {}", get_version());
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 

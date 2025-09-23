@@ -5,9 +5,11 @@ mkdir from
 git -C from init --quiet --initial-branch main
 git -C from commit --allow-empty -m "init"
 
-git clone from top
-cat <<EOF > top/.gittoprepo.toml
+git clone from mono
+cat <<EOF > mono/.gittoprepo.toml
 EOF
-git -C top config --local toprepo.config local:.gittoprepo.toml
+git -C mono config --local toprepo.config local:.gittoprepo.toml
 
-git -C top worktree add ../worktree
+# Cannot create a worktree in the cache because it includes an absolute path
+# that does no exist when the caching is done.
+# git -C mono worktree add ../worktree
