@@ -122,8 +122,8 @@ fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
 
 #[tracing::instrument]
 fn config(config_args: &cli::Config) -> Result<()> {
-    match &config_args.config_command {
-        cli::ConfigCommands::Location => {
+    match &config_args {
+        cli::Config::Location => {
             let repo = git_toprepo::repo::gix_discover()?.to_thread_local();
             let location = config::GitTopRepoConfig::find_configuration_location(&repo)?;
             if let Err(err) = location.validate_existence(&repo) {
@@ -131,20 +131,20 @@ fn config(config_args: &cli::Config) -> Result<()> {
             }
             println!("{location}");
         }
-        cli::ConfigCommands::Show => {
+        cli::Config::Show => {
             let repo = git_toprepo::repo::gix_discover()?.to_thread_local();
             let config = config::GitTopRepoConfig::load_config_from_repo(&repo)?;
             print!("{}", toml::to_string(&config)?);
         }
-        cli::ConfigCommands::Bootstrap => {
+        cli::Config::Bootstrap => {
             let config = config_bootstrap()?;
             print!("{}", toml::to_string(&config)?);
         }
-        cli::ConfigCommands::Normalize(args) => {
+        cli::Config::Normalize(args) => {
             let config = load_config_from_file(args.file.as_path())?;
             print!("{}", toml::to_string(&config)?);
         }
-        cli::ConfigCommands::Validate(validation) => {
+        cli::Config::Validate(validation) => {
             let _config = load_config_from_file(validation.file.as_path())?;
         }
     }

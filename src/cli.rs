@@ -100,6 +100,7 @@ pub enum Commands {
     Init(Init),
     /// Initialize a repository and fetch from the remote.
     Clone(Clone),
+    #[command(subcommand)]
     Config(Config),
     Refilter(Refilter),
     Fetch(Fetch),
@@ -141,14 +142,8 @@ pub struct Clone {
     pub minimal: bool,
 }
 
-#[derive(Args, Debug)]
-pub struct Config {
-    #[command(subcommand)]
-    pub config_command: ConfigCommands,
-}
-
 #[derive(Subcommand, Debug, Clone)]
-pub enum ConfigCommands {
+pub enum Config {
     /// Prints the configuration location.
     Location,
     /// Show the configuration of the current repository.
