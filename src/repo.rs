@@ -104,7 +104,7 @@ pub struct ConfiguredTopRepo {
     pub gix_repo: gix::Repository,
     pub config: GitTopRepoConfig,
     pub ledger: SubRepoLedger,
-    pub top_repo_cache: TopRepoCache,
+    pub import_cache: ImportCache,
 }
 
 impl ConfiguredTopRepo {
@@ -275,7 +275,7 @@ Initial empty git-toprepo configuration
             gix_repo,
             config: GitTopRepoConfig::default(),
             ledger: SubRepoLedger::default(),
-            top_repo_cache: TopRepoCache::default(),
+            import_cache: ImportCache::default(),
         }
     }
 
@@ -308,7 +308,7 @@ Initial empty git-toprepo configuration
             subrepos: config.subrepos.clone(),
             missing_subrepos: std::collections::HashSet::new(),
         };
-        let top_repo_cache = crate::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
+        let import_cache = crate::repo_cache_serde::SerdeImportCache::load_from_git_dir(
             gix_repo.git_dir(),
             Some(&config.checksum),
         )
@@ -319,15 +319,15 @@ Initial empty git-toprepo configuration
             gix_repo,
             config,
             ledger,
-            top_repo_cache,
+            import_cache,
         })
     }
 
     /// Save state (config + cache) back to disk
     pub fn save_state(&mut self) -> Result<()> {
         // Save cache
-        crate::repo_cache_serde::SerdeTopRepoCache::pack(
-            &self.top_repo_cache,
+        crate::repo_cache_serde::SerdeImportCache::pack(
+            &self.import_cache,
             self.config.checksum.clone(),
         )
         .store_to_git_dir(self.gix_repo.git_dir())?;
@@ -381,7 +381,7 @@ impl Display for TopRepoCommitId {
 pub type RepoStates = HashMap<RepoName, RepoData>;
 
 #[derive(Default)]
-pub struct TopRepoCache {
+pub struct ImportCache {
     pub repos: RepoStates,
     pub monorepo_commits: HashMap<MonoRepoCommitId, Rc<MonoRepoCommit>>,
     pub monorepo_commit_ids: HashMap<RcKey<MonoRepoCommit>, MonoRepoCommitId>,

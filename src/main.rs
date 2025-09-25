@@ -15,7 +15,7 @@ use git_toprepo::log::CommandSpanExt as _;
 use git_toprepo::log::ErrorMode;
 use git_toprepo::log::ErrorObserver;
 use git_toprepo::repo::ConfiguredTopRepo;
-use git_toprepo::repo::TopRepoCache;
+use git_toprepo::repo::ImportCache;
 use git_toprepo::repo_name::RepoName;
 use git_toprepo::util::CommandExtension as _;
 use gix::refs::FullName;
@@ -219,7 +219,7 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
 
         // Go through submodules at HEAD and enable them in the config.
         let top_repo_data = repo
-            .top_repo_cache
+            .import_cache
             .repos
             .get(&RepoName::Top)
             .expect("top repo has been loaded");
@@ -274,7 +274,7 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
 #[tracing::instrument(skip(configured_repo))]
 fn refilter(refilter_args: &cli::Refilter, configured_repo: &mut ConfiguredTopRepo) -> Result<()> {
     if !refilter_args.reuse_cache {
-        configured_repo.top_repo_cache = TopRepoCache::default();
+        configured_repo.import_cache = ImportCache::default();
     }
     git_toprepo::log::get_global_logger().with_progress(|progress| {
         ErrorObserver::run_keep_going(refilter_args.keep_going, |error_observer| {
@@ -687,15 +687,13 @@ fn dump_import_cache(args: &cli::DumpImportCache) -> Result<()> {
         } else {
             &mut std::fs::File::open(cache_path)?
         };
-        git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_reader(
-            cache_path, reader, None,
-        )?
+        git_toprepo::repo_cache_serde::SerdeImportCache::load_from_reader(cache_path, reader, None)?
     } else {
         let repo = gix_discover_current_dir()?;
         // Demand a configured repository to ensure we not just fall back to empty
         // cache content when not even inside a git-toprepo emulated monorepo.
         let _ = GitTopRepoConfig::find_configuration_location(&repo)?;
-        git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(repo.git_dir(), None)?
+        git_toprepo::repo_cache_serde::SerdeImportCache::load_from_git_dir(repo.git_dir(), None)?
     };
     serde_repo_states.dump_as_json(std::io::stdout())?;
     println!();
