@@ -87,7 +87,7 @@ fn cache_from_basic_repo_should_fail() {
         .success();
 
     let git_dir = temp_dir.join(".git");
-    let cache_path = git_toprepo::repo_cache_serde::SerdeTopRepoCache::get_cache_path(&git_dir);
+    let cache_path = git_toprepo::repo_cache_serde::SerdeImportCache::get_cache_path(&git_dir);
 
     std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
     std::fs::write(
@@ -122,11 +122,9 @@ const EMPTY_CACHE_JSON: &str = r#"{
 fn empty_cache_file() -> (MaybePermanentTempDir, PathBuf) {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
     let cache_path = temp_dir.join("cache-file");
-    let cache = git_toprepo::repo::TopRepoCache::default();
-    let serde_cache = git_toprepo::repo_cache_serde::SerdeTopRepoCache::pack(
-        &cache,
-        "config-checksum".to_owned(),
-    );
+    let cache = git_toprepo::repo::ImportCache::default();
+    let serde_cache =
+        git_toprepo::repo_cache_serde::SerdeImportCache::pack(&cache, "config-checksum".to_owned());
     serde_cache.store(&cache_path).unwrap();
     (temp_dir, cache_path)
 }
@@ -187,7 +185,7 @@ fn wrong_cache_prelude() {
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
     let git_dir = monorepo.join(".git");
-    let cache_path = git_toprepo::repo_cache_serde::SerdeTopRepoCache::get_cache_path(&git_dir);
+    let cache_path = git_toprepo::repo_cache_serde::SerdeImportCache::get_cache_path(&git_dir);
 
     std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
     std::fs::write(&cache_path, "wrong-#cache-format").unwrap();
@@ -214,12 +212,12 @@ fn cache_version_change_detection() {
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
     let cache_path =
-        git_toprepo::repo_cache_serde::SerdeTopRepoCache::get_cache_path(&monorepo.join(".git"));
+        git_toprepo::repo_cache_serde::SerdeImportCache::get_cache_path(&monorepo.join(".git"));
     let cache_bytes = std::fs::read(&cache_path).unwrap();
     assert_eq!(cache_bytes.get(0..16).unwrap(), b"#cache-format-v2");
 
     // Check that unpacking works.
-    git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
+    git_toprepo::repo_cache_serde::SerdeImportCache::load_from_git_dir(
         &monorepo.join(".git"),
         Some("6c10545879319d948b2bcb241d61c0c31bd86a485b423d1a2cb40eb56ffe3a56"),
     )

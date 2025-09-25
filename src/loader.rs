@@ -342,7 +342,7 @@ impl<'a> CommitLoader<'a> {
         Ok(Self {
             monorepo: &repo.gix_repo,
             config: &repo.config,
-            cached_repo_states: &mut repo.top_repo_cache.repos,
+            cached_repo_states: &mut repo.import_cache.repos,
             ledger: &mut repo.ledger,
             fetch_states: HashMap::new(),
             tx,
@@ -637,8 +637,8 @@ impl<'a> CommitLoader<'a> {
 
     /// Loads basic information, i.e. `ThinCommit` information, about all
     /// reachable commits, from `refs/namespaces/{repo_name}/*`, and their
-    /// referenced submodules and stores them in `storage`. Commits that are
-    /// already in `storage` are skipped.
+    /// referenced submodules and stores them in `cached_repo_states`. Commits
+    /// that are already in `cached_repo_states` are skipped.
     fn start_load_repo_job(&self, repo_name: RepoName) {
         let context = format!("Loading commits in {repo_name}");
         let _log_scope_guard = crate::log::scope(context.clone());
@@ -962,7 +962,7 @@ impl<'a> CommitLoader<'a> {
         repo_data
             .dedup_cache
             .insert(hash_without_committer, thin_commit.commit_id);
-        // Insert it into the storage.
+        // Insert it into the import cache.
         repo_data
             .thin_commits
             .entry(thin_commit.commit_id)

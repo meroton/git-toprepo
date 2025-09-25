@@ -5,6 +5,7 @@ use crate::git_fast_export_import::WithoutCommitterId;
 use crate::git_fast_export_import_dedup::GitFastExportImportDedupCache;
 use crate::repo::ExpandedOrRemovedSubmodule;
 use crate::repo::ExportedFileEntry;
+use crate::repo::ImportCache;
 use crate::repo::MonoRepoCommit;
 use crate::repo::MonoRepoCommitId;
 use crate::repo::MonoRepoParent;
@@ -13,7 +14,6 @@ use crate::repo::RepoData;
 use crate::repo::RepoStates;
 use crate::repo::ThinCommit;
 use crate::repo::ThinSubmodule;
-use crate::repo::TopRepoCache;
 use crate::repo::TopRepoCommitId;
 use crate::repo_name::RepoName;
 use crate::util::NewlineTrimmer as _;
@@ -32,10 +32,10 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use tracing::instrument;
 
-/// Serializeable version of `crate::repo::TopRepoCache`.
+/// Serializeable version of `crate::repo::ImportCache`.
 #[serde_as]
 #[derive(Default, serde::Serialize, serde::Deserialize)]
-pub struct SerdeTopRepoCache {
+pub struct SerdeImportCache {
     /// The checksum of the git-toprepo configuration used when writing.
     config_checksum: String,
     #[serde_as(
@@ -48,7 +48,7 @@ pub struct SerdeTopRepoCache {
     dedup: GitFastExportImportDedupCache,
 }
 
-impl SerdeTopRepoCache {
+impl SerdeImportCache {
     const TOPREPO_CACHE_PATH: &str = "toprepo/cache.bincode";
     const CACHE_VERSION_PRELUDE: &str = "#cache-format-v2\n";
 
@@ -107,7 +107,7 @@ impl SerdeTopRepoCache {
             return Ok(Self::default());
         }
 
-        let loaded_cache: SerdeTopRepoCache =
+        let loaded_cache: SerdeImportCache =
             bincode::serde::decode_from_std_read(&mut reader, bincode::config::standard())?;
         let mut eof_buffer = [0; 1];
         if reader.read(&mut eof_buffer)? != 0 {
@@ -183,7 +183,7 @@ impl SerdeTopRepoCache {
     }
 
     #[instrument(name = "unpack_cache", skip_all)]
-    pub fn unpack(self) -> Result<TopRepoCache> {
+    pub fn unpack(self) -> Result<ImportCache> {
         let now = std::time::Instant::now();
 
         let mut repos = HashMap::with_capacity(self.repos.len());
@@ -217,7 +217,7 @@ impl SerdeTopRepoCache {
             .collect::<Result<HashMap<_, _>>>()?;
 
         log::debug!("Unpacked toprepo cache in {:.2?}", now.elapsed());
-        Ok(TopRepoCache {
+        Ok(ImportCache {
             repos,
             monorepo_commits,
             monorepo_commit_ids,
@@ -227,7 +227,7 @@ impl SerdeTopRepoCache {
     }
 
     #[instrument(name = "pack_cache", skip_all, fields(checksum = %config_checksum))]
-    pub fn pack(cache: &TopRepoCache, config_checksum: String) -> Self {
+    pub fn pack(cache: &ImportCache, config_checksum: String) -> Self {
         let now = std::time::Instant::now();
         let repos = Self::pack_repo_states(&cache.repos);
         let monorepo_commits = cache

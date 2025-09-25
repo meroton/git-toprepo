@@ -10,6 +10,7 @@ use crate::loader::SubRepoLedger;
 use crate::repo::ConfiguredTopRepo;
 use crate::repo::ExpandedOrRemovedSubmodule;
 use crate::repo::ExpandedSubmodule;
+use crate::repo::ImportCache;
 use crate::repo::MonoRepoCommit;
 use crate::repo::MonoRepoCommitId;
 use crate::repo::MonoRepoParent;
@@ -19,7 +20,6 @@ use crate::repo::SubmoduleContent;
 use crate::repo::ThinCommit;
 use crate::repo::ThinSubmodule;
 use crate::repo::ThinSubmoduleContent;
-use crate::repo::TopRepoCache;
 use crate::repo::TopRepoCommitId;
 use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
@@ -49,13 +49,13 @@ use tracing::instrument;
 pub struct Expander<'a> {
     pub(crate) gix_repo: &'a gix::Repository,
     pub(crate) ledger: &'a mut SubRepoLedger,
-    pub(crate) top_repo_cache: &'a mut TopRepoCache,
+    pub(crate) import_cache: &'a mut ImportCache,
     pub(crate) progress: indicatif::MultiProgress,
     pub(crate) fast_importer: crate::git_fast_export_import::FastImportRepo,
     pub(crate) imported_commits:
         HashMap<RcKey<MonoRepoCommit>, (usize, Rc<MonoRepoCommit>, Option<TopRepoCommitId>)>,
     /// Commits that have been expanded, but not yet resolved the mono commit id
-    /// and stored in `self.top_repo_cache`.
+    /// and stored in `self.import_cache`.
     pub(crate) expanded_top_commits: HashMap<TopRepoCommitId, Rc<MonoRepoCommit>>,
     pub(crate) bumps: BumpCache,
     pub(crate) inject_at_oldest_super_commit: bool,
@@ -92,7 +92,7 @@ impl Expander<'_> {
         walk.selected(|commit_id| {
             let commit_id = TopRepoCommitId::new(commit_id.to_owned());
             if self
-                .top_repo_cache
+                .import_cache
                 .top_to_mono_commit_map
                 .contains_key(&commit_id)
             {
@@ -189,10 +189,8 @@ impl Expander<'_> {
         &self,
         top_commit_id: &TopRepoCommitId,
     ) -> Option<&Rc<MonoRepoCommit>> {
-        if let Some((_mono_commit_id, mono_commit)) = self
-            .top_repo_cache
-            .top_to_mono_commit_map
-            .get(top_commit_id)
+        if let Some((_mono_commit_id, mono_commit)) =
+            self.import_cache.top_to_mono_commit_map.get(top_commit_id)
         {
             return Some(mono_commit);
         }
@@ -205,14 +203,14 @@ impl Expander<'_> {
         let commit_ids = self.fast_importer.wait()?;
         for (mark, mono_commit, top_commit_id) in self.imported_commits.into_values() {
             let mono_commit_id = MonoRepoCommitId::new(commit_ids[mark - 1]);
-            self.top_repo_cache
+            self.import_cache
                 .monorepo_commits
                 .insert(mono_commit_id, mono_commit.clone());
-            self.top_repo_cache
+            self.import_cache
                 .monorepo_commit_ids
                 .insert(RcKey::new(&mono_commit), mono_commit_id);
             if let Some(top_commit_id) = top_commit_id {
-                self.top_repo_cache
+                self.import_cache
                     .top_to_mono_commit_map
                     .insert(top_commit_id, (mono_commit_id, mono_commit));
             }
@@ -227,7 +225,7 @@ impl Expander<'_> {
             ImportCommitRef::Mark(*mark)
         } else {
             let commit_id = self
-                .top_repo_cache
+                .import_cache
                 .monorepo_commit_ids
                 .get(&key)
                 .expect("existing mono commits have commit id");
@@ -237,7 +235,7 @@ impl Expander<'_> {
 
     fn expand_toprepo_commit(&mut self, commit: FastExportCommit) -> Result<()> {
         let commit_id = TopRepoCommitId::new(commit.original_id);
-        let top_storage = self.top_repo_cache.repos.get(&RepoName::Top).unwrap();
+        let top_storage = self.import_cache.repos.get(&RepoName::Top).unwrap();
         let top_commit = top_storage
             .thin_commits
             .get(commit_id.deref())
@@ -313,7 +311,7 @@ impl Expander<'_> {
                                 ExpandedSubmodule::KeptAsSubmodule(bump.commit_id)
                             } else {
                                 let submod_storage =
-                                    self.top_repo_cache.repos.get(&repo_name).unwrap();
+                                    self.import_cache.repos.get(&repo_name).unwrap();
                                 if let Some(submod_commit) =
                                     submod_storage.thin_commits.get(&bump.commit_id)
                                 {
@@ -542,7 +540,7 @@ impl Expander<'_> {
                             // No need to log a warning because it is part of the user configuration.
                             ExpandedSubmodule::KeptAsSubmodule(submod_commit_id)
                         } else if let Some(submod_storage) = self
-                            .top_repo_cache
+                            .import_cache
                             .repos
                             .get(&RepoName::SubRepo(submod_repo_name.clone()))
                         {
@@ -864,7 +862,7 @@ impl Expander<'_> {
                     continue;
                 }
                 if let Some(submod_storage) = self
-                    .top_repo_cache
+                    .import_cache
                     .repos
                     .get(&RepoName::SubRepo(submod.repo_name.clone()))
                 {
@@ -1523,7 +1521,7 @@ fn refilter(
 
     toprepo_commit_ids_to_filter.retain(|commit_id| {
         !configured_repo
-            .top_repo_cache
+            .import_cache
             .top_to_mono_commit_map
             .contains_key(commit_id)
     });
@@ -1544,7 +1542,7 @@ fn refilter(
                 .map(|top_commit_id| *top_commit_id.deref()),
             |object_id| {
                 configured_repo
-                    .top_repo_cache
+                    .import_cache
                     .top_to_mono_commit_map
                     .contains_key(&TopRepoCommitId::new(object_id))
             },
@@ -1561,7 +1559,7 @@ fn refilter(
         let mut expander = Expander {
             gix_repo: &configured_repo.gix_repo,
             ledger: &mut configured_repo.ledger,
-            top_repo_cache: &mut configured_repo.top_repo_cache,
+            import_cache: &mut configured_repo.import_cache,
             progress: progress.clone(),
             fast_importer,
             imported_commits: HashMap::new(),
@@ -1580,7 +1578,7 @@ fn refilter(
     // Collect all new monorepo commits.
     for (monorepo_ref_name, top_commit_id, old_target) in todo_commit_tips {
         let (mono_commit_id, _mono_commit) = configured_repo
-            .top_repo_cache
+            .import_cache
             .top_to_mono_commit_map
             .get(&top_commit_id)
             .expect("mono commit was cached or just filtered and must therefore exist");
@@ -1686,7 +1684,7 @@ fn write_mono_tag_chain(
                 // Found the commit, done.
                 let target_top_id = target_object.id;
                 let (target_mono_id, _target_mono_commit) = configured_repo
-                    .top_repo_cache
+                    .import_cache
                     .top_to_mono_commit_map
                     .get(&TopRepoCommitId::new(target_top_id))
                     .expect("mono commit was cached or just filtered and must therefore exist");
@@ -1758,7 +1756,7 @@ fn print_updated_refs(
             let (description, short_name) = action.describe(
                 name,
                 &configured_repo.gix_repo,
-                &configured_repo.top_repo_cache,
+                &configured_repo.import_cache,
             );
             Some((sort_order, short_name, description))
         })
@@ -1828,7 +1826,7 @@ impl MonoRefUpdateAction {
         &self,
         name: &FullName,
         repo: &gix::Repository,
-        top_repo_cache: &TopRepoCache,
+        import_cache: &ImportCache,
     ) -> (String, String) {
         let (is_tag, short_name) = match name.category_and_short_name() {
             Some((gix::refs::Category::LocalBranch, short_name))
@@ -1862,10 +1860,10 @@ impl MonoRefUpdateAction {
             } => {
                 let forced = if let gix::refs::Target::Object(old_target) = old_target
                     && let gix::refs::Target::Object(new_target) = new_target
-                    && let Some(old_mono_commit) = top_repo_cache
+                    && let Some(old_mono_commit) = import_cache
                         .monorepo_commits
                         .get(&MonoRepoCommitId::new(*old_target))
-                    && let Some(new_mono_commit) = top_repo_cache
+                    && let Some(new_mono_commit) = import_cache
                         .monorepo_commits
                         .get(&MonoRepoCommitId::new(*new_target))
                     && !old_mono_commit.is_ancestor_of(new_mono_commit)
@@ -1995,7 +1993,7 @@ pub fn expand_submodule_ref_onto_head(
         &configured_repo.gix_repo.objects,
     )?;
     let thin_commit_to_inject = configured_repo
-        .top_repo_cache
+        .import_cache
         .repos
         .get(&RepoName::SubRepo(sub_repo_name.clone()))
         .and_then(|repo_data| repo_data.thin_commits.get(&id_to_inject))
@@ -2006,7 +2004,7 @@ pub fn expand_submodule_ref_onto_head(
                 id_to_inject.to_hex()
             )
         })?
-        .clone(); // Clone to avoid borrowing the `storage` object.
+        .clone(); // Clone to avoid borrowing the `import_cache` object.
 
     let pb = progress.add(
         indicatif::ProgressBar::no_length()
@@ -2029,7 +2027,7 @@ pub fn expand_submodule_ref_onto_head(
         [head_id].into_iter(),
         |commit_id| {
             let Some(mono_parent) = configured_repo
-                .top_repo_cache
+                .import_cache
                 .monorepo_commits
                 .get(&MonoRepoCommitId::new(commit_id))
             else {
@@ -2046,7 +2044,7 @@ pub fn expand_submodule_ref_onto_head(
     let mut expander = Expander {
         gix_repo: &configured_repo.gix_repo,
         ledger: &mut configured_repo.ledger,
-        top_repo_cache: &mut configured_repo.top_repo_cache,
+        import_cache: &mut configured_repo.import_cache,
         progress: progress.clone(),
         fast_importer,
         imported_commits: HashMap::new(),
@@ -2073,7 +2071,7 @@ pub fn expand_submodule_ref_onto_head(
     expander.wait()?;
     let expanded_mono_commit = expand_result?;
     let expanded_mono_commit_id = configured_repo
-        .top_repo_cache
+        .import_cache
         .monorepo_commit_ids
         .get(&RcKey::new(&expanded_mono_commit))
         .expect("just expanded commit must be known");

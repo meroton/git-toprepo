@@ -44,7 +44,7 @@ pub fn split_for_push(
     top_push_url: &gix::Url,
     local_rev_or_ref: &String,
 ) -> Result<Vec<PushMetadata>> {
-    if configured_repo.top_repo_cache.monorepo_commits.is_empty() {
+    if configured_repo.import_cache.monorepo_commits.is_empty() {
         anyhow::bail!("No filtered mono commits exists, please run `git toprepo refilter` first");
     }
 
@@ -72,7 +72,7 @@ pub fn split_for_push(
         .collect::<std::result::Result<Vec<_>, _>>()
         .with_context(|| "Failed listing refs/remotes/origin/*")?;
 
-    let mut dedup_cache = std::mem::take(&mut configured_repo.top_repo_cache.dedup);
+    let mut dedup_cache = std::mem::take(&mut configured_repo.import_cache.dedup);
     let mut fast_importer = crate::git_fast_export_import_dedup::FastImportRepoDedup::new(
         crate::git_fast_export_import::FastImportRepo::new(configured_repo.gix_repo.git_dir())?,
         &mut dedup_cache,
@@ -86,13 +86,13 @@ pub fn split_for_push(
     );
     // Make sure to gracefully shutdown the fast-importer before returning.
     fast_importer.wait()?;
-    configured_repo.top_repo_cache.dedup = dedup_cache;
+    configured_repo.import_cache.dedup = dedup_cache;
 
     let mut to_push_metadata = to_push_metadata?;
     if to_push_metadata.is_empty() {
         // Everything exists upstream. Add a dummy entry of the toprepo to
         // actually push something, e.g. if creating a new branch.
-        let top_commit_id = configured_repo.top_repo_cache.monorepo_commits.get(&MonoRepoCommitId::new(local_rev))
+        let top_commit_id = configured_repo.import_cache.monorepo_commits.get(&MonoRepoCommitId::new(local_rev))
         .and_then(|mono_commit| mono_commit.top_bump)
         .with_context(|| format!("All commits to push exist upstream, yet the mono commit {local_rev_or_ref} has not been assembled from upstream data. Please rerun `git toprepo refilter`"))?;
 
@@ -178,7 +178,7 @@ fn split_for_push_impl(
     top_push_url: &gix::Url,
     export_refs_args: &[std::ffi::OsString],
 ) -> Result<Vec<PushMetadata>> {
-    let monorepo_commits = &configured_repo.top_repo_cache.monorepo_commits;
+    let monorepo_commits = &configured_repo.import_cache.monorepo_commits;
 
     let pb = progress.add(
         indicatif::ProgressBar::no_length()
