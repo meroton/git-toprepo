@@ -107,7 +107,7 @@ pub enum Commands {
     /// Push commits to the respective remotes of each filtered submodule.
     Push(Push),
 
-    /// Show information about the current repository.
+    /// Show information about git-toprepo in the current repository.
     Info(Info),
     #[command(subcommand)]
     Dump(Dump),
@@ -173,10 +173,82 @@ pub struct ConfigValidate {
     pub file: PathBuf,
 }
 
+// Inspired by https://stackoverflow.com/questions/72588743/can-you-use-a-const-value-in-docs-in-rust.
+macro_rules! info_exit_code_false {
+    () => {
+        3
+    };
+}
+macro_rules! info_is_monorepo_doc {
+    () => {
+        concat!(
+            "Exit with code ",
+            info_exit_code_false!(),
+            " if the repository is not initialized by git-toprepo."
+        )
+    };
+}
+
 #[derive(Args, Debug)]
 pub struct Info {
-    /// Print only the specified key, otherwise print all.
-    pub key: Option<String>,
+    #[clap(value_enum, group = "single")]
+    pub value: Option<InfoValue>,
+
+    // Make clap detect the docs.
+    #[doc = info_is_monorepo_doc!()]
+    #[clap(long, group = "single", help = info_is_monorepo_doc!())]
+    pub is_monorepo: bool,
+}
+
+impl Info {
+    /// The exit code for `git-toprepo info --<flag>` when the answer is "false".
+    pub const EXIT_CODE_FALSE: u8 = info_exit_code_false!();
+}
+
+#[derive(clap::ValueEnum, Debug, Clone, Copy)]
+#[clap(rename_all = "kebab-case")]
+pub enum InfoValue {
+    /// The location of the configuration file.
+    ConfigLocation,
+    /// The current git-worktree path.
+    CurrentWorktree,
+    /// The current working directory.
+    Cwd,
+    /// The .git directory path for the current worktree.
+    GitDir,
+    /// The path to the import cache file.
+    ImportCache,
+    /// The main worktree path, which might be the same as the current worktree.
+    MainWorktree,
+    /// The version of git-toprepo.
+    Version,
+}
+
+impl InfoValue {
+    pub const ALL_VARIANTS: [InfoValue; 7] = [
+        InfoValue::ConfigLocation,
+        InfoValue::CurrentWorktree,
+        InfoValue::Cwd,
+        InfoValue::GitDir,
+        InfoValue::ImportCache,
+        InfoValue::MainWorktree,
+        InfoValue::Version,
+    ];
+}
+
+impl std::fmt::Display for InfoValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            InfoValue::ConfigLocation => "config-location",
+            InfoValue::CurrentWorktree => "current-worktree",
+            InfoValue::Cwd => "cwd",
+            InfoValue::GitDir => "git-dir",
+            InfoValue::ImportCache => "import-cache",
+            InfoValue::MainWorktree => "main-worktree",
+            InfoValue::Version => "version",
+        };
+        write!(f, "{s}")
+    }
 }
 
 /// Experimental feature: dump internal states to stdout.

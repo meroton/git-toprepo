@@ -674,76 +674,69 @@ fn push(push_args: &cli::Push, configured_repo: &mut ConfiguredTopRepo) -> Resul
 }
 
 #[tracing::instrument]
-fn print_info(info_args: &cli::Info) -> Result<()> {
+fn print_info(info_args: &cli::Info) -> Result<ExitCode> {
     let repo = gix_discover_current_dir()?;
     let config_location_str_result = GitTopRepoConfig::find_configuration_location_str(&repo);
 
-    let collect_key = |key: &str| {
-        if info_args.key.as_ref().is_none_or(|k| k == key) {
-            Some(key.to_owned())
+    if info_args.is_monorepo {
+        // Handle the case where the repository is a monorepo.
+        if let Err(err) = config_location_str_result {
+            log::warn!("{err}");
+            Ok(ExitCode::from(cli::Info::EXIT_CODE_FALSE))
         } else {
-            None
-        }
-    };
-
-    let mut keys_and_values = Vec::new();
-    if let Some(key) = collect_key("config-location") {
-        keys_and_values.push((
-            key,
-            match &config_location_str_result {
-                Ok(s) => s.clone(),
-                Err(err) => {
-                    log::warn!("No main worktree: {err}");
-                    String::new()
-                }
-            },
-        ));
-    }
-    if let Some(key) = collect_key("current-worktree") {
-        keys_and_values.push((
-            key,
-            match repo.workdir() {
-                Some(path) => path.to_string_lossy().to_string(),
-                None => "<bare repository>".to_string(),
-            },
-        ));
-    }
-    if let Some(key) = collect_key("cwd") {
-        keys_and_values.push((key, env::current_dir()?.to_string_lossy().to_string()));
-    }
-    if let Some(key) = collect_key("git-dir") {
-        keys_and_values.push((key, repo.git_dir().to_string_lossy().to_string()));
-    }
-    if let Some(key) = collect_key("main-worktree") {
-        keys_and_values.push((
-            key,
-            match git_toprepo::util::find_main_worktree_path(&repo) {
-                Ok(path) => path.to_string_lossy().to_string(),
-                Err(err) => {
-                    log::warn!("No main worktree: {err}");
-                    String::new()
-                }
-            },
-        ));
-    }
-    if let Some(key) = collect_key("version") {
-        keys_and_values.push((key, get_version()));
-    }
-
-    if let Some(key) = &info_args.key {
-        if keys_and_values.is_empty() {
-            bail!("Unknown key {key:?}");
-        }
-        // Should only be one value.
-        for (_key, value) in keys_and_values {
-            println!("{value}");
+            Ok(ExitCode::SUCCESS)
         }
     } else {
-        for (key, value) in keys_and_values {
-            println!("{key} {value}");
+        let keys = info_args
+            .value
+            .map_or(Vec::from(cli::InfoValue::ALL_VARIANTS), |v| vec![v]);
+        let mut keys_and_values = Vec::new();
+        for key in keys {
+            let value = match key {
+                cli::InfoValue::ConfigLocation => match &config_location_str_result {
+                    Ok(s) => s.clone(),
+                    Err(err) => {
+                        log::warn!("{err}");
+                        String::new()
+                    }
+                },
+                cli::InfoValue::CurrentWorktree => match repo.workdir() {
+                    Some(path) => path.to_string_lossy().to_string(),
+                    None => "<bare repository>".to_string(),
+                },
+                cli::InfoValue::Cwd => env::current_dir()?.to_string_lossy().to_string(),
+                cli::InfoValue::GitDir => repo.git_dir().to_string_lossy().to_string(),
+                cli::InfoValue::ImportCache => {
+                    let cache_path =
+                        git_toprepo::import_cache_serde::SerdeImportCache::get_cache_path(&repo);
+                    cache_path.to_string_lossy().to_string()
+                }
+                cli::InfoValue::MainWorktree => {
+                    match git_toprepo::util::find_main_worktree_path(&repo) {
+                        Ok(path) => path.to_string_lossy().to_string(),
+                        Err(err) => {
+                            log::warn!("No main worktree: {err}");
+                            String::new()
+                        }
+                    }
+                }
+                cli::InfoValue::Version => get_version(),
+            };
+            keys_and_values.push((key.to_string(), value));
         }
+        if info_args.value.is_none() {
+            for (key, value) in keys_and_values {
+                println!("{key} {value}");
+            }
+        } else {
+            // Should only be one value.
+            debug_assert_eq!(keys_and_values.len(), 1);
+            for (_key, value) in keys_and_values {
+                println!("{value}");
+            }
+        }
+        Ok(ExitCode::SUCCESS)
     }
-    Ok(())
 }
 
 #[tracing::instrument]
@@ -955,7 +948,7 @@ where
         Commands::Push(push_args) => run_session(logger, |configured| push(&push_args, configured))
             .map(|()| ExitCode::SUCCESS),
 
-        Commands::Info(info_args) => print_info(&info_args).map(|()| ExitCode::SUCCESS),
+        Commands::Info(info_args) => print_info(&info_args),
         Commands::Version => {
             println!("git-toprepo {}", get_version());
             Ok(ExitCode::SUCCESS)
