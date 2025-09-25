@@ -168,14 +168,16 @@ impl GitTopRepoConfig {
     ///
     /// Returns the configuration and the location it was loaded from.
     pub fn find_configuration_location(repo: &gix::Repository) -> Result<ConfigLocation> {
-        // Load config file location.
+        let location_str = Self::find_configuration_location_str(repo)?;
+        ConfigLocation::from_str(&location_str)
+    }
 
+    /// Same as `find_configuration_location` but returns the raw string.
+    pub fn find_configuration_location_str(repo: &gix::Repository) -> Result<String> {
         let key = &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY);
-        let location = git_config_get(repo.git_dir(), key)?.with_context(|| {
+        git_config_get(repo.git_dir(), key)?.with_context(|| {
             format!("git-config '{key}' is missing. Is this an initialized git-toprepo?")
-        })?;
-
-        ConfigLocation::from_str(&location)
+        })
     }
 
     /// Loads the TOML configuration string without parsing it.

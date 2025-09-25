@@ -107,6 +107,8 @@ pub enum Commands {
     /// Push commits to the respective remotes of each filtered submodule.
     Push(Push),
 
+    /// Show information about the current repository.
+    Info(Info),
     #[command(subcommand)]
     Dump(Dump),
 
@@ -169,6 +171,12 @@ pub struct ConfigValidate {
     /// The configuration file to validate or - for stdin.
     #[arg(id = "file")]
     pub file: PathBuf,
+}
+
+#[derive(Args, Debug)]
+pub struct Info {
+    /// Print only the specified key, otherwise print all.
+    pub key: Option<String>,
 }
 
 /// Experimental feature: dump internal states to stdout.

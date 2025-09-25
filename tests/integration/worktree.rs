@@ -1,4 +1,5 @@
 use assert_cmd::prelude::*;
+use git_toprepo::git::git_command_for_testing;
 use std::process::Command;
 
 #[test]
@@ -10,6 +11,10 @@ fn local_config_resolution_in_worktree() {
         .unwrap(),
     );
     let worktree = temp_dir.join("worktree");
+    git_command_for_testing(temp_dir.join("mono"))
+        .args(["worktree", "add", "../worktree"])
+        .assert()
+        .success();
 
     Command::cargo_bin("git-toprepo")
         .unwrap()
