@@ -49,24 +49,27 @@ pub struct SerdeImportCache {
 }
 
 impl SerdeImportCache {
-    const TOPREPO_CACHE_PATH: &str = "toprepo/cache.bincode";
+    const TOPREPO_CACHE_PATH: &str = "toprepo/import-cache.bincode";
     const CACHE_VERSION_PRELUDE: &str = "#cache-format-v2\n";
 
     /// Constructs the path to the git repository information cache inside
     /// `.git/toprepo/`.
-    pub fn get_cache_path(git_dir: &Path) -> PathBuf {
-        git_dir.join(Self::TOPREPO_CACHE_PATH)
+    pub fn get_cache_path(repo: &gix::Repository) -> PathBuf {
+        repo.common_dir().join(Self::TOPREPO_CACHE_PATH)
     }
 
     /// Load parsed git repository information from `.git/toprepo/`.
     ///
     /// If `config_checksum` is `None`, the stored config checksum will be
     /// ignored and the cache will be considered valid.
-    pub fn load_from_git_dir(git_dir: &Path, config_checksum: Option<&str>) -> Result<Self> {
-        let cache_path = Self::get_cache_path(git_dir);
+    pub fn load_from_git_dir(
+        repo: &gix::Repository,
+        config_checksum: Option<&str>,
+    ) -> Result<Self> {
+        let cache_path = Self::get_cache_path(repo);
         let _span_guard = tracing::info_span!(
             "load_cache",
-            pach = %cache_path.display()
+            path = %cache_path.display()
         )
         .entered();
         (|| -> anyhow::Result<_> {
@@ -142,8 +145,8 @@ impl SerdeImportCache {
     }
 
     /// Store parsed git repository information to `.git/toprepo/`.
-    pub fn store_to_git_dir(&self, git_dir: &Path) -> Result<()> {
-        let cache_path = Self::get_cache_path(git_dir);
+    pub fn store_to_git_dir(&self, repo: &gix::Repository) -> Result<()> {
+        let cache_path = Self::get_cache_path(repo);
         self.store(&cache_path)
     }
 
