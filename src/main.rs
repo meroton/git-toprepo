@@ -675,19 +675,30 @@ fn push(push_args: &cli::Push, configured_repo: &mut ConfiguredTopRepo) -> Resul
 
 fn dump(dump_args: &cli::Dump) -> Result<()> {
     match dump_args {
-        cli::Dump::ImportCache => dump_import_cache(),
+        cli::Dump::ImportCache(args) => dump_import_cache(args),
         cli::Dump::GitModules => dump_git_modules(),
     }
 }
 
-fn dump_import_cache() -> Result<()> {
-    let repo = gix_discover_current_dir()?;
-    // Demand a configured repository to ensure we not just fall back to empty
-    // cache content when not even inside a git-toprepo emulated monorepo.
-    let _ = GitTopRepoConfig::find_configuration_location(&repo)?;
-    let serde_repo_states =
-        git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(repo.git_dir(), None)?;
+fn dump_import_cache(args: &cli::DumpImportCache) -> Result<()> {
+    let serde_repo_states = if let Some(cache_path) = &args.file {
+        let reader: &mut dyn std::io::Read = if cache_path == "-" {
+            &mut std::io::stdin()
+        } else {
+            &mut std::fs::File::open(cache_path)?
+        };
+        git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_reader(
+            cache_path, reader, None,
+        )?
+    } else {
+        let repo = gix_discover_current_dir()?;
+        // Demand a configured repository to ensure we not just fall back to empty
+        // cache content when not even inside a git-toprepo emulated monorepo.
+        let _ = GitTopRepoConfig::find_configuration_location(&repo)?;
+        git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(repo.git_dir(), None)?
+    };
     serde_repo_states.dump_as_json(std::io::stdout())?;
+    println!();
     Ok(())
 }
 
