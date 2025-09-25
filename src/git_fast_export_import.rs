@@ -123,10 +123,24 @@ pub struct FastExportRepo {
     /// Holds the tracing span open while FastExportRepo is in use.
     #[allow(unused)]
     span_guard: tracing::span::EnteredSpan,
+    stderr_thread: Option<std::thread::JoinHandle<()>>,
 
     mark_oid_map: HashMap<BString, gix::ObjectId>,
-    reader: BufReader<std::process::ChildStdout>,
+    reader: Option<BufReader<std::process::ChildStdout>>,
     current_line: BString,
+}
+
+impl Drop for FastExportRepo {
+    fn drop(&mut self) {
+        // Closing stdout will make git-fast-export exit.
+        drop(self.reader.take().expect("reader dropped once"));
+        // Wait for the stderr thread to finish and log the whole stderr.
+        self.stderr_thread
+            .take()
+            .expect("stderr_thread dropped once")
+            .join()
+            .expect("stderr fast-export thread should not panic");
+    }
 }
 
 impl FastExportRepo {
@@ -185,7 +199,7 @@ impl FastExportRepo {
         let mut stderr_reader =
             BufReader::new(process.stderr.take().context("Could not capture stderr")?);
         let parent_span = tracing::Span::current();
-        std::thread::Builder::new()
+        let stderr_thread = std::thread::Builder::new()
             .name("git-fast-export-stderr".into())
             .spawn(move || {
                 let _span = tracing::debug_span!(parent: parent_span, "stderr",).entered();
@@ -198,8 +212,9 @@ impl FastExportRepo {
 
         Ok(FastExportRepo {
             span_guard,
+            stderr_thread: Some(stderr_thread),
             mark_oid_map: HashMap::new(),
-            reader: BufReader::new(stdout),
+            reader: Some(BufReader::new(stdout)),
             current_line: BString::new(vec![]),
         })
     }
@@ -208,7 +223,11 @@ impl FastExportRepo {
     /// `current_line` without the trailing newline.
     fn advance_line_or_eof(&mut self) -> Result<usize> {
         self.current_line.clear();
-        let bytes = self.reader.read_until(b'\n', &mut self.current_line)?;
+        let bytes = self
+            .reader
+            .as_mut()
+            .expect("reader available")
+            .read_until(b'\n', &mut self.current_line)?;
         if bytes == 0 {
             // EOF
         } else if (bytes == 1 && self.current_line[0] == b'\n')
@@ -241,7 +260,10 @@ impl FastExportRepo {
 
     fn read_bytes(&mut self, buf: &mut Vec<u8>, bytes: usize) -> Result<()> {
         *buf = vec![0u8; bytes];
-        self.reader.read_exact(buf)?;
+        self.reader
+            .as_mut()
+            .expect("reader available")
+            .read_exact(buf)?;
         Ok(())
     }
 
@@ -488,10 +510,13 @@ impl Iterator for FastExportRepo {
 }
 
 pub struct FastImportRepo {
+    /// Holds the tracing span open while FastExportRepo is in use.
+    #[allow(unused)]
     span_guard: tracing::span::EnteredSpan,
+    stderr_thread: Option<std::thread::JoinHandle<()>>,
     process: std::process::Child,
     stdin_writer: Option<BufWriter<std::process::ChildStdin>>,
-    stdout_reader: BufReader<std::process::ChildStdout>,
+    stdout_reader: Option<BufReader<std::process::ChildStdout>>,
 
     /// The last mark that was imported, which is also the number of commits
     /// imported.
@@ -499,6 +524,18 @@ pub struct FastImportRepo {
     /// `marks` is 1-indexed, so `marks[0]` holds the object id for `mark=1`.
     marks: Vec<gix::ObjectId>,
     oid_to_mark: HashMap<gix::ObjectId, usize>,
+}
+
+impl Drop for FastImportRepo {
+    fn drop(&mut self) {
+        drop(self.stdin_writer.take());
+        drop(self.stdout_reader.take());
+        self.stderr_thread
+            .take()
+            .expect("stderr_thread dropped once")
+            .join()
+            .expect("stderr fast-import thread should not panic");
+    }
 }
 
 impl FastImportRepo {
@@ -530,7 +567,7 @@ impl FastImportRepo {
         let mut stderr_reader =
             BufReader::new(process.stderr.take().context("Could not capture stderr")?);
         let parent_span = tracing::Span::current();
-        std::thread::Builder::new()
+        let stderr_thread = std::thread::Builder::new()
             .name("git-fast-import-stderr".into())
             .spawn(move || {
                 let _span = tracing::debug_span!(parent: parent_span, "stderr",).entered();
@@ -543,9 +580,10 @@ impl FastImportRepo {
         stdin_writer.write_all(b"feature done\n")?;
         Ok(FastImportRepo {
             span_guard,
+            stderr_thread: Some(stderr_thread),
             process,
             stdin_writer: Some(stdin_writer),
-            stdout_reader,
+            stdout_reader: Some(stdout_reader),
             last_mark: 0,
             marks: Vec::new(),
             oid_to_mark: HashMap::new(),
@@ -560,10 +598,9 @@ impl FastImportRepo {
         while self.marks.len() < marks_count {
             self.read_mark()?;
         }
-        drop(self.stdout_reader);
+        drop(self.stdout_reader.take());
         self.process.wait()?;
-        drop(self.span_guard);
-        Ok(self.marks)
+        Ok(std::mem::take(&mut self.marks))
     }
 
     /// Don't accumulate a too big buffer in stdout. On the other hand, don't
@@ -580,7 +617,13 @@ impl FastImportRepo {
 
     fn read_mark(&mut self) -> Result<()> {
         let mut line = BString::new(vec![]);
-        if self.stdout_reader.read_until(b'\n', &mut line)? == 0 {
+        if self
+            .stdout_reader
+            .as_mut()
+            .expect("stdout_reader available")
+            .read_until(b'\n', &mut line)?
+            == 0
+        {
             bail!("Unexpected EOF while reading mark");
         }
         let oid_hex = BStr::new(
