@@ -767,7 +767,7 @@ fn dump_import_cache(args: &cli::DumpImportCache) -> Result<()> {
         // Demand a configured repository to ensure we not just fall back to empty
         // cache content when not even inside a git-toprepo emulated monorepo.
         let _ = GitTopRepoConfig::find_configuration_location(&repo)?;
-        git_toprepo::repo_cache_serde::SerdeImportCache::load_from_git_dir(repo.git_dir(), None)?
+        git_toprepo::repo_cache_serde::SerdeImportCache::load_from_git_dir(&repo, None)?
     };
     serde_repo_states.dump_as_json(std::io::stdout())?;
     println!();

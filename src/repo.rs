@@ -309,7 +309,7 @@ Initial empty git-toprepo configuration
             missing_subrepos: std::collections::HashSet::new(),
         };
         let import_cache = crate::repo_cache_serde::SerdeImportCache::load_from_git_dir(
-            gix_repo.git_dir(),
+            &gix_repo,
             Some(&config.checksum),
         )
         .with_context(|| format!("Loading cache from {}", gix_repo.git_dir().display()))?
@@ -330,7 +330,7 @@ Initial empty git-toprepo configuration
             &self.import_cache,
             self.config.checksum.clone(),
         )
-        .store_to_git_dir(self.gix_repo.git_dir())?;
+        .store_to_git_dir(&self.gix_repo)?;
 
         // Save effective config with ledger mutations
         const EFFECTIVE_TOPREPO_CONFIG: &str = "toprepo/last-effective-git-toprepo.toml";
