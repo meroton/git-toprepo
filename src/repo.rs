@@ -308,7 +308,7 @@ Initial empty git-toprepo configuration
             subrepos: config.subrepos.clone(),
             missing_subrepos: std::collections::HashSet::new(),
         };
-        let import_cache = crate::repo_cache_serde::SerdeImportCache::load_from_git_dir(
+        let import_cache = crate::import_cache_serde::SerdeImportCache::load_from_git_dir(
             &gix_repo,
             Some(&config.checksum),
         )
@@ -326,7 +326,7 @@ Initial empty git-toprepo configuration
     /// Save state (config + cache) back to disk
     pub fn save_state(&mut self) -> Result<()> {
         // Save cache
-        crate::repo_cache_serde::SerdeImportCache::pack(
+        crate::import_cache_serde::SerdeImportCache::pack(
             &self.import_cache,
             self.config.checksum.clone(),
         )
