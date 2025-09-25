@@ -201,7 +201,7 @@ fn wrong_cache_prelude() {
         .assert()
         .success()
         .stderr(predicates::str::is_match(
-            "WARN: Discarding toprepo cache .* due to version mismatch, expected \"#cache-format-v2\"\n").unwrap()
+            "WARN: Discarding import cache .* due to version mismatch, expected \"#cache-format-v2\"\n").unwrap()
         );
 }
 
