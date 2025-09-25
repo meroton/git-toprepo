@@ -204,3 +204,26 @@ fn wrong_cache_prelude() {
             "WARN: Discarding toprepo cache .* due to version mismatch, expected \"#cache-format-v2\"\n").unwrap()
         );
 }
+
+/// Check if the cache version need to be updated.
+#[test]
+fn cache_version_change_detection() {
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+
+    let cache_path =
+        git_toprepo::repo_cache_serde::SerdeTopRepoCache::get_cache_path(&monorepo.join(".git"));
+    let cache_bytes = std::fs::read(&cache_path).unwrap();
+    assert_eq!(cache_bytes.get(0..16).unwrap(), b"#cache-format-v2");
+
+    // Check that unpacking works.
+    git_toprepo::repo_cache_serde::SerdeTopRepoCache::load_from_git_dir(
+        &monorepo.join(".git"),
+        Some("6c10545879319d948b2bcb241d61c0c31bd86a485b423d1a2cb40eb56ffe3a56"),
+    )
+    .unwrap()
+    .unpack()
+    .unwrap();
+}
