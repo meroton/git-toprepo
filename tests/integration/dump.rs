@@ -87,7 +87,7 @@ fn cache_from_basic_repo_should_fail() {
         .success();
 
     let gix_repo = gix::open(&temp_dir).unwrap();
-    let cache_path = git_toprepo::repo_cache_serde::SerdeImportCache::get_cache_path(&gix_repo);
+    let cache_path = git_toprepo::import_cache_serde::SerdeImportCache::get_cache_path(&gix_repo);
 
     std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
     std::fs::write(
@@ -123,8 +123,10 @@ fn empty_cache_file() -> (MaybePermanentTempDir, PathBuf) {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
     let cache_path = temp_dir.join("cache-file");
     let cache = git_toprepo::repo::ImportCache::default();
-    let serde_cache =
-        git_toprepo::repo_cache_serde::SerdeImportCache::pack(&cache, "config-checksum".to_owned());
+    let serde_cache = git_toprepo::import_cache_serde::SerdeImportCache::pack(
+        &cache,
+        "config-checksum".to_owned(),
+    );
     serde_cache.store(&cache_path).unwrap();
     (temp_dir, cache_path)
 }
@@ -185,7 +187,7 @@ fn wrong_cache_prelude() {
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
     let gix_repo = gix::open(&monorepo).unwrap();
-    let cache_path = git_toprepo::repo_cache_serde::SerdeImportCache::get_cache_path(&gix_repo);
+    let cache_path = git_toprepo::import_cache_serde::SerdeImportCache::get_cache_path(&gix_repo);
 
     std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
     std::fs::write(&cache_path, "wrong-#cache-format").unwrap();
@@ -212,12 +214,12 @@ fn cache_version_change_detection() {
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
     let gix_repo = gix::open(&monorepo).unwrap();
-    let cache_path = git_toprepo::repo_cache_serde::SerdeImportCache::get_cache_path(&gix_repo);
+    let cache_path = git_toprepo::import_cache_serde::SerdeImportCache::get_cache_path(&gix_repo);
     let cache_bytes = std::fs::read(&cache_path).unwrap();
     assert_eq!(cache_bytes.get(0..16).unwrap(), b"#cache-format-v2");
 
     // Check that unpacking works.
-    git_toprepo::repo_cache_serde::SerdeImportCache::load_from_git_dir(
+    git_toprepo::import_cache_serde::SerdeImportCache::load_from_git_dir(
         &gix_repo,
         Some("6c10545879319d948b2bcb241d61c0c31bd86a485b423d1a2cb40eb56ffe3a56"),
     )
