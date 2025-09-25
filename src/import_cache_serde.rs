@@ -85,7 +85,7 @@ impl SerdeImportCache {
         })()
         .with_context(|| {
             format!(
-                "Failed to deserialize repo cache from {}",
+                "Failed to deserialize import cache from {}",
                 &cache_path.display()
             )
         })
@@ -103,7 +103,7 @@ impl SerdeImportCache {
         reader.read_exact(&mut version_prelude)?;
         if version_prelude != Self::CACHE_VERSION_PRELUDE.as_bytes() {
             log::warn!(
-                "Discarding toprepo cache {} due to version mismatch, expected {:?}",
+                "Discarding import cache {} due to version mismatch, expected {:?}",
                 cache_path.display(),
                 Self::CACHE_VERSION_PRELUDE.trim_newline_suffix(),
             );
@@ -117,7 +117,7 @@ impl SerdeImportCache {
             anyhow::bail!("Expected EOF");
         }
         log::debug!(
-            "Deserialized toprepo cache from {} in {:.2?}",
+            "Deserialized import cache from {} in {:.2?}",
             &cache_path.display(),
             now.elapsed()
         );
@@ -125,7 +125,7 @@ impl SerdeImportCache {
         if let Some(config_checksum) = config_checksum
             && loaded_cache.config_checksum != config_checksum
         {
-            log::warn!("The git-toprepo configuration has changed, discarding the toprepo cache",);
+            log::warn!("The git-toprepo configuration has changed, discarding the import cache");
             log::debug!(
                 "Configuration checksum {config_checksum} does not match cached checksum {}",
                 loaded_cache.config_checksum
@@ -153,7 +153,7 @@ impl SerdeImportCache {
     /// Store parsed git repository information.
     pub fn store(&self, cache_path: &Path) -> Result<()> {
         self.store_impl(cache_path)
-            .with_context(|| format!("Failed to store repo cache to {}", cache_path.display()))
+            .with_context(|| format!("Failed to store import cache to {}", cache_path.display()))
     }
 
     #[tracing::instrument(
@@ -219,7 +219,7 @@ impl SerdeImportCache {
             })
             .collect::<Result<HashMap<_, _>>>()?;
 
-        log::debug!("Unpacked toprepo cache in {:.2?}", now.elapsed());
+        log::debug!("Unpacked import cache in {:.2?}", now.elapsed());
         Ok(ImportCache {
             repos,
             monorepo_commits,
@@ -247,7 +247,7 @@ impl SerdeImportCache {
             })
             .collect();
         log::debug!(
-            "Packed toprepo cache for serialization in {:.2?}",
+            "Packed import cache for serialization in {:.2?}",
             now.elapsed()
         );
         Self {
