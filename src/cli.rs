@@ -178,12 +178,19 @@ pub struct ConfigValidate {
 #[derive(Subcommand, Debug)]
 pub enum Dump {
     /// Dump the repository import cache as JSON to stdout.
-    ImportCache,
+    ImportCache(DumpImportCache),
     /// Dump the git submodule path mappings to remote projects.
     // TODO: 2025-09-22 Take individual modules and paths as arguments?
     // TODO: 2025-09-22 Take a full path for a file and convert it to its remote repo, or
     // url path?
     GitModules,
+}
+
+#[derive(Args, Debug)]
+pub struct DumpImportCache {
+    /// The cache file to dump, - for stdin or unset to auto detect.
+    #[arg(id = "file")]
+    pub file: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
