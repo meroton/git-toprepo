@@ -7,6 +7,6 @@
 # Cargo artifacts
 /target/
 # nix artifacts
-/result/
+/result
 # VS Code
 /.vscode/
