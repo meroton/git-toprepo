@@ -597,6 +597,15 @@ fn fetch_with_refspec(
             // Update .git/FETCH_HEAD.
             let fetch_head_path = configured_repo.gix_repo.git_dir().join("FETCH_HEAD");
             std::fs::write(&fetch_head_path, fetch_head_lines.join(""))?;
+            // Display relative path if possible.
+            let human_display_fetch_head_path = fetch_head_path
+                .canonicalize()
+                .ok()
+                .and_then(|abs_fetch_head_path| {
+                    pathdiff::diff_paths(abs_fetch_head_path, &env::current_dir().ok()?)
+                })
+                .unwrap_or(fetch_head_path);
+            log::info!("Updated {}", human_display_fetch_head_path.display());
         }
         Ok(())
     })
