@@ -2061,7 +2061,7 @@ pub fn expand_submodule_ref_onto_head(
         )?
         else {
             anyhow::bail!(
-                "Failed to inject commit {}, to become {}, at {abs_sub_path}: No common history with HEAD",
+                "Failed to inject commit {}, to become {}, at {abs_sub_path}: No common history with HEAD, running 'git-toprepo refilter' may help",
                 ref_to_inject.name,
                 dest_ref.as_bstr()
             );
