@@ -2,8 +2,7 @@ use bstr::ByteSlice as _;
 use git_toprepo::util::NewlineTrimmer as _;
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
-use predicates::prelude::PredicateBooleanExt as _;
-use predicates::prelude::predicate;
+use predicates::prelude::*;
 
 #[test]
 fn only_fixable_missing_gitmodules_warnings() {

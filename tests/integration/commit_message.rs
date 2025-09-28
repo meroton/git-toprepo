@@ -2,7 +2,7 @@ use bstr::ByteSlice as _;
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
 use itertools::Itertools as _;
-use predicates::prelude::PredicateBooleanExt as _;
+use predicates::prelude::*;
 use std::path::Path;
 
 #[test]
@@ -23,10 +23,10 @@ fn assemble_golden() {
         .arg(&monorepo)
         .assert()
         .success()
-        .stderr(predicates::str::contains(
+        .stderr(predicate::str::contains(
             "\nDEBUG: Path /: Unknown commit message encoding \"bad-encoding\", assuming UTF-8\n",
         ))
-        .stderr(predicates::str::contains(
+        .stderr(predicate::str::contains(
             "\nDEBUG: Path /: Commit message decoding errors\n",
         ));
     let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
@@ -242,7 +242,7 @@ subx-footer: keep-this-line
         .args(["push", "origin", "HEAD:refs/heads/other"])
         .assert()
         .success()
-        .stderr(predicates::str::contains("WARN").not());
+        .stderr(predicate::str::contains("WARN").not());
 
     assert_eq!(
         git_commit_message(&toprepo, "other"),
@@ -300,7 +300,7 @@ Git-Toprepo-Ref: subx
         .args(["push", "origin", "HEAD:refs/heads/other"])
         .assert()
         .success()
-        .stderr(predicates::str::contains("WARN").not());
+        .stderr(predicate::str::contains("WARN").not());
 
     assert_eq!(git_commit_message(&toprepo, "other"), "Add files\n");
     assert_eq!(git_commit_message(&subxrepo, "other"), "subx subject\n");
@@ -329,7 +329,7 @@ Topic: my-topic
         .assert()
         .code(1)
         .stderr(
-            predicates::str::is_match(
+            predicate::str::is_match(
                 "^ERROR: No commit message found for path <top> in mono commit [0-9a-f]+\n$",
             )
             .unwrap(),
@@ -356,7 +356,7 @@ Topic: other-topic
         .args(["push", "origin", "--force", "HEAD:refs/heads/other"])
         .assert()
         .success()
-        .stderr(predicates::str::contains("WARN").not());
+        .stderr(predicate::str::contains("WARN").not());
 
     assert_eq!(git_commit_message(&toprepo, "other"), "Residual message\n");
     assert_eq!(git_commit_message(&subxrepo, "other"), "Residual message\n");
@@ -372,7 +372,7 @@ Topic: other-topic
         .args(["push", "origin", "--force", "HEAD:refs/heads/other"])
         .assert()
         .success()
-        .stderr(predicates::str::contains("WARN").not());
+        .stderr(predicate::str::contains("WARN").not());
 
     assert_eq!(git_commit_message(&toprepo, "other"), "Subject\n");
     assert_eq!(git_commit_message(&subxrepo, "other"), "Subject\n");
