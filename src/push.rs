@@ -203,6 +203,14 @@ fn split_for_push_impl(
         match entry {
             crate::git_fast_export_import::FastExportEntry::Commit(exported_mono_commit) => {
                 let mono_commit_id = MonoRepoCommitId::new(exported_mono_commit.original_id);
+                log::trace!(
+                    "Splitting mono commit {mono_commit_id} with parents {}",
+                    exported_mono_commit
+                        .parents
+                        .iter()
+                        .map(|p| p.to_hex())
+                        .join(", "),
+                );
                 let gix_mono_commit = configured_repo.gix_repo.find_commit(*mono_commit_id)?;
                 let mono_parents = exported_mono_commit
                     .parents
@@ -262,6 +270,8 @@ fn split_for_push_impl(
                 }
 
                 let single_push = grouped_file_changes.len() == 1;
+                let mut top_bump = None;
+                let mut submodule_bumps = HashMap::new();
                 for ((abs_sub_path, repo_name, push_url), file_changes) in grouped_file_changes {
                     let subrepo_message = match (
                         push_messages.get(&abs_sub_path),
@@ -289,9 +299,15 @@ fn split_for_push_impl(
                             RepoName::Top => {
                                 bumps.get_top_bump(mono_parent).map(|top_bump| *top_bump)
                             }
-                            RepoName::SubRepo(sub_repo_name) => bumps
-                                .get_some_submodule(mono_parent, &abs_sub_path, sub_repo_name)
-                                .map(|parent_submod| *parent_submod.get_orig_commit_id()),
+                            RepoName::SubRepo(sub_repo_name) => {
+                                let bump = bumps.get_some_submodule(
+                                    mono_parent,
+                                    &abs_sub_path,
+                                    sub_repo_name,
+                                );
+                                log::trace!("Parent submodule {abs_sub_path}: {:?}", bump);
+                                bump.map(|parent_submod| *parent_submod.get_orig_commit_id())
+                            }
                         })
                         .unique()
                         .collect_vec();
@@ -325,16 +341,15 @@ fn split_for_push_impl(
                         parents,
                         original_id: None,
                     })?;
+                    // Remember what has been imported.
                     let import_commit_id = fast_importer.get_object_id(&import_ref)?;
                     imported_submod_commits.insert(import_commit_id, import_ref);
-
-                    let (top_bump, submodule_bumps) = match &repo_name {
+                    match &repo_name {
                         RepoName::Top => {
-                            (Some(TopRepoCommitId::new(import_commit_id)), HashMap::new())
+                            top_bump.replace(TopRepoCommitId::new(import_commit_id));
                         }
-                        RepoName::SubRepo(sub_repo_name) => (
-                            None,
-                            HashMap::from([(
+                        RepoName::SubRepo(sub_repo_name) => {
+                            submodule_bumps.insert(
                                 abs_sub_path,
                                 ExpandedOrRemovedSubmodule::Expanded(ExpandedSubmodule::Expanded(
                                     SubmoduleContent {
@@ -342,19 +357,9 @@ fn split_for_push_impl(
                                         orig_commit_id: import_commit_id,
                                     },
                                 )),
-                            )]),
-                        ),
+                            );
+                        }
                     };
-                    let mono_commit = MonoRepoCommit::new_rc(
-                        mono_parents
-                            .iter()
-                            .map(|mono_parent| MonoRepoParent::Mono(mono_parent.clone()))
-                            .collect(),
-                        top_bump,
-                        submodule_bumps,
-                    );
-                    imported_mono_commits
-                        .insert(exported_mono_commit.original_id, mono_commit.clone());
                     to_push_metadata.push(PushMetadata {
                         repo_name,
                         push_url,
@@ -363,6 +368,15 @@ fn split_for_push_impl(
                         parents: parents_commit_ids,
                     });
                 }
+                let mono_commit = MonoRepoCommit::new_rc(
+                    mono_parents
+                        .iter()
+                        .map(|mono_parent| MonoRepoParent::Mono(mono_parent.clone()))
+                        .collect(),
+                    top_bump,
+                    submodule_bumps,
+                );
+                imported_mono_commits.insert(exported_mono_commit.original_id, mono_commit.clone());
                 pb.inc(1);
             }
             crate::git_fast_export_import::FastExportEntry::Reset(reset) => {

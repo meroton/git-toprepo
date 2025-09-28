@@ -475,6 +475,67 @@ fn topic_is_required_for_multi_repo_push() {
         .stderr(predicate::str::is_match(r"^ERROR: Multiple submodules are modified in commit [0-9a-f]+, but no topic was provided. Please amend the commit message to add a 'Topic: something-descriptive' footer line.\n$").unwrap());
 }
 
+/// Regression test where pushing a commit that modifies multiple submodules did
+/// only keep ancestry for the alphabetically last submodule processed.
+#[test]
+fn keep_commit_ancestry_for_all_repos() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let monorepo = temp_dir.join("mono");
+    let toprepo = temp_dir.join("top");
+    let subx = temp_dir.join("subx");
+    let suby = temp_dir.join("suby");
+
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    std::fs::write(monorepo.join("top.txt"), "top\n").unwrap();
+    std::fs::write(monorepo.join("subx/file.txt"), "subx\n").unwrap();
+    std::fs::write(monorepo.join("suby/file.txt"), "suby\n").unwrap();
+    git_command_for_testing(&monorepo)
+        .args(["add", "top.txt", "subx/file.txt", "suby/file.txt"])
+        .assert()
+        .success();
+    git_command_for_testing(&monorepo)
+        .args(["commit", "-m", "Add files\n\nTopic: 1"])
+        .assert()
+        .success();
+    std::fs::write(monorepo.join("top.txt"), "top2\n").unwrap();
+    std::fs::write(monorepo.join("subx/file.txt"), "subx2\n").unwrap();
+    std::fs::write(monorepo.join("suby/file.txt"), "suby2\n").unwrap();
+    git_command_for_testing(&monorepo)
+        .args(["add", "top.txt", "subx/file.txt", "suby/file.txt"])
+        .assert()
+        .success();
+    git_command_for_testing(&monorepo)
+        .args(["commit", "-m", "Add files2\n\nTopic: 2\n"])
+        .assert()
+        .success();
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&monorepo)
+        .args(["push", "origin", "HEAD:refs/heads/other"])
+        .assert()
+        .success();
+
+    git_command_for_testing(&toprepo)
+        .args(["log", "--oneline", "--format=%s", "-n3", "refs/heads/other"])
+        .assert()
+        .success()
+        .stdout("Add files2\nAdd files\nA1-main\n");
+    git_command_for_testing(&subx)
+        .args(["log", "--oneline", "--format=%s", "-n3", "refs/heads/other"])
+        .assert()
+        .success()
+        .stdout("Add files2\nAdd files\nx-main-1\n");
+    git_command_for_testing(&suby)
+        .args(["log", "--oneline", "--format=%s", "-n3", "refs/heads/other"])
+        .assert()
+        .success()
+        .stdout("Add files2\nAdd files\ny-main-1\n");
+}
+
 #[test]
 fn force_push() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
