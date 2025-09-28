@@ -1,9 +1,8 @@
 use anyhow::Context as _;
-use assert_cmd::prelude::*;
 use bstr::ByteSlice as _;
-use git_toprepo::git::git_command_for_testing;
+use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
+use git_toprepo_testtools::test_util::git_command_for_testing;
 use predicates::prelude::*;
-use std::process::Command;
 
 #[test]
 fn toprepo_clone() {
@@ -37,8 +36,7 @@ fn toprepo_clone() {
         .assert()
         .success();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .arg("clone")
         .arg(from_path)
         .arg(to_path)
@@ -92,8 +90,7 @@ fn double_clone_should_fail() {
 
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .arg("clone")
         .arg(&toprepo)
         .arg(&monorepo)
@@ -103,8 +100,7 @@ fn double_clone_should_fail() {
             "ERROR: Target directory {monorepo:?} is not empty\n"
         )));
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .arg("clone")
         .arg("--force")
         .arg(&toprepo)

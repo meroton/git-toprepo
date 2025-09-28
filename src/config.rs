@@ -468,9 +468,8 @@ pub struct PushConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::super::git::git_command_for_testing;
     use super::*;
-    use assert_cmd::assert::OutputAssertExt as _;
+    use git_toprepo_testtools::test_util::git_command_for_testing;
 
     const BAR_BAZ: &str = r#"
         [repo]
@@ -567,13 +566,13 @@ mod tests {
 
         git_command_for_testing(&tmp_path)
             .args(["init"])
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         git_command_for_testing(&tmp_path)
             .args(["commit", "--allow-empty", "-m", "Initial commit"])
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         // Try a path in the repository.
         git_command_for_testing(&tmp_path)
@@ -582,8 +581,8 @@ mod tests {
                 &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
                 "repo:HEAD:.gittoprepo.toml",
             ])
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         let repo = gix::open(&tmp_path).unwrap();
         assert_eq!(
@@ -602,8 +601,8 @@ mod tests {
                 &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
                 "worktree:nonexisting.toml",
             ])
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
         let err = GitTopRepoConfig::load_config_from_repo(&repo).unwrap_err();
         assert_eq!(
             format!("{err:#}"),
@@ -646,21 +645,21 @@ mod tests {
 
         git_command_for_testing(&tmp_path)
             .args(["init"])
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         let mut tmp_file = std::fs::File::create(tmp_path.join(".gittoprepo.toml")).unwrap();
         writeln!(tmp_file, "{BAR_BAZ}").unwrap();
 
         git_command_for_testing(&tmp_path)
             .args(["add", ".gittoprepo.toml"])
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         git_command_for_testing(&tmp_path)
             .args(["commit", "-m", "Initial commit"])
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         git_command_for_testing(&tmp_path)
             .args([
@@ -668,18 +667,18 @@ mod tests {
                 "refs/namespaces/top/refs/remotes/origin/HEAD",
                 "HEAD",
             ])
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         git_command_for_testing(&tmp_path)
             .args(["rm", ".gittoprepo.toml"])
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         git_command_for_testing(&tmp_path)
             .args(["commit", "-m", "Remove .gittoprepo.toml"])
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         git_command_for_testing(&tmp_path)
             .args([
@@ -687,8 +686,8 @@ mod tests {
                 &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
                 "repo:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml",
             ])
-            .check_success_with_stderr()
-            .unwrap();
+            .assert()
+            .success();
 
         let repo = gix::open(&tmp_path).unwrap();
         let config = GitTopRepoConfig::load_config_from_repo(&repo).unwrap();

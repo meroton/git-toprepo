@@ -1,6 +1,5 @@
-use assert_cmd::prelude::*;
+use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use predicates::prelude::*;
-use std::process::Command;
 
 #[test]
 fn into_non_existing_dir() {
@@ -8,8 +7,7 @@ fn into_non_existing_dir() {
     let toprepo = temp_dir.join("top");
 
     let clone_name = "my-clone";
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
         .arg("init")
         .arg(&toprepo)
@@ -28,8 +26,7 @@ fn into_empty_dir() {
 
     let clone_name = "my-clone";
     std::fs::create_dir(temp_dir.join(clone_name)).unwrap();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
         .arg("init")
         .arg(&toprepo)
@@ -51,8 +48,7 @@ fn force_into_non_empty_dir() {
     std::fs::create_dir(&clone_repo).unwrap();
     std::fs::write(clone_repo.join(".some-hidden-file"), "hello").unwrap();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
         .arg("init")
         .arg(&toprepo)
@@ -63,8 +59,7 @@ fn force_into_non_empty_dir() {
             "ERROR: Target directory {clone_name:?} is not empty\n"
         )));
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
         .arg("init")
         .arg("--force")

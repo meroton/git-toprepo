@@ -1,8 +1,7 @@
-use assert_cmd::Command;
-use assert_cmd::assert::OutputAssertExt as _;
 use bstr::ByteSlice as _;
-use git_toprepo::git::git_command_for_testing;
 use git_toprepo::util::NewlineTrimmer as _;
+use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
+use git_toprepo_testtools::test_util::git_command_for_testing;
 use predicates::prelude::PredicateBooleanExt as _;
 use predicates::prelude::predicate;
 
@@ -47,8 +46,7 @@ fn only_fixable_missing_gitmodules_warnings() {
         .trim_newline_suffix()
         .to_owned();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .arg("clone")
         .arg(&toprepo)
         .arg(&monorepo)
@@ -75,15 +73,13 @@ fn only_fixable_missing_gitmodules_warnings() {
         .args(["commit", "-m", "Restore .gitmodules"])
         .assert()
         .success();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["fetch"])
         .assert()
         .success()
         .stderr(predicate::str::contains("WARN:").not());
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["refilter"])
         .assert()
@@ -99,8 +95,7 @@ fn only_fixable_missing_gitmodules_warnings() {
         ])
         .assert()
         .success();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["fetch"])
         .assert()
@@ -110,8 +105,7 @@ fn only_fixable_missing_gitmodules_warnings() {
             // There should be only one warning about missing .gitmodules, the tip of the branch that is fixable.
             stderr.matches(".gitmodules is missing").count() == 1
         }));
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["refilter"])
         .assert()
@@ -152,8 +146,7 @@ fn always_show_missing_submod_commit_warnings() {
         .assert()
         .success();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .arg("clone")
         .arg(&toprepo)
         .arg(&monorepo)
@@ -166,8 +159,7 @@ fn always_show_missing_submod_commit_warnings() {
             // There should be only one warning, for the commit that is missing.
             stderr.matches("WARN:").count() == 1
         }));
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["fetch"])
         .assert()
@@ -179,8 +171,7 @@ fn always_show_missing_submod_commit_warnings() {
             // There should be only one warning, for the commit that is missing.
             stderr.matches("WARN:").count() == 1
         }));
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["refilter"])
         .assert()
@@ -198,8 +189,7 @@ fn always_show_missing_submod_commit_warnings() {
         .args(["tag", "original-commit", &original_sub_rev])
         .assert()
         .success();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["refilter"])
         .assert()
@@ -208,8 +198,7 @@ fn always_show_missing_submod_commit_warnings() {
             // There should be only one warning, for the commit that is missing.
             stderr.matches("WARN:").count() == 0
         }));
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["fetch"])
         .assert()

@@ -1,9 +1,8 @@
-use assert_cmd::prelude::*;
-use git_toprepo::git::git_command_for_testing;
 use git_toprepo::util::NewlineTrimmer as _;
+use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
+use git_toprepo_testtools::test_util::git_command_for_testing;
 use itertools::Itertools as _;
 use predicates::prelude::*;
-use std::process::Command;
 
 #[test]
 fn empty_commit_should_fail() {
@@ -17,8 +16,7 @@ fn empty_commit_should_fail() {
         .assert()
         .success();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:main"])
         .assert()
@@ -38,8 +36,7 @@ fn duplicate_branch() {
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:refs/heads/new-branch"])
         .assert()
@@ -76,8 +73,7 @@ fn root_commit() {
         .assert()
         .success();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:refs/heads/foo"])
         .assert()
@@ -112,8 +108,7 @@ fn submodule_commit() {
         .assert()
         .success();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:refs/heads/foo"])
         .assert()
@@ -156,8 +151,7 @@ fn revision_as_push_arg() {
     let revision = String::from_utf8(out.to_owned().stdout).unwrap();
     let revision = revision.trim_newline_suffix();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .arg("push")
         .arg("origin")
@@ -190,8 +184,7 @@ fn inside_subdirectories() {
 
     // Initial push to seed the remote. This makes sure all the other pushes
     // have the same behavior as pushing is idempotent.
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:refs/heads/foo"])
         .assert()
@@ -210,8 +203,7 @@ fn inside_subdirectories() {
         (&monorepo, vec!["-C", "sub"]),
         (&monorepo.join("sub"), vec!["-C", "."]),
     ] {
-        Command::cargo_bin("git-toprepo")
-            .unwrap()
+        cargo_bin_git_toprepo_for_testing()
             .current_dir(wd)
             .args(flags)
             .args(["push", "origin", "HEAD:refs/heads/foo"])
@@ -246,8 +238,7 @@ fn shortrev_as_push_arg() {
     let rev = String::from_utf8(output.to_owned().stdout).unwrap();
     let rev = rev.trim();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", format!("{rev}:refs/heads/foo").as_str()])
         .assert()
@@ -285,8 +276,7 @@ fn root_and_submodule_commits_in_series() {
         .assert()
         .success();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "--jobs=1", "HEAD:refs/heads/foo"])
         .assert()
@@ -346,8 +336,7 @@ fn root_and_submodule_commits_in_parallel() {
         .assert()
         .success();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:refs/heads/foo"])
         .assert()
@@ -408,8 +397,7 @@ fn topic_removed_from_commit_message() {
         .assert()
         .success();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:refs/heads/foo"])
         .assert()
@@ -446,8 +434,7 @@ fn topic_is_used_as_push_option() {
         .assert()
         .success();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:refs/heads/foo"])
         .assert()
@@ -480,8 +467,7 @@ fn topic_is_required_for_multi_repo_push() {
         .args(["commit", "-m", "Add files"])
         .assert()
         .success();
-    assert_cmd::Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:refs/heads/other"])
         .assert()
@@ -512,8 +498,7 @@ fn force_push() {
         .args(["commit", "-m", "Add file"])
         .assert()
         .success();
-    assert_cmd::Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:refs/heads/other"])
         .assert()
@@ -524,8 +509,7 @@ fn force_push() {
         .args(["commit", "--amend", "-m", "Force"])
         .assert()
         .success();
-    assert_cmd::Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:refs/heads/other"])
         .assert()
@@ -536,8 +520,7 @@ fn force_push() {
             )
             .unwrap(),
         );
-    assert_cmd::Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "--force", "HEAD:refs/heads/other"])
         .assert()
@@ -563,8 +546,7 @@ fn ignore_gerrit_refusing_no_new_change() {
         .into_iter()
         .chain(std::env::split_paths(&old_path_env))
         .collect_vec();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:refs/gerrit/fail-no-new-change"])
         .env("OLD_PATH", &old_path_env)

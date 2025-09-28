@@ -1,6 +1,6 @@
-use assert_cmd::assert::OutputAssertExt as _;
 use bstr::ByteSlice as _;
-use git_toprepo::git::git_command_for_testing;
+use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
+use git_toprepo_testtools::test_util::git_command_for_testing;
 use itertools::Itertools as _;
 use predicates::prelude::PredicateBooleanExt as _;
 use std::path::Path;
@@ -16,8 +16,7 @@ fn assemble_golden() {
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
 
-    assert_cmd::Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .arg("clone")
         .arg("-v")
         .arg(&toprepo)
@@ -238,8 +237,7 @@ subx-footer: keep-this-line
         )
         .assert()
         .success();
-    assert_cmd::Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:refs/heads/other"])
         .assert()
@@ -297,8 +295,7 @@ Git-Toprepo-Ref: subx
         )
         .assert()
         .success();
-    assert_cmd::Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:refs/heads/other"])
         .assert()
@@ -326,8 +323,7 @@ Topic: my-topic
         )
         .assert()
         .success();
-    assert_cmd::Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:refs/heads/other"])
         .assert()
@@ -355,8 +351,7 @@ Topic: other-topic
         )
         .assert()
         .success();
-    assert_cmd::Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "--force", "HEAD:refs/heads/other"])
         .assert()
@@ -372,8 +367,7 @@ Topic: other-topic
         .args(["commit", "--amend", "-m", "Subject\n\nTopic: my-topic"])
         .assert()
         .success();
-    assert_cmd::Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "--force", "HEAD:refs/heads/other"])
         .assert()

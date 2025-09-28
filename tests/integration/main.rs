@@ -27,8 +27,8 @@ mod worktree;
 
 #[cfg(test)]
 mod main {
-    use assert_cmd::assert::OutputAssertExt as _;
-    use git_toprepo::git::git_command_for_testing;
+    use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
+    use git_toprepo_testtools::test_util::git_command_for_testing;
     use rstest::rstest;
 
     #[rstest]
@@ -48,6 +48,8 @@ mod main {
         )]
         command: &str,
     ) {
+        use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
+
         let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
         std::fs::create_dir(temp_dir.join("sub")).unwrap();
         let expected_stderr = "ERROR: git-config \'toprepo.config\' is missing. Is this an initialized git-toprepo?\n";
@@ -58,8 +60,7 @@ mod main {
             .success();
         std::fs::create_dir_all(temp_dir.join("sub")).unwrap();
 
-        assert_cmd::Command::cargo_bin("git-toprepo")
-            .unwrap()
+        cargo_bin_git_toprepo_for_testing()
             .current_dir(temp_dir.join(pwd_sub_dir))
             .args(dash_c)
             .args(command.split(' '))
@@ -94,8 +95,7 @@ mod main {
         ))
         .unwrap();
 
-        assert_cmd::Command::cargo_bin("git-toprepo")
-            .unwrap()
+        cargo_bin_git_toprepo_for_testing()
             .current_dir(temp_dir.join(pwd_sub_dir))
             .args(dash_c)
             .args(command.split(' '))

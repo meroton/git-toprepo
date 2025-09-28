@@ -1,10 +1,9 @@
-use assert_cmd::prelude::*;
 use git_toprepo::config::TOPREPO_CONFIG_FILE_KEY;
 use git_toprepo::config::toprepo_git_config;
-use git_toprepo::git::git_command_for_testing;
+use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
+use git_toprepo_testtools::test_util::git_command_for_testing;
 use predicates::prelude::*;
 use std::path::Path;
-use std::process::Command;
 
 const GENERIC_CONFIG: &str = r#"
     [repo]
@@ -45,8 +44,7 @@ fn validate_external_file_in_corrupt_repository() {
 
     // NB: We do not need to initialize the history for this test.
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
         .arg("config")
         .arg("show")
@@ -59,8 +57,7 @@ fn validate_external_file_in_corrupt_repository() {
     // TODO: 2025-09-22 Rephrase the namespace in the error message. It looks ugly.
     // TODO: 2025-09-22 Verify that a TOML-parse-error exit code is used.
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
         .arg("config")
         .arg("validate")
@@ -74,8 +71,7 @@ fn validate_external_file_in_corrupt_repository() {
 
     // TODO: 2025-09-22 Verify that a TOML-parse-error exit code is used.
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
         .arg("config")
         .arg("validate")
@@ -89,8 +85,7 @@ fn validate_external_file_in_corrupt_repository() {
             "unknown field `Wrong`, expected `fetch` or `repo`",
         ));
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
         .arg("config")
         .arg("validate")
@@ -106,8 +101,7 @@ fn validate_use_correct_working_directory() {
     let okay_config = "okay.toml";
     std::fs::write(temp_dir.join(okay_config), GENERIC_CONFIG).unwrap();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
         .arg("config")
         .arg("validate")
@@ -115,8 +109,7 @@ fn validate_use_correct_working_directory() {
         .assert()
         .success();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .arg("-C")
         .arg(&temp_dir)
         .arg("config")
@@ -132,8 +125,7 @@ fn validate_use_correct_working_directory() {
         .success();
     let subdir = temp_dir.join("subdir");
     std::fs::create_dir(&subdir).unwrap();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&subdir)
         .arg("config")
         .arg("validate")
@@ -163,8 +155,7 @@ skip_expanding = []
         .assert()
         .success();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .arg("clone")
         .arg(&toprepo)
         .arg(&monorepo)
@@ -172,8 +163,7 @@ skip_expanding = []
         .code(1)
         .stderr(predicate::str::contains("git-toprepo config bootstrap"));
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["config", "bootstrap"])
         .assert()
@@ -205,8 +195,7 @@ urls = ["../suby/"]
 skip_expanding = []
 "#[1..];
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["config", "bootstrap"])
         .assert()

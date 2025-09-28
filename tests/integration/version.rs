@@ -1,12 +1,10 @@
-use assert_cmd::prelude::*;
+use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use predicates::prelude::predicate;
-use std::process::Command;
 
 #[test]
 fn toprepo_version() {
     let validate_stdout = predicate::str::is_match("^git-toprepo .*~.*-.*\n$").unwrap();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .arg("version")
         .assert()
         .success()
@@ -17,8 +15,7 @@ fn toprepo_version() {
 #[test]
 fn toprepo_dash_dash_version() {
     let validate_stdout = predicate::str::is_match("^git-toprepo .*~.*-.*\n$").unwrap();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .arg("--version")
         .assert()
         .success()
@@ -29,8 +26,7 @@ fn toprepo_dash_dash_version() {
 #[test]
 fn toprepo_short_flag_version() {
     let validate_stdout = predicate::str::is_match("^git-toprepo .*~.*-.*\n$").unwrap();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .arg("-V")
         .assert()
         .success()
