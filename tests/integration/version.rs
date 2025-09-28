@@ -1,5 +1,5 @@
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
-use predicates::prelude::predicate;
+use predicates::prelude::*;
 
 #[test]
 fn toprepo_version() {

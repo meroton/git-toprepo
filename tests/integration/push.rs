@@ -472,7 +472,7 @@ fn topic_is_required_for_multi_repo_push() {
         .args(["push", "origin", "HEAD:refs/heads/other"])
         .assert()
         .code(1)
-        .stderr(predicates::str::is_match(r"^ERROR: Multiple submodules are modified in commit [0-9a-f]+, but no topic was provided. Please amend the commit message to add a 'Topic: something-descriptive' footer line.\n$").unwrap());
+        .stderr(predicate::str::is_match(r"^ERROR: Multiple submodules are modified in commit [0-9a-f]+, but no topic was provided. Please amend the commit message to add a 'Topic: something-descriptive' footer line.\n$").unwrap());
 }
 
 #[test]
@@ -515,7 +515,7 @@ fn force_push() {
         .assert()
         .code(1)
         .stderr(
-            predicates::str::is_match(
+            predicate::str::is_match(
                 r"\n ! \[rejected\] *[0-9a-f]+ -> other \(non-fast-forward\)\n",
             )
             .unwrap(),
@@ -525,7 +525,7 @@ fn force_push() {
         .args(["push", "origin", "--force", "HEAD:refs/heads/other"])
         .assert()
         .success()
-        .stderr(predicates::str::contains(" -> other (forced update)"));
+        .stderr(predicate::str::contains(" -> other (forced update)"));
 }
 
 /// The following push error message from a Gerrit server should be ignored:

@@ -640,7 +640,7 @@ fn unaffected_by_dot_gitmodules_recurse_true() {
         .assert()
         .success()
         .stdout(
-            predicates::str::is_match(
+            predicate::str::is_match(
                 "^\
 [0-9a-f]+ refs/namespaces/subx/refs/heads/main
 [0-9a-f]+ refs/namespaces/suby/refs/heads/main

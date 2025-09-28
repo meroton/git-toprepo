@@ -183,7 +183,7 @@ fn wrong_cache_prelude() {
         .arg("import-cache")
         .assert()
         .success()
-        .stderr(predicates::str::is_match(
+        .stderr(predicate::str::is_match(
             "WARN: Discarding import cache .* due to version mismatch, expected \"#cache-format-v2\"\n").unwrap()
         );
 }

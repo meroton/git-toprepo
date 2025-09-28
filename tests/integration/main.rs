@@ -29,6 +29,7 @@ mod worktree;
 mod main {
     use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
     use git_toprepo_testtools::test_util::git_command_for_testing;
+    use predicates::prelude::*;
     use rstest::rstest;
 
     #[rstest]
@@ -89,7 +90,7 @@ mod main {
     ) {
         let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
         std::fs::create_dir_all(temp_dir.join("sub")).unwrap();
-        let expected_stderr = predicates::str::is_match(format!(
+        let expected_stderr = predicate::str::is_match(format!(
             "^ERROR: Could not find a git repository in '{}' or in any of its parents\n$",
             temp_dir.join(final_dir).canonicalize().unwrap().display()
         ))

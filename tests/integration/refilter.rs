@@ -2,7 +2,7 @@ use bstr::ByteSlice as _;
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
 use itertools::Itertools as _;
-use predicates::prelude::PredicateBooleanExt as _;
+use predicates::prelude::*;
 use rstest::rstest;
 use std::path::Path;
 
@@ -419,12 +419,12 @@ fn copes_with_bad_dot_gitmodules_content(
         .assert()
         .success()
         .stderr(
-            predicates::str::is_match(format!(
+            predicate::str::is_match(format!(
                 r#"\nWARN: Commit [0-9a-f]+ in top \(refs/[^)]+\): {expected_warning}"#
             ))
             .unwrap(),
         )
-        .stderr(predicates::function::function(|stderr: &str| {
+        .stderr(predicate::function(|stderr: &str| {
             stderr.matches("WARN:").count() == 1
         }));
 }
@@ -463,7 +463,7 @@ fn warn_for_empty_submodule() {
         .arg(&monorepo)
         .assert()
         .success()
-        .stderr(    predicates::str::is_match(r"\nWARN: Commit [0-9a-f]+ in subx \(refs/heads/main\): With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\. To avoid this problem, commit a file\.\n").unwrap());
+        .stderr(    predicate::str::is_match(r"\nWARN: Commit [0-9a-f]+ in subx \(refs/heads/main\): With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\. To avoid this problem, commit a file\.\n").unwrap());
 
     // Fix the warning.
     std::fs::write(subxrepo.join("file.txt"), "content\n").unwrap();
@@ -482,8 +482,8 @@ fn warn_for_empty_submodule() {
         .assert()
         .success()
         // Note that the trace message does not include any branch name.
-        .stderr(    predicates::str::is_match(r"\nTRACE: Commit [0-9a-f]+ in subx: With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\. To avoid this problem, commit a file\.\n").unwrap())
-        .stderr(predicates::str::contains("WARN:").not());
+        .stderr(    predicate::str::is_match(r"\nTRACE: Commit [0-9a-f]+ in subx: With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\. To avoid this problem, commit a file\.\n").unwrap())
+        .stderr(predicate::str::contains("WARN:").not());
 }
 
 #[test]
@@ -561,8 +561,8 @@ fn print_updates() {
         .arg("-v")
         .assert()
         .success()
-        .stderr(predicates::str::contains("WARN: Skipping symbolic ref refs/namespaces/top/refs/symbolic/outside-top that points outside the top repo, to refs/heads/main"))
-        .stderr(predicates::function::function(|s: &str| s.matches("WARN:").count() == 1))
+        .stderr(predicate::str::contains("WARN: Skipping symbolic ref refs/namespaces/top/refs/symbolic/outside-top that points outside the top repo, to refs/heads/main"))
+        .stderr(predicate::function(|s: &str| s.matches("WARN:").count() == 1))
         .stdout(&"
  * [new] e1f32c7              -> origin/other
  * [new] link:refs/heads/main -> refs/symbolic/good
@@ -612,14 +612,14 @@ fn print_updates() {
         // If this tag would not be nested, it would get the same hash as v1.0.
         .args(["tag", "-m", "Version 1.0", "v1.0-nested", "v1.0"])
         .assert()
-        .stderr(predicates::str::contains("You have created a nested tag."))
+        .stderr(predicate::str::contains("You have created a nested tag."))
         .success();
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .arg("fetch")
         .assert()
         .success()
-        .stderr(predicates::str::contains("WARN:").not())
+        .stderr(predicate::str::contains("WARN:").not())
         // This output has triggered most paths. Note that the symbolic links
         // are not possible to fetch, only to add manually to
         // `refs/namespaces/top/...` and refilter.
