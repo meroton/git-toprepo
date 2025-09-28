@@ -1,6 +1,5 @@
-use assert_cmd::prelude::*;
-use git_toprepo::git::git_command_for_testing;
-use std::process::Command;
+use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
+use git_toprepo_testtools::test_util::git_command_for_testing;
 
 #[test]
 fn local_config_resolution_in_worktree() {
@@ -16,8 +15,7 @@ fn local_config_resolution_in_worktree() {
         .assert()
         .success();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(worktree)
         .arg("fetch")
         .assert()

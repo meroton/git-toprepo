@@ -2,6 +2,50 @@ use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::ops::Deref;
 
+#[cfg(windows)]
+const NULL_DEVICE: &str = "NUL";
+#[cfg(not(windows))]
+const NULL_DEVICE: &str = "/dev/null";
+
+/// Like [`git_toprepo::git::git_command`] but also sets environment variables
+/// for deterministic testing.
+pub fn git_command_for_testing(repo: impl AsRef<std::ffi::OsStr>) -> assert_cmd::Command {
+    // Inspired by gix-testtools v0.16.1 configure_command().
+    let mut command = assert_cmd::Command::new("git");
+    command.args([std::ffi::OsStr::new("-C"), repo.as_ref()]);
+    apply_git_env(&mut command);
+    command
+}
+
+/// Like [`git_toprepo::git::git_command`] but also sets environment variables
+/// for deterministic testing.
+pub fn cargo_bin_git_toprepo_for_testing() -> assert_cmd::Command {
+    assert_cmd::Command::cargo_bin("git-toprepo").unwrap()
+}
+
+fn apply_git_env(command: &mut assert_cmd::Command) {
+    // Inspired by gix-testtools v0.16.1 configure_command().
+    command
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_OBJECT_DIRECTORY")
+        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_COMMON_DIR")
+        .env_remove("GIT_ASKPASS")
+        .env_remove("SSH_ASKPASS")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", NULL_DEVICE)
+        .env("GIT_TERMINAL_PROMPT", "false")
+        .env("GIT_AUTHOR_NAME", "A Name")
+        .env("GIT_AUTHOR_EMAIL", "a@no.example")
+        .env("GIT_AUTHOR_DATE", "2023-01-02T03:04:05Z+01:00")
+        .env("GIT_COMMITTER_NAME", "C Name")
+        .env("GIT_COMMITTER_EMAIL", "c@no.example")
+        .env("GIT_COMMITTER_DATE", "2023-06-07T08:09:10Z+01:00")
+        .env("GIT_CONFIG_COUNT", "0");
+}
+
 pub enum MaybePermanentTempDir {
     Keep(std::path::PathBuf),
     Discard(tempfile::TempDir),

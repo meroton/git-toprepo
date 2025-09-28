@@ -1,14 +1,12 @@
-use assert_cmd::prelude::*;
-use git_toprepo::git::git_command_for_testing;
+use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
+use git_toprepo_testtools::test_util::git_command_for_testing;
 use predicates::prelude::*;
-use std::process::Command;
 
 #[test]
 fn outside_repo_should_fail() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
         .arg("info")
         .assert()
@@ -28,8 +26,7 @@ fn print_specific_value() {
         .unwrap(),
     );
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(temp_dir.join("mono"))
         .args(["info", "config-location"])
         .assert()
@@ -70,8 +67,7 @@ version "#,
         monorepo = monorepo.to_string_lossy(),
         worktree = worktree.to_string_lossy(),
     );
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&worktree)
         .arg("info")
         .assert()
@@ -94,8 +90,7 @@ version "#,
             .to_string_lossy(),
         monorepo = monorepo.to_string_lossy(),
     );
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .arg("info")
         .assert()
@@ -131,8 +126,7 @@ version "#,
         repo = temp_dir.to_string_lossy(),
         subdir = subdir.to_string_lossy(),
     );
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&subdir)
         .args(["info"])
         .assert()
@@ -142,8 +136,7 @@ version "#,
             "WARN: git-config 'toprepo.config' is missing. Is this an initialized git-toprepo?\n",
         );
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .arg("-C")
         .arg(&subdir)
         .args(["info", "cwd"])
@@ -160,8 +153,7 @@ fn flag_is_monorepo() {
     std::fs::create_dir(&subdir).unwrap();
 
     // Without a git repository.
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
         .args(["info", "--is-monorepo"])
         .assert()
@@ -171,8 +163,7 @@ fn flag_is_monorepo() {
             "ERROR: Could not find a git repository in ",
         ));
     // --is-monorepo and a value should fail.
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
         .args(["info", "--is-monorepo", "cwd"])
         .assert()
@@ -187,8 +178,7 @@ fn flag_is_monorepo() {
         .args(["init", "--initial-branch", "main"])
         .assert()
         .success();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
         .args(["info", "--is-monorepo"])
         .assert()
@@ -208,16 +198,14 @@ fn flag_is_monorepo() {
     let monorepo = temp_dir.join("mono");
     let sub = monorepo.join("sub");
     std::fs::create_dir(&sub).unwrap();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["info", "--is-monorepo"])
         .assert()
         .success()
         .stdout("")
         .stderr("");
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&sub)
         .args(["info", "--is-monorepo"])
         .assert()

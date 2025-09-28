@@ -1,7 +1,6 @@
-use assert_cmd::Command;
-use assert_cmd::assert::OutputAssertExt as _;
 use bstr::ByteSlice as _;
-use git_toprepo::git::git_command_for_testing;
+use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
+use git_toprepo_testtools::test_util::git_command_for_testing;
 use itertools::Itertools as _;
 use predicates::prelude::PredicateBooleanExt as _;
 use rstest::rstest;
@@ -413,8 +412,7 @@ fn copes_with_bad_dot_gitmodules_content(
         .success();
 
     let monorepo = temp_dir.join("mono");
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .arg("clone")
         .arg(&toprepo)
         .arg(&monorepo)
@@ -459,8 +457,7 @@ fn warn_for_empty_submodule() {
         .args(["commit", "-m", "Remove all files"])
         .assert()
         .success();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .arg("clone")
         .arg(&toprepo)
         .arg(&monorepo)
@@ -478,8 +475,7 @@ fn warn_for_empty_submodule() {
         .args(["commit", "-m", "add a file"])
         .assert()
         .success();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .args(["clone", "-vv"])
         .arg(&toprepo)
         .arg(&monorepo2)
@@ -500,8 +496,7 @@ fn print_updates() {
     );
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .arg("clone")
         .arg(&toprepo)
         .arg(&monorepo)
@@ -560,8 +555,7 @@ fn print_updates() {
         ])
         .assert()
         .success();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .arg("refilter")
         .arg("-v")
@@ -620,8 +614,7 @@ fn print_updates() {
         .assert()
         .stderr(predicates::str::contains("You have created a nested tag."))
         .success();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .arg("fetch")
         .assert()

@@ -1,4 +1,4 @@
-use assert_cmd::Command;
+use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use std::path::Path;
 
 /// Sets up an example repo structure. The example repo consists of the
@@ -34,8 +34,7 @@ pub fn readme_example_tempdir() -> git_toprepo_testtools::test_util::MaybePerman
 }
 
 pub fn clone(toprepo: &Path, monorepo: &Path) {
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .arg("clone")
         .arg(toprepo)
         .arg(monorepo)

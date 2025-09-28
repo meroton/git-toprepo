@@ -1,13 +1,10 @@
-use assert_cmd::prelude::*;
-use bstr::ByteSlice;
-use git_toprepo::git::git_command_for_testing;
 use git_toprepo_testtools::test_util::MaybePermanentTempDir;
+use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
+use git_toprepo_testtools::test_util::git_command_for_testing;
 use predicate::str::contains;
 use predicates::prelude::*;
 use rstest::rstest;
-use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
 
 #[test]
 fn dump_git_modules() {
@@ -31,8 +28,7 @@ fn dump_git_modules() {
         .arg("ssh://gerrit.example/main/project.git")
         .assert()
         .success();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .arg("dump")
         .arg("git-modules")
@@ -40,8 +36,7 @@ fn dump_git_modules() {
         .success()
         .stdout("main/project.git .\nmain/subx subx\n");
     // Test a subdirectory which is not a submodule.
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(monorepo.join("subdir"))
         .arg("dump")
         .arg("git-modules")
@@ -49,8 +44,7 @@ fn dump_git_modules() {
         .success()
         .stdout("main/project.git .\nmain/subx subx\n");
     // Test a subdirectory which is not an integrated submodule.
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(monorepo.join("subx"))
         .arg("dump")
         .arg("git-modules")
@@ -65,8 +59,7 @@ fn dump_git_modules() {
         .arg("origin")
         .assert()
         .success();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .arg("dump")
         .arg("git-modules")
@@ -97,8 +90,7 @@ fn cache_from_basic_repo_should_fail() {
     .unwrap();
 
     // Look for a sane warning message.
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
         .arg("dump")
         .arg("import-cache")
@@ -133,8 +125,7 @@ fn empty_cache_file() -> (MaybePermanentTempDir, PathBuf) {
 
 #[rstest]
 fn external_cache_file_path(empty_cache_file: (MaybePermanentTempDir, PathBuf)) {
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .args(["dump", "import-cache"])
         .arg(&empty_cache_file.1)
         .assert()
@@ -146,27 +137,20 @@ fn external_cache_file_path(empty_cache_file: (MaybePermanentTempDir, PathBuf)) 
 #[rstest]
 fn external_cache_file_from_stdin(empty_cache_file: (MaybePermanentTempDir, PathBuf)) {
     // Test with stdin as input.
-    let cache_bytes = std::fs::read(&empty_cache_file.1).unwrap();
-    let mut child = Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .args(["dump", "import-cache", "-"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(&cache_bytes).unwrap();
-    let output = child.wait_with_output().unwrap();
-    assert!(output.status.success());
-    assert_eq!(output.stdout.to_str().unwrap(), EMPTY_CACHE_JSON);
-    assert!(output.stderr.is_empty());
+        .pipe_stdin(empty_cache_file.1)
+        .unwrap()
+        .assert()
+        .success()
+        .stdout(EMPTY_CACHE_JSON)
+        .stderr("");
 }
 
 #[test]
 fn external_cache_non_existing_file() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .args(["dump", "import-cache"])
         .arg(temp_dir.join("non-existing-file"))
         .assert()
@@ -193,8 +177,7 @@ fn wrong_cache_prelude() {
     std::fs::write(&cache_path, "wrong-#cache-format").unwrap();
 
     // Look for a sane warning message.
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .arg("dump")
         .arg("import-cache")

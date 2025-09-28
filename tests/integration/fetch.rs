@@ -1,9 +1,8 @@
-use assert_cmd::prelude::*;
-use git_toprepo::git::git_command_for_testing;
+use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
+use git_toprepo_testtools::test_util::git_command_for_testing;
 use itertools::Itertools as _;
 use predicates::prelude::*;
 use rstest::rstest;
-use std::process::Command;
 
 struct RepoWithTwoSubmodules {
     pub toprepo: std::path::PathBuf,
@@ -81,8 +80,7 @@ fn download_only_for_needed_commits() {
     assert!(suby_repo.is_dir());
     std::fs::remove_dir_all(&suby_repo).unwrap();
 
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["fetch"])
         .assert()
@@ -119,8 +117,7 @@ fn download_only_for_needed_commits() {
         .args(["commit", "-m", "Update submodule suby"])
         .assert()
         .success();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["fetch"])
         .assert()
@@ -159,7 +156,7 @@ fn download_only_for_needed_commits() {
 #[case::origin(Some("origin"))]
 fn origin_without_refspec_arg(#[case] remote: Option<&str>) {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
-    let mut cmd = Command::cargo_bin("git-toprepo").unwrap();
+    let mut cmd = cargo_bin_git_toprepo_for_testing();
     cmd.current_dir(&repo.monorepo).arg("fetch");
     if let Some(remote) = remote {
         cmd.arg(remote);
@@ -177,8 +174,7 @@ fn origin_without_refspec_arg(#[case] remote: Option<&str>) {
 #[case::local_subdir("subdir_part_of_top")]
 fn top_dir_without_refspec_arg_fails(#[case] remote: &str) {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
         .args(["fetch", remote])
         .assert()
@@ -194,7 +190,7 @@ fn top_dir_without_refspec_arg_fails(#[case] remote: &str) {
 #[case::origin(Some("origin"))]
 fn without_refspec_arg_prunes_refs(#[case] remote: Option<&str>) {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
-    let mut cmd = Command::cargo_bin("git-toprepo").unwrap();
+    let mut cmd = cargo_bin_git_toprepo_for_testing();
     cmd.current_dir(&repo.monorepo).arg("fetch");
     if let Some(remote) = remote {
         cmd.arg(remote);
@@ -215,7 +211,7 @@ fn without_refspec_arg_prunes_refs(#[case] remote: Option<&str>) {
         .args(["update-ref", "-d", "refs/heads/foo"])
         .assert()
         .success();
-    let mut cmd = Command::cargo_bin("git-toprepo").unwrap();
+    let mut cmd = cargo_bin_git_toprepo_for_testing();
     cmd.current_dir(&repo.monorepo).arg("fetch");
     if let Some(remote) = remote {
         cmd.arg(remote);
@@ -232,8 +228,7 @@ fn without_refspec_arg_prunes_refs(#[case] remote: Option<&str>) {
 #[test]
 fn refspec_arg_without_remote_fails() {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
         .args(["fetch", "refs/heads/foo"])
         .assert()
@@ -249,8 +244,7 @@ fn refspec_arg_without_remote_fails() {
 #[case::local_root_dir(".")]
 fn info_fetch_head(#[case] remote: &str) {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
         .args(["fetch", remote, "refs/heads/foo"])
         .assert()
@@ -285,7 +279,7 @@ fn info_fetch_head(#[case] remote: &str) {
 #[case::local_subdir("subdir_part_of_top")]
 fn top_dir_into_fetch_head_fails(#[case] remote: &str) {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
-    Command::cargo_bin("git-toprepo").unwrap()
+    cargo_bin_git_toprepo_for_testing()
     .current_dir(&repo.monorepo).args(["fetch", remote, "refs/heads/foo"])
         .assert()
         .code(1)
@@ -315,8 +309,7 @@ fn two_times_should_keep_refs() {
     .unwrap();
 
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
         .args(["fetch"])
         .assert()
@@ -338,8 +331,7 @@ fn two_times_should_keep_refs() {
         .success();
 
     // Fetch again, should not remove refs/remotes/origin/main.
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
         .args(["fetch"])
         .assert()
@@ -357,8 +349,7 @@ fn two_times_should_keep_refs() {
         .success();
 
     // Fetch again, but with a refspec.
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
         .args(["fetch", "origin", "refs/heads/main"])
         .assert()
@@ -375,8 +366,7 @@ fn two_times_should_keep_refs() {
 #[case::local_root_dir(".")]
 fn with_refspec_arg_success(#[case] remote: &str) {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
         .args(["fetch", remote, "refs/heads/foo:refs/heads/bar"])
         .assert()
@@ -411,7 +401,7 @@ fn with_refspec_arg_success(#[case] remote: &str) {
 #[case::local_subdir("subdir_part_of_top")]
 fn top_dir_with_refspec_arg_fails(#[case] remote: &str) {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
-    Command::cargo_bin("git-toprepo").unwrap()
+    cargo_bin_git_toprepo_for_testing()
     .current_dir(&repo.monorepo).args(["fetch", remote, "refs/heads/foo:refs/heads/bar"])
         .assert()
         .code(1)
@@ -425,8 +415,7 @@ fn top_dir_with_refspec_arg_fails(#[case] remote: &str) {
 #[test]
 fn force_with_refspec_arg_not_implemented_yet() {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
         .args([
             "fetch",
@@ -459,21 +448,18 @@ fn force_with_refspec_arg_not_implemented_yet() {
         .success();
     // git-fetch without force should fail.
     // TODO: 2025-09-22 Not implemented yet.
-    // Command::cargo_bin("git-toprepo")
-    //     .unwrap()
+    // cargo_bin_git_toprepo_for_testing()
     //     .current_dir(&repo.monorepo)
     //     .args(["fetch", "origin", "refs/heads/foo:refs/heads/bar"])
     //     .assert()
     //     .failure();
-    // Command::cargo_bin("git-toprepo")
-    //     .unwrap()
+    // cargo_bin_git_toprepo_for_testing()
     //     .current_dir(&repo.monorepo)
     //     .args(["fetch", "origin", "refs/heads/foo"])
     //     .assert()
     //     .failure();
     // git-fetch with force should succeed.
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
         .args([
             "fetch",
@@ -559,6 +545,8 @@ fn timeout(
     #[case] idle_timeouts: &str,
     #[case] command_checker: impl Fn(assert_cmd::assert::Assert),
 ) {
+    use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
+
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     git_command_for_testing(&repo.monorepo)
         .args(["config", "toprepo.config", "local:.gittoprepo.toml"])
@@ -595,8 +583,7 @@ fn timeout(
         .into_iter()
         .chain(std::env::split_paths(&old_path_env))
         .collect_vec();
-    let cmd = Command::cargo_bin("git-toprepo")
-        .unwrap()
+    let cmd = cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
         .args(["fetch"])
         .env("OLD_PATH", &old_path_env)
@@ -639,8 +626,7 @@ fn unaffected_by_dot_gitmodules_recurse_true() {
 
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
-    Command::cargo_bin("git-toprepo")
-        .unwrap()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["fetch"])
         .assert()
