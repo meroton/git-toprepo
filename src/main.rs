@@ -307,7 +307,7 @@ fn fetch(fetch_args: &cli::Fetch, configured_repo: &mut ConfiguredTopRepo) -> Re
             &configured_repo.ledger,
         )?;
         let detailed_refspecs = detail_refspecs(refspecs, &resolved_args.repo, &resolved_args.url)?;
-        let mut result = git_toprepo::log::get_global_logger().with_progress(|progress| {
+        git_toprepo::log::get_global_logger().with_progress(|progress| {
             fetch_with_refspec(
                 fetch_args,
                 resolved_args,
@@ -315,8 +315,9 @@ fn fetch(fetch_args: &cli::Fetch, configured_repo: &mut ConfiguredTopRepo) -> Re
                 configured_repo,
                 &progress,
             )
-        });
-        // Delete temporary refs.
+        })?;
+        // Delete temporary refs, but only on success. Keep the refs on failure
+        // to be able to debug.
         let mut ref_edits = Vec::new();
         for refspec in detailed_refspecs {
             ref_edits.push(gix::refs::transaction::RefEdit {
@@ -348,16 +349,12 @@ fn fetch(fetch_args: &cli::Fetch, configured_repo: &mut ConfiguredTopRepo) -> Re
                 email: BStr::new(""),
                 time: &gix::date::Time::now_local_or_utc().format(gix::date::time::Format::Raw),
             };
-            if let Err(err) = configured_repo
+            configured_repo
                 .gix_repo
                 .edit_references_as(ref_edits, Some(committer))
-                .context("Failed to update all the mono references")
-                && result.is_ok()
-            {
-                result = Err(err);
-            }
+                .context("Failed to delete temporary fetch-head references")?;
         }
-        result
+        Ok(())
     } else {
         fetch_with_default_refspecs(fetch_args, configured_repo)
     }
