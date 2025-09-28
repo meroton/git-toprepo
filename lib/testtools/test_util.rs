@@ -20,7 +20,22 @@ pub fn git_command_for_testing(repo: impl AsRef<std::ffi::OsStr>) -> assert_cmd:
 /// Like [`git_toprepo::git::git_command`] but also sets environment variables
 /// for deterministic testing.
 pub fn cargo_bin_git_toprepo_for_testing() -> assert_cmd::Command {
-    assert_cmd::Command::cargo_bin("git-toprepo").unwrap()
+    let mut command = assert_cmd::Command::cargo_bin("git-toprepo").unwrap();
+    apply_git_env(&mut command);
+    // Apply the worst possible git-config to make sure git-toprepo can cope.
+    command
+        .env("GIT_CONFIG_COUNT", "4")
+        .env("GIT_CONFIG_KEY_0", "fetch.recurseSubmodules")
+        .env("GIT_CONFIG_VALUE_0", "true")
+        .env("GIT_CONFIG_KEY_1", "remote.origin.tagOpt")
+        .env("GIT_CONFIG_VALUE_1", "--tags")
+        .env("GIT_CONFIG_KEY_2", "fetch.pruneTags")
+        .env("GIT_CONFIG_VALUE_2", "true")
+        // fetch.pruneTags is not enough as git-toprepo init sets
+        // remote.origin.pruneTags which has precedence, so set that as well.
+        .env("GIT_CONFIG_KEY_3", "remote.origin.pruneTags")
+        .env("GIT_CONFIG_VALUE_3", "true");
+    command
 }
 
 fn apply_git_env(command: &mut assert_cmd::Command) {

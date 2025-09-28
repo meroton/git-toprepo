@@ -1,10 +1,22 @@
 #!/bin/sh
 set -eu
 
+containsElement() {
+    local needle="$1"
+    shift
+    local element
+    for element; do
+        if [ "$element" = "$needle" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Use git-upload-pack-slow.py to simulate patchy connections during git fetch.
 # Only do so when fetching from subx.
 export PATH=$OLD_PATH
-if test "$#" -gt 10 && test "$1" = "-C" && test "$3" = "fetch" && test "${10-}" = "--negotiation-tip=refs/namespaces/subx/*"; then
+if test "$1" = "-C" && test "$3" = "fetch" && containsElement '--negotiation-tip=refs/namespaces/subx/*' "$@"; then
     script_dir=$(dirname "$0")
     working_dir="$2"
     shift 3

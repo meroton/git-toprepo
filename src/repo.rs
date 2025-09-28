@@ -139,75 +139,55 @@ impl ConfiguredTopRepo {
             .safe_status()?
             .check_success()
             .context("Failed to initialize git repository")?;
-        git_command(directory)
-            .args([
-                "config",
-                "remote.origin.pushUrl",
-                "https://ERROR.invalid/Please use 'git toprepo push ...' instead",
-            ])
-            .trace_command(crate::command_span!("git config"))
-            .safe_status()?
-            .check_success()
-            .context("Failed to set git-config remote.origin.pushUrl")?;
-        git_command(directory)
-            .args(["config", "remote.origin.url", &url.to_string()])
-            .trace_command(crate::command_span!("git config"))
-            .safe_status()?
-            .check_success()
-            .context("Failed to set git-config remote.origin.url")?;
+
+        let set_config = |args: &[&str], key: &str, value: &str| -> Result<()> {
+            git_command(directory)
+                .arg("config")
+                .args(args)
+                .arg(key)
+                .arg(value)
+                .trace_command(crate::command_span!("git config"))
+                .safe_status()?
+                .check_success()
+                .with_context(|| format!("Failed to set git-config {key}"))?;
+            Ok(())
+        };
+
+        set_config(
+            &[],
+            "remote.origin.pushUrl",
+            "https://ERROR.invalid/Please use 'git toprepo push ...' instead",
+        )?;
+        set_config(&[], "remote.origin.url", &url.to_string())?;
         let toprepo_ref_prefix: String = RepoName::Top.to_ref_prefix();
-        git_command(directory)
-            .args([
-                "config",
-                "--replace-all",
-                "remote.origin.fetch",
-                &format!("+refs/heads/*:{toprepo_ref_prefix}refs/remotes/origin/*"),
-            ])
-            .trace_command(crate::command_span!("git config"))
-            .safe_status()?
-            .check_success()
-            .context("Failed to set git-config remote.origin.fetch (heads)")?;
-        git_command(directory)
-            .args([
-                "config",
-                "--add",
-                "remote.origin.fetch",
-                &format!("+refs/tags/*:{toprepo_ref_prefix}refs/tags/*"),
-            ])
-            .trace_command(crate::command_span!("git config"))
-            .safe_status()?
-            .check_success()
-            .context("Failed to set git-config remote.origin.fetch (tags)")?;
+        set_config(
+            &["--replace-all"],
+            "remote.origin.fetch",
+            &format!("+refs/heads/*:{toprepo_ref_prefix}refs/remotes/origin/*"),
+        )?;
+        set_config(
+            &["--add"],
+            "remote.origin.fetch",
+            &format!("+refs/tags/*:{toprepo_ref_prefix}refs/tags/*"),
+        )?;
         // TODO: 2025-09-22 Does HEAD always exist on the remote? Is `git ls-remote` needed
         // to prioritize HEAD, main, master, etc.
-        git_command(directory)
-            .args([
-                "config",
-                "--add",
-                "remote.origin.fetch",
-                &format!("+HEAD:{toprepo_ref_prefix}refs/remotes/origin/HEAD"),
-            ])
-            .trace_command(crate::command_span!("git config"))
-            .safe_status()?
-            .check_success()
-            .context("Failed to set git-config remote.origin.fetch (HEAD)")?;
-        git_command(directory)
-            .args(["config", "remote.origin.tagOpt", "--no-tags"])
-            .trace_command(crate::command_span!("git config"))
-            .safe_status()?
-            .check_success()
-            .context("Failed to set git-config remote.origin.tagOpt")?;
-        let key = &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY);
-        git_command(directory)
-            .args([
-                "config",
-                key,
-                &format!("repo:{toprepo_ref_prefix}refs/remotes/origin/HEAD:.gittoprepo.toml"),
-            ])
-            .trace_command(crate::command_span!("git config"))
-            .safe_status()?
-            .check_success()
-            .context("Failed to set git-config {key}")?;
+        set_config(
+            &["--add"],
+            "remote.origin.fetch",
+            &format!("+HEAD:{toprepo_ref_prefix}refs/remotes/origin/HEAD"),
+        )?;
+        // See fetch.rs for explanations of these default values.
+        // NOTE: Sync these default values with `RemoteFetcher::create_command` and
+        // `testtools::test_util::git_command_for_testing`.
+        set_config(&[], "remote.origin.tagOpt", "--no-tags")?;
+        set_config(&[], "remote.origin.pruneTags", "false")?;
+        set_config(&[], "submodule.recurse", "false")?;
+        set_config(
+            &[],
+            &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
+            &format!("repo:{toprepo_ref_prefix}refs/remotes/origin/HEAD:.gittoprepo.toml"),
+        )?;
 
         let result = {
             let (process, _span_guard) = git_command(directory)
