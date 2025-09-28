@@ -97,11 +97,17 @@ impl RemoteFetcher {
     }
 
     fn create_command(&self) -> std::process::Command {
+        // NOTE: Sync these default values with `ConfiguredTopRepo::create` and
+        // `testtools::test_util::git_command_for_testing`.
         let mut cmd = git_command(&self.git_dir);
         cmd.args([
             "fetch",
             "--progress",
             "--no-tags",
+            // --prune-tags will remove refs/tags/* which git-toprepo has
+            // written after expansion. Let the expander prune them instead and
+            // keep to pruning refs/namespaces/* during fetch.
+            "--no-prune-tags",
             "--no-recurse-submodules",
             "--no-auto-maintenance",
             "--no-write-commit-graph",
