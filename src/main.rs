@@ -687,7 +687,7 @@ fn print_info(info_args: &cli::Info) -> Result<ExitCode> {
     let repo = gix_discover_current_dir()?;
     let config_location_str_result = GitTopRepoConfig::find_configuration_location_str(&repo);
 
-    if info_args.is_monorepo {
+    if info_args.is_emulated_monorepo {
         // Handle the case where the repository is a monorepo.
         if let Err(err) = config_location_str_result {
             log::warn!("{err}");

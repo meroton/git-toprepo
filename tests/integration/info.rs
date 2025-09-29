@@ -147,7 +147,7 @@ version "#,
 }
 
 #[test]
-fn flag_is_monorepo() {
+fn flag_is_emulated_monorepo() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
     let subdir = temp_dir.join("sub");
     std::fs::create_dir(&subdir).unwrap();
@@ -155,22 +155,22 @@ fn flag_is_monorepo() {
     // Without a git repository.
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
-        .args(["info", "--is-monorepo"])
+        .args(["info", "--is-emulated-monorepo"])
         .assert()
         .code(1)
         .stdout("")
         .stderr(predicate::str::starts_with(
             "ERROR: Could not find a git repository in ",
         ));
-    // --is-monorepo and a value should fail.
+    // --is-emulated-monorepo and a value should fail.
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
-        .args(["info", "--is-monorepo", "cwd"])
+        .args(["info", "--is-emulated-monorepo", "cwd"])
         .assert()
         .code(2)
         .stdout("")
         .stderr(predicate::str::contains(
-            "error: the argument '--is-monorepo' cannot be used with '[VALUE]'\n",
+            "error: the argument '--is-emulated-monorepo' cannot be used with '[VALUE]'\n",
         ));
 
     // In a basic git repository.
@@ -180,7 +180,7 @@ fn flag_is_monorepo() {
         .success();
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
-        .args(["info", "--is-monorepo"])
+        .args(["info", "--is-emulated-monorepo"])
         .assert()
         .code(3)
         .stdout("")
@@ -200,14 +200,14 @@ fn flag_is_monorepo() {
     std::fs::create_dir(&sub).unwrap();
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
-        .args(["info", "--is-monorepo"])
+        .args(["info", "--is-emulated-monorepo"])
         .assert()
         .success()
         .stdout("")
         .stderr("");
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&sub)
-        .args(["info", "--is-monorepo"])
+        .args(["info", "--is-emulated-monorepo"])
         .assert()
         .success()
         .stdout("")

@@ -179,7 +179,7 @@ macro_rules! info_exit_code_false {
         3
     };
 }
-macro_rules! info_is_monorepo_doc {
+macro_rules! info_is_emulated_monorepo_doc {
     () => {
         concat!(
             "Exit with code ",
@@ -195,9 +195,9 @@ pub struct Info {
     pub value: Option<InfoValue>,
 
     // Make clap detect the docs.
-    #[doc = info_is_monorepo_doc!()]
-    #[clap(long, group = "single", help = info_is_monorepo_doc!())]
-    pub is_monorepo: bool,
+    #[doc = info_is_emulated_monorepo_doc!()]
+    #[clap(long, group = "single", help = info_is_emulated_monorepo_doc!())]
+    pub is_emulated_monorepo: bool,
 }
 
 impl Info {
