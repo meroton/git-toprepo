@@ -924,14 +924,14 @@ where
             .with_context(|| format!("Failed to change working directory to {}", path.display()))?;
     }
 
-    match args.command {
+    match args.command.actual() {
         Commands::Init(init_args) => {
-            init(&init_args).map(|_path| ())?;
+            init(init_args).map(|_path| ())?;
             log::info!("The next step is to run 'git-toprepo fetch'.");
             Ok(ExitCode::SUCCESS)
         }
-        Commands::Config(config_args) => config(&config_args).map(|()| ExitCode::SUCCESS),
-        Commands::Dump(dump_args) => dump(&dump_args).map(|()| ExitCode::SUCCESS),
+        Commands::Config(config_args) => config(config_args).map(|()| ExitCode::SUCCESS),
+        Commands::Dump(dump_args) => dump(dump_args).map(|()| ExitCode::SUCCESS),
         Commands::Clone(clone_args) => {
             // Two-stage initialization: init + clone_after_init
             let directory = init(&clone_args.init)?;
@@ -942,22 +942,22 @@ where
                 )
             })?;
             run_session(logger, |configured| {
-                clone_after_init(&clone_args, configured)
+                clone_after_init(clone_args, configured)
             })
             .map(|()| ExitCode::SUCCESS)
         }
         Commands::Recombine(recombine_args) => {
-            run_session(logger, |configured| recombine(&recombine_args, configured))
+            run_session(logger, |configured| recombine(recombine_args, configured))
                 .map(|()| ExitCode::SUCCESS)
         }
         Commands::Fetch(fetch_args) => {
-            run_session(logger, |configured| fetch(&fetch_args, configured))
+            run_session(logger, |configured| fetch(fetch_args, configured))
                 .map(|()| ExitCode::SUCCESS)
         }
-        Commands::Push(push_args) => run_session(logger, |configured| push(&push_args, configured))
+        Commands::Push(push_args) => run_session(logger, |configured| push(push_args, configured))
             .map(|()| ExitCode::SUCCESS),
 
-        Commands::Info(info_args) => print_info(&info_args),
+        Commands::Info(info_args) => print_info(info_args),
         Commands::Version => {
             println!("git-toprepo {}", get_version());
             Ok(ExitCode::SUCCESS)
