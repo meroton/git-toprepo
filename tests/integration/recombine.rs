@@ -7,7 +7,7 @@ use rstest::rstest;
 use std::path::Path;
 
 #[test]
-fn init_and_refilter_example() {
+fn init_and_recombine_example() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable("../integration/fixtures/make_readme_example.sh")
             .unwrap(),
@@ -557,7 +557,7 @@ fn print_updates() {
         .success();
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
-        .arg("refilter")
+        .arg("recombine")
         .arg("-v")
         .assert()
         .success()
@@ -622,7 +622,7 @@ fn print_updates() {
         .stderr(predicate::str::contains("WARN:").not())
         // This output has triggered most paths. Note that the symbolic links
         // are not possible to fetch, only to add manually to
-        // `refs/namespaces/top/...` and refilter.
+        // `refs/namespaces/top/...` and recombine.
         .stdout(
             &"
  * [new] ce017aa                     -> origin/main

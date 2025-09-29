@@ -1359,8 +1359,8 @@ fn try_find_full_reference(
     Ok(None)
 }
 
-/// Refilter all `refs/namespaces/top/refs/*` into `refs/*`.
-pub fn refilter_all_top_refs(
+/// Recombine all `refs/namespaces/top/refs/*` into `refs/*`.
+pub fn recombine_all_top_refs(
     configured_repo: &mut ConfiguredTopRepo,
     progress: &indicatif::MultiProgress,
 ) -> Result<()> {
@@ -1372,10 +1372,10 @@ pub fn refilter_all_top_refs(
         let r = r.map_err(|err| anyhow::anyhow!("Failed while iterating refs: {err:#}"))?;
         refs.push(r.detach());
     }
-    refilter(configured_repo, progress, refs, true)
+    recombine(configured_repo, progress, refs, true)
 }
 
-pub fn refilter_some_top_refspecs(
+pub fn recombine_some_top_refspecs(
     configured_repo: &mut ConfiguredTopRepo,
     progress: &indicatif::MultiProgress,
     top_ref_names: impl IntoIterator<Item = impl AsRef<FullNameRef>>,
@@ -1386,10 +1386,10 @@ pub fn refilter_some_top_refspecs(
             .with_context(|| format!("Reference {} does not exist", top_ref.as_ref().as_bstr()))?;
         refs.push(r);
     }
-    refilter(configured_repo, progress, refs, false)
+    recombine(configured_repo, progress, refs, false)
 }
 
-fn refilter(
+fn recombine(
     configured_repo: &mut ConfiguredTopRepo,
     progress: &indicatif::MultiProgress,
     top_refs: Vec<gix::refs::Reference>,
@@ -1422,7 +1422,8 @@ fn refilter(
         let old_target = old_monorepo_refs.get(&monorepo_ref_name);
         match r.target {
             gix::refs::Target::Symbolic(top_target_name) => {
-                // Simply update the symbolic references after refiltering.
+                // Simply update the symbolic references after the combine
+                // process.
                 let Ok(monorepo_target_name) =
                     strip_ref_prefix(&top_target_name, BStr::new(&top_ref_prefix))
                 else {
@@ -2061,7 +2062,8 @@ pub fn expand_submodule_ref_onto_head(
         )?
         else {
             anyhow::bail!(
-                "Failed to inject commit {}, to become {}, at {abs_sub_path}: No common history with HEAD, running 'git-toprepo refilter' may help",
+                "Failed to expand commit {}, to become {}, at {abs_sub_path}: \
+                No common history with HEAD, running 'git toprepo recombine' may help",
                 ref_to_inject.name,
                 dest_ref.as_bstr()
             );
@@ -2092,7 +2094,7 @@ pub fn expand_submodule_ref_onto_head(
     Ok(expanded_mono_commit)
 }
 
-/// Reads the monorepo refs that was the result of the last refiltering.
+/// Reads the monorepo refs that was the result of the last submodule expansion.
 fn read_monorepo_refs_log(repo: &gix::Repository) -> Result<Vec<FullName>> {
     let refs_path = repo.git_dir().join("toprepo/mono-refs-ok-to-remove");
     if !refs_path.exists() {
@@ -2113,7 +2115,7 @@ fn read_monorepo_refs_log(repo: &gix::Repository) -> Result<Vec<FullName>> {
         .collect::<Result<Vec<_>>>()
 }
 
-/// Writes the monorepo refs that have resulted from a refilter.
+/// Writes the monorepo refs that have resulted from the submodule expansion.
 fn write_monorepo_refs_log(repo: &gix::Repository, monorepo_refs: &[&FullName]) -> Result<()> {
     let refs_path = repo.git_dir().join("toprepo/mono-refs-ok-to-remove");
     if let Some(parent) = refs_path.parent() {

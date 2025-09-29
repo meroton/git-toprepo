@@ -95,7 +95,7 @@ fn clone_after_init(
         // Reload the config from disk to get the cloned configuration now
         // stored in the repository.
         configured_repo.reload_repo()?;
-        refilter(&clone_args.refilter, configured_repo)?;
+        recombine(&clone_args.recombine, configured_repo)?;
     }
     std::process::Command::new("git")
         .current_dir(
@@ -272,16 +272,19 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
 }
 
 #[tracing::instrument(skip(configured_repo))]
-fn refilter(refilter_args: &cli::Refilter, configured_repo: &mut ConfiguredTopRepo) -> Result<()> {
-    if !refilter_args.reuse_cache {
+fn recombine(
+    recombine_args: &cli::Recombine,
+    configured_repo: &mut ConfiguredTopRepo,
+) -> Result<()> {
+    if !recombine_args.reuse_cache {
         configured_repo.import_cache = ImportCache::default();
     }
     git_toprepo::log::get_global_logger().with_progress(|progress| {
-        ErrorObserver::run_keep_going(refilter_args.keep_going, |error_observer| {
+        ErrorObserver::run_keep_going(recombine_args.keep_going, |error_observer| {
             load_commits(
-                refilter_args.job_count.into(),
+                recombine_args.job_count.into(),
                 |commit_loader| {
-                    commit_loader.fetch_missing_commits = !refilter_args.no_fetch;
+                    commit_loader.fetch_missing_commits = !recombine_args.no_fetch;
                     commit_loader.load_repo(&git_toprepo::repo_name::RepoName::Top)
                 },
                 configured_repo,
@@ -294,7 +297,7 @@ fn refilter(refilter_args: &cli::Refilter, configured_repo: &mut ConfiguredTopRe
             fetch: configured_repo.config.fetch.clone(),
             subrepos: configured_repo.ledger.subrepos.clone(),
         };
-        git_toprepo::expander::refilter_all_top_refs(configured_repo, &progress)
+        git_toprepo::expander::recombine_all_top_refs(configured_repo, &progress)
     })
 }
 
@@ -392,8 +395,8 @@ fn fetch_with_default_refspecs(
     if !fetch_args.skip_filter {
         // Reload the config from disk to get any changes fetched into the repository.
         configured_repo.reload_repo()?;
-        refilter(
-            &cli::Refilter {
+        recombine(
+            &cli::Recombine {
                 keep_going: fetch_args.keep_going,
                 job_count: fetch_args.job_count,
                 no_fetch: false,
@@ -531,7 +534,7 @@ fn fetch_with_refspec(
                 let top_refs = detailed_refspecs
                     .iter()
                     .map(|refspec| &refspec.unfiltered_ref);
-                git_toprepo::expander::refilter_some_top_refspecs(
+                git_toprepo::expander::recombine_some_top_refspecs(
                     configured_repo,
                     progress,
                     top_refs,
@@ -943,8 +946,8 @@ where
             })
             .map(|()| ExitCode::SUCCESS)
         }
-        Commands::Refilter(refilter_args) => {
-            run_session(logger, |configured| refilter(&refilter_args, configured))
+        Commands::Recombine(recombine_args) => {
+            run_session(logger, |configured| recombine(&recombine_args, configured))
                 .map(|()| ExitCode::SUCCESS)
         }
         Commands::Fetch(fetch_args) => {
