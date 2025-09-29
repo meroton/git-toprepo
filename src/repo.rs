@@ -32,30 +32,30 @@ use std::ops::Deref;
 use std::path::Path;
 use std::rc::Rc;
 
-/// Avoid the following error:
-/// > ERROR: Failed to resolve refs: The slotmap turned out to be too small with
-/// > 94 entries, would need 2 more
-///
-/// See also
-/// https://github.com/GitoxideLabs/gitoxide/issues/1788#issuecomment-2857146516.
-fn gix_open_options() -> gix::open::Options {
-    gix::open::Options::default().object_store_slots(
-        gix::odb::store::init::Slots::AsNeededByDiskState {
-            multiplier: 1.5,
-            minimum: 512,
-        },
-    )
+fn slot_map() -> gix::odb::store::init::Slots {
+    // Avoid the following error:
+    // > ERROR: Failed to resolve refs: The slotmap turned out to be too small with
+    // > 94 entries, would need 2 more
+    //
+    // See also
+    // https://github.com/GitoxideLabs/gitoxide/issues/1788#issuecomment-2857146516.
+    gix::odb::store::init::Slots::AsNeededByDiskState {
+        multiplier: 1.5,
+        minimum: 512,
+    }
 }
 
 pub fn gix_discover(directory: &Path) -> Result<gix::Repository> {
+    let mut trust_map: gix::sec::trust::Mapping<gix::open::Options> = Default::default();
+    trust_map.full = trust_map.full.object_store_slots(slot_map());
+    trust_map.reduced = trust_map.reduced.object_store_slots(slot_map());
+
     let repo = gix::ThreadSafeRepository::discover_with_environment_overrides_opts(
         directory,
-        Default::default(),
-        gix::sec::trust::Mapping {
-            full: gix_open_options(),
-            reduced: gix_open_options(),
-        },
+        /* upwards::Options<'_>: */ Default::default(),
+        trust_map,
     )?;
+
     Ok(repo.to_thread_local())
 }
 
@@ -292,7 +292,8 @@ Initial empty git-toprepo configuration
     /// Open a toprepo with full configuration and state loaded. The `directory`
     /// must point to the repository root or the `.git` directory.
     pub fn open_directory(directory: &Path) -> Result<Self> {
-        let gix_repo = gix::open_opts(directory, gix_open_options())?;
+        let options = gix::open::Options::default().object_store_slots(slot_map());
+        let gix_repo = gix::open_opts(directory, options)?;
         Self::load_repo(gix_repo)
     }
 
