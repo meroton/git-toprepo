@@ -125,7 +125,7 @@ These are fetched using `git-toprepo fetch` (or `git fetch`) and
 formed when pushing new work with `git-toprepo push`,
 if changes were made to the underlying _toprepo_.
 
-**mono repo**: In the code, "_monorepo_" is used as short-hand notation instead of
+**monorepo**: In the code, "_monorepo_" is used as short-hand notation instead of
 "_git-toprepo emulated monorepo_" or "_combined repo_". As the code has no use in
 a "_pure monorepo_" context, the brevity is placed over preciseness of the
 term within the code.
