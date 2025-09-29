@@ -59,7 +59,7 @@ The algorithm steps are:
 * Unmerged submodule branches are branched from the history of `HEAD`.
   As commit 7 can be used in multiple top repo branches,
   it is impossible to know which branch commit 8 is aimed for.
-  Simply checkout a different monorepo branch and run `git toprepo refilter`
+  Simply checkout a different monorepo branch and run `git toprepo recombine`
   to move unmerged submodule branches around.
 
 ## Configuration

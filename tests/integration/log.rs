@@ -80,7 +80,7 @@ fn only_fixable_missing_gitmodules_warnings() {
         .stderr(predicate::str::contains("WARN:").not());
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
-        .args(["refilter"])
+        .args(["recombine"])
         .assert()
         .success()
         .stderr(predicate::str::contains("WARN:").not());
@@ -106,7 +106,7 @@ fn only_fixable_missing_gitmodules_warnings() {
         }));
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
-        .args(["refilter"])
+        .args(["recombine"])
         .assert()
         .success()
         .stderr(predicate::str::contains(format!("WARN: Commit {missing_gitmodules_rev} in top (refs/remotes/origin/first-missing-gitmodules): Cannot resolve submodule sub, .gitmodules is missing")))
@@ -139,7 +139,7 @@ fn always_show_missing_submod_commit_warnings() {
         .assert()
         .success();
     // Add another commit to toprepo which is still not pointing to the amended
-    // commit in subrepo. Should warn in clone, fetch and refilter.
+    // commit in subrepo. Should warn in clone, fetch and recombine.
     git_command_for_testing(&toprepo)
         .args(["commit", "--allow-empty", "-m", "Still wrong pointer"])
         .assert()
@@ -172,7 +172,7 @@ fn always_show_missing_submod_commit_warnings() {
         }));
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
-        .args(["refilter"])
+        .args(["recombine"])
         .assert()
         .success()
         .stderr(predicate::str::contains(format!(
@@ -190,7 +190,7 @@ fn always_show_missing_submod_commit_warnings() {
         .success();
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
-        .args(["refilter"])
+        .args(["recombine"])
         .assert()
         .success()
         .stderr(predicate::function(|stderr: &str| {

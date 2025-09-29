@@ -102,7 +102,7 @@ pub enum Commands {
     Clone(Clone),
     #[command(subcommand)]
     Config(Config),
-    Refilter(Refilter),
+    Recombine(Recombine),
     Fetch(Fetch),
     /// Push commits to the respective remotes of each filtered submodule.
     Push(Push),
@@ -137,7 +137,7 @@ pub struct Clone {
     pub init: Init,
 
     #[command(flatten)]
-    pub refilter: Refilter,
+    pub recombine: Recombine,
 
     /// After fetching the top repository, skip fetching the submodules.
     #[clap(long)]
@@ -274,7 +274,7 @@ pub struct DumpImportCache {
 }
 
 #[derive(Args, Debug)]
-pub struct Refilter {
+pub struct Recombine {
     /// Continue as much as possible after an error.
     #[arg(long)]
     pub keep_going: bool,
@@ -287,7 +287,8 @@ pub struct Refilter {
     #[arg(long)]
     pub no_fetch: bool,
 
-    /// Reuse information from the cache and skip full refiltering.
+    /// Reuse information from the cache and skip combining the repositories
+    /// from scratch.
     #[arg(long)]
     pub reuse_cache: bool,
 }

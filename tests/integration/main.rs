@@ -19,7 +19,7 @@ mod log;
 #[cfg(test)]
 mod push;
 #[cfg(test)]
-mod refilter;
+mod recombine;
 #[cfg(test)]
 mod version;
 #[cfg(test)]
@@ -44,7 +44,7 @@ mod main {
             "dump import-cache",
             "config show",
             "fetch origin",
-            "refilter",
+            "recombine",
             "push origin main"
         )]
         command: &str,
@@ -83,7 +83,7 @@ mod main {
             "dump git-modules",
             "config show",
             "fetch origin",
-            "refilter",
+            "recombine",
             "push origin main"
         )]
         command: &str,

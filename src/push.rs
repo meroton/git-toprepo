@@ -45,7 +45,7 @@ pub fn split_for_push(
     local_rev_or_ref: &String,
 ) -> Result<Vec<PushMetadata>> {
     if configured_repo.import_cache.monorepo_commits.is_empty() {
-        anyhow::bail!("No filtered mono commits exists, please run `git toprepo refilter` first");
+        anyhow::bail!("No filtered mono commits exists, please run `git toprepo recombine` first");
     }
 
     let local_rev = configured_repo
@@ -92,9 +92,17 @@ pub fn split_for_push(
     if to_push_metadata.is_empty() {
         // Everything exists upstream. Add a dummy entry of the toprepo to
         // actually push something, e.g. if creating a new branch.
-        let top_commit_id = configured_repo.import_cache.monorepo_commits.get(&MonoRepoCommitId::new(local_rev))
-        .and_then(|mono_commit| mono_commit.top_bump)
-        .with_context(|| format!("All commits to push exist upstream, yet the mono commit {local_rev_or_ref} has not been assembled from upstream data. Please rerun `git toprepo refilter`"))?;
+        let top_commit_id = configured_repo
+            .import_cache
+            .monorepo_commits
+            .get(&MonoRepoCommitId::new(local_rev))
+            .and_then(|mono_commit| mono_commit.top_bump)
+            .with_context(|| {
+                format!(
+                    "All commits to push exist upstream, yet the mono commit {local_rev_or_ref} \
+                    has not been assembled from upstream data. Please rerun 'git toprepo recombine'"
+                )
+            })?;
 
         to_push_metadata.push(PushMetadata {
             repo_name: RepoName::Top,
