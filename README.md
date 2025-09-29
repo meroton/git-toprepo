@@ -1,12 +1,12 @@
 # git-toprepo - Monorepo when your company won't let you
 
-The `git-toprepo` tool acts a bit like an automatic client side [`git-subtree`]
+The `git-toprepo` tool acts like an automatic client side [`git-subtree`]
 based on the submodules in a top repository. It will combine the history of all
 the repositories and expand the content of the submodules to create an emulated
 [monorepo].
 
-Below, the term _monorepo_ is used as an abbreviation of a _by git-toprepo
-emulated monorepo_. See also [terminology].
+Below, the term _monorepo_ is used as an abbreviation of
+a _git-toprepo emulated monorepo_. See also [terminology].
 
 [`git-subtree`]: https://www.atlassian.com/git/tutorials/git-subtree
 [monorepo]: https://monorepo.tools/
@@ -35,8 +35,8 @@ printed but not executed.
 ## History combination strategy
 
 The basic idea is to combine all the history from all the subrepositories in a
-reproducible way. This means that even if users keep the emulated mono
-repository locally on their own computers, they can still share mono commit
+reproducible way. This means that even if users keep the emulated monorepository
+locally on their own computers, they can still share monocommit
 hashes with everyone else.
 
 Consider the following history and commits:
@@ -60,7 +60,7 @@ The combined history will look like:
 The algorithm steps are:
 * Any submodule history before the submodule is added to the top repository,
   contains the original submodule commits (`1---B2`).
-* Empty edge for the submodule history are removed (`2---3`). Such empty edges
+* Empty edges for the submodule history are removed (`2---3`). Such empty edges
   would only pollute the graph. The monorepo history for the submodule directory
   would show there is no update between the two commits anyway.
 * The top repo will keep the "first parent" line (`D3---E5`). D4 might not be
@@ -116,7 +116,7 @@ suggested `[repo.*]` additions to the `.gittoprepo.toml` configuration.
 [repo.something]
 urls = [
     "https://github.com/meroton/git-toprepo.git",
-    "server.internal/git-toprepo.git",
+    "server.example/git-toprepo.git",
 ]
 # Keep as a regular submodule when set to false.
 enabled = true
@@ -139,11 +139,17 @@ args = []
 
 ## Git configuration
 
-A strong recommendation is to keep branch naming the same in all involved
-repositories.
+A strong recommendation is to keep the same branch names the same in all involved
+repositories. The fetch code will work with any branch names,
+but it quickly becomes very confusing which branch is which,
+and the regular git push syntax with the remote branch
+does not work well with different branches in different submodules.
 
 ### Gerrit Code Review
 
+The following steps are required to operate a git-toprepo emulated monorepo.
+
+* Create a toprepo: with the example name "my-only-toprepo".
 * Enable [`config.submitWholeTopic`] to allow [submitting changes across
   repositories by using topics].
 * Updating the project configuration, e.g. in
@@ -153,8 +159,8 @@ repositories.
     [allowSuperproject "my-only-toprepo"]
         matching = refs/heads/*:refs/heads/*
 ```
-* [Track `branch = .`] for all submodules in `.gitmodules` on all branches. This
-  will make the super projects follow the same branch name as itself.
+* [Track `branch = .`] for all submodules in `.gitmodules` on all branches in
+  the toprepo. This will make the super projects follow the same branch name as itself.
 
 [`config.submitWholeTopic`]:
     https://gerrit-review.googlesource.com/Documentation/config-gerrit.html#change.submitWholeTopic
@@ -164,6 +170,14 @@ repositories.
     https://gerrit-review.googlesource.com/Documentation/user-submodules.html
 [Track `branch = .`]:
     https://git-scm.com/docs/gitmodules#Documentation/gitmodules.txt-submodulenamebranch
+
+### GitHub Code Review
+
+Support for review in GitHub is not implemented.
+
+### GitLab Code Review
+
+Support for review in GitLab is not implemented.
 
 ## Concepts
 
