@@ -37,13 +37,8 @@ pub struct Cli {
     #[clap(flatten)]
     pub log_level: LogLevelArg,
 
-    /// Optional "git" word to simplify pasting copied commands, for example:
-    /// `git-toprepo git fetch ...`.
-    #[arg(name = "git")]
-    pub git: Option<GitEnum>,
-
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: GitAndCommands,
 }
 
 const DEFAULT_LOG_LEVEL: log::LevelFilter = log::LevelFilter::Info;
@@ -89,9 +84,24 @@ impl LogLevelArg {
     }
 }
 
-#[derive(clap::ValueEnum, Clone, Debug)]
-pub enum GitEnum {
-    Git,
+#[derive(Subcommand, Debug)]
+pub enum GitAndCommands {
+    /// Optional "git" word to simplify pasting copied commands, for example:
+    /// `git-toprepo git fetch ...`.
+    #[command(subcommand)]
+    Git(Commands),
+    #[command(flatten)]
+    Command(Commands),
+}
+
+impl GitAndCommands {
+    /// Get the inner command.
+    pub fn actual(&self) -> &Commands {
+        match self {
+            GitAndCommands::Git(cmd) => cmd,
+            GitAndCommands::Command(cmd) => cmd,
+        }
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -100,9 +110,12 @@ pub enum Commands {
     Init(Init),
     /// Initialize a repository and fetch from the remote.
     Clone(Clone),
+    /// Manage the git-toprepo configuration.
     #[command(subcommand)]
     Config(Config),
+    /// Rerun the history combination and submodule content expansion.
     Recombine(Recombine),
+    /// Fetch commits from the top repository and expand submodules.
     Fetch(Fetch),
     /// Push commits to the respective remotes of each filtered submodule.
     Push(Push),
