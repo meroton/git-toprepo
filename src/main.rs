@@ -713,7 +713,6 @@ fn print_info(info_args: &cli::Info) -> Result<ExitCode> {
                     Some(path) => path.to_string_lossy().to_string(),
                     None => "<bare repository>".to_string(),
                 },
-                cli::InfoValue::Cwd => env::current_dir()?.to_string_lossy().to_string(),
                 cli::InfoValue::GitDir => repo.git_dir().to_string_lossy().to_string(),
                 cli::InfoValue::ImportCache => {
                     let cache_path =
@@ -751,6 +750,10 @@ fn print_info(info_args: &cli::Info) -> Result<ExitCode> {
 #[tracing::instrument]
 fn dump(dump_args: &cli::Dump) -> Result<()> {
     match dump_args {
+        cli::Dump::Cwd => {
+            println!("{}", env::current_dir()?.to_string_lossy());
+            Ok(())
+        }
         cli::Dump::ImportCache(args) => dump_import_cache(args),
         cli::Dump::GitModules => dump_git_modules(),
     }

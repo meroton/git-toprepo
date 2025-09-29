@@ -212,8 +212,6 @@ pub enum InfoValue {
     ConfigLocation,
     /// The current git-worktree path.
     CurrentWorktree,
-    /// The current working directory.
-    Cwd,
     /// The .git directory path for the current worktree.
     GitDir,
     /// The path to the import cache file.
@@ -225,10 +223,9 @@ pub enum InfoValue {
 }
 
 impl InfoValue {
-    pub const ALL_VARIANTS: [InfoValue; 7] = [
+    pub const ALL_VARIANTS: [InfoValue; 6] = [
         InfoValue::ConfigLocation,
         InfoValue::CurrentWorktree,
-        InfoValue::Cwd,
         InfoValue::GitDir,
         InfoValue::ImportCache,
         InfoValue::MainWorktree,
@@ -241,7 +238,6 @@ impl std::fmt::Display for InfoValue {
         let s = match self {
             InfoValue::ConfigLocation => "config-location",
             InfoValue::CurrentWorktree => "current-worktree",
-            InfoValue::Cwd => "cwd",
             InfoValue::GitDir => "git-dir",
             InfoValue::ImportCache => "import-cache",
             InfoValue::MainWorktree => "main-worktree",
@@ -257,6 +253,8 @@ impl std::fmt::Display for InfoValue {
 // request issue so we can guarantee a stable API for your use-case.
 #[derive(Subcommand, Debug)]
 pub enum Dump {
+    /// Prints the current working directory, after resolving the `-C` argument.
+    Cwd,
     /// Dump the repository import cache as JSON to stdout.
     ImportCache(DumpImportCache),
     /// Dump the git submodule path mappings to remote projects.

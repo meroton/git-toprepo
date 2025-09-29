@@ -55,7 +55,6 @@ fn print_in_monorepo_worktree() {
         r#"
 config-location local:.gittoprepo.toml
 current-worktree {worktree}
-cwd {worktree}
 git-dir {git_dir}
 import-cache {import_cache}
 main-worktree {monorepo}
@@ -79,7 +78,6 @@ version "#,
         r#"
 config-location local:.gittoprepo.toml
 current-worktree {monorepo}
-cwd {monorepo}
 git-dir {git_dir}
 import-cache {import_cache}
 main-worktree {monorepo}
@@ -114,7 +112,6 @@ fn print_in_basic_git_repo() {
         r#"
 config-location{space}
 current-worktree {repo}
-cwd {subdir}
 git-dir {git_dir}
 import-cache {import_cache}
 main-worktree {repo}
@@ -124,7 +121,6 @@ version "#,
             .join(".git/toprepo/import-cache.bincode")
             .to_string_lossy(),
         repo = temp_dir.to_string_lossy(),
-        subdir = subdir.to_string_lossy(),
     );
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&subdir)
@@ -139,10 +135,10 @@ version "#,
     cargo_bin_git_toprepo_for_testing()
         .arg("-C")
         .arg(&subdir)
-        .args(["info", "cwd"])
+        .args(["info", "git-dir"])
         .assert()
         .success()
-        .stdout(subdir.to_string_lossy().to_string() + "\n")
+        .stdout(temp_dir.join(".git").to_string_lossy().to_string() + "\n")
         .stderr("");
 }
 
@@ -165,7 +161,7 @@ fn flag_is_emulated_monorepo() {
     // --is-emulated-monorepo and a value should fail.
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
-        .args(["info", "--is-emulated-monorepo", "cwd"])
+        .args(["info", "--is-emulated-monorepo", "git-dir"])
         .assert()
         .code(2)
         .stdout("")
