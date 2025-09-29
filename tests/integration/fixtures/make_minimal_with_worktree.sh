@@ -11,5 +11,5 @@ EOF
 git -C mono config --local toprepo.config local:.gittoprepo.toml
 
 # Cannot create a worktree in the cache because it includes an absolute path
-# that does no exist when the caching is done.
+# that does not exist when the caching is done.
 # git -C mono worktree add ../worktree
