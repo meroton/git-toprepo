@@ -20,9 +20,10 @@ Download a prebuilt binary from the [release page].
 
 ## Getting started
 
-`git toprepo init <repository> [<directory>]` will clone `repository` into
+`git toprepo clone <repository> [<directory>]` will clone `repository` into
 `directory`, replaces the submodule pointers with the actual content in the
-repository history.
+repository history. If a `.gittoprepo.toml` configuration file is missing,
+use `git toprepo config bootstrap` afterwards to create one.
 
 `git toprepo fetch [<remote>]` fetches from a `remote` and performs the
 submodule expansion.
@@ -139,17 +140,18 @@ args = []
 
 ## Git configuration
 
-A strong recommendation is to keep the same branch names the same in all involved
+A strong recommendation is to use the same branch names in all involved
 repositories. The fetch code will work with any branch names,
 but it quickly becomes very confusing which branch is which,
-and the regular git push syntax with the remote branch
-does not work well with different branches in different submodules.
+and `git-toprepo push` currently assume that the same branch name
+is used in all repositories. If you do have a mix of branch names,
+use `git-toprepo push --dry-run` and push manually to the correct branches.
 
 ### Gerrit Code Review
 
 The following steps are required to operate a git-toprepo emulated monorepo.
 
-* Create a toprepo: with the example name "my-only-toprepo".
+* Create a toprepo, in the example called "my-only-toprepo".
 * Enable [`config.submitWholeTopic`] to allow [submitting changes across
   repositories by using topics].
 * Updating the project configuration, e.g. in
