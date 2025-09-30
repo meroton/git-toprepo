@@ -140,10 +140,10 @@ args = []
 
 ## Git configuration
 
-A strong recommendation is to use the same branch names in all involved
+A strong recommendation is to use the same branch name in all involved
 repositories. The fetch code will work with any branch names,
 but it quickly becomes very confusing which branch is which,
-and `git-toprepo push` currently assume that the same branch name
+and `git-toprepo push` currently assumes that the same branch name
 is used in all repositories. If you do have a mix of branch names,
 use `git-toprepo push --dry-run` and push manually to the correct branches.
 
