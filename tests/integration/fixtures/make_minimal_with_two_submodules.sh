@@ -37,6 +37,7 @@ git -C top add .gittoprepo.toml
 subx_rev_1=$(commit subx "x-main-1")
 suby_rev_1=$(commit suby "y-main-1")
 
+commit top "init"
 git -C top -c protocol.file.allow=always submodule add --force ../subx/ subx
 git -C top -c protocol.file.allow=always submodule add --force ../suby/ suby
 git -C top submodule deinit -f subx suby
