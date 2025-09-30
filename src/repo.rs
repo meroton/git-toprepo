@@ -315,7 +315,7 @@ Initial empty git-toprepo configuration
             &gix_repo,
             Some(&config.checksum),
         )
-        .with_context(|| format!("Loading cache from {}", gix_repo.git_dir().display()))?
+        .with_context(|| format!("Loading cache from {}", gix_repo.common_dir().display()))?
         .unpack()?;
 
         Ok(Self {
@@ -337,7 +337,7 @@ Initial empty git-toprepo configuration
 
         // Save effective config with ledger mutations
         const EFFECTIVE_TOPREPO_CONFIG: &str = "toprepo/last-effective-git-toprepo.toml";
-        let config_path = self.gix_repo.git_dir().join(EFFECTIVE_TOPREPO_CONFIG);
+        let config_path = self.gix_repo.common_dir().join(EFFECTIVE_TOPREPO_CONFIG);
         let updated_config = GitTopRepoConfig {
             checksum: self.config.checksum.clone(),
             fetch: self.config.fetch.clone(),

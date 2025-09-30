@@ -832,7 +832,7 @@ where
     let mut repo = discover_configured_repo_current_dir()?;
 
     if let Some(logger) = logger {
-        logger.write_to_git_dir(repo.gix_repo.git_dir())?;
+        logger.write_to_git_dir(repo.gix_repo.common_dir())?;
     }
 
     // Run the operation.

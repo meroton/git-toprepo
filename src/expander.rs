@@ -2096,7 +2096,7 @@ pub fn expand_submodule_ref_onto_head(
 
 /// Reads the monorepo refs that was the result of the last submodule expansion.
 fn read_monorepo_refs_log(repo: &gix::Repository) -> Result<Vec<FullName>> {
-    let refs_path = repo.git_dir().join("toprepo/mono-refs-ok-to-remove");
+    let refs_path = repo.common_dir().join("toprepo/mono-refs-ok-to-remove");
     if !refs_path.exists() {
         return Ok(Vec::new());
     }
@@ -2117,7 +2117,7 @@ fn read_monorepo_refs_log(repo: &gix::Repository) -> Result<Vec<FullName>> {
 
 /// Writes the monorepo refs that have resulted from the submodule expansion.
 fn write_monorepo_refs_log(repo: &gix::Repository, monorepo_refs: &[&FullName]) -> Result<()> {
-    let refs_path = repo.git_dir().join("toprepo/mono-refs-ok-to-remove");
+    let refs_path = repo.common_dir().join("toprepo/mono-refs-ok-to-remove");
     if let Some(parent) = refs_path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create {}", parent.display()))?;
