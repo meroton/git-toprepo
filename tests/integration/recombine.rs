@@ -496,17 +496,31 @@ fn print_updates() {
     );
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
+    let top_head_rev = "9c6fda5";
+    let mono_head_rev = "9ddc65e";
+
     cargo_bin_git_toprepo_for_testing()
         .arg("clone")
         .arg(&toprepo)
         .arg(&monorepo)
         .assert()
         .success()
-        .stdout(
-            " * [new] e1f32c7      -> origin/HEAD
- * [new] e1f32c7      -> origin/main
-",
-        );
+        .stdout(format!(
+            " * [new] {mono_head_rev}      -> origin/HEAD
+ * [new] {mono_head_rev}      -> origin/main
+"
+        ));
+    git_command_for_testing(&toprepo)
+        .args(["rev-parse", "HEAD"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with(top_head_rev));
+    git_command_for_testing(&monorepo)
+        .args(["rev-parse", "HEAD"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with(mono_head_rev));
+
     git_command_for_testing(&monorepo)
         .args([
             "symbolic-ref",
@@ -535,7 +549,7 @@ fn print_updates() {
         .args([
             "update-ref",
             "refs/namespaces/top/refs/remotes/origin/other",
-            "d849346",
+            top_head_rev,
         ])
         .assert()
         .success();
@@ -543,7 +557,7 @@ fn print_updates() {
         .args([
             "update-ref",
             "refs/namespaces/top/refs/tags/v1.0",
-            "d849346",
+            top_head_rev,
         ])
         .assert()
         .success();
@@ -551,7 +565,7 @@ fn print_updates() {
         .args([
             "update-ref",
             "refs/namespaces/top/refs/tags/v2.0",
-            "d849346",
+            top_head_rev,
         ])
         .assert()
         .success();
@@ -563,14 +577,13 @@ fn print_updates() {
         .success()
         .stderr(predicate::str::contains("WARN: Skipping symbolic ref refs/namespaces/top/refs/symbolic/outside-top that points outside the top repo, to refs/heads/main"))
         .stderr(predicate::function(|s: &str| s.matches("WARN:").count() == 1))
-        .stdout(&"
- * [new] e1f32c7              -> origin/other
+        .stdout(format!(" * [new] {mono_head_rev}              -> origin/other
  * [new] link:refs/heads/main -> refs/symbolic/good
- * [new tag] e1f32c7          -> v1.0
- * [new tag] e1f32c7          -> v2.0
- = [up to date] e1f32c7       -> origin/HEAD
- - [deleted] e1f32c7          -> origin/main
-"[1..]);
+ * [new tag] {mono_head_rev}          -> v1.0
+ * [new tag] {mono_head_rev}          -> v2.0
+ = [up to date] {mono_head_rev}       -> origin/HEAD
+ - [deleted] {mono_head_rev}          -> origin/main
+"));
 
     // Symbolic refs are never pruned, so delete it manually.
     git_command_for_testing(&monorepo)
@@ -625,12 +638,12 @@ fn print_updates() {
         // `refs/namespaces/top/...` and recombine.
         .stdout(
             &"
- * [new] ce017aa                     -> origin/main
- * [new tag] 2998233                 -> v1.0-nested
- + [forced update] e1f32c7...ce017aa -> origin/HEAD
-   e1f32c7..13e5daa                  -> origin/other
- t [updated tag] e1f32c7..adc9359    -> v1.0
- - [deleted tag] e1f32c7             -> v2.0
+ * [new] cfa5366                     -> origin/main
+ * [new tag] 8bd46b9                 -> v1.0-nested
+ + [forced update] 9ddc65e...cfa5366 -> origin/HEAD
+   9ddc65e..fbfac05                  -> origin/other
+ t [updated tag] 9ddc65e..5feaf42    -> v1.0
+ - [deleted tag] 9ddc65e             -> v2.0
 "[1..],
         );
 }

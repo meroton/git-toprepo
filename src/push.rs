@@ -16,6 +16,7 @@ use crate::repo::ExpandedSubmodule;
 use crate::repo::MonoRepoCommit;
 use crate::repo::MonoRepoCommitId;
 use crate::repo::MonoRepoParent;
+use crate::repo::OriginalSubmodParent;
 use crate::repo::SubmoduleContent;
 use crate::repo::TopRepoCommitId;
 use crate::repo_name::RepoName;
@@ -31,7 +32,9 @@ use gix::refs::FullNameRef;
 use itertools::Itertools;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -220,21 +223,42 @@ fn split_for_push_impl(
                         .join(", "),
                 );
                 let gix_mono_commit = configured_repo.gix_repo.find_commit(*mono_commit_id)?;
-                let mono_parents = exported_mono_commit
-                    .parents
-                    .iter()
-                    .map(|parent_id| {
-                        let mono_parent = monorepo_commits
-                            .get(&MonoRepoCommitId::new(*parent_id))
-                            // Fallback to the newly imported commits.
-                            .or_else(|| imported_mono_commits.get(parent_id))
-                            .cloned()
-                            .with_context(|| {
-                                format!("Unknown mono commit parent {}", parent_id.to_hex())
-                            })?;
-                        Ok(mono_parent)
-                    })
-                    .collect::<Result<Vec<_>>>()?;
+
+                enum SplitParent {
+                    Mono(Rc<MonoRepoCommit>),
+                    OriginalCommit {
+                        repo_name: RepoName,
+                        commit_id: CommitId,
+                    },
+                }
+
+                let mut split_parents = Vec::new();
+                let mut mandatory_repo_names_among_parents = HashSet::new();
+                for parent_id in exported_mono_commit.parents {
+                    if let Some(mono_parent) = monorepo_commits
+                        .get(&MonoRepoCommitId::new(parent_id))
+                        // Fallback to the newly imported commits.
+                        .or_else(|| imported_mono_commits.get(&parent_id))
+                    {
+                        split_parents.push(SplitParent::Mono(mono_parent.clone()));
+                    } else {
+                        // Might be a submodule commit. All subrepos that contain this commit should add it as parent.
+                        let mut submod_found = false;
+                        for (sub_name, subrepo) in &configured_repo.import_cache.repos {
+                            if subrepo.thin_commits.contains_key(&parent_id) {
+                                split_parents.push(SplitParent::OriginalCommit {
+                                    repo_name: sub_name.clone(),
+                                    commit_id: parent_id,
+                                });
+                                mandatory_repo_names_among_parents.insert(sub_name.clone());
+                                submod_found = true;
+                            }
+                        }
+                        if !submod_found {
+                            anyhow::bail!("Unknown mono commit parent {}", parent_id.to_hex());
+                        }
+                    }
+                }
                 if exported_mono_commit.file_changes.is_empty() {
                     // Unknown which repository to push to if there are no file changes at all.
                     anyhow::bail!("Pushing empty commits like {mono_commit_id} is not supported");
@@ -301,13 +325,14 @@ fn split_for_push_impl(
                     }
 
                     let push_branch = format!("{}push", repo_name.to_ref_prefix());
-                    let parents_commit_ids = mono_parents
+                    let parents_commit_ids = split_parents
                         .iter()
-                        .filter_map(|mono_parent| match &repo_name {
-                            RepoName::Top => {
+                        .filter_map(|split_parent| match (split_parent, &repo_name) {
+                            (SplitParent::Mono(mono_parent), RepoName::Top) => {
+                                // Mono parent, check if it has a bump for the current submodule.
                                 bumps.get_top_bump(mono_parent).map(|top_bump| *top_bump)
                             }
-                            RepoName::SubRepo(sub_repo_name) => {
+                            (SplitParent::Mono(mono_parent), RepoName::SubRepo(sub_repo_name)) => {
                                 let bump = bumps.get_some_submodule(
                                     mono_parent,
                                     &abs_sub_path,
@@ -315,6 +340,19 @@ fn split_for_push_impl(
                                 );
                                 log::trace!("Parent submodule {abs_sub_path}: {:?}", bump);
                                 bump.map(|parent_submod| *parent_submod.get_orig_commit_id())
+                            }
+                            (
+                                SplitParent::OriginalCommit {
+                                    repo_name: commit_repo_name,
+                                    commit_id,
+                                },
+                                _,
+                            ) => {
+                                if commit_repo_name == &repo_name {
+                                    Some(*commit_id)
+                                } else {
+                                    None
+                                }
                             }
                         })
                         .unique()
@@ -331,13 +369,14 @@ fn split_for_push_impl(
                     if parents.is_empty() {
                         match repo_name {
                             RepoName::Top => anyhow::bail!(
-                                "Mono commit {mono_commit_id} has no parents with content outside of the submodules, which is impossible"
+                                "Mono commit {mono_commit_id} has no parent in the top repository, which is not supported"
                             ),
                             RepoName::SubRepo(sub_repo_name) => anyhow::bail!(
                                 "Submodule {sub_repo_name} at {abs_sub_path} does not exist as a git-link in any parent of {mono_commit_id}"
                             ),
                         }
                     }
+                    mandatory_repo_names_among_parents.remove(&repo_name);
                     let import_ref = fast_importer.write_commit(&FastImportCommit {
                         branch: <&FullNameRef as TryFrom<_>>::try_from(&push_branch)
                             .expect("valid ref name"),
@@ -376,10 +415,30 @@ fn split_for_push_impl(
                         parents: parents_commit_ids,
                     });
                 }
+                if !mandatory_repo_names_among_parents.is_empty() {
+                    anyhow::bail!(
+                        "Mono commit {mono_commit_id} has original submodule parent commits \
+                        without modifying those submodules, which is not supported: {}",
+                        mandatory_repo_names_among_parents
+                            .iter()
+                            .sorted()
+                            .join(", ")
+                    );
+                }
                 let mono_commit = MonoRepoCommit::new_rc(
-                    mono_parents
+                    split_parents
                         .iter()
-                        .map(|mono_parent| MonoRepoParent::Mono(mono_parent.clone()))
+                        .map(|split_parent| match split_parent {
+                            SplitParent::Mono(mono_parent) => {
+                                MonoRepoParent::Mono(mono_parent.clone())
+                            }
+                            SplitParent::OriginalCommit {
+                                repo_name: _,
+                                commit_id,
+                            } => MonoRepoParent::OriginalSubmod(OriginalSubmodParent {
+                                commit_id: *commit_id,
+                            }),
+                        })
                         .collect(),
                     top_bump,
                     submodule_bumps,

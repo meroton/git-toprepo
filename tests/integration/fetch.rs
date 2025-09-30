@@ -99,6 +99,7 @@ fn download_only_for_needed_commits() {
 100644 blob 73bf371d38ac93f7592bdee317c8ea53fead1c8c\t.gitmodules
 100644 blob ed6ed9e7ce37c1f13f718aeaf54c522610a994c2\t.gittoprepo.toml
 100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tA1-main.txt
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tinit.txt
 160000 commit 0123456789abcdef0123456789abcdef01234567\tsubx
 100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tsuby/y-main-1.txt
 ",
@@ -145,6 +146,7 @@ fn download_only_for_needed_commits() {
 100644 blob 73bf371d38ac93f7592bdee317c8ea53fead1c8c\t.gitmodules
 100644 blob ed6ed9e7ce37c1f13f718aeaf54c522610a994c2\t.gittoprepo.toml
 100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tA1-main.txt
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tinit.txt
 160000 commit 0123456789abcdef0123456789abcdef01234567\tsubx
 100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tsuby/y-main-1.txt
 ",

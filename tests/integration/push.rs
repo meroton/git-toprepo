@@ -378,6 +378,64 @@ To .*
 }
 
 #[test]
+fn original_submodule_commit_as_parent() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let monorepo = temp_dir.join("mono");
+    let toprepo = temp_dir.join("top");
+
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+
+    git_command_for_testing(&monorepo)
+        .args([
+            "commit",
+            "--amend",
+            "-m",
+            "Message in worktree\n\nTopic: work",
+        ])
+        .assert()
+        .success();
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&monorepo)
+        .args([
+            "push",
+            "--jobs=1",
+            "--dry-run",
+            "origin",
+            "HEAD:refs/dry/run",
+        ])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr(
+            predicate::str::is_match(
+                "INFO: Would run git push .*subx/ -o topic=work [0-9a-f]+:refs/dry/run\n",
+            )
+            .unwrap(),
+        )
+        .stderr(
+            predicate::str::is_match(
+                "INFO: Would run git push .*suby/ -o topic=work [0-9a-f]+:refs/dry/run\n",
+            )
+            .unwrap(),
+        )
+        .stderr(
+            predicate::str::is_match(
+                "INFO: Would run git push .*top -o topic=work [0-9a-f]+:refs/dry/run\n",
+            )
+            .unwrap(),
+        )
+        .stderr(predicate::function(|s: &str| {
+            s.matches("INFO: Would run git push").count() == 3
+        }));
+}
+
+#[test]
 fn topic_removed_from_commit_message() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
