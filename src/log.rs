@@ -353,7 +353,7 @@ fn log_level_colored_str(level: log::Level) -> colored::ColoredString {
         log::Level::Warn => s.yellow().bold(),
         log::Level::Info => s.green(),
         log::Level::Debug => s.blue(),
-        log::Level::Trace => s.into(),
+        log::Level::Trace => s.magenta(),
     }
 }
 
