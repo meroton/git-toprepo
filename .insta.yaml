@@ -1,0 +1,5 @@
+behavior:
+  # Metadata like the expression have to match.
+  require_full_match: true
+  # Always write the snapshot.
+  update: "always"
