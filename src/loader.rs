@@ -57,6 +57,10 @@ pub struct SubRepoLedger {
     /// automatically been added to `suprepos`. This is only used to limit
     /// warning and log statements.
     pub missing_subrepos: HashSet<SubRepoName>,
+    /// List of commits that have been asked for and kept as submodules.
+    pub commits_kept_as_submodule: HashMap<SubRepoName, HashSet<CommitId>>,
+    /// List of commits that were not loaded.
+    pub ignored_commits: HashMap<SubRepoName, HashSet<CommitId>>,
 }
 
 impl SubRepoLedger {
@@ -71,11 +75,84 @@ impl SubRepoLedger {
         }
     }
 
+    pub(crate) fn mark_commit_as_ignored(
+        &mut self,
+        sub_repo_name: &SubRepoName,
+        commit_id: &CommitId,
+    ) {
+        log::error!("FRME mark_commit_as_ignored {sub_repo_name} {commit_id}");
+        self.ignored_commits
+            .entry(sub_repo_name.clone())
+            .or_default()
+            .insert(*commit_id);
+    }
+
     /// Check if a commit in a submodule should be kept as a submodule.
-    pub fn skip_expanding(&self, sub_repo_name: &SubRepoName, commit_id: &CommitId) -> bool {
-        self.subrepos
-            .get(sub_repo_name)
-            .is_some_and(|repo_config| repo_config.skip_expanding.contains(commit_id))
+    pub(crate) fn keep_commit_as_submodule(
+        &mut self,
+        sub_repo_name: &SubRepoName,
+        commit_id: &CommitId,
+    ) -> bool {
+        if let Some(repo_config) = self.subrepos.get(sub_repo_name)
+            && (repo_config.ignore_commits.contains(commit_id)
+                || repo_config.missing_commits.contains(commit_id))
+        {
+            self.commits_kept_as_submodule
+                .entry(sub_repo_name.clone())
+                .or_default()
+                .insert(*commit_id);
+            return true;
+        }
+        false
+    }
+
+    // Warn about any commits that were configured to be ignored but never
+    // referenced and about any commits that were configured as missing but does
+    // actually exist. In both these cases, they should be removed from the
+    // configuration.
+    pub(crate) fn validate_missing_and_ignored_commits_lists(
+        &self,
+        repo_states: &crate::repo::RepoStates,
+    ) {
+        let empty_hash_set = HashSet::new();
+        for (sub_repo_name, repo_config) in &self.subrepos {
+            let Some(loaded_commits) = repo_states
+                .get(&RepoName::SubRepo(sub_repo_name.clone()))
+                .map(|repo_data| &repo_data.thin_commits)
+            else {
+                // If the repository was not loaded, it is impossible to say if a commit is missing or not.
+                continue;
+            };
+            let actually_skipped_commits = self
+                .commits_kept_as_submodule
+                .get(sub_repo_name)
+                .unwrap_or(&empty_hash_set);
+            // missing_commits
+            for missing_commit in repo_config.missing_commits.iter().sorted() {
+                if loaded_commits.contains_key(missing_commit) {
+                    log::warn!(
+                        "Commit {missing_commit} in {sub_repo_name} is configured as missing but does exist",
+                    );
+                } else if !actually_skipped_commits.contains(missing_commit) {
+                    log::warn!(
+                        "Commit {missing_commit} in {sub_repo_name} is configured as missing but was never referenced from any super repo",
+                    );
+                }
+            }
+            // ignore_commits
+            let actually_ignored_commits = self
+                .ignored_commits
+                .get(sub_repo_name)
+                .unwrap_or(&empty_hash_set);
+            let bad_ignores = repo_config
+                .ignore_commits
+                .difference(actually_ignored_commits);
+            for commit_id in bad_ignores.sorted() {
+                log::warn!(
+                    "Commit {commit_id} in {sub_repo_name} is configured to be ignored but does not exist"
+                );
+            }
+        }
     }
 
     /// Gets a `SubRepoConfig` based on a URL using exact matching. If an URL is
@@ -433,6 +510,12 @@ impl<'a> CommitLoader<'a> {
                 .into_iter()
                 .map(|(repo_name, repo_fetcher)| (repo_name, repo_fetcher.repo_data)),
         );
+        if result.is_ok() {
+            // Warn about any commits that were configured to be ignored but
+            // don't exist.
+            self.ledger
+                .validate_missing_and_ignored_commits_lists(self.cached_repo_states);
+        }
         log::info!(
             "Finished importing commits in {:.2?}",
             self.import_progress.elapsed()
@@ -835,6 +918,15 @@ impl<'a> CommitLoader<'a> {
         // pushing into the todo stack.
         todo.sort_by_key(|c| std::cmp::Reverse(c.depth));
         let result = (|| {
+            let ignore_commits = match repo_name {
+                RepoName::Top => HashSet::new(),
+                RepoName::SubRepo(sub_repo_name) => self
+                    .ledger
+                    .subrepos
+                    .get(sub_repo_name)
+                    .map(|config| config.ignore_commits.clone())
+                    .unwrap_or_default(),
+            };
             while let Some(thin_commit) = todo.last().cloned() {
                 // Process parents first.
                 let mut missing_parents = false;
@@ -853,7 +945,20 @@ impl<'a> CommitLoader<'a> {
                     continue;
                 }
                 // All parents have been process previously.
-                let thin_commit = todo.pop().expect("at least one element exists");
+                let mut thin_commit = todo.pop().expect("at least one element exists");
+                if ignore_commits.contains(&thin_commit.commit_id) {
+                    let RepoName::SubRepo(sub_repo_name) = repo_name else {
+                        panic!("expected SubRepoName");
+                    };
+                    self.ledger
+                        .mark_commit_as_ignored(sub_repo_name, &thin_commit.commit_id);
+                    if let ThinCommit::Full(full_thin_commit) = thin_commit.as_ref() {
+                        thin_commit = ThinCommit::new_rc_without_content(
+                            full_thin_commit.commit_id,
+                            full_thin_commit.parents.clone(),
+                        );
+                    }
+                }
                 let mut context = format!("Commit {} in {}", thin_commit.commit_id, repo_name);
                 let commit_log_level = if let Some(ref_names) =
                     cached_commits_to_load.get(&thin_commit.commit_id)
@@ -890,7 +995,7 @@ impl<'a> CommitLoader<'a> {
                             && let Some(submod_repo_name) = &bump.repo_name
                             && !self
                                 .ledger
-                                .skip_expanding(submod_repo_name, &bump.commit_id)
+                                .keep_commit_as_submodule(submod_repo_name, &bump.commit_id)
                         {
                             needed_commits.push(NeededCommit {
                                 repo_name: submod_repo_name.clone(),
@@ -945,6 +1050,7 @@ impl<'a> CommitLoader<'a> {
         let repo_data = &mut self.fetch_states.get_mut(repo_name).unwrap().repo_data;
         let (thin_commit, updated_submodule_commits) = Self::export_thin_commit(
             repo_data,
+            repo_name,
             exported_commit,
             tree_id,
             self.ledger,
@@ -1130,6 +1236,7 @@ impl<'a> CommitLoader<'a> {
     /// Converts a `FastExportCommit` to a `ThinCommit`.
     fn export_thin_commit(
         repo_storage: &RepoData,
+        repo_name: &RepoName,
         exported_commit: FastExportCommit,
         tree_id: TreeId,
         ledger: &mut SubRepoLedger,
@@ -1137,14 +1244,6 @@ impl<'a> CommitLoader<'a> {
         commit_log_level: CommitLogLevel,
     ) -> Result<(Rc<ThinCommit>, Vec<NeededCommit>)> {
         let commit_id: CommitId = exported_commit.original_id;
-        if tree_id.is_empty_tree() {
-            log::log!(
-                commit_log_level.level,
-                "With git-submodule, this empty commit results in a directory that is empty, \
-                but with git-toprepo it will disappear. To avoid this problem, commit a file.",
-            );
-        }
-
         let thin_parents = exported_commit
             .parents
             .iter()
@@ -1158,6 +1257,26 @@ impl<'a> CommitLoader<'a> {
                     .cloned()
             })
             .collect::<Result<Vec<_>>>()?;
+
+        // First check if this commit is configured to be ignored, before posting any warning.
+        if let RepoName::SubRepo(sub_repo_name) = repo_name {
+            let config = ledger.subrepos.get(sub_repo_name).unwrap();
+            if config.ignore_commits.contains(&commit_id) {
+                ledger.mark_commit_as_ignored(sub_repo_name, &commit_id);
+                return Ok((
+                    ThinCommit::new_rc_without_content(commit_id, thin_parents),
+                    Vec::new(),
+                ));
+            }
+        }
+        if tree_id.is_empty_tree() {
+            log::log!(
+                commit_log_level.level,
+                "With git-submodule, this empty commit results in a directory that is empty, \
+                but with git-toprepo it will disappear. To avoid this problem, commit a file.",
+            );
+        }
+
         let mut submodule_bumps = BTreeMap::new();
 
         // Check for an updated .gitmodules file.
@@ -1196,7 +1315,7 @@ impl<'a> CommitLoader<'a> {
                             commit_log_level,
                         );
                         if let Some(submod_repo_name) = &submod_repo_name
-                            && !ledger.skip_expanding(submod_repo_name, &submod_commit_id)
+                            && !ledger.keep_commit_as_submodule(submod_repo_name, &submod_commit_id)
                         {
                             new_submodule_commits.push(NeededCommit {
                                 repo_name: submod_repo_name.clone(),

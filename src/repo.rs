@@ -310,6 +310,8 @@ Initial empty git-toprepo configuration
         let ledger = SubRepoLedger {
             subrepos: config.subrepos.clone(),
             missing_subrepos: std::collections::HashSet::new(),
+            commits_kept_as_submodule: std::collections::HashMap::new(),
+            ignored_commits: std::collections::HashMap::new(),
         };
         let import_cache = crate::import_cache_serde::SerdeImportCache::load_from_git_dir(
             &gix_repo,

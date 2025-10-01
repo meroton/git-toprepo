@@ -353,10 +353,14 @@ pub struct SubRepoConfig {
     #[serde(default = "return_true")]
     #[serde(skip_serializing_if = "is_true")]
     pub enabled: bool,
+    /// Commits that should not be expanded but rather kept as submodules
+    /// because they are permanently missing from the repository.
+    #[serde_as(as = "serde_with::IfIsHumanReadable<OrderedHashSet<serde_with::DisplayFromStr>>")]
+    pub missing_commits: HashSet<CommitId>,
     /// Commits that should not be expanded but rather kept as submodules. These
     /// don't need to be fetched from the remote.
     #[serde_as(as = "serde_with::IfIsHumanReadable<OrderedHashSet<serde_with::DisplayFromStr>>")]
-    pub skip_expanding: HashSet<CommitId>,
+    pub ignore_commits: HashSet<CommitId>,
 }
 
 fn return_true() -> bool {
