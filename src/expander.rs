@@ -298,57 +298,63 @@ impl Expander<'_> {
         for (rel_sub_path, bump) in commit.submodule_bumps.iter() {
             let abs_sub_path = path.join(rel_sub_path);
             let submod_update = match bump {
-                ThinSubmodule::AddedOrModified(bump) => {
-                    let expanded_submod = if let Some(submod_repo_name) = &bump.repo_name {
-                        let repo_name = RepoName::SubRepo(submod_repo_name.clone());
-                        if self.ledger.is_enabled(&repo_name) {
-                            let subconfig = self
-                                .ledger
-                                .subrepos
-                                .get(submod_repo_name)
-                                .expect("submod name exists");
-                            if subconfig.skip_expanding.contains(&bump.commit_id) {
-                                ExpandedSubmodule::KeptAsSubmodule(bump.commit_id)
-                            } else {
-                                let submod_storage =
-                                    self.import_cache.repos.get(&repo_name).unwrap();
-                                if let Some(submod_commit) =
-                                    submod_storage.thin_commits.get(&bump.commit_id)
-                                {
-                                    tree_updates
-                                        .push((abs_sub_path.clone(), submod_commit.tree_id));
-                                    self.get_recursive_submodule_bumps(
-                                        &abs_sub_path,
-                                        submod_commit,
-                                        submod_updates,
-                                        tree_updates,
-                                    );
-                                    // TODO: 2025-09-22 This might be a regression, but the caller
-                                    // is not interested in that information anyway.
-                                    ExpandedSubmodule::Expanded(SubmoduleContent {
-                                        repo_name: submod_repo_name.clone(),
-                                        orig_commit_id: bump.commit_id,
-                                    })
-                                } else {
-                                    ExpandedSubmodule::CommitMissingInSubRepo(SubmoduleContent {
-                                        repo_name: submod_repo_name.clone(),
-                                        orig_commit_id: bump.commit_id,
-                                    })
-                                }
-                            }
-                        } else {
-                            // Repository disabled by config, keep the submodule.
-                            ExpandedSubmodule::KeptAsSubmodule(bump.commit_id)
-                        }
-                    } else {
-                        ExpandedSubmodule::UnknownSubmodule(bump.commit_id)
-                    };
-                    ExpandedOrRemovedSubmodule::Expanded(expanded_submod)
-                }
+                ThinSubmodule::AddedOrModified(bump) => ExpandedOrRemovedSubmodule::Expanded(
+                    self.get_recursive_expanded_submodule_bump(
+                        &abs_sub_path,
+                        bump,
+                        submod_updates,
+                        tree_updates,
+                    ),
+                ),
                 ThinSubmodule::Removed => ExpandedOrRemovedSubmodule::Removed,
             };
             submod_updates.insert(abs_sub_path.clone(), submod_update);
         }
+    }
+
+    fn get_recursive_expanded_submodule_bump(
+        &self,
+        abs_sub_path: &GitPath,
+        bump: &ThinSubmoduleContent,
+        submod_updates: &mut HashMap<GitPath, ExpandedOrRemovedSubmodule>,
+        tree_updates: &mut Vec<(GitPath, TreeId)>,
+    ) -> ExpandedSubmodule {
+        let Some(submod_repo_name) = &bump.repo_name else {
+            return ExpandedSubmodule::UnknownSubmodule(bump.commit_id);
+        };
+        let repo_name = RepoName::SubRepo(submod_repo_name.clone());
+        if !self.ledger.is_enabled(&repo_name) {
+            // Repository disabled by config, keep the submodule.
+            return ExpandedSubmodule::KeptAsSubmodule(bump.commit_id);
+        }
+        let subconfig = self
+            .ledger
+            .subrepos
+            .get(submod_repo_name)
+            .expect("submod name exists");
+        if subconfig.skip_expanding.contains(&bump.commit_id) {
+            return ExpandedSubmodule::KeptAsSubmodule(bump.commit_id);
+        }
+        let submod_storage = self.import_cache.repos.get(&repo_name).unwrap();
+        let Some(submod_commit) = submod_storage.thin_commits.get(&bump.commit_id) else {
+            return ExpandedSubmodule::CommitMissingInSubRepo(SubmoduleContent {
+                repo_name: submod_repo_name.clone(),
+                orig_commit_id: bump.commit_id,
+            });
+        };
+        tree_updates.push((abs_sub_path.clone(), submod_commit.tree_id));
+        self.get_recursive_submodule_bumps(
+            abs_sub_path,
+            submod_commit,
+            submod_updates,
+            tree_updates,
+        );
+        // TODO: 2025-09-22 This might be a regression, but the caller is not
+        // interested in that information anyway.
+        ExpandedSubmodule::Expanded(SubmoduleContent {
+            repo_name: submod_repo_name.clone(),
+            orig_commit_id: bump.commit_id,
+        })
     }
 
     fn emit_mono_commit(
@@ -523,81 +529,14 @@ impl Expander<'_> {
         for (rel_sub_path, submod) in submodule_bumps.iter() {
             let _expanded_bump = match submod {
                 ThinSubmodule::AddedOrModified(submod) => {
-                    let expanded_submod = if let Some(submod_repo_name) = &submod.repo_name {
-                        let submod_commit_id = submod.commit_id;
-                        let submod_content = SubmoduleContent {
-                            repo_name: submod_repo_name.clone(),
-                            orig_commit_id: submod.commit_id,
-                        };
-                        // The submodule is known.
-                        if !self
-                            .ledger
-                            .subrepos
-                            .get(submod_repo_name)
-                            .is_none_or(|repo_config| repo_config.enabled)
-                        {
-                            // Repository disabled by config, skipping to keep the submodule.
-                            // No need to log a warning because it is part of the user configuration.
-                            ExpandedSubmodule::KeptAsSubmodule(submod_commit_id)
-                        } else if let Some(submod_storage) = self
-                            .import_cache
-                            .repos
-                            .get(&RepoName::SubRepo(submod_repo_name.clone()))
-                        {
-                            if let Some(submod_commit) =
-                                submod_storage.thin_commits.get(&submod_commit_id)
-                            {
-                                // Drop the borrow of self.
-                                let submod_commit = submod_commit.clone();
-
-                                let abs_sub_path = abs_super_path.join(rel_sub_path);
-                                // Check for a regressing or unrelated submodule bump.
-                                let non_descendants = self.bumps.non_descendants_for_all_parents(
-                                    mono_parents,
-                                    &abs_sub_path,
-                                    submod_repo_name,
-                                    &submod_commit,
-                                    submod_storage,
-                                );
-                                if non_descendants.is_empty() {
-                                    extra_parents_due_to_submods.extend(
-                                        self.expand_parents_of_submodule(
-                                            mono_parents,
-                                            abs_super_path,
-                                            rel_sub_path,
-                                            submod_repo_name,
-                                            &submod_commit,
-                                        )?,
-                                    );
-                                    ExpandedSubmodule::Expanded(submod_content)
-                                } else {
-                                    // Not descendant.
-                                    let regressing_parent_vec = regressing_commit
-                                        .take()
-                                        .map(|c: Rc<MonoRepoCommit>| vec![c.clone()]);
-                                    let mono_commit = self
-                                        .expand_parent_for_regressing_submodule_bump(
-                                            regressing_parent_vec.as_ref().unwrap_or(mono_parents),
-                                            &RepoName::SubRepo(submod_repo_name.clone()),
-                                            &abs_sub_path,
-                                            &submod_commit,
-                                            non_descendants,
-                                        )?;
-                                    regressing_commit.replace(mono_commit);
-                                    ExpandedSubmodule::RegressedNotFullyImplemented(submod_content)
-                                }
-                            } else {
-                                ExpandedSubmodule::CommitMissingInSubRepo(submod_content)
-                            }
-                        } else {
-                            // No commits loaded for the submodule.
-                            ExpandedSubmodule::CommitMissingInSubRepo(submod_content)
-                        }
-                    } else {
-                        // A warning has already been logged when loading the
-                        // super commit.
-                        ExpandedSubmodule::UnknownSubmodule(submod.commit_id)
-                    };
+                    let (expanded_submod, extra_parents) = self.expand_inner_submodule(
+                        mono_parents,
+                        submod,
+                        abs_super_path,
+                        rel_sub_path,
+                        &mut regressing_commit,
+                    )?;
+                    extra_parents_due_to_submods.extend(extra_parents);
                     ExpandedOrRemovedSubmodule::Expanded(expanded_submod)
                 }
                 ThinSubmodule::Removed => ExpandedOrRemovedSubmodule::Removed,
@@ -610,6 +549,97 @@ impl Expander<'_> {
             extra_parents_due_to_submods.push(MonoRepoParent::Mono(regressing_commit));
         }
         Ok(extra_parents_due_to_submods)
+    }
+
+    fn expand_inner_submodule(
+        &mut self,
+        mono_parents: &Vec<Rc<MonoRepoCommit>>,
+        submod: &ThinSubmoduleContent,
+        abs_super_path: &GitPath,
+        rel_sub_path: &GitPath,
+        regressing_commit: &mut Option<Rc<MonoRepoCommit>>,
+    ) -> Result<(ExpandedSubmodule, Vec<MonoRepoParent>)> {
+        let Some(submod_repo_name) = &submod.repo_name else {
+            // A warning has already been logged when loading the
+            // super commit.
+            return Ok((
+                ExpandedSubmodule::UnknownSubmodule(submod.commit_id),
+                vec![],
+            ));
+        };
+        let submod_commit_id = submod.commit_id;
+        let submod_content = SubmoduleContent {
+            repo_name: submod_repo_name.clone(),
+            orig_commit_id: submod.commit_id,
+        };
+        // The submodule is known.
+        if !self
+            .ledger
+            .subrepos
+            .get(submod_repo_name)
+            .is_none_or(|repo_config| repo_config.enabled)
+        {
+            // Repository disabled by config, skipping to keep the submodule.
+            // No need to log a warning because it is part of the user configuration.
+            return Ok((ExpandedSubmodule::KeptAsSubmodule(submod_commit_id), vec![]));
+        }
+        let Some(submod_storage) = self
+            .import_cache
+            .repos
+            .get(&RepoName::SubRepo(submod_repo_name.clone()))
+        else {
+            // No commits loaded for the submodule.
+            return Ok((
+                ExpandedSubmodule::CommitMissingInSubRepo(submod_content),
+                vec![],
+            ));
+        };
+        let Some(submod_commit) = submod_storage.thin_commits.get(&submod_commit_id) else {
+            return Ok((
+                ExpandedSubmodule::CommitMissingInSubRepo(submod_content),
+                vec![],
+            ));
+        };
+        // Drop the borrow of self.
+        let submod_commit = submod_commit.clone();
+
+        let abs_sub_path = abs_super_path.join(rel_sub_path);
+        // Check for a regressing or unrelated submodule bump.
+        let non_descendants = self.bumps.non_descendants_for_all_parents(
+            mono_parents,
+            &abs_sub_path,
+            submod_repo_name,
+            &submod_commit,
+            submod_storage,
+        );
+        if !non_descendants.is_empty() {
+            // Not descendant.
+            let regressing_parent_vec = regressing_commit
+                .take()
+                .map(|c: Rc<MonoRepoCommit>| vec![c.clone()]);
+            let mono_commit = self.expand_parent_for_regressing_submodule_bump(
+                regressing_parent_vec.as_ref().unwrap_or(mono_parents),
+                &RepoName::SubRepo(submod_repo_name.clone()),
+                &abs_sub_path,
+                &submod_commit,
+                non_descendants,
+            )?;
+            regressing_commit.replace(mono_commit);
+            return Ok((
+                ExpandedSubmodule::RegressedNotFullyImplemented(submod_content),
+                vec![],
+            ));
+        }
+
+        // The normal case: Expand the parents of the submodule.
+        let extra_parents = self.expand_parents_of_submodule(
+            mono_parents,
+            abs_super_path,
+            rel_sub_path,
+            submod_repo_name,
+            &submod_commit,
+        )?;
+        Ok((ExpandedSubmodule::Expanded(submod_content), extra_parents))
     }
 
     fn expand_parents_of_submodule(
