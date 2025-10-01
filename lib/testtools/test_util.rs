@@ -1,3 +1,4 @@
+use bstr::ByteSlice as _;
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::ops::Deref;
@@ -59,6 +60,33 @@ fn apply_git_env(command: &mut assert_cmd::Command) {
         .env("GIT_COMMITTER_EMAIL", "c@no.example")
         .env("GIT_COMMITTER_DATE", "2023-06-07T08:09:10Z+01:00")
         .env("GIT_CONFIG_COUNT", "0");
+}
+
+pub fn git_rev_parse(repo: impl AsRef<std::ffi::OsStr>, reference: &str) -> String {
+    git_command_for_testing(repo)
+        .args(["rev-parse", reference])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .to_str()
+        .unwrap()
+        // Would like to only trim the trailing newline, but trim_end() is
+        // close enough.
+        .trim_end()
+        .to_owned()
+}
+
+/// Sets the submodule pointer without checking out the submodule.
+pub fn git_update_submodule_in_index(repo: impl AsRef<std::ffi::OsStr>, path: &str, commit: &str) {
+    git_command_for_testing(repo)
+        .args([
+            "update-index",
+            "--cacheinfo",
+            &format!("160000,{commit},{path}"),
+        ])
+        .assert()
+        .success();
 }
 
 pub enum MaybePermanentTempDir {

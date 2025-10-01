@@ -240,20 +240,6 @@ pub fn git_config_get(repo: &Path, key: &str) -> anyhow::Result<Option<String>> 
     }
 }
 
-/// Sets the submodule pointer without checking out the submodule.
-pub fn git_update_submodule_in_index(repo: &Path, path: &GitPath, commit: &CommitId) -> Result<()> {
-    git_command(repo)
-        .args([
-            "update-index",
-            "--cacheinfo",
-            &format!("160000,{commit},{path}"),
-        ])
-        .trace_command(crate::command_span!("git update-index"))
-        .check_success_with_stderr()
-        .with_context(|| format!("Failed to set submodule {path}={commit} in {repo:?}"))
-        .map(|_| ())
-}
-
 /// Walks through the history from the tips until commits that are already
 /// exported are found. Those commits can be used as negative filter for
 /// which commits to export.

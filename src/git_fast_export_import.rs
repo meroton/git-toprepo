@@ -852,78 +852,49 @@ impl HasherExt for gix::hash::Hasher {
 mod tests {
     use super::*;
     use crate::git::CommitId;
-    use crate::git::GitPath;
-    use crate::util::NewlineTrimmer as _;
-    use assert_cmd::assert::OutputAssertExt as _;
     use bstr::ByteSlice;
+    use git_toprepo_testtools::test_util::git_command_for_testing;
+    use git_toprepo_testtools::test_util::git_rev_parse;
+    use git_toprepo_testtools::test_util::git_update_submodule_in_index;
     use std::borrow::Borrow as _;
     use std::path::Path;
     use std::path::PathBuf;
     use std::sync::Arc;
 
     /// Copied from `tests/fixtures/toprepo.rs`.
-    fn commit_env() -> HashMap<String, String> {
-        HashMap::from(
-            [
-                ("GIT_AUTHOR_NAME", "A Name"),
-                ("GIT_AUTHOR_EMAIL", "a@no.example"),
-                ("GIT_AUTHOR_DATE", "2023-01-02T03:04:05Z+01:00"),
-                ("GIT_COMMITTER_NAME", "C Name"),
-                ("GIT_COMMITTER_EMAIL", "c@no.example"),
-                ("GIT_COMMITTER_DATE", "2023-06-07T08:09:10Z+01:00"),
-            ]
-            .map(|(k, v)| (k.into(), v.into())),
-        )
-    }
-
-    /// Copied from `tests/fixtures/toprepo.rs`.
-    fn commit(repo: &Path, env: &HashMap<String, String>, message: &str) -> CommitId {
-        git_command(repo)
+    fn commit(repo: &Path, message: &str) -> CommitId {
+        git_command_for_testing(repo)
             .args(["commit", "--allow-empty", "-m", message])
-            .envs(env)
             .assert()
             .success();
-        let cmd = git_command(repo)
-            .args(["rev-parse", "HEAD"])
-            .envs(env)
-            .assert()
-            .success();
-        let commit_id_hex = cmd
-            .get_output()
-            .stdout
-            .to_str()
-            .unwrap()
-            .trim_newline_suffix();
+        let commit_id_hex = git_rev_parse(repo, "HEAD");
         CommitId::from_hex(commit_id_hex.as_bytes()).unwrap()
     }
 
     /// The example repository is from `tests/fixtures/toprepo.rs`. Sets up the
     /// repo structure and returns the top repo path.
     fn setup_example_repo(path: &Path) -> PathBuf {
-        let env = commit_env();
         let top_repo = path.join("top");
         let sub_repo = path.join("sub");
 
         std::fs::create_dir_all(&top_repo).unwrap();
         std::fs::create_dir_all(&sub_repo).unwrap();
 
-        git_command(&top_repo)
+        git_command_for_testing(&top_repo)
             .args(["init", "--quiet", "--initial-branch", "main"])
-            .envs(&env)
             .assert()
             .success();
 
-        git_command(&sub_repo)
+        git_command_for_testing(&sub_repo)
             .args(["init", "--quiet", "--initial-branch", "main"])
-            .envs(&env)
             .assert()
             .success();
 
-        commit(&sub_repo, &env, "1");
-        commit(&sub_repo, &env, "2");
-        commit(&top_repo, &env, "A");
+        commit(&sub_repo, "1");
+        commit(&sub_repo, "2");
+        commit(&top_repo, "A");
 
-        git_command(&top_repo)
+        git_command_for_testing(&top_repo)
             .args([
                 "-c",
                 "protocol.file.allow=always",
@@ -932,16 +903,14 @@ mod tests {
                 "../sub/", // TODO: 2025-09-22 Absolute or relative path?
                            // sub_repo.to_str().unwrap(),
             ])
-            .envs(&env)
             .assert()
             .success();
-        commit(&top_repo, &env, "B");
-        commit(&top_repo, &env, "C");
-        let sub_rev_3 = commit(&sub_repo, &env, "3");
-        crate::git::git_update_submodule_in_index(&top_repo, &GitPath::from("sub"), &sub_rev_3)
-            .unwrap();
+        commit(&top_repo, "B");
+        commit(&top_repo, "C");
+        let sub_rev_3 = commit(&sub_repo, "3");
+        git_update_submodule_in_index(&top_repo, "sub", &sub_rev_3.to_string());
 
-        commit(&top_repo, &env, "D");
+        commit(&top_repo, "D");
         top_repo
     }
 
@@ -1032,13 +1001,16 @@ mod tests {
 
         let to_repo_path = temp_dir.join("to");
         std::fs::create_dir(&to_repo_path).unwrap();
-        git_command(&to_repo_path).args(["init"]).assert().success();
+        git_command_for_testing(&to_repo_path)
+            .args(["init"])
+            .assert()
+            .success();
         std::fs::copy(
             from_repo_path.join(".gitmodules"),
             to_repo_path.join(".gitmodules"),
         )
         .unwrap();
-        git_command(&to_repo_path)
+        git_command_for_testing(&to_repo_path)
             .args(["add", ".gitmodules"])
             .assert()
             .success();
@@ -1083,26 +1055,8 @@ mod tests {
         fast_import_repo.wait().unwrap();
         assert!(logger.records.lock().unwrap().is_empty());
 
-        let from_ref = git_command(&from_repo_path)
-            .args(["rev-parse", "refs/heads/main"])
-            .assert()
-            .success()
-            .get_output()
-            .stdout
-            .to_str()
-            .unwrap()
-            .to_string();
-
-        let to_ref = git_command(&to_repo_path)
-            .args(["rev-parse", "refs/heads/main"])
-            .assert()
-            .success()
-            .get_output()
-            .stdout
-            .to_str()
-            .unwrap()
-            .to_string();
-
+        let from_ref = git_rev_parse(&from_repo_path, "refs/heads/main");
+        let to_ref = git_rev_parse(&to_repo_path, "refs/heads/main");
         assert_eq!(from_ref, to_ref);
     }
 }
