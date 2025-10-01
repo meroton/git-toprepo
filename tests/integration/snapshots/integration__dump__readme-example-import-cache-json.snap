@@ -1,0 +1,871 @@
+---
+source: tests/integration/dump.rs
+expression: example_import_cache_json
+---
+{
+  "config_checksum": "6c10545879319d948b2bcb241d61c0c31bd86a485b423d1a2cb40eb56ffe3a56",
+  "repos": {
+    "top": {
+      "url": "",
+      "thin_commits": [
+        {
+          "commit_id": "a235165c84ee49036461a6fa0e722514acfca289",
+          "tree_id": "14bd462e43dbd427d587532e10c5016c8109cbce",
+          "parents": [],
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "4ceb005e5e4a5d38a03ced78a677ce10368d3c9e",
+          "tree_id": "cca95a2cfbc2f517fbb31b9dcefe4a1f9bd68b35",
+          "parents": [
+            "a235165c84ee49036461a6fa0e722514acfca289"
+          ],
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "da37f5616c317ec223fe1080825d59ae36cf3e1c"
+              }
+            }
+          }
+        },
+        {
+          "commit_id": "d4e089cb28015ad7b27936c71de9d75c28f000d3",
+          "tree_id": "5fa89535086ff58592dd5656bd7967003c657947",
+          "parents": [
+            "4ceb005e5e4a5d38a03ced78a677ce10368d3c9e"
+          ],
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "3f11df6fef17b829d892d1ea00fd1cf17168e78c",
+          "tree_id": "bf7b1da765357710a9c79ec74e3cd532f8e32679",
+          "parents": [
+            "d4e089cb28015ad7b27936c71de9d75c28f000d3"
+          ],
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "5c77b8c321d915c670fbc93e25fc794f6c5e6fcf"
+              }
+            }
+          }
+        },
+        {
+          "commit_id": "60015887808c4a8721fe88118e00836e58446be7",
+          "tree_id": "d9b1a55c6de0fd856df252862d3ccc581dc37a5d",
+          "parents": [
+            "3f11df6fef17b829d892d1ea00fd1cf17168e78c"
+          ],
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "d971db2bbcd8ffaeaaef7e437b51b706cc95993d"
+              }
+            }
+          }
+        },
+        {
+          "commit_id": "a8f46977939d7dd470c1e3761aab27f6a691304b",
+          "tree_id": "ad2dff4f19e4ba29d837048a6bc7af26f6bbd62a",
+          "parents": [
+            "60015887808c4a8721fe88118e00836e58446be7"
+          ],
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "0f506eea0a05f3ccae334f66ba2e98d06790cf6a",
+          "tree_id": "8c685d2a3c93b8012399e8329d7f6440b4c3363f",
+          "parents": [
+            "a8f46977939d7dd470c1e3761aab27f6a691304b"
+          ],
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "8560dae0bf89676911fa4c9c70a1a8415f81830f"
+              }
+            }
+          }
+        },
+        {
+          "commit_id": "1e4ca4909c255ad55def21a07b9acba43805ae3c",
+          "tree_id": "566cafe495c4da9dbbf790aab776de8d12ac0471",
+          "parents": [
+            "0f506eea0a05f3ccae334f66ba2e98d06790cf6a"
+          ],
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "51d22bcaa20bc2c00a44d0ccd0a73d6cc6d9090c"
+              }
+            }
+          }
+        },
+        {
+          "commit_id": "528f7d4ef927815530803fe90cff727b5ecc7660",
+          "tree_id": "8a484a10feccf7885be157534c4f8cc69f13fb8f",
+          "parents": [
+            "0f506eea0a05f3ccae334f66ba2e98d06790cf6a"
+          ],
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "ba9e6e31c29f7b0ece4794930b6049f91522f635"
+              }
+            }
+          }
+        },
+        {
+          "commit_id": "48c1c78c0d7134ac414446f5374a07780bfbfe0e",
+          "tree_id": "fe66f9c0a5674cd43534bde749a27355ca39ecf5",
+          "parents": [
+            "528f7d4ef927815530803fe90cff727b5ecc7660"
+          ],
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "23de8b96349af3576546122ec94380e0ecf4ad80"
+              }
+            }
+          }
+        },
+        {
+          "commit_id": "5b52f75ef3ea96cc06932f6a48d05687e1a5bcdd",
+          "tree_id": "5e21e94b436f955db7d5e9908c0b5b028445b0ab",
+          "parents": [
+            "1e4ca4909c255ad55def21a07b9acba43805ae3c"
+          ],
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "23aaa97e0c677f66d417037924aec18e36b4c383"
+              }
+            }
+          }
+        },
+        {
+          "commit_id": "b055adba931f6e420960d9ed13674497c690dd9b",
+          "tree_id": "410ee5f8212f46684f1e20e04b34b207da04a114",
+          "parents": [
+            "5b52f75ef3ea96cc06932f6a48d05687e1a5bcdd",
+            "48c1c78c0d7134ac414446f5374a07780bfbfe0e"
+          ],
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "2903c2551c192dca42419c599a1f8da9b7cc3480"
+              }
+            }
+          }
+        },
+        {
+          "commit_id": "41ec359ef0cd54849a6180d605e126ceb1eab5f9",
+          "tree_id": "f8797b848823b6cbf575da059699384f4533a37e",
+          "parents": [
+            "b055adba931f6e420960d9ed13674497c690dd9b"
+          ],
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "dbed55f447fe4f4977bde97833d77ad311c50d72"
+              }
+            }
+          }
+        },
+        {
+          "commit_id": "5517f2e13949b153e85e687c0487798d2c60bba5",
+          "tree_id": "1168a40c535736475e84c0b34cce9397451aade1",
+          "parents": [
+            "41ec359ef0cd54849a6180d605e126ceb1eab5f9"
+          ],
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "e9cbab3933de00b9911865e620820d326a208028"
+              }
+            }
+          }
+        },
+        {
+          "commit_id": "52ba1eda1b794272abaeaa3875eb3c4cd3a59734",
+          "tree_id": "36c98baecf1cac89ba3daf7974991f45f6c6d989",
+          "parents": [
+            "b055adba931f6e420960d9ed13674497c690dd9b",
+            "5517f2e13949b153e85e687c0487798d2c60bba5"
+          ],
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "4f4531cc9ecf946fef57fc4ad8c48edbbccdf220",
+          "tree_id": "75758f9ae284c7e85ffbea7e05d27e3ec6629cb2",
+          "parents": [
+            "b055adba931f6e420960d9ed13674497c690dd9b",
+            "52ba1eda1b794272abaeaa3875eb3c4cd3a59734"
+          ],
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "9554dde5ce3ac625acc4fd352d4c416dfb6eeb41"
+              }
+            }
+          }
+        }
+      ],
+      "dedup_cache": {
+        "01757b70c6202d7ec455aa7aa25e7cbeaa82217b": "5517f2e13949b153e85e687c0487798d2c60bba5",
+        "0b072b80bc5fe37964ad4fa4a2339ebb7179ff79": "528f7d4ef927815530803fe90cff727b5ecc7660",
+        "0d39b32b83de053fa98449797e28029dda2aba1e": "41ec359ef0cd54849a6180d605e126ceb1eab5f9",
+        "2119f83b141f7b9c7cf9799e1435f5b7e637569b": "60015887808c4a8721fe88118e00836e58446be7",
+        "2f6d2cb7b0b7de91365c32a5fe955602ff4a58bb": "48c1c78c0d7134ac414446f5374a07780bfbfe0e",
+        "43091301736e3184a4fd7a8db8125743c3b9e1f9": "52ba1eda1b794272abaeaa3875eb3c4cd3a59734",
+        "5401350ae12305e7b4b76de9632afb074e52ca06": "a235165c84ee49036461a6fa0e722514acfca289",
+        "7242c9e0ab39aa831cbb9d6ab8d817f0be6d8ef3": "1e4ca4909c255ad55def21a07b9acba43805ae3c",
+        "7db003614264721b089b515aee7498650ee4e3e8": "3f11df6fef17b829d892d1ea00fd1cf17168e78c",
+        "89d8e42e5a897b770dd3ec52772bcf294740df88": "5b52f75ef3ea96cc06932f6a48d05687e1a5bcdd",
+        "a1cc78e2097673fe5f7ea0fae0e7cfd0ef750934": "4ceb005e5e4a5d38a03ced78a677ce10368d3c9e",
+        "ab6d4da2d8058fb99601cfaf4500bf4657543eca": "a8f46977939d7dd470c1e3761aab27f6a691304b",
+        "bd2a83b4d8c78af5284831fc8b1254a4d2b78e65": "4f4531cc9ecf946fef57fc4ad8c48edbbccdf220",
+        "d118801154c4920a2be90a5c86e007a7ba2d93a6": "0f506eea0a05f3ccae334f66ba2e98d06790cf6a",
+        "e58d9366829b2f6deee98f5144036b25185c2731": "b055adba931f6e420960d9ed13674497c690dd9b",
+        "f7eabf1a98e165e4fae9f6f7ffd3960852849e3f": "d4e089cb28015ad7b27936c71de9d75c28f000d3"
+      }
+    },
+    "sub": {
+      "url": "../sub/",
+      "thin_commits": [
+        {
+          "commit_id": "af8092ec3806ca29c9e36874d74fe027e3a77e88",
+          "tree_id": "341e54913a3a43069f2927cc0f703e5a9f730df1",
+          "parents": [],
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "da37f5616c317ec223fe1080825d59ae36cf3e1c",
+          "tree_id": "37e0c822b2ed7db5f1c422b9258808e4fb64aaf3",
+          "parents": [
+            "af8092ec3806ca29c9e36874d74fe027e3a77e88"
+          ],
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "5c77b8c321d915c670fbc93e25fc794f6c5e6fcf",
+          "tree_id": "87042fe12ed70ad4d1df8afb8ffdf5fc28b17a71",
+          "parents": [
+            "da37f5616c317ec223fe1080825d59ae36cf3e1c"
+          ],
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "992625a824c7c9af30289d3f2de755307c61e286",
+          "tree_id": "feadbeaad2c6e700096781506a427dbf27144a98",
+          "parents": [
+            "5c77b8c321d915c670fbc93e25fc794f6c5e6fcf"
+          ],
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "d971db2bbcd8ffaeaaef7e437b51b706cc95993d",
+          "tree_id": "bb16204762fe425cdc9b919ba49f57253af448eb",
+          "parents": [
+            "992625a824c7c9af30289d3f2de755307c61e286"
+          ],
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "6101de2201c29ad2776337c2b00bb8b40eea28ae",
+          "tree_id": "821792f1fdd03cb417fbd425fa2d66e33e70f2fe",
+          "parents": [
+            "d971db2bbcd8ffaeaaef7e437b51b706cc95993d"
+          ],
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "8560dae0bf89676911fa4c9c70a1a8415f81830f",
+          "tree_id": "55ee41874792df4cb5cac7f7e9512ffab5fb49ad",
+          "parents": [
+            "6101de2201c29ad2776337c2b00bb8b40eea28ae"
+          ],
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "51d22bcaa20bc2c00a44d0ccd0a73d6cc6d9090c",
+          "tree_id": "52c3f668637bf3f3050c00098bc76dd6800ebafc",
+          "parents": [
+            "8560dae0bf89676911fa4c9c70a1a8415f81830f"
+          ],
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "ba9e6e31c29f7b0ece4794930b6049f91522f635",
+          "tree_id": "d62100d1ba82642d7c784ae6dcb1444d2959b5c0",
+          "parents": [
+            "8560dae0bf89676911fa4c9c70a1a8415f81830f"
+          ],
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "23aaa97e0c677f66d417037924aec18e36b4c383",
+          "tree_id": "3c23c42db9945f7745120a976f6f1c002eea9fdf",
+          "parents": [
+            "51d22bcaa20bc2c00a44d0ccd0a73d6cc6d9090c"
+          ],
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "23de8b96349af3576546122ec94380e0ecf4ad80",
+          "tree_id": "eb835123180c927ce4030bdeb5233a6e9a569712",
+          "parents": [
+            "ba9e6e31c29f7b0ece4794930b6049f91522f635"
+          ],
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "2903c2551c192dca42419c599a1f8da9b7cc3480",
+          "tree_id": "8e46f2ccd2cde2d1c8b410557768ab29a2a52d3a",
+          "parents": [
+            "23aaa97e0c677f66d417037924aec18e36b4c383",
+            "23de8b96349af3576546122ec94380e0ecf4ad80"
+          ],
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "dbed55f447fe4f4977bde97833d77ad311c50d72",
+          "tree_id": "375afbe3df21cfe416d71eddb5e16a626f35c2ba",
+          "parents": [
+            "2903c2551c192dca42419c599a1f8da9b7cc3480"
+          ],
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "e9cbab3933de00b9911865e620820d326a208028",
+          "tree_id": "d2261e5196cc57b416aca539c7af0605569cf936",
+          "parents": [
+            "dbed55f447fe4f4977bde97833d77ad311c50d72"
+          ],
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
+        },
+        {
+          "commit_id": "9554dde5ce3ac625acc4fd352d4c416dfb6eeb41",
+          "tree_id": "ec5e5ed933ad35165dd3436aabd91cac24540643",
+          "parents": [
+            "2903c2551c192dca42419c599a1f8da9b7cc3480",
+            "e9cbab3933de00b9911865e620820d326a208028"
+          ],
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
+        }
+      ],
+      "dedup_cache": {
+        "0f684200b2e32060435097d3958b8b8fdbef8160": "8560dae0bf89676911fa4c9c70a1a8415f81830f",
+        "20a97b660cd99836595553d908543aca12213a7d": "ba9e6e31c29f7b0ece4794930b6049f91522f635",
+        "862426ea0bca3fe60cad91b433aae30c0134ddc7": "5c77b8c321d915c670fbc93e25fc794f6c5e6fcf",
+        "87ed35c36c9a7d14056d8e62a4090b7ce1b09ee5": "af8092ec3806ca29c9e36874d74fe027e3a77e88",
+        "8ed9255dbe23e91e9741e8f45ee8a4b9391c21bf": "23aaa97e0c677f66d417037924aec18e36b4c383",
+        "b6cc2fb4afa910649bfad81a59e9ebbf3323b6a5": "d971db2bbcd8ffaeaaef7e437b51b706cc95993d",
+        "c4e8a92709f3dc99a633304487c85bdeb189c912": "2903c2551c192dca42419c599a1f8da9b7cc3480",
+        "c55c08a758603a0d356d612e6f5f96b124323850": "23de8b96349af3576546122ec94380e0ecf4ad80",
+        "d681d30d7e115dbdb64c68faf66b323c696cc198": "dbed55f447fe4f4977bde97833d77ad311c50d72",
+        "d89ddba98d5db28aee4e12a1d6dae40c37c52d4d": "9554dde5ce3ac625acc4fd352d4c416dfb6eeb41",
+        "dc1889d47f11cfe738b15b1da04272498bb3db32": "992625a824c7c9af30289d3f2de755307c61e286",
+        "dd4966867234e32fb1265056c8511d2eb5fa0c0d": "6101de2201c29ad2776337c2b00bb8b40eea28ae",
+        "f0593ac5143ef21ca78a621fd9eb2cb4b33f0a84": "e9cbab3933de00b9911865e620820d326a208028",
+        "f0ad5b8bbd48f6fd0d2ea907f419482372813d43": "da37f5616c317ec223fe1080825d59ae36cf3e1c",
+        "f19dbde530bdedc378741a6bac55c79709cca47d": "51d22bcaa20bc2c00a44d0ccd0a73d6cc6d9090c"
+      }
+    }
+  },
+  "monorepo_commits": [
+    {
+      "commit_id": "98231b6d1d371bb1997afd7aa5d3898ed1f17609",
+      "parents": [],
+      "top_bump": "a235165c84ee49036461a6fa0e722514acfca289",
+      "submodule_bumps": {}
+    },
+    {
+      "commit_id": "192a2408744b66d045f428a79ed5dba2ed4941f1",
+      "parents": [
+        {
+          "Mono": "98231b6d1d371bb1997afd7aa5d3898ed1f17609"
+        },
+        {
+          "OriginalSubmod": {
+            "commit_id": "da37f5616c317ec223fe1080825d59ae36cf3e1c"
+          }
+        }
+      ],
+      "top_bump": "4ceb005e5e4a5d38a03ced78a677ce10368d3c9e",
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "da37f5616c317ec223fe1080825d59ae36cf3e1c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "d438dd9a7f79f91546ecddc210ddd977885aae76",
+      "parents": [
+        {
+          "Mono": "192a2408744b66d045f428a79ed5dba2ed4941f1"
+        }
+      ],
+      "top_bump": "d4e089cb28015ad7b27936c71de9d75c28f000d3",
+      "submodule_bumps": {}
+    },
+    {
+      "commit_id": "78df1c2c163d0139951fb5145c8ec62e1b7fc661",
+      "parents": [
+        {
+          "Mono": "d438dd9a7f79f91546ecddc210ddd977885aae76"
+        }
+      ],
+      "top_bump": "3f11df6fef17b829d892d1ea00fd1cf17168e78c",
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "5c77b8c321d915c670fbc93e25fc794f6c5e6fcf"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "fc3b201e80542633776cacd2f1daeb096d11f74d",
+      "parents": [
+        {
+          "Mono": "78df1c2c163d0139951fb5145c8ec62e1b7fc661"
+        }
+      ],
+      "top_bump": null,
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "992625a824c7c9af30289d3f2de755307c61e286"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "c1c0d0c682f8cd06e35b1e5375f66de1a2d8b6f9",
+      "parents": [
+        {
+          "Mono": "78df1c2c163d0139951fb5145c8ec62e1b7fc661"
+        },
+        {
+          "Mono": "fc3b201e80542633776cacd2f1daeb096d11f74d"
+        }
+      ],
+      "top_bump": "60015887808c4a8721fe88118e00836e58446be7",
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "d971db2bbcd8ffaeaaef7e437b51b706cc95993d"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "807846e8f8c79432b4c691ab7a18978a41c9bd06",
+      "parents": [
+        {
+          "Mono": "c1c0d0c682f8cd06e35b1e5375f66de1a2d8b6f9"
+        }
+      ],
+      "top_bump": "a8f46977939d7dd470c1e3761aab27f6a691304b",
+      "submodule_bumps": {}
+    },
+    {
+      "commit_id": "3f5fd4513a6672f0c4c5ad320fb6789d7b835790",
+      "parents": [
+        {
+          "Mono": "807846e8f8c79432b4c691ab7a18978a41c9bd06"
+        }
+      ],
+      "top_bump": null,
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "6101de2201c29ad2776337c2b00bb8b40eea28ae"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "7e8d63a4dc8c39a9619317e4bf38549fe70a3230",
+      "parents": [
+        {
+          "Mono": "807846e8f8c79432b4c691ab7a18978a41c9bd06"
+        },
+        {
+          "Mono": "3f5fd4513a6672f0c4c5ad320fb6789d7b835790"
+        }
+      ],
+      "top_bump": "0f506eea0a05f3ccae334f66ba2e98d06790cf6a",
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "8560dae0bf89676911fa4c9c70a1a8415f81830f"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "60a77ab8ed2d4c673cb11e7f983d243409c85622",
+      "parents": [
+        {
+          "Mono": "7e8d63a4dc8c39a9619317e4bf38549fe70a3230"
+        }
+      ],
+      "top_bump": "528f7d4ef927815530803fe90cff727b5ecc7660",
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "ba9e6e31c29f7b0ece4794930b6049f91522f635"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "9cc647c93b9ca128c5846c78cfde4dbca36382b7",
+      "parents": [
+        {
+          "Mono": "7e8d63a4dc8c39a9619317e4bf38549fe70a3230"
+        }
+      ],
+      "top_bump": "1e4ca4909c255ad55def21a07b9acba43805ae3c",
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "51d22bcaa20bc2c00a44d0ccd0a73d6cc6d9090c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "1891f900ebdd77c837f64915af659a49c8287940",
+      "parents": [
+        {
+          "Mono": "9cc647c93b9ca128c5846c78cfde4dbca36382b7"
+        }
+      ],
+      "top_bump": "5b52f75ef3ea96cc06932f6a48d05687e1a5bcdd",
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "23aaa97e0c677f66d417037924aec18e36b4c383"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "93384210c23aca3d705584d81eb29489282729b7",
+      "parents": [
+        {
+          "Mono": "60a77ab8ed2d4c673cb11e7f983d243409c85622"
+        }
+      ],
+      "top_bump": "48c1c78c0d7134ac414446f5374a07780bfbfe0e",
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "23de8b96349af3576546122ec94380e0ecf4ad80"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "dbf519c10ce782002dc851ba73d1bf9bcc8eceb7",
+      "parents": [
+        {
+          "Mono": "1891f900ebdd77c837f64915af659a49c8287940"
+        },
+        {
+          "Mono": "93384210c23aca3d705584d81eb29489282729b7"
+        }
+      ],
+      "top_bump": "b055adba931f6e420960d9ed13674497c690dd9b",
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "2903c2551c192dca42419c599a1f8da9b7cc3480"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "4e30f01414718663e0fb6817f83ebca9b44359c1",
+      "parents": [
+        {
+          "Mono": "dbf519c10ce782002dc851ba73d1bf9bcc8eceb7"
+        }
+      ],
+      "top_bump": "41ec359ef0cd54849a6180d605e126ceb1eab5f9",
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "dbed55f447fe4f4977bde97833d77ad311c50d72"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "7277b17fa7f968a53b02d96a665e3e31d3ee81ae",
+      "parents": [
+        {
+          "Mono": "dbf519c10ce782002dc851ba73d1bf9bcc8eceb7"
+        }
+      ],
+      "top_bump": null,
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "dbed55f447fe4f4977bde97833d77ad311c50d72"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "9e2fef495831d7ee9fc186b9de73c9c013cc9922",
+      "parents": [
+        {
+          "Mono": "7277b17fa7f968a53b02d96a665e3e31d3ee81ae"
+        }
+      ],
+      "top_bump": null,
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "e9cbab3933de00b9911865e620820d326a208028"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "c808a1a99f83a66cabf6a77de45ff92e17d3a91d",
+      "parents": [
+        {
+          "Mono": "4e30f01414718663e0fb6817f83ebca9b44359c1"
+        }
+      ],
+      "top_bump": "5517f2e13949b153e85e687c0487798d2c60bba5",
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "e9cbab3933de00b9911865e620820d326a208028"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "591fd0d0d35e71d6e2550787eed365ec105c2abf",
+      "parents": [
+        {
+          "Mono": "c808a1a99f83a66cabf6a77de45ff92e17d3a91d"
+        }
+      ],
+      "top_bump": null,
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "2903c2551c192dca42419c599a1f8da9b7cc3480"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "5d250b7cabe206833d512a18d266eeb7e3b0a7fc",
+      "parents": [
+        {
+          "Mono": "dbf519c10ce782002dc851ba73d1bf9bcc8eceb7"
+        },
+        {
+          "Mono": "c808a1a99f83a66cabf6a77de45ff92e17d3a91d"
+        },
+        {
+          "Mono": "591fd0d0d35e71d6e2550787eed365ec105c2abf"
+        }
+      ],
+      "top_bump": "52ba1eda1b794272abaeaa3875eb3c4cd3a59734",
+      "submodule_bumps": {}
+    },
+    {
+      "commit_id": "0e2c0762835b776c83d98dd8be2985eeb9c11d39",
+      "parents": [
+        {
+          "Mono": "dbf519c10ce782002dc851ba73d1bf9bcc8eceb7"
+        },
+        {
+          "Mono": "5d250b7cabe206833d512a18d266eeb7e3b0a7fc"
+        },
+        {
+          "Mono": "9e2fef495831d7ee9fc186b9de73c9c013cc9922"
+        }
+      ],
+      "top_bump": "4f4531cc9ecf946fef57fc4ad8c48edbbccdf220",
+      "submodule_bumps": {
+        "sub": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "sub",
+              "orig_commit_id": "9554dde5ce3ac625acc4fd352d4c416dfb6eeb41"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "top_to_mono_commit_map": {
+    "0f506eea0a05f3ccae334f66ba2e98d06790cf6a": "7e8d63a4dc8c39a9619317e4bf38549fe70a3230",
+    "1e4ca4909c255ad55def21a07b9acba43805ae3c": "9cc647c93b9ca128c5846c78cfde4dbca36382b7",
+    "3f11df6fef17b829d892d1ea00fd1cf17168e78c": "78df1c2c163d0139951fb5145c8ec62e1b7fc661",
+    "41ec359ef0cd54849a6180d605e126ceb1eab5f9": "4e30f01414718663e0fb6817f83ebca9b44359c1",
+    "48c1c78c0d7134ac414446f5374a07780bfbfe0e": "93384210c23aca3d705584d81eb29489282729b7",
+    "4ceb005e5e4a5d38a03ced78a677ce10368d3c9e": "192a2408744b66d045f428a79ed5dba2ed4941f1",
+    "4f4531cc9ecf946fef57fc4ad8c48edbbccdf220": "0e2c0762835b776c83d98dd8be2985eeb9c11d39",
+    "528f7d4ef927815530803fe90cff727b5ecc7660": "60a77ab8ed2d4c673cb11e7f983d243409c85622",
+    "52ba1eda1b794272abaeaa3875eb3c4cd3a59734": "5d250b7cabe206833d512a18d266eeb7e3b0a7fc",
+    "5517f2e13949b153e85e687c0487798d2c60bba5": "c808a1a99f83a66cabf6a77de45ff92e17d3a91d",
+    "5b52f75ef3ea96cc06932f6a48d05687e1a5bcdd": "1891f900ebdd77c837f64915af659a49c8287940",
+    "60015887808c4a8721fe88118e00836e58446be7": "c1c0d0c682f8cd06e35b1e5375f66de1a2d8b6f9",
+    "a235165c84ee49036461a6fa0e722514acfca289": "98231b6d1d371bb1997afd7aa5d3898ed1f17609",
+    "a8f46977939d7dd470c1e3761aab27f6a691304b": "807846e8f8c79432b4c691ab7a18978a41c9bd06",
+    "b055adba931f6e420960d9ed13674497c690dd9b": "dbf519c10ce782002dc851ba73d1bf9bcc8eceb7",
+    "d4e089cb28015ad7b27936c71de9d75c28f000d3": "d438dd9a7f79f91546ecddc210ddd977885aae76"
+  },
+  "dedup": {
+    "commits": {}
+  }
+}

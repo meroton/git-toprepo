@@ -1,3 +1,4 @@
+use bstr::ByteSlice as _;
 use git_toprepo_testtools::test_util::MaybePermanentTempDir;
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
@@ -5,6 +6,8 @@ use predicate::str::contains;
 use predicates::prelude::*;
 use rstest::rstest;
 use std::path::PathBuf;
+
+const EXPECTED_IMPORT_CACHE_VERSION: &str = "#cache-format-v2";
 
 #[test]
 fn dump_git_modules() {
@@ -184,11 +187,13 @@ fn wrong_cache_prelude() {
         .assert()
         .success()
         .stderr(predicate::str::is_match(
-            "WARN: Discarding import cache .* due to version mismatch, expected \"#cache-format-v2\"\n").unwrap()
+            format!("WARN: Discarding import cache .* due to version mismatch, expected \"{EXPECTED_IMPORT_CACHE_VERSION}\"\n")).unwrap()
         );
 }
 
 /// Check if the cache version need to be updated.
+///
+/// NOTE: If the fixture needs updating, update the cache format number as well!
 #[test]
 fn cache_version_change_detection() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
@@ -199,7 +204,10 @@ fn cache_version_change_detection() {
     let gix_repo = gix::open(&monorepo).unwrap();
     let cache_path = git_toprepo::import_cache_serde::SerdeImportCache::get_cache_path(&gix_repo);
     let cache_bytes = std::fs::read(&cache_path).unwrap();
-    assert_eq!(cache_bytes.get(0..16).unwrap(), b"#cache-format-v2");
+    assert_eq!(
+        std::str::from_utf8(cache_bytes.get(0..16).unwrap()).unwrap(),
+        EXPECTED_IMPORT_CACHE_VERSION
+    );
 
     // Check that unpacking works.
     git_toprepo::import_cache_serde::SerdeImportCache::load_from_git_dir(
@@ -209,4 +217,42 @@ fn cache_version_change_detection() {
     .unwrap()
     .unpack()
     .unwrap();
+
+    // Check the JSON dump for changes. Using the JSON dump because it is
+    // stable, the bincode variant depends on HashMap ordering.
+    let cmd_assert = cargo_bin_git_toprepo_for_testing()
+        .current_dir(&monorepo)
+        .arg("dump")
+        .arg("import-cache")
+        .assert()
+        .success()
+        .stderr("");
+    let example_import_cache_json = cmd_assert.get_output().stdout.to_str().unwrap();
+    // Update this source file to not forget updating the expected version
+    // string.
+    let snapshot_path = std::path::Path::new(
+        "tests/integration/snapshots/integration__dump__readme-example-import-cache-json.snap",
+    );
+    let snapshot_content =
+        std::fs::read_to_string(snapshot_path).unwrap_or_else(|_err| "---\n---\n".to_owned());
+    let snapshot_content = snapshot_content[4..].split_once("---\n").unwrap().1;
+    if example_import_cache_json != snapshot_content {
+        let old_code = std::fs::read_to_string(file!()).unwrap();
+        let new_code = old_code.replace(
+            EXPECTED_IMPORT_CACHE_VERSION,
+            "#cache-format-vNNN - PLEASE UPDATE THIS NUMBER",
+        );
+        assert_ne!(
+            old_code,
+            new_code,
+            "Expected {} to contain the version string",
+            file!()
+        );
+        std::fs::write(file!(), new_code).unwrap();
+    }
+    // Check the output content in the end.
+    insta::assert_snapshot!(
+        "readme-example-import-cache-json",
+        example_import_cache_json
+    );
 }
