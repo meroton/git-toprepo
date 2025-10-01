@@ -71,6 +71,13 @@ impl SubRepoLedger {
         }
     }
 
+    /// Check if a commit in a submodule should be kept as a submodule.
+    pub fn skip_expanding(&self, sub_repo_name: &SubRepoName, commit_id: &CommitId) -> bool {
+        self.subrepos
+            .get(sub_repo_name)
+            .is_some_and(|repo_config| repo_config.skip_expanding.contains(commit_id))
+    }
+
     /// Gets a `SubRepoConfig` based on a URL using exact matching. If an URL is
     /// missing, the user should add it to the `SubRepoConfig::urls` list.
     pub fn get_name_from_url(&self, url: &gix::Url) -> Result<Option<SubRepoName>> {
@@ -877,16 +884,14 @@ impl<'a> CommitLoader<'a> {
                 .context(context)?;
                 // Load all submodule commits as well as that would be done if not
                 // using the cache.
-                for bump in thin_commit.submodule_bumps.values() {
-                    if let ThinSubmodule::AddedOrModified(bump) = bump
-                        && let Some(submod_repo_name) = &bump.repo_name
-                    {
-                        let subconfig = self
-                            .ledger
-                            .subrepos
-                            .get(submod_repo_name)
-                            .expect("subrepo name exists");
-                        if !subconfig.skip_expanding.contains(&bump.commit_id) {
+                if let ThinCommit::Full(thin_commit) = thin_commit.as_ref() {
+                    for bump in thin_commit.submodule_bumps.values() {
+                        if let ThinSubmodule::AddedOrModified(bump) = bump
+                            && let Some(submod_repo_name) = &bump.repo_name
+                            && !self
+                                .ledger
+                                .skip_expanding(submod_repo_name, &bump.commit_id)
+                        {
                             needed_commits.push(NeededCommit {
                                 repo_name: submod_repo_name.clone(),
                                 commit_id: bump.commit_id,
@@ -985,13 +990,19 @@ impl<'a> CommitLoader<'a> {
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
     ) -> Result<()> {
+        let ThinCommit::Full(full_commit) = commit else {
+            // Nothing to verify.
+            return Ok(());
+        };
         let submodule_paths_to_check = if commit_log_level.is_tip
             || commit
                 .parents
                 .first()
-                .is_none_or(|first_parent| commit.dot_gitmodules != first_parent.dot_gitmodules)
-        {
-            &commit
+                .and_then(|first_parent| first_parent.as_full())
+                .is_none_or(|first_parent_content| {
+                    full_commit.dot_gitmodules != first_parent_content.dot_gitmodules
+                }) {
+            &full_commit
                 .submodule_paths
                 .iter()
                 .map(|path| {
@@ -1005,13 +1016,13 @@ impl<'a> CommitLoader<'a> {
                 })
                 .collect::<BTreeMap<_, _>>()
         } else {
-            &commit.submodule_bumps
+            &full_commit.submodule_bumps
         };
         for (path, bump) in submodule_paths_to_check {
             match bump {
                 ThinSubmodule::AddedOrModified(cached_thin_submod) => {
                     let submod_repo_name = Self::get_submod_repo_name(
-                        commit.dot_gitmodules,
+                        full_commit.dot_gitmodules,
                         commit.parents.first(),
                         path,
                         &repo_storage.url,
@@ -1129,7 +1140,8 @@ impl<'a> CommitLoader<'a> {
         if tree_id.is_empty_tree() {
             log::log!(
                 commit_log_level.level,
-                "With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear. To avoid this problem, commit a file.",
+                "With git-submodule, this empty commit results in a directory that is empty, \
+                but with git-toprepo it will disappear. To avoid this problem, commit a file.",
             );
         }
 
@@ -1151,14 +1163,18 @@ impl<'a> CommitLoader<'a> {
         // Check for an updated .gitmodules file.
         let old_dot_gitmodules = thin_parents
             .first()
+            .and_then(|first_parent| first_parent.as_full())
             .and_then(|first_parent| first_parent.dot_gitmodules);
         let dot_gitmodules =
             Self::get_dot_gitmodules_update(&exported_commit)?.unwrap_or(old_dot_gitmodules); // None means no update of .gitmodules.
 
         // Look for submodule updates.
-        let parent_submodule_paths = match thin_parents.first() {
-            Some(first_parent) => &first_parent.submodule_paths,
-            None => &HashSet::new(),
+        let parent_submodule_paths = if let Some(first_parent) = thin_parents.first()
+            && let ThinCommit::Full(first_parent) = first_parent.as_ref()
+        {
+            &first_parent.submodule_paths
+        } else {
+            &HashSet::new()
         };
         let mut new_submodule_commits = Vec::new();
         for fc in exported_commit.file_changes {
@@ -1179,7 +1195,9 @@ impl<'a> CommitLoader<'a> {
                             dot_gitmodules_cache,
                             commit_log_level,
                         );
-                        if let Some(submod_repo_name) = &submod_repo_name {
+                        if let Some(submod_repo_name) = &submod_repo_name
+                            && !ledger.skip_expanding(submod_repo_name, &submod_commit_id)
+                        {
                             new_submodule_commits.push(NeededCommit {
                                 repo_name: submod_repo_name.clone(),
                                 commit_id: submod_commit_id,
@@ -1306,14 +1324,17 @@ impl<'a> CommitLoader<'a> {
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
     ) -> Option<SubRepoName> {
+        let full_first_parent = first_parent.and_then(|first_parent| first_parent.as_full());
         let do_log = || {
             commit_log_level.is_tip || {
                 // Only log if .gitmodules has changed or the submodule was just added.
-                let submodule_just_added = first_parent
-                    .is_none_or(|first_parent| !first_parent.submodule_paths.contains(path));
+                let submodule_just_added = full_first_parent.is_none_or(|full_first_parent| {
+                    !full_first_parent.submodule_paths.contains(path)
+                });
                 // A missing parent means that .gitmodules has changed.
-                let dot_gitmodules_updated = first_parent
-                    .is_none_or(|first_parent| dot_gitmodules != first_parent.dot_gitmodules);
+                let dot_gitmodules_updated = full_first_parent.is_none_or(|full_first_parent| {
+                    dot_gitmodules != full_first_parent.dot_gitmodules
+                });
                 dot_gitmodules_updated || submodule_just_added
             }
         };

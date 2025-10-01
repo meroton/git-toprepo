@@ -355,9 +355,7 @@ pub struct SubRepoConfig {
     pub enabled: bool,
     /// Commits that should not be expanded but rather kept as submodules. These
     /// don't need to be fetched from the remote.
-    #[serde_as(
-        serialize_as = "serde_with::IfIsHumanReadable<OrderedHashSet<serde_with::DisplayFromStr>>"
-    )]
+    #[serde_as(as = "serde_with::IfIsHumanReadable<OrderedHashSet<serde_with::DisplayFromStr>>")]
     pub skip_expanding: HashSet<CommitId>,
 }
 

@@ -7,7 +7,7 @@ use predicates::prelude::*;
 use rstest::rstest;
 use std::path::PathBuf;
 
-const EXPECTED_IMPORT_CACHE_VERSION: &str = "#cache-format-v2";
+const EXPECTED_IMPORT_CACHE_VERSION: &str = "#cache-format-v3";
 
 #[test]
 fn dump_git_modules() {

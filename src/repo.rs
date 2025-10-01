@@ -534,15 +534,13 @@ pub enum ExpandedSubmodule {
     /// The submodule was not expanded. The user has to run `git submodule
     /// update --init` to get its content.
     KeptAsSubmodule(
-        #[serde_as(serialize_as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
-        CommitId,
+        #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")] CommitId,
     ),
     /// The commit does not exist (any more) in the referred sub repository.
     CommitMissingInSubRepo(SubmoduleContent),
     /// It is unknown which sub repo it should be loaded from.
     UnknownSubmodule(
-        #[serde_as(serialize_as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
-        CommitId,
+        #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")] CommitId,
     ),
     // TODO: 2025-09-22 MovedAndBumped(MovedSubmodule),
     /// If a submodule has regressed to an earlier or unrelated commit, it
@@ -677,19 +675,52 @@ pub struct ExportedFileEntry {
 }
 
 #[derive(Debug)]
-pub struct ThinCommit {
+pub enum ThinCommit {
+    Full(ThinCommitFull),
+    /// A reduced representation of the commit if it should be ignored by
+    /// configuration.
+    WithoutContent(ThinCommitWithoutContent),
+}
+
+#[derive(Debug)]
+pub struct ThinCommitWithoutContent {
     pub commit_id: CommitId,
-    pub tree_id: TreeId,
     /// Number of parents in the longest path to the root commit. This number is
     /// strictly decreasing when following the parents.
     pub depth: u32,
     pub parents: Vec<Rc<ThinCommit>>,
+}
+
+#[derive(Debug)]
+pub struct ThinCommitFull {
+    pub header: ThinCommitWithoutContent,
+
+    pub tree_id: TreeId,
     pub dot_gitmodules: Option<ExportedFileEntry>,
     /// Submodule updates in this commit compared to first parent. Added
     /// submodules are included. `BTreeMap` is used for deterministic ordering.
     pub submodule_bumps: BTreeMap<GitPath, ThinSubmodule>,
     /// Paths to all the submodules in the commit, not just the updated ones.
     pub submodule_paths: Rc<HashSet<GitPath>>,
+}
+
+impl Deref for ThinCommitFull {
+    type Target = ThinCommitWithoutContent;
+
+    fn deref(&self) -> &Self::Target {
+        &self.header
+    }
+}
+
+impl Deref for ThinCommit {
+    type Target = ThinCommitWithoutContent;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            ThinCommit::Full(full) => &full.header,
+            ThinCommit::WithoutContent(without) => without,
+        }
+    }
 }
 
 impl ThinCommit {
@@ -707,9 +738,12 @@ impl ThinCommit {
     ) -> Rc<Self> {
         // Adding and removing more than one submodule at a time is so rare that
         // it is not worth optimizing for it. Let's copy the HashSet every time.
-        let mut submodule_paths = match parents.first() {
-            Some(first_parent) => first_parent.submodule_paths.clone(),
-            None => Rc::new(HashSet::new()),
+        let mut submodule_paths = if let Some(first_parent) = parents.first()
+            && let ThinCommit::Full(full_first_parent) = first_parent.as_ref()
+        {
+            full_first_parent.submodule_paths.clone()
+        } else {
+            Rc::new(HashSet::new())
         };
         for (path, bump) in submodule_bumps.iter() {
             match bump {
@@ -729,15 +763,36 @@ impl ThinCommit {
                 }
             }
         }
-        Rc::new(Self {
-            commit_id,
+        Rc::new(Self::Full(ThinCommitFull {
+            header: ThinCommitWithoutContent {
+                commit_id,
+                depth: Self::depth_from_parents(&parents),
+                parents,
+            },
             tree_id,
-            depth: parents.iter().map(|p| p.depth + 1).max().unwrap_or(0),
-            parents,
             dot_gitmodules,
             submodule_bumps,
             submodule_paths,
-        })
+        }))
+    }
+
+    pub fn new_rc_without_content(commit_id: CommitId, parents: Vec<Rc<ThinCommit>>) -> Rc<Self> {
+        Rc::new(Self::WithoutContent(ThinCommitWithoutContent {
+            commit_id,
+            depth: Self::depth_from_parents(&parents),
+            parents,
+        }))
+    }
+
+    pub fn as_full(&self) -> Option<&ThinCommitFull> {
+        match self {
+            ThinCommit::Full(full) => Some(full),
+            ThinCommit::WithoutContent(_) => None,
+        }
+    }
+
+    fn depth_from_parents(parents: &[Rc<ThinCommit>]) -> u32 {
+        parents.iter().map(|p| p.depth + 1).max().unwrap_or(0)
     }
 
     pub fn is_descendant_of(&self, ancestor: &ThinCommit) -> bool {
@@ -766,14 +821,16 @@ impl ThinCommit {
     pub fn get_submodule(&'_ self, path: &GitPath) -> Option<&'_ ThinSubmodule> {
         let mut node = self;
         loop {
-            if let Some(submod) = node.submodule_bumps.get(path) {
+            let ThinCommit::Full(full_node) = node else {
+                // The submodule was not loaded, probably bad content and configured to be skipped.
+                // The child node should have had a submodule bump registered, because it was not available in this node.
+                // Return as missing.
+                return None;
+            };
+            if let Some(submod) = full_node.submodule_bumps.get(path) {
                 return Some(submod);
             }
-            let Some(parent) = node.parents.first() else {
-                break;
-            };
-            node = parent;
+            node = node.parents.first()?;
         }
-        None
     }
 }
