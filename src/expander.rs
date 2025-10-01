@@ -327,12 +327,10 @@ impl Expander<'_> {
             // Repository disabled by config, keep the submodule.
             return ExpandedSubmodule::KeptAsSubmodule(bump.commit_id);
         }
-        let subconfig = self
+        if self
             .ledger
-            .subrepos
-            .get(submod_repo_name)
-            .expect("submod name exists");
-        if subconfig.skip_expanding.contains(&bump.commit_id) {
+            .is_missing_commit(submod_repo_name, &bump.commit_id)
+        {
             return ExpandedSubmodule::KeptAsSubmodule(bump.commit_id);
         }
         let submod_storage = self.import_cache.repos.get(&repo_name).unwrap();
