@@ -235,9 +235,11 @@ impl SerdeImportCache {
         let repos = Self::pack_repo_states(&cache.repos);
         let monorepo_commits = cache
             .monorepo_commits
-            .values()
-            .sorted_by_key(|commit| commit.depth)
-            .map(|commit| SerdeMonoRepoCommit::pack(&cache.monorepo_commit_ids, commit))
+            .iter()
+            .sorted_by_key(|(commit_id, commit)| (commit.depth, *commit_id))
+            .map(|(_commit_id, commit)| {
+                SerdeMonoRepoCommit::pack(&cache.monorepo_commit_ids, commit)
+            })
             .collect_vec();
         let top_to_mono_commit_map = cache
             .top_to_mono_commit_map
@@ -266,7 +268,7 @@ impl SerdeImportCache {
                 let thin_commits = repo_data
                     .thin_commits
                     .values()
-                    .sorted_by_key(|thin_commit| thin_commit.depth)
+                    .sorted_by_key(|thin_commit| (thin_commit.depth, thin_commit.commit_id))
                     .map(|thin_commit| SerdeThinCommit::from(thin_commit.as_ref()))
                     .collect_vec();
                 (
