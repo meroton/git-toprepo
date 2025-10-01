@@ -130,9 +130,6 @@ fetch.depth = 0
 # Commit ids that should not be expanded because they are permanently missing
 # from the repository.
 missing_commits = []
-# Commit ids that should not be loaded, they might e.g.
-# contain a corrupted .gitmodules file.
-ignore_commits = []
 
 [repo.something.push]
 # push.url defaults to fetch.url.
