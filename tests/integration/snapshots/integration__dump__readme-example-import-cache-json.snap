@@ -10,306 +10,274 @@ expression: example_import_cache_json
       "thin_commits": [
         {
           "commit_id": "a235165c84ee49036461a6fa0e722514acfca289",
+          "tree_id": "14bd462e43dbd427d587532e10c5016c8109cbce",
           "parents": [],
-          "content": {
-            "tree_id": "14bd462e43dbd427d587532e10c5016c8109cbce",
-            "dot_gitmodules": null,
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
         },
         {
           "commit_id": "4ceb005e5e4a5d38a03ced78a677ce10368d3c9e",
+          "tree_id": "cca95a2cfbc2f517fbb31b9dcefe4a1f9bd68b35",
           "parents": [
             "a235165c84ee49036461a6fa0e722514acfca289"
           ],
-          "content": {
-            "tree_id": "cca95a2cfbc2f517fbb31b9dcefe4a1f9bd68b35",
-            "dot_gitmodules": {
-              "mode": "100644",
-              "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
-            },
-            "submodule_bumps": {
-              "sub": {
-                "AddedOrModified": {
-                  "repo_name": "sub",
-                  "commit_id": "da37f5616c317ec223fe1080825d59ae36cf3e1c"
-                }
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "da37f5616c317ec223fe1080825d59ae36cf3e1c"
               }
             }
           }
         },
         {
           "commit_id": "d4e089cb28015ad7b27936c71de9d75c28f000d3",
+          "tree_id": "5fa89535086ff58592dd5656bd7967003c657947",
           "parents": [
             "4ceb005e5e4a5d38a03ced78a677ce10368d3c9e"
           ],
-          "content": {
-            "tree_id": "5fa89535086ff58592dd5656bd7967003c657947",
-            "dot_gitmodules": {
-              "mode": "100644",
-              "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
-            },
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {}
         },
         {
           "commit_id": "3f11df6fef17b829d892d1ea00fd1cf17168e78c",
+          "tree_id": "bf7b1da765357710a9c79ec74e3cd532f8e32679",
           "parents": [
             "d4e089cb28015ad7b27936c71de9d75c28f000d3"
           ],
-          "content": {
-            "tree_id": "bf7b1da765357710a9c79ec74e3cd532f8e32679",
-            "dot_gitmodules": {
-              "mode": "100644",
-              "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
-            },
-            "submodule_bumps": {
-              "sub": {
-                "AddedOrModified": {
-                  "repo_name": "sub",
-                  "commit_id": "5c77b8c321d915c670fbc93e25fc794f6c5e6fcf"
-                }
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "5c77b8c321d915c670fbc93e25fc794f6c5e6fcf"
               }
             }
           }
         },
         {
           "commit_id": "60015887808c4a8721fe88118e00836e58446be7",
+          "tree_id": "d9b1a55c6de0fd856df252862d3ccc581dc37a5d",
           "parents": [
             "3f11df6fef17b829d892d1ea00fd1cf17168e78c"
           ],
-          "content": {
-            "tree_id": "d9b1a55c6de0fd856df252862d3ccc581dc37a5d",
-            "dot_gitmodules": {
-              "mode": "100644",
-              "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
-            },
-            "submodule_bumps": {
-              "sub": {
-                "AddedOrModified": {
-                  "repo_name": "sub",
-                  "commit_id": "d971db2bbcd8ffaeaaef7e437b51b706cc95993d"
-                }
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "d971db2bbcd8ffaeaaef7e437b51b706cc95993d"
               }
             }
           }
         },
         {
           "commit_id": "a8f46977939d7dd470c1e3761aab27f6a691304b",
+          "tree_id": "ad2dff4f19e4ba29d837048a6bc7af26f6bbd62a",
           "parents": [
             "60015887808c4a8721fe88118e00836e58446be7"
           ],
-          "content": {
-            "tree_id": "ad2dff4f19e4ba29d837048a6bc7af26f6bbd62a",
-            "dot_gitmodules": {
-              "mode": "100644",
-              "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
-            },
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {}
         },
         {
           "commit_id": "0f506eea0a05f3ccae334f66ba2e98d06790cf6a",
+          "tree_id": "8c685d2a3c93b8012399e8329d7f6440b4c3363f",
           "parents": [
             "a8f46977939d7dd470c1e3761aab27f6a691304b"
           ],
-          "content": {
-            "tree_id": "8c685d2a3c93b8012399e8329d7f6440b4c3363f",
-            "dot_gitmodules": {
-              "mode": "100644",
-              "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
-            },
-            "submodule_bumps": {
-              "sub": {
-                "AddedOrModified": {
-                  "repo_name": "sub",
-                  "commit_id": "8560dae0bf89676911fa4c9c70a1a8415f81830f"
-                }
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "8560dae0bf89676911fa4c9c70a1a8415f81830f"
               }
             }
           }
         },
         {
           "commit_id": "1e4ca4909c255ad55def21a07b9acba43805ae3c",
+          "tree_id": "566cafe495c4da9dbbf790aab776de8d12ac0471",
           "parents": [
             "0f506eea0a05f3ccae334f66ba2e98d06790cf6a"
           ],
-          "content": {
-            "tree_id": "566cafe495c4da9dbbf790aab776de8d12ac0471",
-            "dot_gitmodules": {
-              "mode": "100644",
-              "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
-            },
-            "submodule_bumps": {
-              "sub": {
-                "AddedOrModified": {
-                  "repo_name": "sub",
-                  "commit_id": "51d22bcaa20bc2c00a44d0ccd0a73d6cc6d9090c"
-                }
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "51d22bcaa20bc2c00a44d0ccd0a73d6cc6d9090c"
               }
             }
           }
         },
         {
           "commit_id": "528f7d4ef927815530803fe90cff727b5ecc7660",
+          "tree_id": "8a484a10feccf7885be157534c4f8cc69f13fb8f",
           "parents": [
             "0f506eea0a05f3ccae334f66ba2e98d06790cf6a"
           ],
-          "content": {
-            "tree_id": "8a484a10feccf7885be157534c4f8cc69f13fb8f",
-            "dot_gitmodules": {
-              "mode": "100644",
-              "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
-            },
-            "submodule_bumps": {
-              "sub": {
-                "AddedOrModified": {
-                  "repo_name": "sub",
-                  "commit_id": "ba9e6e31c29f7b0ece4794930b6049f91522f635"
-                }
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "ba9e6e31c29f7b0ece4794930b6049f91522f635"
               }
             }
           }
         },
         {
           "commit_id": "48c1c78c0d7134ac414446f5374a07780bfbfe0e",
+          "tree_id": "fe66f9c0a5674cd43534bde749a27355ca39ecf5",
           "parents": [
             "528f7d4ef927815530803fe90cff727b5ecc7660"
           ],
-          "content": {
-            "tree_id": "fe66f9c0a5674cd43534bde749a27355ca39ecf5",
-            "dot_gitmodules": {
-              "mode": "100644",
-              "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
-            },
-            "submodule_bumps": {
-              "sub": {
-                "AddedOrModified": {
-                  "repo_name": "sub",
-                  "commit_id": "23de8b96349af3576546122ec94380e0ecf4ad80"
-                }
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "23de8b96349af3576546122ec94380e0ecf4ad80"
               }
             }
           }
         },
         {
           "commit_id": "5b52f75ef3ea96cc06932f6a48d05687e1a5bcdd",
+          "tree_id": "5e21e94b436f955db7d5e9908c0b5b028445b0ab",
           "parents": [
             "1e4ca4909c255ad55def21a07b9acba43805ae3c"
           ],
-          "content": {
-            "tree_id": "5e21e94b436f955db7d5e9908c0b5b028445b0ab",
-            "dot_gitmodules": {
-              "mode": "100644",
-              "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
-            },
-            "submodule_bumps": {
-              "sub": {
-                "AddedOrModified": {
-                  "repo_name": "sub",
-                  "commit_id": "23aaa97e0c677f66d417037924aec18e36b4c383"
-                }
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "23aaa97e0c677f66d417037924aec18e36b4c383"
               }
             }
           }
         },
         {
           "commit_id": "b055adba931f6e420960d9ed13674497c690dd9b",
+          "tree_id": "410ee5f8212f46684f1e20e04b34b207da04a114",
           "parents": [
             "5b52f75ef3ea96cc06932f6a48d05687e1a5bcdd",
             "48c1c78c0d7134ac414446f5374a07780bfbfe0e"
           ],
-          "content": {
-            "tree_id": "410ee5f8212f46684f1e20e04b34b207da04a114",
-            "dot_gitmodules": {
-              "mode": "100644",
-              "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
-            },
-            "submodule_bumps": {
-              "sub": {
-                "AddedOrModified": {
-                  "repo_name": "sub",
-                  "commit_id": "2903c2551c192dca42419c599a1f8da9b7cc3480"
-                }
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "2903c2551c192dca42419c599a1f8da9b7cc3480"
               }
             }
           }
         },
         {
           "commit_id": "41ec359ef0cd54849a6180d605e126ceb1eab5f9",
+          "tree_id": "f8797b848823b6cbf575da059699384f4533a37e",
           "parents": [
             "b055adba931f6e420960d9ed13674497c690dd9b"
           ],
-          "content": {
-            "tree_id": "f8797b848823b6cbf575da059699384f4533a37e",
-            "dot_gitmodules": {
-              "mode": "100644",
-              "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
-            },
-            "submodule_bumps": {
-              "sub": {
-                "AddedOrModified": {
-                  "repo_name": "sub",
-                  "commit_id": "dbed55f447fe4f4977bde97833d77ad311c50d72"
-                }
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "dbed55f447fe4f4977bde97833d77ad311c50d72"
               }
             }
           }
         },
         {
           "commit_id": "5517f2e13949b153e85e687c0487798d2c60bba5",
+          "tree_id": "1168a40c535736475e84c0b34cce9397451aade1",
           "parents": [
             "41ec359ef0cd54849a6180d605e126ceb1eab5f9"
           ],
-          "content": {
-            "tree_id": "1168a40c535736475e84c0b34cce9397451aade1",
-            "dot_gitmodules": {
-              "mode": "100644",
-              "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
-            },
-            "submodule_bumps": {
-              "sub": {
-                "AddedOrModified": {
-                  "repo_name": "sub",
-                  "commit_id": "e9cbab3933de00b9911865e620820d326a208028"
-                }
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "e9cbab3933de00b9911865e620820d326a208028"
               }
             }
           }
         },
         {
           "commit_id": "52ba1eda1b794272abaeaa3875eb3c4cd3a59734",
+          "tree_id": "36c98baecf1cac89ba3daf7974991f45f6c6d989",
           "parents": [
             "b055adba931f6e420960d9ed13674497c690dd9b",
             "5517f2e13949b153e85e687c0487798d2c60bba5"
           ],
-          "content": {
-            "tree_id": "36c98baecf1cac89ba3daf7974991f45f6c6d989",
-            "dot_gitmodules": {
-              "mode": "100644",
-              "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
-            },
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {}
         },
         {
           "commit_id": "4f4531cc9ecf946fef57fc4ad8c48edbbccdf220",
+          "tree_id": "75758f9ae284c7e85ffbea7e05d27e3ec6629cb2",
           "parents": [
             "b055adba931f6e420960d9ed13674497c690dd9b",
             "52ba1eda1b794272abaeaa3875eb3c4cd3a59734"
           ],
-          "content": {
-            "tree_id": "75758f9ae284c7e85ffbea7e05d27e3ec6629cb2",
-            "dot_gitmodules": {
-              "mode": "100644",
-              "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
-            },
-            "submodule_bumps": {
-              "sub": {
-                "AddedOrModified": {
-                  "repo_name": "sub",
-                  "commit_id": "9554dde5ce3ac625acc4fd352d4c416dfb6eeb41"
-                }
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+          },
+          "submodule_bumps": {
+            "sub": {
+              "AddedOrModified": {
+                "repo_name": "sub",
+                "commit_id": "9554dde5ce3ac625acc4fd352d4c416dfb6eeb41"
               }
             }
           }
@@ -339,168 +307,138 @@ expression: example_import_cache_json
       "thin_commits": [
         {
           "commit_id": "af8092ec3806ca29c9e36874d74fe027e3a77e88",
+          "tree_id": "341e54913a3a43069f2927cc0f703e5a9f730df1",
           "parents": [],
-          "content": {
-            "tree_id": "341e54913a3a43069f2927cc0f703e5a9f730df1",
-            "dot_gitmodules": null,
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
         },
         {
           "commit_id": "da37f5616c317ec223fe1080825d59ae36cf3e1c",
+          "tree_id": "37e0c822b2ed7db5f1c422b9258808e4fb64aaf3",
           "parents": [
             "af8092ec3806ca29c9e36874d74fe027e3a77e88"
           ],
-          "content": {
-            "tree_id": "37e0c822b2ed7db5f1c422b9258808e4fb64aaf3",
-            "dot_gitmodules": null,
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
         },
         {
           "commit_id": "5c77b8c321d915c670fbc93e25fc794f6c5e6fcf",
+          "tree_id": "87042fe12ed70ad4d1df8afb8ffdf5fc28b17a71",
           "parents": [
             "da37f5616c317ec223fe1080825d59ae36cf3e1c"
           ],
-          "content": {
-            "tree_id": "87042fe12ed70ad4d1df8afb8ffdf5fc28b17a71",
-            "dot_gitmodules": null,
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
         },
         {
           "commit_id": "992625a824c7c9af30289d3f2de755307c61e286",
+          "tree_id": "feadbeaad2c6e700096781506a427dbf27144a98",
           "parents": [
             "5c77b8c321d915c670fbc93e25fc794f6c5e6fcf"
           ],
-          "content": {
-            "tree_id": "feadbeaad2c6e700096781506a427dbf27144a98",
-            "dot_gitmodules": null,
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
         },
         {
           "commit_id": "d971db2bbcd8ffaeaaef7e437b51b706cc95993d",
+          "tree_id": "bb16204762fe425cdc9b919ba49f57253af448eb",
           "parents": [
             "992625a824c7c9af30289d3f2de755307c61e286"
           ],
-          "content": {
-            "tree_id": "bb16204762fe425cdc9b919ba49f57253af448eb",
-            "dot_gitmodules": null,
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
         },
         {
           "commit_id": "6101de2201c29ad2776337c2b00bb8b40eea28ae",
+          "tree_id": "821792f1fdd03cb417fbd425fa2d66e33e70f2fe",
           "parents": [
             "d971db2bbcd8ffaeaaef7e437b51b706cc95993d"
           ],
-          "content": {
-            "tree_id": "821792f1fdd03cb417fbd425fa2d66e33e70f2fe",
-            "dot_gitmodules": null,
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
         },
         {
           "commit_id": "8560dae0bf89676911fa4c9c70a1a8415f81830f",
+          "tree_id": "55ee41874792df4cb5cac7f7e9512ffab5fb49ad",
           "parents": [
             "6101de2201c29ad2776337c2b00bb8b40eea28ae"
           ],
-          "content": {
-            "tree_id": "55ee41874792df4cb5cac7f7e9512ffab5fb49ad",
-            "dot_gitmodules": null,
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
         },
         {
           "commit_id": "51d22bcaa20bc2c00a44d0ccd0a73d6cc6d9090c",
+          "tree_id": "52c3f668637bf3f3050c00098bc76dd6800ebafc",
           "parents": [
             "8560dae0bf89676911fa4c9c70a1a8415f81830f"
           ],
-          "content": {
-            "tree_id": "52c3f668637bf3f3050c00098bc76dd6800ebafc",
-            "dot_gitmodules": null,
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
         },
         {
           "commit_id": "ba9e6e31c29f7b0ece4794930b6049f91522f635",
+          "tree_id": "d62100d1ba82642d7c784ae6dcb1444d2959b5c0",
           "parents": [
             "8560dae0bf89676911fa4c9c70a1a8415f81830f"
           ],
-          "content": {
-            "tree_id": "d62100d1ba82642d7c784ae6dcb1444d2959b5c0",
-            "dot_gitmodules": null,
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
         },
         {
           "commit_id": "23aaa97e0c677f66d417037924aec18e36b4c383",
+          "tree_id": "3c23c42db9945f7745120a976f6f1c002eea9fdf",
           "parents": [
             "51d22bcaa20bc2c00a44d0ccd0a73d6cc6d9090c"
           ],
-          "content": {
-            "tree_id": "3c23c42db9945f7745120a976f6f1c002eea9fdf",
-            "dot_gitmodules": null,
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
         },
         {
           "commit_id": "23de8b96349af3576546122ec94380e0ecf4ad80",
+          "tree_id": "eb835123180c927ce4030bdeb5233a6e9a569712",
           "parents": [
             "ba9e6e31c29f7b0ece4794930b6049f91522f635"
           ],
-          "content": {
-            "tree_id": "eb835123180c927ce4030bdeb5233a6e9a569712",
-            "dot_gitmodules": null,
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
         },
         {
           "commit_id": "2903c2551c192dca42419c599a1f8da9b7cc3480",
+          "tree_id": "8e46f2ccd2cde2d1c8b410557768ab29a2a52d3a",
           "parents": [
             "23aaa97e0c677f66d417037924aec18e36b4c383",
             "23de8b96349af3576546122ec94380e0ecf4ad80"
           ],
-          "content": {
-            "tree_id": "8e46f2ccd2cde2d1c8b410557768ab29a2a52d3a",
-            "dot_gitmodules": null,
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
         },
         {
           "commit_id": "dbed55f447fe4f4977bde97833d77ad311c50d72",
+          "tree_id": "375afbe3df21cfe416d71eddb5e16a626f35c2ba",
           "parents": [
             "2903c2551c192dca42419c599a1f8da9b7cc3480"
           ],
-          "content": {
-            "tree_id": "375afbe3df21cfe416d71eddb5e16a626f35c2ba",
-            "dot_gitmodules": null,
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
         },
         {
           "commit_id": "e9cbab3933de00b9911865e620820d326a208028",
+          "tree_id": "d2261e5196cc57b416aca539c7af0605569cf936",
           "parents": [
             "dbed55f447fe4f4977bde97833d77ad311c50d72"
           ],
-          "content": {
-            "tree_id": "d2261e5196cc57b416aca539c7af0605569cf936",
-            "dot_gitmodules": null,
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
         },
         {
           "commit_id": "9554dde5ce3ac625acc4fd352d4c416dfb6eeb41",
+          "tree_id": "ec5e5ed933ad35165dd3436aabd91cac24540643",
           "parents": [
             "2903c2551c192dca42419c599a1f8da9b7cc3480",
             "e9cbab3933de00b9911865e620820d326a208028"
           ],
-          "content": {
-            "tree_id": "ec5e5ed933ad35165dd3436aabd91cac24540643",
-            "dot_gitmodules": null,
-            "submodule_bumps": {}
-          }
+          "dot_gitmodules": null,
+          "submodule_bumps": {}
         }
       ],
       "dedup_cache": {

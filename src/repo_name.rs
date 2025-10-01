@@ -69,7 +69,7 @@ impl From<SubRepoName> for RepoName {
 }
 
 impl FromStr for RepoName {
-    type Err = String;
+    type Err = ();
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(Self::new(s))

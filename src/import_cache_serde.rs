@@ -39,18 +39,18 @@ pub struct SerdeImportCache {
     /// The checksum of the git-toprepo configuration used when writing.
     config_checksum: String,
     #[serde_as(
-        as = "serde_with::IfIsHumanReadable<OrderedHashMap<serde_with::DisplayFromStr, _>>"
+        serialize_as = "serde_with::IfIsHumanReadable<OrderedHashMap<serde_with::DisplayFromStr, _>>"
     )]
     repos: SerdeRepoStates,
     monorepo_commits: Vec<SerdeMonoRepoCommit>,
-    #[serde_as(as = "serde_with::IfIsHumanReadable<OrderedHashMap<_, _>>")]
+    #[serde_as(serialize_as = "serde_with::IfIsHumanReadable<OrderedHashMap<_, _>>")]
     top_to_mono_commit_map: HashMap<TopRepoCommitId, MonoRepoCommitId>,
     dedup: GitFastExportImportDedupCache,
 }
 
 impl SerdeImportCache {
     const TOPREPO_CACHE_PATH: &str = "toprepo/import-cache.bincode";
-    const CACHE_VERSION_PRELUDE: &str = "#cache-format-v3\n";
+    const CACHE_VERSION_PRELUDE: &str = "#cache-format-v2\n";
 
     /// Constructs the path to the git repository information cache inside
     /// `.git/toprepo/`.
@@ -290,16 +290,10 @@ impl SerdeImportCache {
 struct SerdeThinCommit {
     #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
     pub commit_id: CommitId,
-    #[serde_as(as = "serde_with::IfIsHumanReadable<Vec<serde_with::DisplayFromStr>>")]
-    pub parents: Vec<CommitId>,
-    pub content: Option<SerdeThinCommitContent>,
-}
-
-#[serde_as]
-#[derive(serde::Serialize, serde::Deserialize)]
-struct SerdeThinCommitContent {
     #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
     pub tree_id: TreeId,
+    #[serde_as(as = "serde_with::IfIsHumanReadable<Vec<serde_with::DisplayFromStr>>")]
+    pub parents: Vec<CommitId>,
     pub dot_gitmodules: Option<ExportedFileEntry>,
     pub submodule_bumps: BTreeMap<GitPath, ThinSubmodule>,
 }
@@ -321,17 +315,13 @@ impl SerdeThinCommit {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        let thin_commit = if let Some(content) = self.content {
-            ThinCommit::new_rc(
-                commit_id,
-                content.tree_id,
-                thin_parents,
-                content.dot_gitmodules,
-                content.submodule_bumps,
-            )
-        } else {
-            ThinCommit::new_rc_without_content(commit_id, thin_parents)
-        };
+        let thin_commit = ThinCommit::new_rc(
+            commit_id,
+            self.tree_id,
+            thin_parents,
+            self.dot_gitmodules,
+            self.submodule_bumps,
+        );
         Ok(thin_commit)
     }
 }
@@ -340,15 +330,10 @@ impl From<&ThinCommit> for SerdeThinCommit {
     fn from(thin_commit: &ThinCommit) -> Self {
         Self {
             commit_id: thin_commit.commit_id,
+            tree_id: thin_commit.tree_id,
             parents: thin_commit.parents.iter().map(|p| p.commit_id).collect(),
-            content: match thin_commit {
-                ThinCommit::Full(thin_commit) => Some(SerdeThinCommitContent {
-                    tree_id: thin_commit.tree_id,
-                    dot_gitmodules: thin_commit.dot_gitmodules,
-                    submodule_bumps: thin_commit.submodule_bumps.clone(),
-                }),
-                ThinCommit::WithoutContent(_) => None,
-            },
+            dot_gitmodules: thin_commit.dot_gitmodules,
+            submodule_bumps: thin_commit.submodule_bumps.clone(),
         }
     }
 }

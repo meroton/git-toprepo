@@ -18,8 +18,6 @@ use crate::repo::OriginalSubmodParent;
 use crate::repo::RepoData;
 use crate::repo::SubmoduleContent;
 use crate::repo::ThinCommit;
-use crate::repo::ThinCommitFull;
-use crate::repo::ThinCommitWithoutContent;
 use crate::repo::ThinSubmodule;
 use crate::repo::ThinSubmoduleContent;
 use crate::repo::TopRepoCommitId;
@@ -253,17 +251,14 @@ impl Expander<'_> {
             })
             .collect_vec();
         const TOP_PATH: GitPath = GitPath::new(BString::new(vec![]));
-        let parents_for_submodules = if let ThinCommit::Full(top_commit) = top_commit.as_ref() {
-            self.expand_inner_submodules(&mono_parents_of_top, &TOP_PATH, top_commit)?
-        } else {
-            vec![]
-        };
+        let parents_for_submodules =
+            self.expand_inner_submodules(&mono_parents_of_top, &TOP_PATH, &top_commit)?;
         if mono_parents_of_top.is_empty() && !parents_for_submodules.is_empty() {
             // There should be a first parent that is not a submodule.
             // Add an initial empty commit.
             mono_parents_of_top.push(self.emit_mono_commit_with_tree_updates(
                 &GitPath::new("".into()),
-                &top_commit.commit_id,
+                &top_commit,
                 vec![],
                 vec![],
                 None,
@@ -296,7 +291,7 @@ impl Expander<'_> {
     fn get_recursive_submodule_bumps(
         &self,
         path: &GitPath,
-        commit: &ThinCommitFull,
+        commit: &ThinCommit,
         submod_updates: &mut HashMap<GitPath, ExpandedOrRemovedSubmodule>,
         tree_updates: &mut Vec<(GitPath, TreeId)>,
     ) {
@@ -347,10 +342,6 @@ impl Expander<'_> {
                 orig_commit_id: bump.commit_id,
             });
         };
-        let ThinCommit::Full(submod_commit) = submod_commit.as_ref() else {
-            // The commit was not loaded, ignored by configuration.
-            return ExpandedSubmodule::KeptAsSubmodule(bump.commit_id);
-        };
         tree_updates.push((abs_sub_path.clone(), submod_commit.tree_id));
         self.get_recursive_submodule_bumps(
             abs_sub_path,
@@ -358,8 +349,8 @@ impl Expander<'_> {
             submod_updates,
             tree_updates,
         );
-        // TODO: 2025-09-22 This might be a regression, but the caller
-        // is not interested in that information anyway.
+        // TODO: 2025-09-22 This might be a regression, but the caller is not
+        // interested in that information anyway.
         ExpandedSubmodule::Expanded(SubmoduleContent {
             repo_name: submod_repo_name.clone(),
             orig_commit_id: bump.commit_id,
@@ -371,35 +362,6 @@ impl Expander<'_> {
         path: &GitPath,
         repo_name: &RepoName,
         source_commit: &ThinCommit,
-        parents: Vec<MonoRepoParent>,
-        initial_file_changes: Vec<ChangedFile>,
-        message: Option<BString>,
-    ) -> Result<Rc<MonoRepoCommit>> {
-        match source_commit {
-            ThinCommit::Full(source_commit) => self.emit_mono_commit_full(
-                path,
-                repo_name,
-                source_commit,
-                parents,
-                initial_file_changes,
-                message,
-            ),
-            ThinCommit::WithoutContent(source_commit) => self.emit_mono_commit_from_ignored(
-                path,
-                repo_name,
-                source_commit,
-                parents,
-                initial_file_changes,
-                message,
-            ),
-        }
-    }
-
-    fn emit_mono_commit_full(
-        &mut self,
-        path: &GitPath,
-        repo_name: &RepoName,
-        source_commit: &ThinCommitFull,
         parents: Vec<MonoRepoParent>,
         initial_file_changes: Vec<ChangedFile>,
         message: Option<BString>,
@@ -451,35 +413,9 @@ impl Expander<'_> {
         file_changes.extend(tree_file_changes);
         let mono_commit = self.emit_mono_commit_with_tree_updates(
             path,
-            &source_commit.commit_id,
+            source_commit,
             parents,
             file_changes,
-            top_bump,
-            submodule_bumps,
-            message,
-        )?;
-        Ok(mono_commit)
-    }
-
-    fn emit_mono_commit_from_ignored(
-        &mut self,
-        path: &GitPath,
-        repo_name: &RepoName,
-        source_commit: &ThinCommitWithoutContent,
-        parents: Vec<MonoRepoParent>,
-        initial_file_changes: Vec<ChangedFile>,
-        message: Option<BString>,
-    ) -> Result<Rc<MonoRepoCommit>> {
-        let submodule_bumps = HashMap::new();
-        let top_bump = match repo_name {
-            RepoName::Top => Some(TopRepoCommitId::new(source_commit.commit_id)),
-            RepoName::SubRepo(_sub_repo_name) => None,
-        };
-        let mono_commit = self.emit_mono_commit_with_tree_updates(
-            path,
-            &source_commit.commit_id,
-            parents,
-            initial_file_changes,
             top_bump,
             submodule_bumps,
             message,
@@ -491,14 +427,14 @@ impl Expander<'_> {
     fn emit_mono_commit_with_tree_updates(
         &mut self,
         source_path: &GitPath,
-        source_commit_id: &CommitId,
+        source_commit: &ThinCommit,
         parents: Vec<MonoRepoParent>,
         file_changes: Vec<ChangedFile>,
         top_bump: Option<TopRepoCommitId>,
         submodule_bumps: HashMap<GitPath, ExpandedOrRemovedSubmodule>,
         message: Option<BString>,
     ) -> Result<Rc<MonoRepoCommit>> {
-        let source_gix_commit = self.gix_repo.find_commit(*source_commit_id)?;
+        let source_gix_commit = self.gix_repo.find_commit(source_commit.commit_id)?;
         let source_gix_commit = source_gix_commit.decode()?;
         let mut author = Vec::new();
         source_gix_commit.author.write_to(&mut author)?;
@@ -508,7 +444,7 @@ impl Expander<'_> {
             calculate_mono_commit_message_from_commits(
                 self.gix_repo,
                 source_path,
-                source_commit_id,
+                &source_commit.commit_id,
                 &source_gix_commit,
                 &submodule_bumps,
             )
@@ -547,7 +483,7 @@ impl Expander<'_> {
         &mut self,
         mono_parents: &Vec<Rc<MonoRepoCommit>>,
         abs_super_path: &GitPath,
-        super_commit: &ThinCommitFull,
+        super_commit: &ThinCommit,
     ) -> Result<Vec<MonoRepoParent>> {
         let mut extra_parents_due_to_submods = Vec::new();
         let mut submodule_bumps = super_commit.submodule_bumps.clone();
@@ -815,21 +751,16 @@ impl Expander<'_> {
         // ));
         // 3. Create a chain of reverts back to submod_commit.
         // 4. Insert one extra branch from first parent to update.
-        let file_changes = if let ThinCommit::Full(submod_commit) = submod_commit {
-            const TREE_MODE: &[u8] = b"040000";
-            let mut tree_id_hex = gix::hash::Kind::hex_buf();
-            let _len = submod_commit.tree_id.hex_to_buf(&mut tree_id_hex);
-            vec![ChangedFile {
-                path: abs_sub_path.deref().clone(),
-                change: crate::git_fast_export_import::FileChange::Modified {
-                    mode: TREE_MODE.into(),
-                    hash: tree_id_hex.into(),
-                },
-            }]
-        } else {
-            // Ignored commit should not be expanded.
-            vec![]
-        };
+        const TREE_MODE: &[u8] = b"040000";
+        let mut tree_id_hex = gix::hash::Kind::hex_buf();
+        let _len = submod_commit.tree_id.hex_to_buf(&mut tree_id_hex);
+        let file_changes = vec![ChangedFile {
+            path: abs_sub_path.deref().clone(),
+            change: crate::git_fast_export_import::FileChange::Modified {
+                mode: TREE_MODE.into(),
+                hash: tree_id_hex.into(),
+            },
+        }];
 
         let mut commit_message = BString::new(vec![]);
         let commit_id_str = submod_commit.commit_id.to_string();
@@ -926,7 +857,7 @@ impl Expander<'_> {
         possible_mono_parents: Vec<Rc<MonoRepoCommit>>,
         abs_sub_path: &GitPath,
         wanted_sub_repo_name: &SubRepoName,
-        wanted_sub_commit: &ThinCommit,
+        wanted_sub_commit: &Rc<ThinCommit>,
         sub_to_mono_commit: &mut HashMap<RcKey<ThinCommit>, Option<Rc<MonoRepoCommit>>>,
     ) -> Result<Option<Rc<MonoRepoCommit>>> {
         // Depth first search, therefore use a stack and reverse the initial
@@ -1054,24 +985,20 @@ impl Expander<'_> {
             return Ok(None);
         }
 
-        let file_changes = if let ThinCommit::Full(wanted_sub_commit) = wanted_sub_commit {
-            let parents_for_submodules =
-                self.expand_inner_submodules(&expanded_parents, abs_sub_path, wanted_sub_commit)?;
-            all_parents.extend(parents_for_submodules);
-            // TODO: 2025-09-22 Can this code be cleaner in some way?
-            const TREE_MODE: &[u8] = b"040000";
-            let mut tree_id_hex = gix::hash::Kind::hex_buf();
-            let _len = wanted_sub_commit.tree_id.hex_to_buf(&mut tree_id_hex);
-            vec![ChangedFile {
-                path: abs_sub_path.deref().clone(),
-                change: crate::git_fast_export_import::FileChange::Modified {
-                    mode: TREE_MODE.into(),
-                    hash: tree_id_hex.into(),
-                },
-            }]
-        } else {
-            vec![]
-        };
+        let parents_for_submodules =
+            self.expand_inner_submodules(&expanded_parents, abs_sub_path, wanted_sub_commit)?;
+        all_parents.extend(parents_for_submodules);
+        // TODO: 2025-09-22 Can this code be cleaner in some way?
+        const TREE_MODE: &[u8] = b"040000";
+        let mut tree_id_hex = gix::hash::Kind::hex_buf();
+        let _len = wanted_sub_commit.tree_id.hex_to_buf(&mut tree_id_hex);
+        let file_changes = vec![ChangedFile {
+            path: abs_sub_path.deref().clone(),
+            change: crate::git_fast_export_import::FileChange::Modified {
+                mode: TREE_MODE.into(),
+                hash: tree_id_hex.into(),
+            },
+        }];
         let mono_commit = self.emit_mono_commit(
             abs_sub_path,
             &RepoName::SubRepo(wanted_sub_repo_name.clone()),

@@ -229,39 +229,37 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
             .with_context(|| {
                 format!("Missing the HEAD commit {} in the top repo", head_commit_id)
             })?;
-        if let git_toprepo::repo::ThinCommit::Full(thin_head_commit) = thin_head_commit.as_ref() {
-            for submod_path in &*thin_head_commit.submodule_paths {
-                let Some(submod_url) = gitmod_infos.submodules.get(submod_path) else {
-                    log::warn!("Missing submodule {submod_path} in .gitmodules");
+        for submod_path in &*thin_head_commit.submodule_paths {
+            let Some(submod_url) = gitmod_infos.submodules.get(submod_path) else {
+                log::warn!("Missing submodule {submod_path} in .gitmodules");
+                continue;
+            };
+            let submod_url = match submod_url {
+                Ok(submod_url) => submod_url,
+                Err(err) => {
+                    log::warn!("Invalid submodule URL for path {submod_path}: {err}");
                     continue;
-                };
-                let submod_url = match submod_url {
-                    Ok(submod_url) => submod_url,
-                    Err(err) => {
-                        log::warn!("Invalid submodule URL for path {submod_path}: {err}");
-                        continue;
-                    }
-                };
-                // TODO: 2025-09-22 Refactor to not use missing_subrepos.clear() for
-                // accessing the submodule configs.
-                repo.ledger.missing_subrepos.clear();
-                match repo
-                    .ledger
-                    .get_name_from_url(submod_url)
-                    .with_context(|| format!("Submodule {submod_path}"))
-                {
-                    Ok(Some(name)) => {
-                        repo.ledger
-                            .subrepos
-                            .get_mut(&name)
-                            .expect("valid subrepo name")
-                            .enabled = true
-                    }
-                    Ok(None) => unreachable!("Submodule {submod_path} should be in the config"),
-                    Err(err) => {
-                        log::warn!("Failed to load submodule {submod_path}: {err}");
-                        continue;
-                    }
+                }
+            };
+            // TODO: 2025-09-22 Refactor to not use missing_subrepos.clear() for
+            // accessing the submodule configs.
+            repo.ledger.missing_subrepos.clear();
+            match repo
+                .ledger
+                .get_name_from_url(submod_url)
+                .with_context(|| format!("Submodule {submod_path}"))
+            {
+                Ok(Some(name)) => {
+                    repo.ledger
+                        .subrepos
+                        .get_mut(&name)
+                        .expect("valid subrepo name")
+                        .enabled = true
+                }
+                Ok(None) => unreachable!("Submodule {submod_path} should be in the config"),
+                Err(err) => {
+                    log::warn!("Failed to load submodule {submod_path}: {err}");
+                    continue;
                 }
             }
         }

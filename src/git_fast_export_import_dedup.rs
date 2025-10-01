@@ -44,7 +44,7 @@ pub struct GitFastExportImportDedupCache {
     /// Maps from a hash of a commit, apart from the committer, to the latest
     /// imported or exported commit id.
     #[serde_as(
-        as = "serde_with::IfIsHumanReadable<OrderedHashMap<_, serde_with::DisplayFromStr>>"
+        serialize_as = "serde_with::IfIsHumanReadable<OrderedHashMap<_, serde_with::DisplayFromStr>>"
     )]
     commits: HashMap<DedupCacheKey, CommitId>,
 }
