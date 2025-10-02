@@ -675,12 +675,21 @@ impl<'a> CommitLoader<'a> {
         let parent_span = tracing::Span::current();
         let idle_timeouts = self.config.fetch.get_idle_timeouts();
         self.thread_pool.execute(move || {
-            let _log_scope_guard = crate::log::scope(log_context);
-            let _span_guard =
-                tracing::info_span!(parent: parent_span, "Fetching", "repo" = %repo_name).entered();
-            let result = fetcher
-                .fetch_with_progress_bar(&pb_status, &idle_timeouts)
-                .with_context(|| format!("Fetching {repo_name}"));
+            let start_time = std::time::Instant::now();
+            let fetch_remote_str = fetcher.remote.as_deref().unwrap_or("<top>").to_owned();
+            let result = {
+                let _log_scope_guard = crate::log::scope(log_context);
+                let _span_guard =
+                    tracing::info_span!(parent: parent_span, "Fetching", "repo" = %repo_name)
+                        .entered();
+                fetcher
+                    .fetch_with_progress_bar(&pb_status, &idle_timeouts)
+                    .with_context(|| format!("Fetching {repo_name}"))
+            };
+            if result.is_ok() {
+                let fetch_duration = std::time::Instant::now().duration_since(start_time);
+                log::info!("git fetch {fetch_remote_str} completed in {fetch_duration:.0?}",);
+            }
             // Sending might fail on interrupt.
             if let Err(err) = tx.send(TaskResult::RepoFetchDone {
                 repo_name,
