@@ -18,7 +18,7 @@ use crate::repo::ExportedFileEntry;
 use crate::repo::RepoData;
 use crate::repo::ThinCommit;
 use crate::repo::ThinSubmodule;
-use crate::repo::ThinSubmoduleContent;
+use crate::repo::ThinSubmoduleReference;
 use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::ui::ProgressStatus;
@@ -1299,7 +1299,7 @@ impl<'a> CommitLoader<'a> {
                         }
                         submodule_bumps.insert(
                             path,
-                            ThinSubmodule::AddedOrModified(ThinSubmoduleContent {
+                            ThinSubmodule::AddedOrModified(ThinSubmoduleReference {
                                 repo_name: submod_repo_name,
                                 commit_id: submod_commit_id,
                             }),
@@ -1353,7 +1353,7 @@ impl<'a> CommitLoader<'a> {
                         );
                         if new_repo_name != thin_submod.repo_name {
                             // Insert an entry that this submodule has been updated.
-                            entry.insert(ThinSubmodule::AddedOrModified(ThinSubmoduleContent {
+                            entry.insert(ThinSubmodule::AddedOrModified(ThinSubmoduleReference {
                                 repo_name: new_repo_name,
                                 commit_id: thin_submod.commit_id,
                             }));

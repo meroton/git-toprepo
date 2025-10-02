@@ -17,7 +17,7 @@ use crate::repo::MonoRepoCommit;
 use crate::repo::MonoRepoCommitId;
 use crate::repo::MonoRepoParent;
 use crate::repo::OriginalSubmodParent;
-use crate::repo::SubmoduleContent;
+use crate::repo::SubmoduleReference;
 use crate::repo::TopRepoCommitId;
 use crate::repo_name::RepoName;
 use crate::ui::ProgressStatus;
@@ -399,7 +399,7 @@ fn split_for_push_impl(
                             submodule_bumps.insert(
                                 abs_sub_path,
                                 ExpandedOrRemovedSubmodule::Expanded(ExpandedSubmodule::Expanded(
-                                    SubmoduleContent {
+                                    SubmoduleReference {
                                         repo_name: sub_repo_name.clone(),
                                         orig_commit_id: import_commit_id,
                                     },
