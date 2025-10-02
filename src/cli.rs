@@ -301,7 +301,7 @@ pub struct Recombine {
     /// Reuse information from the cache and skip combining the repositories
     /// from scratch.
     #[arg(long)]
-    pub reuse_cache: bool,
+    pub use_cache: bool,
 }
 
 #[derive(Args, Debug)]
