@@ -57,6 +57,9 @@ pub struct SubRepoLedger {
     /// automatically been added to `suprepos`. This is only used to limit
     /// warning and log statements.
     pub missing_subrepos: HashSet<SubRepoName>,
+    /// List of commits that have been asked for but were kept as submodules
+    /// because they were configured as missing.
+    pub wanted_but_missing_commits: HashMap<SubRepoName, HashSet<CommitId>>,
 }
 
 impl SubRepoLedger {
@@ -68,6 +71,70 @@ impl SubRepoLedger {
                 .subrepos
                 .get(sub_repo_name)
                 .is_none_or(|repo_config| repo_config.enabled),
+        }
+    }
+
+    /// Check if a commit in a submodule is configured as missing and should not
+    /// be expanded.
+    // TODO: 2025-10-01 How to merge with record_if_missing_commit?
+    pub(crate) fn is_missing_commit(
+        &self,
+        sub_repo_name: &SubRepoName,
+        commit_id: &CommitId,
+    ) -> bool {
+        self.subrepos
+            .get(sub_repo_name)
+            .is_some_and(|repo_config| repo_config.missing_commits.contains(commit_id))
+    }
+
+    /// Check if a commit in a submodule is configured as missing and should not
+    /// be expanded. If so, record it.
+    pub(crate) fn record_if_missing_commit(
+        &mut self,
+        sub_repo_name: &SubRepoName,
+        commit_id: &CommitId,
+    ) -> bool {
+        if self.is_missing_commit(sub_repo_name, commit_id) {
+            self.wanted_but_missing_commits
+                .entry(sub_repo_name.clone())
+                .or_default()
+                .insert(*commit_id);
+            return true;
+        }
+        false
+    }
+
+    /// Warn about any commits that were configured as missing but does actually
+    /// exist. Such commits should be removed from the configuration.
+    ///
+    /// It should really be an error, but pushing a missing commit to a
+    /// repository is done out of sync with the update of the configuration.
+    /// git-toprepo should not suddenly start to fail due to no apparent reason.
+    pub(crate) fn validate_missing_commits_lists(&self, repo_states: &crate::repo::RepoStates) {
+        let empty_hash_set = HashSet::new();
+        for (sub_repo_name, repo_config) in &self.subrepos {
+            let Some(loaded_commits) = repo_states
+                .get(&RepoName::SubRepo(sub_repo_name.clone()))
+                .map(|repo_data| &repo_data.thin_commits)
+            else {
+                // If the repository was not loaded, it is impossible to say if a commit is missing or not.
+                continue;
+            };
+            let skipped_commits = self
+                .wanted_but_missing_commits
+                .get(sub_repo_name)
+                .unwrap_or(&empty_hash_set);
+            for missing_commit in repo_config.missing_commits.iter().sorted() {
+                if loaded_commits.contains_key(missing_commit) {
+                    log::warn!(
+                        "Commit {missing_commit} in {sub_repo_name} exists but is configured as missing"
+                    );
+                } else if !skipped_commits.contains(missing_commit) {
+                    log::warn!(
+                        "Commit {missing_commit} in {sub_repo_name} is configured as missing but was never referenced from any repo"
+                    );
+                }
+            }
         }
     }
 
@@ -426,6 +493,12 @@ impl<'a> CommitLoader<'a> {
                 .into_iter()
                 .map(|(repo_name, repo_fetcher)| (repo_name, repo_fetcher.repo_data)),
         );
+        if result.is_ok() && !self.error_observer.should_interrupt() {
+            // Warn about any commits that were configured to be ignored but
+            // don't exist.
+            self.ledger
+                .validate_missing_commits_lists(self.cached_repo_states);
+        }
         log::info!(
             "Finished importing commits in {:.2?}",
             self.import_progress.elapsed()
@@ -880,18 +953,14 @@ impl<'a> CommitLoader<'a> {
                 for bump in thin_commit.submodule_bumps.values() {
                     if let ThinSubmodule::AddedOrModified(bump) = bump
                         && let Some(submod_repo_name) = &bump.repo_name
-                    {
-                        let subconfig = self
+                        && !self
                             .ledger
-                            .subrepos
-                            .get(submod_repo_name)
-                            .expect("subrepo name exists");
-                        if !subconfig.skip_expanding.contains(&bump.commit_id) {
-                            needed_commits.push(NeededCommit {
-                                repo_name: submod_repo_name.clone(),
-                                commit_id: bump.commit_id,
-                            });
-                        }
+                            .record_if_missing_commit(submod_repo_name, &bump.commit_id)
+                    {
+                        needed_commits.push(NeededCommit {
+                            repo_name: submod_repo_name.clone(),
+                            commit_id: bump.commit_id,
+                        });
                     }
                 }
                 // TODO: 2025-09-22 The without_committer_id for thin_commit might not be
@@ -1129,7 +1198,8 @@ impl<'a> CommitLoader<'a> {
         if tree_id.is_empty_tree() {
             log::log!(
                 commit_log_level.level,
-                "With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear. To avoid this problem, commit a file.",
+                "With git-submodule, this empty commit results in a directory that is empty, \
+                but with git-toprepo it will disappear. To avoid this problem, commit a file.",
             );
         }
 
@@ -1146,6 +1216,7 @@ impl<'a> CommitLoader<'a> {
                     .cloned()
             })
             .collect::<Result<Vec<_>>>()?;
+
         let mut submodule_bumps = BTreeMap::new();
 
         // Check for an updated .gitmodules file.
@@ -1179,7 +1250,9 @@ impl<'a> CommitLoader<'a> {
                             dot_gitmodules_cache,
                             commit_log_level,
                         );
-                        if let Some(submod_repo_name) = &submod_repo_name {
+                        if let Some(submod_repo_name) = &submod_repo_name
+                            && !ledger.record_if_missing_commit(submod_repo_name, &submod_commit_id)
+                        {
                             new_submodule_commits.push(NeededCommit {
                                 repo_name: submod_repo_name.clone(),
                                 commit_id: submod_commit_id,

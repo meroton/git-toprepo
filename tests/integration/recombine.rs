@@ -1,6 +1,8 @@
 use bstr::ByteSlice as _;
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
+use git_toprepo_testtools::test_util::git_rev_parse;
+use git_toprepo_testtools::test_util::git_update_submodule_in_index;
 use itertools::Itertools as _;
 use predicates::prelude::*;
 use rstest::rstest;
@@ -463,7 +465,11 @@ fn warn_for_empty_submodule() {
         .arg(&monorepo)
         .assert()
         .success()
-        .stderr(    predicate::str::is_match(r"\nWARN: Commit [0-9a-f]+ in subx \(refs/heads/main\): With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\. To avoid this problem, commit a file\.\n").unwrap());
+        .stderr(predicate::str::is_match(
+            "\\nWARN: Commit [0-9a-f]+ in subx \\(refs/heads/main\\): \
+            With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\\. \
+            To avoid this problem, commit a file\\.\\n").unwrap(),
+        );
 
     // Fix the warning.
     std::fs::write(subxrepo.join("file.txt"), "content\n").unwrap();
@@ -484,6 +490,120 @@ fn warn_for_empty_submodule() {
         // Note that the trace message does not include any branch name.
         .stderr(    predicate::str::is_match(r"\nTRACE: Commit [0-9a-f]+ in subx: With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\. To avoid this problem, commit a file\.\n").unwrap())
         .stderr(predicate::str::contains("WARN:").not());
+}
+
+/// Check that warnings are printed for improper use of the `missing_commits`
+/// option.
+#[test]
+fn config_missing_commits() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let toprepo = temp_dir.join("top");
+    let subyrepo = temp_dir.join("suby");
+    let monorepo = temp_dir.join("mono");
+    let monorepo2 = temp_dir.join("mono2");
+
+    let suby_missing_rev = git_rev_parse(&subyrepo, "HEAD");
+
+    std::fs::write(
+        toprepo.join(".gittoprepo.toml"),
+        &format!(
+            r#"
+[repo.subx]
+urls = ["../subx/"]
+missing_commits = [
+    # Non-existing commit.
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+]
+[repo.suby]
+urls = ["../suby/"]
+missing_commits = [
+    # Commit that exists.
+    "{suby_missing_rev}",
+    # Non-existing commit.
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+]
+"#
+        )[1..],
+    )
+    .unwrap();
+    git_command_for_testing(&toprepo)
+        .args(["commit", "--all", "-m", "Update .gittoprepo.toml"])
+        .assert()
+        .success();
+    let expected_warnings = "\
+        WARN: Commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa in subx is \
+        configured as missing but was never referenced from any repo\n";
+    cargo_bin_git_toprepo_for_testing()
+        .arg("clone")
+        .arg(&toprepo)
+        .arg(&monorepo)
+        .assert()
+        .success()
+        // suby should not be loaded at all, because the only referenced commit
+        // is marked as missing.
+        .stderr(predicate::str::contains(expected_warnings))
+        .stderr(
+            predicate::function(|stderr: &str| stderr.matches("WARN:").count() == 1)
+                .name("exactly 1 warning"),
+        );
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&monorepo)
+        .args(["recombine", "--reuse-cache"])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr(predicate::str::contains(expected_warnings))
+        .stderr(
+            predicate::function(|stderr: &str| stderr.matches("WARN:").count() == 1)
+                .name("exactly 1 warning"),
+        );
+
+    // Add a commit to suby so that it is loaded.
+    git_command_for_testing(&subyrepo)
+        .args(["commit", "--allow-empty", "-m", "Second empty commit"])
+        .assert()
+        .success();
+    git_update_submodule_in_index(&toprepo, "suby", &git_rev_parse(&subyrepo, "HEAD"));
+    git_command_for_testing(&toprepo)
+        .args(["commit", "-m", "Update suby"])
+        .assert()
+        .success();
+    let expected_warnings = format!(
+        "WARN: Commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa in subx is \
+        configured as missing but was never referenced from any repo\n\
+        WARN: Commit {suby_missing_rev} in suby exists \
+        but is configured as missing\n\
+        WARN: Commit bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb in suby is \
+        configured as missing but was never referenced from any repo\n\
+        ",
+    );
+    cargo_bin_git_toprepo_for_testing()
+        .args(["clone"])
+        .arg(&toprepo)
+        .arg(&monorepo2)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(&expected_warnings))
+        .stderr(
+            predicate::function(|stderr: &str| stderr.matches("WARN:").count() == 3)
+                .name("exactly 3 warnings"),
+        );
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&monorepo2)
+        .args(["recombine", "--reuse-cache"])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr(predicate::str::contains(&expected_warnings))
+        .stderr(
+            predicate::function(|stderr: &str| stderr.matches("WARN:").count() == 3)
+                .name("exactly 3 warnings"),
+        );
 }
 
 #[test]

@@ -143,7 +143,7 @@ fn bootstrap_after_clone() {
     let expected_boostrap_config = &r#"
 [repo.sub]
 urls = ["../sub/"]
-skip_expanding = []
+missing_commits = []
 "#[1..];
 
     git_command_for_testing(&toprepo)
@@ -188,11 +188,11 @@ fn bootstrap_on_existing() {
     let expected_boostrap_config: &str = &r#"
 [repo.subx]
 urls = ["../subx/"]
-skip_expanding = []
+missing_commits = []
 
 [repo.suby]
 urls = ["../suby/"]
-skip_expanding = []
+missing_commits = []
 "#[1..];
 
     cargo_bin_git_toprepo_for_testing()

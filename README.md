@@ -127,9 +127,9 @@ fetch.prune = true
 # --depth is added if set to non-zero.
 fetch.depth = 0
 
-# Commit ids that should not be expanded, they might e.g.
-# be permanently missing from upstream.
-skip_expanding = []
+# Commit ids that should not be expanded because they are permanently missing
+# from the repository.
+missing_commits = []
 
 [repo.something.push]
 # push.url defaults to fetch.url.
