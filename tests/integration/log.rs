@@ -152,19 +152,22 @@ fn always_show_missing_submod_commit_warnings() {
         .assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            "WARN: Missing commit in sub: {original_sub_rev}"
+            "WARN: Commit {original_sub_rev} in sub is missing, referenced from top"
         )))
-        .stderr(predicate::function(|stderr: &str| {
-            // There should be only one warning, for the commit that is missing.
-            stderr.matches("WARN:").count() == 1
-        }));
+        .stderr(
+            predicate::function(|stderr: &str| {
+                // There should be only one warning, for the commit that is missing.
+                stderr.matches("WARN:").count() == 1
+            })
+            .name("exactly 1 warning"),
+        );
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["fetch"])
         .assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            "WARN: Missing commit in sub: {original_sub_rev}"
+            "WARN: Commit {original_sub_rev} in sub is missing, referenced from top"
         )))
         .stderr(predicate::function(|stderr: &str| {
             // There should be only one warning, for the commit that is missing.
@@ -172,11 +175,11 @@ fn always_show_missing_submod_commit_warnings() {
         }));
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
-        .args(["recombine"])
+        .args(["recombine", "--use-cache"])
         .assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            "WARN: Missing commit in sub: {original_sub_rev}"
+            "WARN: Commit {original_sub_rev} in sub is missing, referenced from top"
         )))
         .stderr(predicate::function(|stderr: &str| {
             // There should be only one warning, for the commit that is missing.
