@@ -314,9 +314,9 @@ pub struct Fetch {
     #[arg(long("jobs"), name = "N", default_value = "7")]
     pub job_count: std::num::NonZero<u16>,
 
-    /// Skip the filtering step after fetching the top repository.
+    /// Skip the combining history step after fetching the top repository.
     #[arg(long)]
-    pub skip_filter: bool,
+    pub skip_combine: bool,
 
     /// A configured git-remote in the mono repository, a URL to a remote top
     /// repository, a URL to a remote submodule repository, a working directory
