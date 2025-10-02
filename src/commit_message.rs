@@ -273,7 +273,6 @@ fn get_and_decode_commit_message(repo: &gix::Repository, commit_id: CommitId) ->
 }
 
 /// Best effort decoding the commit message, logging any error.
-///
 // TODO: 2025-09-22 How to only log at tips? Fix that later if an issue arises.
 fn decode_commit_message(commit: &gix::objs::CommitRef<'_>) -> String {
     let encoding = if let Some(encoding_name) = commit.encoding {
@@ -299,9 +298,9 @@ fn decode_commit_message(commit: &gix::objs::CommitRef<'_>) -> String {
 ///
 /// # Examples
 /// ```
-/// use git_toprepo::git::GitPath;
-/// use git_toprepo::commit_message::split_commit_message;
 /// use git_toprepo::commit_message::PushMessage;
+/// use git_toprepo::commit_message::split_commit_message;
+/// use git_toprepo::git::GitPath;
 ///
 /// let full_message = "\
 /// Subject line
@@ -327,7 +326,7 @@ fn decode_commit_message(commit: &gix::objs::CommitRef<'_>) -> String {
 /// ";
 /// let (messages, residual) = split_commit_message(full_message.to_owned()).unwrap();
 /// let expected_sub_push_message = PushMessage {
-///         message: "Subject line
+///     message: "Subject line
 ///
 /// Topic: not-the-footer-yet
 ///
@@ -335,24 +334,35 @@ fn decode_commit_message(commit: &gix::objs::CommitRef<'_>) -> String {
 /// Body line 2
 ///
 /// Footer-Key: value
-/// ".to_owned(),
-///         topic: Some("my-topic".to_owned()),
-///     };
-/// assert_eq!(messages, std::collections::HashMap::from_iter(vec![
-///     (GitPath::from("sub1"), expected_sub_push_message.clone()),
-///     (GitPath::from("sub2"), expected_sub_push_message),
-///     (GitPath::from(""), PushMessage {
-///        message: "Subject 2
+/// "
+///     .to_owned(),
+///     topic: Some("my-topic".to_owned()),
+/// };
+/// assert_eq!(
+///     messages,
+///     std::collections::HashMap::from_iter(vec![
+///         (GitPath::from("sub1"), expected_sub_push_message.clone()),
+///         (GitPath::from("sub2"), expected_sub_push_message),
+///         (
+///             GitPath::from(""),
+///             PushMessage {
+///                 message: "Subject 2
 ///
 /// Another-Footer: another value
-/// ".to_owned(),
-///        topic: None,
-///     }),
-/// ]));
-/// assert_eq!(residual, Some(PushMessage {
-///     message: "Residual message\n".to_owned(),
-///     topic: Some("with-topic".to_owned()),
-/// }));
+/// "
+///                 .to_owned(),
+///                 topic: None,
+///             }
+///         ),
+///     ])
+/// );
+/// assert_eq!(
+///     residual,
+///     Some(PushMessage {
+///         message: "Residual message\n".to_owned(),
+///         topic: Some("with-topic".to_owned()),
+///     })
+/// );
 /// ```
 pub fn split_commit_message(
     full_message: String,
@@ -631,19 +641,41 @@ fn is_interesting_message(message: &str) -> bool {
 /// use git_toprepo::commit_message::commit_message_has_footer;
 ///
 /// assert!(!commit_message_has_footer("Subject line".into()));
-/// assert!(!commit_message_has_footer("Subject line\nmore subject".into()));
-/// assert!(!commit_message_has_footer("Subject line\n\nBody (invalid footer line)\n".into()));
-/// assert!(!commit_message_has_footer("Subject line\n\nInvalid_Key: value\nValid-Key: value".into()));
+/// assert!(!commit_message_has_footer(
+///     "Subject line\nmore subject".into()
+/// ));
+/// assert!(!commit_message_has_footer(
+///     "Subject line\n\nBody (invalid footer line)\n".into()
+/// ));
+/// assert!(!commit_message_has_footer(
+///     "Subject line\n\nInvalid_Key: value\nValid-Key: value".into()
+/// ));
 ///
-/// assert!(commit_message_has_footer("Subject line\n\nFooter-Key: value".into()));
-/// assert!(!commit_message_has_footer("Subject line\n\nFooter Key: value".into()));
-/// assert!(commit_message_has_footer("Subject line\n\nBody\n\nFooter-Key: value".into()));
-/// assert!(!commit_message_has_footer("Subject line\n\nBody\n\nFooter Key: value".into()));
-/// assert!(commit_message_has_footer("Subject line\n\nFooter-Key: value\nAnother-Footer: another value".into()));
-/// assert!(!commit_message_has_footer("Subject line\n\nFooter Key: value\nAnother-Footer: value\n".into()));
+/// assert!(commit_message_has_footer(
+///     "Subject line\n\nFooter-Key: value".into()
+/// ));
+/// assert!(!commit_message_has_footer(
+///     "Subject line\n\nFooter Key: value".into()
+/// ));
+/// assert!(commit_message_has_footer(
+///     "Subject line\n\nBody\n\nFooter-Key: value".into()
+/// ));
+/// assert!(!commit_message_has_footer(
+///     "Subject line\n\nBody\n\nFooter Key: value".into()
+/// ));
+/// assert!(commit_message_has_footer(
+///     "Subject line\n\nFooter-Key: value\nAnother-Footer: another value".into()
+/// ));
+/// assert!(!commit_message_has_footer(
+///     "Subject line\n\nFooter Key: value\nAnother-Footer: value\n".into()
+/// ));
 ///
-/// assert!(!commit_message_has_footer("Subject line\n\nBad^Key: value".into()));
-/// assert!(!commit_message_has_footer("Subject line\n\nBad_Key: value".into()));
+/// assert!(!commit_message_has_footer(
+///     "Subject line\n\nBad^Key: value".into()
+/// ));
+/// assert!(!commit_message_has_footer(
+///     "Subject line\n\nBad_Key: value".into()
+/// ));
 /// ```
 pub fn commit_message_has_footer(message: &BStr) -> bool {
     let Some(footer_idx) = message.trim_end().rfind("\n\n") else {

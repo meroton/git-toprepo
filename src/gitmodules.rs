@@ -22,8 +22,9 @@ impl SubmoduleUrlExt for gix::url::Url {
     /// use gix::url;
     ///
     /// /// Join two URLs as strings.
-    /// fn join_url_str(base: &str, other: &str) -> String{
-    ///     gix::url::parse(base.as_bytes().as_bstr()).unwrap()
+    /// fn join_url_str(base: &str, other: &str) -> String {
+    ///     gix::url::parse(base.as_bytes().as_bstr())
+    ///         .unwrap()
     ///         .join(&gix::url::parse(other.as_bytes().as_bstr()).unwrap())
     ///         .to_string()
     /// }
@@ -76,14 +77,8 @@ impl SubmoduleUrlExt for gix::url::Url {
     ///     "file:///../foo",
     /// );
     /// // Without scheme.
-    /// assert_eq!(
-    ///     join_url_str("parent", "/data/repo"),
-    ///     "/data/repo",
-    /// );
-    /// assert_eq!(
-    ///     join_url_str("/data/repo", "../other"),
-    ///     "/data/other",
-    /// );
+    /// assert_eq!(join_url_str("parent", "/data/repo"), "/data/repo",);
+    /// assert_eq!(join_url_str("/data/repo", "../other"), "/data/other",);
     /// ```
     fn join(&self, other: &Self) -> Self {
         if other.scheme == gix::url::Scheme::File
@@ -258,12 +253,14 @@ pub fn join_relative_url_paths(base: &str, other: &str) -> String {
 ///     &mut outer_gitmodules.as_bytes().to_vec(),
 ///     gix::config::file::Metadata::default(),
 ///     Default::default(),
-/// ).unwrap();
+/// )
+/// .unwrap();
 /// let inner_config = gix::config::File::from_bytes_owned(
 ///     &mut inner_gitmodules.as_bytes().to_vec(),
 ///     gix::config::file::Metadata::default(),
 ///     Default::default(),
-/// ).unwrap();
+/// )
+/// .unwrap();
 /// git_toprepo::gitmodules::append_inner_submodule_config(
 ///     &mut outer_config,
 ///     &gix::url::parse(bstr::BStr::new(b"ssh://server.com/example/outer.git")).unwrap(),
@@ -273,8 +270,8 @@ pub fn join_relative_url_paths(base: &str, other: &str) -> String {
 /// let mut buf: Vec<u8> = Vec::new();
 /// outer_config.write_to(&mut buf).unwrap();
 /// assert_eq!(
-///    String::from_utf8(buf).unwrap(),
-///   r#"
+///     String::from_utf8(buf).unwrap(),
+///     r#"
 /// ## Comment that should be kept.
 /// [submodule "submod-outer"]
 ///     path = submod/outer
@@ -290,7 +287,8 @@ pub fn join_relative_url_paths(base: &str, other: &str) -> String {
 ///     url = ssh://server.com/inner.git
 ///     branch = .
 /// ## Another comment that should be kept.
-/// "#);
+/// "#
+/// );
 /// ```
 pub fn append_inner_submodule_config(
     config: &mut gix::config::File<'static>,
