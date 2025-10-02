@@ -734,6 +734,7 @@ name = "git-toprepo-testtools"
 version = "0.0.0"
 dependencies = [
  "assert_cmd",
+ "bstr",
  "log",
  "rstest 0.25.0",
  "tempfile",
