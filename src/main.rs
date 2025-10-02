@@ -79,7 +79,7 @@ fn clone_after_init(
         &cli::Fetch {
             keep_going: false,
             job_count: std::num::NonZero::new(1).unwrap(),
-            skip_filter: true,
+            skip_combine: true,
             remote: None,
             path: None,
             refspecs: None,
@@ -392,7 +392,7 @@ fn fetch_with_default_refspecs(
     fetcher.args.push("--prune".to_owned());
     fetch_on_terminal_with_duration_print(fetcher)?;
 
-    if !fetch_args.skip_filter {
+    if !fetch_args.skip_combine {
         // Reload the config from disk to get any changes fetched into the repository.
         configured_repo.reload_repo()?;
         recombine(
@@ -520,7 +520,7 @@ fn fetch_with_refspec(
             .collect_vec();
         fetch_on_terminal_with_duration_print(fetcher)?;
         // Stop early?
-        if fetch_args.skip_filter {
+        if fetch_args.skip_combine {
             return Ok(());
         }
         configured_repo.reload_repo()?;
