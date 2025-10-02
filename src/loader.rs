@@ -688,7 +688,7 @@ impl<'a> CommitLoader<'a> {
             };
             if result.is_ok() {
                 let fetch_duration = std::time::Instant::now().duration_since(start_time);
-                log::info!("git fetch {fetch_remote_str} completed in {fetch_duration:.0?}",);
+                log::info!("git fetch {fetch_remote_str} completed in {fetch_duration:.0?}");
             }
             // Sending might fail on interrupt.
             if let Err(err) = tx.send(TaskResult::RepoFetchDone {
