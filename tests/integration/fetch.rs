@@ -50,6 +50,40 @@ impl RepoWithTwoSubmodules {
 }
 
 #[test]
+fn print_fetch_duration() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+    cargo_bin_git_toprepo_for_testing()
+        .arg("clone")
+        .arg(&toprepo)
+        .arg(&monorepo)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "INFO: git fetch <top> completed in ",
+        ))
+        .stderr(predicate::str::is_match("INFO: git fetch .*subx/ completed in ").unwrap())
+        .stderr(predicate::str::is_match("INFO: git fetch .*suby/ completed in ").unwrap());
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&monorepo)
+        .arg("fetch")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "INFO: git fetch <top> completed in ",
+        ))
+        .stderr(predicate::str::contains("subx").not())
+        .stderr(predicate::str::contains("suby").not());
+}
+
+#[test]
 fn download_only_for_needed_commits() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
@@ -536,6 +570,12 @@ WARN: Fetching subx: git fetch .* timed out, was silent 1s, retrying
                 "ERROR: Fetching subx: git fetch .* exceeded timeout retry limit",
             )
             .unwrap(),
+        )
+        // No INFO message about successful fetch.
+        .stderr(
+            predicate::str::is_match("INFO: git fetch .*subx")
+                .unwrap()
+                .not(),
         );
 }
 

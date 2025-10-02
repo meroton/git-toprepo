@@ -117,7 +117,7 @@ fn verify_config_existence_after_clone(repo_dir: &Path) -> Result<()> {
     if location.validate_existence(&gix_repo).is_err() {
         // Fetch from the default remote to get all the direct submodules.
         log::error!("Config file .gittoprepo.toml does not exist in {location}");
-        git_toprepo::fetch::RemoteFetcher::new(&gix_repo).fetch_on_terminal()?;
+        fetch_on_terminal_with_duration_print(git_toprepo::fetch::RemoteFetcher::new(&gix_repo))?;
         log::info!(
             "Please run 'git-toprepo config bootstrap' to generate an initial .gittoprepo.toml."
         );
@@ -390,7 +390,7 @@ fn fetch_with_default_refspecs(
     }
     fetcher.remote = fetch_args.remote.clone();
     fetcher.args.push("--prune".to_owned());
-    fetcher.fetch_on_terminal()?;
+    fetch_on_terminal_with_duration_print(fetcher)?;
 
     if !fetch_args.skip_filter {
         // Reload the config from disk to get any changes fetched into the repository.
@@ -405,6 +405,15 @@ fn fetch_with_default_refspecs(
             configured_repo,
         )?;
     }
+    Ok(())
+}
+
+fn fetch_on_terminal_with_duration_print(fetcher: git_toprepo::fetch::RemoteFetcher) -> Result<()> {
+    let fetch_remote_str = fetcher.remote.as_deref().unwrap_or("<top>").to_owned();
+    let start_time = std::time::Instant::now();
+    fetcher.fetch_on_terminal()?;
+    let fetch_duration = std::time::Instant::now().duration_since(start_time);
+    log::info!("git fetch {fetch_remote_str} completed in {fetch_duration:.0?}");
     Ok(())
 }
 
@@ -509,7 +518,7 @@ fn fetch_with_refspec(
             .iter()
             .map(|refspec| format!("+{}:{}", refspec.remote_ref, refspec.unfiltered_ref))
             .collect_vec();
-        fetcher.fetch_on_terminal()?;
+        fetch_on_terminal_with_duration_print(fetcher)?;
         // Stop early?
         if fetch_args.skip_filter {
             return Ok(());
