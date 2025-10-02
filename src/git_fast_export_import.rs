@@ -757,8 +757,7 @@ impl FastImportRepo {
     Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct WithoutCommitterId(
-    #[serde_as(serialize_as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
-    gix::ObjectId,
+    #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")] gix::ObjectId,
 );
 
 impl serde_with::SerializeAs<WithoutCommitterId> for WithoutCommitterId {
@@ -802,7 +801,7 @@ pub struct FastExportImportDedupCache {
     /// Maps from a hash of a commit, apart from the committer, to the latest
     /// imported or exported commit id.
     #[serde_as(
-        serialize_as = "serde_with::IfIsHumanReadable<HashMap<serde_with::DisplayFromStr, serde_with::DisplayFromStr>>"
+        as = "serde_with::IfIsHumanReadable<HashMap<serde_with::DisplayFromStr, serde_with::DisplayFromStr>>"
     )]
     commits: HashMap<WithoutCommitterId, gix::ObjectId>,
 }

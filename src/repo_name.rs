@@ -69,7 +69,8 @@ impl From<SubRepoName> for RepoName {
 }
 
 impl FromStr for RepoName {
-    type Err = ();
+    /// There is no error and `()` doesn't work with `serde_as`. Using `String` instead.
+    type Err = String;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(Self::new(s))
