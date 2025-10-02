@@ -1,5 +1,9 @@
 style_edition = "2024"
 
+# Format string literals where necessary.
+# TODO: 2025-10-02 Add #[rustfmt::skip] to strings that should not be reformatted.
+format_strings = false
+
 # Format code snippet included in doc comments.
 format_code_in_doc_comments = true
 
