@@ -16,10 +16,10 @@ use crate::repo::MonoRepoCommitId;
 use crate::repo::MonoRepoParent;
 use crate::repo::OriginalSubmodParent;
 use crate::repo::RepoData;
-use crate::repo::SubmoduleContent;
+use crate::repo::SubmoduleReference;
 use crate::repo::ThinCommit;
 use crate::repo::ThinSubmodule;
-use crate::repo::ThinSubmoduleContent;
+use crate::repo::ThinSubmoduleReference;
 use crate::repo::TopRepoCommitId;
 use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
@@ -315,7 +315,7 @@ impl Expander<'_> {
     fn get_recursive_expanded_submodule_bump(
         &self,
         abs_sub_path: &GitPath,
-        bump: &ThinSubmoduleContent,
+        bump: &ThinSubmoduleReference,
         submod_updates: &mut HashMap<GitPath, ExpandedOrRemovedSubmodule>,
         tree_updates: &mut Vec<(GitPath, TreeId)>,
     ) -> ExpandedSubmodule {
@@ -335,7 +335,7 @@ impl Expander<'_> {
         }
         let submod_storage = self.import_cache.repos.get(&repo_name).unwrap();
         let Some(submod_commit) = submod_storage.thin_commits.get(&bump.commit_id) else {
-            return ExpandedSubmodule::CommitMissingInSubRepo(SubmoduleContent {
+            return ExpandedSubmodule::CommitMissingInSubRepo(SubmoduleReference {
                 repo_name: submod_repo_name.clone(),
                 orig_commit_id: bump.commit_id,
             });
@@ -349,7 +349,7 @@ impl Expander<'_> {
         );
         // TODO: 2025-09-22 This might be a regression, but the caller is not
         // interested in that information anyway.
-        ExpandedSubmodule::Expanded(SubmoduleContent {
+        ExpandedSubmodule::Expanded(SubmoduleReference {
             repo_name: submod_repo_name.clone(),
             orig_commit_id: bump.commit_id,
         })
@@ -372,7 +372,7 @@ impl Expander<'_> {
                 submodule_bumps.insert(
                     path.clone(),
                     ExpandedOrRemovedSubmodule::Expanded(ExpandedSubmodule::Expanded(
-                        SubmoduleContent {
+                        SubmoduleReference {
                             repo_name: sub_repo_name.clone(),
                             orig_commit_id: source_commit.commit_id,
                         },
@@ -513,7 +513,7 @@ impl Expander<'_> {
                             // a check for unrelated parents must be performed.
                             submodule_bumps.insert(
                                 rel_sub_path.clone(),
-                                ThinSubmodule::AddedOrModified(ThinSubmoduleContent {
+                                ThinSubmodule::AddedOrModified(ThinSubmoduleReference {
                                     repo_name: Some(submod.repo_name.clone()),
                                     commit_id: submod.orig_commit_id,
                                 }),
@@ -552,7 +552,7 @@ impl Expander<'_> {
     fn expand_inner_submodule(
         &mut self,
         mono_parents: &Vec<Rc<MonoRepoCommit>>,
-        submod: &ThinSubmoduleContent,
+        submod: &ThinSubmoduleReference,
         abs_super_path: &GitPath,
         rel_sub_path: &GitPath,
         regressing_commit: &mut Option<Rc<MonoRepoCommit>>,
@@ -566,7 +566,7 @@ impl Expander<'_> {
             ));
         };
         let submod_commit_id = submod.commit_id;
-        let submod_content = SubmoduleContent {
+        let submod_reference = SubmoduleReference {
             repo_name: submod_repo_name.clone(),
             orig_commit_id: submod.commit_id,
         };
@@ -588,13 +588,13 @@ impl Expander<'_> {
         else {
             // No commits loaded for the submodule.
             return Ok((
-                ExpandedSubmodule::CommitMissingInSubRepo(submod_content),
+                ExpandedSubmodule::CommitMissingInSubRepo(submod_reference),
                 vec![],
             ));
         };
         let Some(submod_commit) = submod_storage.thin_commits.get(&submod_commit_id) else {
             return Ok((
-                ExpandedSubmodule::CommitMissingInSubRepo(submod_content),
+                ExpandedSubmodule::CommitMissingInSubRepo(submod_reference),
                 vec![],
             ));
         };
@@ -624,7 +624,7 @@ impl Expander<'_> {
             )?;
             regressing_commit.replace(mono_commit);
             return Ok((
-                ExpandedSubmodule::RegressedNotFullyImplemented(submod_content),
+                ExpandedSubmodule::RegressedNotFullyImplemented(submod_reference),
                 vec![],
             ));
         }
@@ -637,7 +637,7 @@ impl Expander<'_> {
             submod_repo_name,
             &submod_commit,
         )?;
-        Ok((ExpandedSubmodule::Expanded(submod_content), extra_parents))
+        Ok((ExpandedSubmodule::Expanded(submod_reference), extra_parents))
     }
 
     fn expand_parents_of_submodule(
@@ -1052,8 +1052,8 @@ impl BumpCache {
             let submod = self
                 .get_submodule(mono_commit, path)
                 .expect("submodule path exists");
-            if let Some(submod_content) = submod.get_known_submod()
-                && submod_content.repo_name == *submod_repo_name
+            if let Some(submod_reference) = submod.get_known_submod()
+                && submod_reference.repo_name == *submod_repo_name
             {
                 if mono_commit.submodule_bumps.get(path)
                     == Some(&ExpandedOrRemovedSubmodule::Removed)

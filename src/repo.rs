@@ -531,14 +531,14 @@ impl MonoRepoCommit {
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ExpandedSubmodule {
     /// Known submodule and known commit.
-    Expanded(SubmoduleContent),
+    Expanded(SubmoduleReference),
     /// The submodule was not expanded. The user has to run `git submodule
     /// update --init` to get its content.
     KeptAsSubmodule(
         #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")] CommitId,
     ),
     /// The commit does not exist (any more) in the referred sub repository.
-    CommitMissingInSubRepo(SubmoduleContent),
+    CommitMissingInSubRepo(SubmoduleReference),
     /// It is unknown which sub repo it should be loaded from.
     UnknownSubmodule(
         #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")] CommitId,
@@ -588,7 +588,7 @@ pub enum ExpandedSubmodule {
     // TODO: 2025-09-22 Implement this in the
     // Expander::get_recursive_submodule_bumps() or extract the
     // information from Expander::expand_inner_submodules().
-    RegressedNotFullyImplemented(SubmoduleContent),
+    RegressedNotFullyImplemented(SubmoduleReference),
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -599,16 +599,16 @@ pub enum ExpandedOrRemovedSubmodule {
 
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SubmoduleContent {
+pub struct SubmoduleReference {
     pub repo_name: SubRepoName,
     #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
     pub orig_commit_id: CommitId,
 }
 
 impl ExpandedSubmodule {
-    /// Returns the submodule content if the submodule could be resolved, i.e.
-    /// .gitmodules information was accurate.
-    pub fn get_known_submod(&self) -> Option<&SubmoduleContent> {
+    /// Returns the submodule reference if the submodule could be resolved, i.e.
+    /// `.gitmodules` information was accurate.
+    pub fn get_known_submod(&self) -> Option<&SubmoduleReference> {
         match self {
             ExpandedSubmodule::Expanded(submod) => Some(submod),
             ExpandedSubmodule::KeptAsSubmodule(_commit_id) => None,
@@ -651,13 +651,13 @@ impl RepoData {
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ThinSubmodule {
-    AddedOrModified(ThinSubmoduleContent),
+    AddedOrModified(ThinSubmoduleReference),
     Removed,
 }
 
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ThinSubmoduleContent {
+pub struct ThinSubmoduleReference {
     /// `None` is the submodule could not be resolved from the .gitmodules file.
     pub repo_name: Option<SubRepoName>,
     #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
