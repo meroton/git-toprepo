@@ -1,5 +1,8 @@
 style_edition = "2024"
 
+# Format code snippet included in doc comments.
+format_code_in_doc_comments = true
+
 # Discard existing import groups, and create a single group for everything.
 group_imports = "One"
 

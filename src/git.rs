@@ -71,7 +71,10 @@ impl GitPath {
     /// let bar = GitPath::from("bar");
     /// assert_eq!(foo_bar.relative_to(&foo), Some(GitPath::from("bar")));
     /// assert_eq!(foo_bar.relative_to(&foo_bar), Some(GitPath::from("")));
-    /// assert_eq!(foo_bar.relative_to(&empty_path), Some(GitPath::from("foo/bar")));
+    /// assert_eq!(
+    ///     foo_bar.relative_to(&empty_path),
+    ///     Some(GitPath::from("foo/bar"))
+    /// );
     /// assert_eq!(empty_path.relative_to(&bar), None);
     /// assert_eq!(foo_bar.relative_to(&bar), None);
     /// ```

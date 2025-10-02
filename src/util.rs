@@ -250,8 +250,8 @@ where
     ///
     /// assert_eq!(Vec::<i32>::new().single_unique(), None);
     /// assert_eq!(vec![1].single_unique(), Some(1));
-    /// assert_eq!(vec![1,1,1].single_unique(), Some(1));
-    /// assert_eq!(vec![1,2,1].single_unique(), None);
+    /// assert_eq!(vec![1, 1, 1].single_unique(), Some(1));
+    /// assert_eq!(vec![1, 2, 1].single_unique(), None);
     /// ```
     fn single_unique(self) -> Option<T> {
         single_unique(self)
@@ -538,7 +538,6 @@ where
 /// # Examples
 /// ```
 /// use git_toprepo::util::is_default;
-///
 /// use serde::Serialize;
 /// #[derive(Serialize)]
 /// pub struct Config {

@@ -1333,20 +1333,32 @@ impl Default for BumpCache {
 /// }
 ///
 /// assert_eq!(
-///     strip_ref_prefix(&make_ref("refs/namespaces/top/refs/remotes/origin/foo"), "refs/namespaces/top/").unwrap(),
+///     strip_ref_prefix(
+///         &make_ref("refs/namespaces/top/refs/remotes/origin/foo"),
+///         "refs/namespaces/top/"
+///     )
+///     .unwrap(),
 ///     make_ref("refs/remotes/origin/foo"),
 /// );
 /// assert_eq!(
-///     strip_ref_prefix(&make_ref("refs/namespaces/top/HEAD"), "refs/namespaces/top/").unwrap(),
+///     strip_ref_prefix(
+///         &make_ref("refs/namespaces/top/HEAD"),
+///         "refs/namespaces/top/"
+///     )
+///     .unwrap(),
 ///     make_ref("HEAD"),
 /// );
 ///
 /// assert_eq!(
-///     strip_ref_prefix(&make_ref("refs/namespaces/top/HEAD"), "refs/namespaces/top").unwrap_err().to_string(),
+///     strip_ref_prefix(&make_ref("refs/namespaces/top/HEAD"), "refs/namespaces/top")
+///         .unwrap_err()
+///         .to_string(),
 ///     "A reference must be a valid tag name as well",
 /// );
 /// assert_eq!(
-///     strip_ref_prefix(&make_ref("refs/namespaces/top/HEAD"), "refs/other").unwrap_err().to_string(),
+///     strip_ref_prefix(&make_ref("refs/namespaces/top/HEAD"), "refs/other")
+///         .unwrap_err()
+///         .to_string(),
 ///     "Expected refs/namespaces/top/HEAD to start with refs/other",
 /// );
 /// ```
