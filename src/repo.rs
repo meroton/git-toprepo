@@ -535,15 +535,13 @@ pub enum ExpandedSubmodule {
     /// The submodule was not expanded. The user has to run `git submodule
     /// update --init` to get its content.
     KeptAsSubmodule(
-        #[serde_as(serialize_as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
-        CommitId,
+        #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")] CommitId,
     ),
     /// The commit does not exist (any more) in the referred sub repository.
     CommitMissingInSubRepo(SubmoduleContent),
     /// It is unknown which sub repo it should be loaded from.
     UnknownSubmodule(
-        #[serde_as(serialize_as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")]
-        CommitId,
+        #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::DisplayFromStr>")] CommitId,
     ),
     // TODO: 2025-09-22 MovedAndBumped(MovedSubmodule),
     /// If a submodule has regressed to an earlier or unrelated commit, it

@@ -39,11 +39,11 @@ pub struct SerdeImportCache {
     /// The checksum of the git-toprepo configuration used when writing.
     config_checksum: String,
     #[serde_as(
-        serialize_as = "serde_with::IfIsHumanReadable<OrderedHashMap<serde_with::DisplayFromStr, _>>"
+        as = "serde_with::IfIsHumanReadable<OrderedHashMap<serde_with::DisplayFromStr, _>>"
     )]
     repos: SerdeRepoStates,
     monorepo_commits: Vec<SerdeMonoRepoCommit>,
-    #[serde_as(serialize_as = "serde_with::IfIsHumanReadable<OrderedHashMap<_, _>>")]
+    #[serde_as(as = "serde_with::IfIsHumanReadable<OrderedHashMap<_, _>>")]
     top_to_mono_commit_map: HashMap<TopRepoCommitId, MonoRepoCommitId>,
     dedup: GitFastExportImportDedupCache,
 }
