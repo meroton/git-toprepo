@@ -96,12 +96,11 @@ fn download_only_for_needed_commits() {
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
-    const RANDOM_SHA1: &str = "0123456789abcdef0123456789abcdef01234567";
     git_command_for_testing(&toprepo)
         .args([
             "update-index",
             "--cacheinfo",
-            &format!("160000,{RANDOM_SHA1},subx"),
+            "160000,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,subx",
         ])
         .assert()
         .success();
@@ -119,9 +118,9 @@ fn download_only_for_needed_commits() {
         .args(["fetch"])
         .assert()
         .success()
-        .stderr(predicate::str::contains(format!(
-            "WARN: Missing commit in subx: {RANDOM_SHA1}\n"
-        )));
+        .stderr(predicate::str::contains(
+            "WARN: Commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa in subx is missing, referenced from top\n"
+        ));
 
     // Check the filter result.
     git_command_for_testing(&monorepo)
@@ -134,7 +133,7 @@ fn download_only_for_needed_commits() {
 100644 blob ed6ed9e7ce37c1f13f718aeaf54c522610a994c2\t.gittoprepo.toml
 100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tA1-main.txt
 100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tinit.txt
-160000 commit 0123456789abcdef0123456789abcdef01234567\tsubx
+160000 commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tsubx
 100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tsuby/y-main-1.txt
 ",
         );
@@ -144,7 +143,7 @@ fn download_only_for_needed_commits() {
         .args([
             "update-index",
             "--cacheinfo",
-            &format!("160000,{RANDOM_SHA1},suby"),
+            "160000,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,suby",
         ])
         .assert()
         .success();
@@ -181,7 +180,7 @@ fn download_only_for_needed_commits() {
 100644 blob ed6ed9e7ce37c1f13f718aeaf54c522610a994c2\t.gittoprepo.toml
 100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tA1-main.txt
 100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tinit.txt
-160000 commit 0123456789abcdef0123456789abcdef01234567\tsubx
+160000 commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tsubx
 100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tsuby/y-main-1.txt
 ",
         );
@@ -603,12 +602,11 @@ fn timeout(
         std::path::absolute("tests/integration/fixtures/git-upload-pack-slow").unwrap();
 
     // Force a submodule fetch.
-    const RANDOM_SHA1: &str = "0123456789abcdef0123456789abcdef01234567";
     git_command_for_testing(&repo.toprepo)
         .args([
             "update-index",
             "--cacheinfo",
-            &format!("160000,{RANDOM_SHA1},subx"),
+            "160000,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,subx",
         ])
         .assert()
         .success();

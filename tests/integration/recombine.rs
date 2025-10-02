@@ -563,6 +563,8 @@ missing_commits = [
                 .name("exactly 1 warning"),
         );
 
+    // Update subx to somthing that does not exist.
+    git_update_submodule_in_index(&toprepo, "subx", "cccccccccccccccccccccccccccccccccccccccc");
     // Add a commit to suby so that it is loaded.
     git_command_for_testing(&subyrepo)
         .args(["commit", "--allow-empty", "-m", "Second empty commit"])
@@ -570,10 +572,10 @@ missing_commits = [
         .success();
     git_update_submodule_in_index(&toprepo, "suby", &git_rev_parse(&subyrepo, "HEAD"));
     git_command_for_testing(&toprepo)
-        .args(["commit", "-m", "Update suby"])
+        .args(["commit", "-m", "Update subx and suby"])
         .assert()
         .success();
-    let expected_warnings = format!(
+    let some_expected_warnings = format!(
         "WARN: Commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa in subx is \
         configured as missing but was never referenced from any repo\n\
         WARN: Commit {suby_missing_rev} in suby exists \
@@ -582,16 +584,18 @@ missing_commits = [
         configured as missing but was never referenced from any repo\n\
         ",
     );
+    let missing_commit_subx_c_warning = "\nWARN: Commit cccccccccccccccccccccccccccccccccccccccc in subx is missing, referenced from top\n";
     cargo_bin_git_toprepo_for_testing()
         .args(["clone"])
         .arg(&toprepo)
         .arg(&monorepo2)
         .assert()
         .success()
-        .stderr(predicate::str::contains(&expected_warnings))
+        .stderr(predicate::str::contains(missing_commit_subx_c_warning))
+        .stderr(predicate::str::contains(&some_expected_warnings))
         .stderr(
-            predicate::function(|stderr: &str| stderr.matches("WARN:").count() == 3)
-                .name("exactly 3 warnings"),
+            predicate::function(|stderr: &str| stderr.matches("WARN:").count() == 4)
+                .name("exactly 4 warnings"),
         );
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo2)
@@ -599,10 +603,11 @@ missing_commits = [
         .assert()
         .success()
         .stdout("")
-        .stderr(predicate::str::contains(&expected_warnings))
+        .stderr(predicate::str::contains(missing_commit_subx_c_warning))
+        .stderr(predicate::str::contains(&some_expected_warnings))
         .stderr(
-            predicate::function(|stderr: &str| stderr.matches("WARN:").count() == 3)
-                .name("exactly 3 warnings"),
+            predicate::function(|stderr: &str| stderr.matches("WARN:").count() == 4)
+                .name("exactly 4 warnings"),
         );
 }
 

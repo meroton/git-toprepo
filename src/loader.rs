@@ -833,10 +833,12 @@ impl<'a> CommitLoader<'a> {
             }
             LoadRepoState::LoadingThenDone => {
                 repo_fetcher.loading = LoadRepoState::Done;
-                repo_fetcher.needed_commits.retain(|commit_id| {
-                    // Keep the commits that are not yet loaded.
-                    !repo_fetcher.repo_data.thin_commits.contains_key(commit_id)
-                });
+                repo_fetcher
+                    .needed_commits
+                    .retain(|commit_id, _super_repos| {
+                        // Keep the commits that are not yet loaded.
+                        !repo_fetcher.repo_data.thin_commits.contains_key(commit_id)
+                    });
                 if self.fetch_missing_commits && !repo_fetcher.needed_commits.is_empty() {
                     if repo_fetcher.fetching_default_refspec_done() {
                         let missing_commits = std::mem::take(&mut repo_fetcher.needed_commits);
@@ -857,14 +859,20 @@ impl<'a> CommitLoader<'a> {
 
     fn add_missing_commits(
         repo_name: &RepoName,
-        missing_commits: HashSet<CommitId>,
-        all_missing_commits: &mut HashSet<CommitId>,
+        missing_commits: HashMap<CommitId, HashSet<RepoName>>,
+        all_missing_commits: &mut HashMap<CommitId, HashSet<RepoName>>,
     ) {
-        // Already logged when loading the repositories.
-        for commit_id in &missing_commits {
-            log::warn!("Missing commit in {repo_name}: {commit_id}");
+        for (commit_id, super_repos) in missing_commits {
+            for super_repo in super_repos.iter().sorted() {
+                log::warn!(
+                    "Commit {commit_id} in {repo_name} is missing, referenced from {super_repo}"
+                );
+            }
+            all_missing_commits
+                .entry(commit_id)
+                .or_default()
+                .extend(super_repos);
         }
-        all_missing_commits.extend(missing_commits);
     }
 
     fn load_cached_commits(
@@ -993,7 +1001,7 @@ impl<'a> CommitLoader<'a> {
         self.error_observer.maybe_consume(result)?;
         // Load all submodule commits that are needed so far.
         for needed_commit in needed_commits {
-            let result = self.ensure_commit_available(needed_commit);
+            let result = self.ensure_commit_available(needed_commit, repo_name);
             self.error_observer.maybe_consume(result)?;
         }
         Ok(())
@@ -1048,7 +1056,7 @@ impl<'a> CommitLoader<'a> {
 
         // Any of the submodule updates that need to be fetched?
         for needed_commit in updated_submodule_commits {
-            let result = self.ensure_commit_available(needed_commit);
+            let result = self.ensure_commit_available(needed_commit, repo_name);
             self.error_observer.maybe_consume(result)?;
         }
         Ok(())
@@ -1145,7 +1153,11 @@ impl<'a> CommitLoader<'a> {
         Ok(())
     }
 
-    fn ensure_commit_available(&mut self, needed_commit: NeededCommit) -> Result<()> {
+    fn ensure_commit_available(
+        &mut self,
+        needed_commit: NeededCommit,
+        super_name: &RepoName,
+    ) -> Result<()> {
         let repo_name: RepoName = RepoName::SubRepo(needed_commit.repo_name);
         let commit_id = needed_commit.commit_id;
         // Already loaded?
@@ -1157,9 +1169,15 @@ impl<'a> CommitLoader<'a> {
             .fetch_states
             .get_mut(&repo_name)
             .expect("repo_fetch just inserted");
-        if repo_fetcher.repo_data.thin_commits.contains_key(&commit_id)
-            || repo_fetcher.missing_commits.contains(&commit_id)
-        {
+        if repo_fetcher.repo_data.thin_commits.contains_key(&commit_id) {
+            return Ok(());
+        }
+        if let Some(super_repos) = repo_fetcher.missing_commits.get_mut(&commit_id) {
+            if super_repos.insert(super_name.clone()) {
+                log::debug!(
+                    "Commit {commit_id} in {repo_name} is still missing, also needed by {super_name}"
+                );
+            }
             return Ok(());
         }
         if !repo_fetcher.enabled {
@@ -1167,24 +1185,36 @@ impl<'a> CommitLoader<'a> {
         }
         match repo_fetcher.loading {
             LoadRepoState::NotLoadedYet => {
-                repo_fetcher.needed_commits.insert(commit_id);
+                repo_fetcher
+                    .needed_commits
+                    .entry(commit_id)
+                    .or_default()
+                    .insert(super_name.clone());
                 self.load_repo(&repo_name)
                     .expect("configuration exists for repo");
             }
             LoadRepoState::LoadingThenQueueAgain | LoadRepoState::LoadingThenDone => {
-                repo_fetcher.needed_commits.insert(commit_id);
+                repo_fetcher
+                    .needed_commits
+                    .entry(commit_id)
+                    .or_default()
+                    .insert(super_name.clone());
             }
             LoadRepoState::Done => {
                 if repo_fetcher.fetching_default_refspec_done() {
-                    let mut missing_commits = HashSet::new();
-                    missing_commits.insert(commit_id);
+                    let mut missing_commits = HashMap::new();
+                    missing_commits.insert(commit_id, HashSet::from([super_name.clone()]));
                     Self::add_missing_commits(
                         &repo_name,
                         missing_commits,
                         &mut repo_fetcher.missing_commits,
                     );
                 } else {
-                    repo_fetcher.needed_commits.insert(commit_id);
+                    repo_fetcher
+                        .needed_commits
+                        .entry(commit_id)
+                        .or_default()
+                        .insert(super_name.clone());
                     if self.fetch_missing_commits {
                         self.fetch_repo(repo_name)?;
                     }
@@ -1727,12 +1757,14 @@ struct RepoFetcher {
     /// Indicates if the repository should be loaded at all.
     enabled: bool,
     repo_data: RepoData,
-    /// Commits that need to be loaded or even fetched.
-    needed_commits: HashSet<CommitId>,
+    /// Commits that need to be loaded or even fetched, mapped to the requesting
+    /// super repositories.
+    needed_commits: HashMap<CommitId, HashSet<RepoName>>,
 
     loading: LoadRepoState,
-    /// Confirmed missing commits.
-    missing_commits: HashSet<CommitId>,
+    /// Confirmed missing commits, mapped to the requesting
+    /// super repositories.
+    missing_commits: HashMap<CommitId, HashSet<RepoName>>,
 
     /// What be fetched.
     fetch_states: RepoFetcherState,
@@ -1755,9 +1787,9 @@ impl RepoFetcher {
         Self {
             enabled,
             repo_data: RepoData::new(url),
-            needed_commits: HashSet::new(),
+            needed_commits: HashMap::new(),
             loading: LoadRepoState::NotLoadedYet,
-            missing_commits: HashSet::new(),
+            missing_commits: HashMap::new(),
             fetch_states: RepoFetcherState::Idle,
         }
     }
