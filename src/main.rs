@@ -276,7 +276,7 @@ fn recombine(
     recombine_args: &cli::Recombine,
     configured_repo: &mut ConfiguredTopRepo,
 ) -> Result<()> {
-    if !recombine_args.reuse_cache {
+    if !recombine_args.use_cache {
         configured_repo.import_cache = ImportCache::default();
     }
     git_toprepo::log::get_global_logger().with_progress(|progress| {
@@ -400,7 +400,7 @@ fn fetch_with_default_refspecs(
                 keep_going: fetch_args.keep_going,
                 job_count: fetch_args.job_count,
                 no_fetch: false,
-                reuse_cache: true,
+                use_cache: true,
             },
             configured_repo,
         )?;

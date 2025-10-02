@@ -553,7 +553,7 @@ missing_commits = [
         );
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
-        .args(["recombine", "--reuse-cache"])
+        .args(["recombine", "--use-cache"])
         .assert()
         .success()
         .stdout("")
@@ -595,7 +595,7 @@ missing_commits = [
         );
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo2)
-        .args(["recombine", "--reuse-cache"])
+        .args(["recombine", "--use-cache"])
         .assert()
         .success()
         .stdout("")
