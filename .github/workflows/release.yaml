@@ -1,4 +1,5 @@
 name: release
+run-name: Release ${{ github.event.release.tag_name }}
 on:
   release:
     types:
@@ -15,7 +16,7 @@ jobs:
       matrix:
         platform:
           - rust_target: x86_64-unknown-linux-musl
-            suffix: .linux_amd64
+            suffix: linux-x86_64
     name: publish (${{ matrix.platform.rust_target }})
     environment: release-on-github
     runs-on: ubuntu-latest
@@ -38,7 +39,9 @@ jobs:
           export BUILD_SCM_REVISION="$(git rev-parse --short HEAD)"
           export BUILD_SCM_TIMESTAMP="$(TZ=UTC date --date "@$(git show -s --format=%ct HEAD)" +%Y%m%dT%H%M%SZ)"
           cargo build --release --target ${{ matrix.platform.rust_target }}
+          # Make the downloaded filename the same as the link on the GitHub release page.
+          mv target/${{ matrix.platform.rust_target }}/release/git-toprepo git-toprepo-${{ github.event.release.tag_name }}-${{ matrix.platform.suffix }}
       - name: Publish ${{ matrix.platform.rust_target }}
-        run: gh release upload ${{ github.event.release.tag_name }} target/${{ matrix.platform.rust_target }}/release/git-toprepo#git-toprepo${{ matrix.platform.suffix }} --clobber
+        run: gh release upload ${{ github.event.release.tag_name }} git-toprepo-${{ github.event.release.tag_name }}-${{ matrix.platform.suffix }} --clobber
         env:
           GITHUB_TOKEN: ${{ github.TOKEN }}
