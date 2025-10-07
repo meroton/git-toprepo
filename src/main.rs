@@ -825,8 +825,7 @@ fn dump_git_modules() -> Result<()> {
 /// Creates a human readable version string for git-toprepo.
 fn get_version() -> String {
     format!(
-        "{} {}~{}-{}",
-        env!("CARGO_PKG_NAME"),
+        "{}~{}-{}",
         option_env!("BUILD_SCM_TAG").unwrap_or("0.0.0"),
         option_env!("BUILD_SCM_TIMESTAMP").unwrap_or("timestamp"),
         option_env!("BUILD_SCM_REVISION").unwrap_or("git-hash"),
@@ -971,7 +970,7 @@ where
 
         Commands::Info(info_args) => print_info(info_args),
         Commands::Version => {
-            println!("git-toprepo {}", get_version());
+            println!("{} {}", env!("CARGO_PKG_NAME"), get_version());
             Ok(ExitCode::SUCCESS)
         }
     }
