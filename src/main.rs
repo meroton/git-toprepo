@@ -833,10 +833,10 @@ fn get_version() -> String {
 }
 
 /// Run an operation with automatic setup and teardown lifecycle for operations.
-fn run_session<T, F>(logger: Option<&git_toprepo::log::GlobalLogger>, f: F) -> Result<T>
-where
-    F: FnOnce(&mut ConfiguredTopRepo) -> Result<T>,
-{
+fn run_session<T>(
+    logger: Option<&git_toprepo::log::GlobalLogger>,
+    f: impl FnOnce(&mut ConfiguredTopRepo) -> Result<T>,
+) -> Result<T> {
     let mut repo = discover_configured_repo_current_dir()?;
 
     if let Some(logger) = logger {
