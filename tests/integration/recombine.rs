@@ -362,6 +362,62 @@ fn moved_submodule() {
     assert_eq!(log_graph, expected_graph);
 }
 
+#[test]
+fn inner_submodule() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_inner_submodule.sh",
+        )
+        .unwrap(),
+    );
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
+    insta::assert_snapshot!(log_graph, @r"
+    * C-X3-Y2
+    |
+    | A C-X3-Y2.txt
+    | A subx/x3-y2.txt
+    * B-X2-Y1
+    |
+    | A B-X2-Y1.txt
+    | A subx/.gitmodules
+    | A subx/suby/y-1.txt
+    | A subx/suby/y-2.txt
+    | A subx/x2-y2.txt
+    *   A1-X1
+    |\
+    | * x-1
+    |
+    |   A x-1.txt
+    * init
+
+      A .gittoprepo.toml
+      A init.txt
+    ");
+    let ls_tree_command = git_command_for_testing(monorepo)
+        .args(["ls-files"])
+        .assert()
+        .success();
+    let ls_tree_stdout = ls_tree_command.get_output().stdout.to_str().unwrap();
+    insta::assert_snapshot!(ls_tree_stdout, @r"
+    .gitmodules
+    .gittoprepo.toml
+    A1-X1.txt
+    B-X2-Y1.txt
+    C-X3-Y2.txt
+    init.txt
+    subx/.gitmodules
+    subx/suby/y-1.txt
+    subx/suby/y-2.txt
+    subx/x-1.txt
+    subx/x2-y2.txt
+    subx/x3-y2.txt
+    ");
+}
+
 fn extract_log_graph(repo_path: &Path, extra_args: Vec<&str>) -> String {
     let log_command = git_command_for_testing(repo_path)
         .args(["log", "--graph", "--format=%s"])

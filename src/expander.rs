@@ -288,27 +288,68 @@ impl Expander<'_> {
         Ok(())
     }
 
+    /// If a super repository has been bumped, all the inner trees need to be
+    /// rewritten to override the submodule entries. In that case,
+    /// `force_add_tree_ids` should be set.
+    ///
+    /// Example:
+    /// ```text
+    /// top-1 -> sub-1 -> inner-sub-1
+    /// top-2 -> sub-2 -> inner-sub-1
+    /// ```
+    ///
+    /// In commit `top-2`, the path `sub` is replaced with `sub-2^{tree}` which
+    /// contains a submodule at `sub/inner`, so `sub/inner` also need to be
+    /// replaced with `inner-sub-1^{tree}`.
     fn get_recursive_submodule_bumps(
         &self,
         path: &GitPath,
         commit: &ThinCommit,
-        submod_updates: &mut HashMap<GitPath, ExpandedOrRemovedSubmodule>,
+        submod_updates: Option<&mut HashMap<GitPath, ExpandedOrRemovedSubmodule>>,
+        force_add_tree_ids: bool,
         tree_updates: &mut Vec<(GitPath, TreeId)>,
     ) {
-        for (rel_sub_path, bump) in commit.submodule_bumps.iter() {
-            let abs_sub_path = path.join(rel_sub_path);
-            let submod_update = match bump {
-                ThinSubmodule::AddedOrModified(bump) => ExpandedOrRemovedSubmodule::Expanded(
-                    self.get_recursive_expanded_submodule_bump(
-                        &abs_sub_path,
-                        bump,
-                        submod_updates,
-                        tree_updates,
+        if force_add_tree_ids {
+            for rel_sub_path in commit.submodule_paths.iter() {
+                if submod_updates.is_some() && commit.submodule_bumps.contains_key(rel_sub_path) {
+                    // Will be done later anyway.
+                    continue;
+                }
+                let abs_sub_path = path.join(rel_sub_path);
+                let submod = commit
+                    .get_submodule(rel_sub_path)
+                    .expect("submodule exists as path exists");
+                match submod {
+                    ThinSubmodule::AddedOrModified(bump) => {
+                        self.get_recursive_expanded_submodule_bump(
+                            &abs_sub_path,
+                            bump,
+                            None,
+                            force_add_tree_ids,
+                            tree_updates,
+                        );
+                    }
+                    ThinSubmodule::Removed => unreachable!("path to removed submodule exists"),
+                };
+            }
+        }
+        if let Some(submod_updates) = submod_updates {
+            for (rel_sub_path, bump) in commit.submodule_bumps.iter() {
+                let abs_sub_path = path.join(rel_sub_path);
+                let submod_update = match bump {
+                    ThinSubmodule::AddedOrModified(bump) => ExpandedOrRemovedSubmodule::Expanded(
+                        self.get_recursive_expanded_submodule_bump(
+                            &abs_sub_path,
+                            bump,
+                            Some(submod_updates),
+                            /* force_add_tree_ids */ true,
+                            tree_updates,
+                        ),
                     ),
-                ),
-                ThinSubmodule::Removed => ExpandedOrRemovedSubmodule::Removed,
-            };
-            submod_updates.insert(abs_sub_path.clone(), submod_update);
+                    ThinSubmodule::Removed => ExpandedOrRemovedSubmodule::Removed,
+                };
+                submod_updates.insert(abs_sub_path.clone(), submod_update);
+            }
         }
     }
 
@@ -316,7 +357,8 @@ impl Expander<'_> {
         &self,
         abs_sub_path: &GitPath,
         bump: &ThinSubmoduleReference,
-        submod_updates: &mut HashMap<GitPath, ExpandedOrRemovedSubmodule>,
+        submod_updates: Option<&mut HashMap<GitPath, ExpandedOrRemovedSubmodule>>,
+        force_add_tree_ids: bool,
         tree_updates: &mut Vec<(GitPath, TreeId)>,
     ) -> ExpandedSubmodule {
         let Some(submod_repo_name) = &bump.repo_name else {
@@ -345,6 +387,7 @@ impl Expander<'_> {
             abs_sub_path,
             submod_commit,
             submod_updates,
+            force_add_tree_ids,
             tree_updates,
         );
         // TODO: 2025-09-22 This might be a regression, but the caller is not
@@ -385,7 +428,8 @@ impl Expander<'_> {
         self.get_recursive_submodule_bumps(
             path,
             source_commit,
-            &mut submodule_bumps,
+            Some(&mut submodule_bumps),
+            /* force_add_tree_ids */ false,
             &mut tree_updates,
         );
 
