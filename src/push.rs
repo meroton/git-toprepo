@@ -85,7 +85,7 @@ pub fn split_for_push(
         progress,
         &mut fast_importer,
         top_push_url,
-        &export_refs_args,
+        export_refs_args,
     );
     // Make sure to gracefully shutdown the fast-importer before returning.
     fast_importer.wait()?;
@@ -187,7 +187,7 @@ fn split_for_push_impl(
     progress: &indicatif::MultiProgress,
     fast_importer: &mut crate::git_fast_export_import_dedup::FastImportRepoDedup<'_>,
     top_push_url: &gix::Url,
-    export_refs_args: &[std::ffi::OsString],
+    export_refs_args: Vec<std::ffi::OsString>,
 ) -> Result<Vec<PushMetadata>> {
     let monorepo_commits = &configured_repo.import_cache.monorepo_commits;
 
