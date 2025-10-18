@@ -323,7 +323,9 @@ impl GlobalFileTraceLogger {
 
     pub fn log(&self, record: &log::Record<'_>) {
         self.log_to_tracing.log(record);
-        let ts = chrono::Local::now().format("%+");
+        // Same format as "%+", but always print microseconds. "%+" is dynamic
+        // depending on trailing 000 or not.
+        let ts = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.6f%:z");
         if let Err(err) = writeln!(
             self.log_to_file.lock().unwrap(),
             "{ts} {}: {}",
