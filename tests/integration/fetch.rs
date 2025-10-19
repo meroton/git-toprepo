@@ -590,7 +590,12 @@ fn timeout(
 
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     git_command_for_testing(&repo.monorepo)
-        .args(["config", "toprepo.config", "local:.gittoprepo.toml"])
+        .args([
+            "config",
+            "--replace-all",
+            "toprepo.config",
+            "must:local:.gittoprepo.toml",
+        ])
         .assert()
         .success();
     let toprepo_config_path = repo.monorepo.join(".gittoprepo.toml");

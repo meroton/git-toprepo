@@ -9,6 +9,7 @@ use bstr::BStr;
 use bstr::ByteSlice as _;
 use clap::Parser;
 use colored::Colorize;
+use git_toprepo::config::ConfigLocation;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::log::CommandSpanExt as _;
@@ -31,6 +32,7 @@ use std::panic::resume_unwind;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::str::FromStr;
 
 fn gix_discover_current_dir() -> Result<gix::Repository> {
     // Using working directory instead of "." to get better error messages.
@@ -113,13 +115,26 @@ fn clone_after_init(
 #[tracing::instrument(skip_all)]
 fn verify_config_existence_after_clone(repo_dir: &Path) -> Result<()> {
     let gix_repo = gix::open(repo_dir).context("Could not open the newly cloned repository")?;
-    let location = GitTopRepoConfig::find_configuration_location(&gix_repo)?;
-    if location.validate_existence(&gix_repo).is_err() {
-        // Fetch from the default remote to get all the direct submodules.
-        log::error!("Config file .gittoprepo.toml does not exist in {location}");
-        fetch_on_terminal_with_duration_print(git_toprepo::fetch::RemoteFetcher::new(&gix_repo))?;
+    let location_strs = GitTopRepoConfig::find_configuration_location_strs(&gix_repo)?;
+    if GitTopRepoConfig::find_existing_location_from_strs(&gix_repo, &location_strs).is_none() {
+        let mut first_location = location_strs
+            .first()
+            .expect("no error means at least one location");
+        // Better to show a non-optional config location.
+        for location_str in &location_strs {
+            let Ok(location) = ConfigLocation::from_str(location_str) else {
+                // Silence errors.
+                continue;
+            };
+            if location.enforcement != git_toprepo::config::ConfigEnforcement::May {
+                first_location = location_str;
+                break;
+            }
+        }
+        log::error!("Config file .gittoprepo.toml does not exist in {first_location}",);
         log::info!(
-            "Please run 'git-toprepo config bootstrap' to generate an initial .gittoprepo.toml."
+            "Please run 'git-toprepo config bootstrap > .gittoprepo.user.toml' to generate an initial config \
+            and 'git-toprepo recombine' to use it."
         );
         bail!("Clone failed due to missing config file");
     }
@@ -152,10 +167,12 @@ fn config(config_args: &cli::Config) -> Result<()> {
             // opened in a terminal or VsCode or so. The "local:" prefix makes
             // it harder.
             let repo = gix_discover_current_dir()?;
-            let location = GitTopRepoConfig::find_configuration_location(&repo)?;
-            if let Err(err) = location.validate_existence(&repo) {
-                log::warn!("{err:#}");
-            }
+            let location_strs = GitTopRepoConfig::find_configuration_location_strs(&repo)?;
+            let Some(location) =
+                GitTopRepoConfig::find_existing_location_from_strs(&repo, &location_strs)
+            else {
+                anyhow::bail!("None of the configured git-toprepo locations did exist");
+            };
             println!("{location}");
         }
         cli::Config::Show => {
@@ -694,11 +711,11 @@ fn push(push_args: &cli::Push, configured_repo: &mut ConfiguredTopRepo) -> Resul
 #[tracing::instrument]
 fn print_info(info_args: &cli::Info) -> Result<ExitCode> {
     let repo = gix_discover_current_dir()?;
-    let config_location_str_result = GitTopRepoConfig::find_configuration_location_str(&repo);
+    let config_location_strs_result = GitTopRepoConfig::find_configuration_location_strs(&repo);
 
     if info_args.is_emulated_monorepo {
         // Handle the case where the repository is a monorepo.
-        if let Err(err) = config_location_str_result {
+        if let Err(err) = config_location_strs_result {
             log::warn!("{err}");
             Ok(ExitCode::from(cli::Info::EXIT_CODE_FALSE))
         } else {
@@ -711,8 +728,12 @@ fn print_info(info_args: &cli::Info) -> Result<ExitCode> {
         let mut keys_and_values = Vec::new();
         for key in keys {
             let value = match key {
-                cli::InfoValue::ConfigLocation => match &config_location_str_result {
-                    Ok(s) => s.clone(),
+                cli::InfoValue::ConfigLocation => match &config_location_strs_result {
+                    Ok(location_strs) => {
+                        GitTopRepoConfig::find_existing_location_from_strs(&repo, location_strs)
+                            .map(|location| location.path.to_string())
+                            .unwrap_or_default()
+                    }
                     Err(err) => {
                         log::warn!("{err}");
                         String::new()
@@ -782,7 +803,7 @@ fn dump_import_cache(args: &cli::DumpImportCache) -> Result<()> {
         let repo = gix_discover_current_dir()?;
         // Demand a configured repository to ensure we not just fall back to empty
         // cache content when not even inside a git-toprepo emulated monorepo.
-        let _ = GitTopRepoConfig::find_configuration_location(&repo)?;
+        let _ = GitTopRepoConfig::find_configuration_locations(&repo)?;
         git_toprepo::import_cache_serde::SerdeImportCache::load_from_git_dir(&repo, None)?
     };
     serde_repo_states.dump_as_json(std::io::stdout())?;

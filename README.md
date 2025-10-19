@@ -96,13 +96,22 @@ of the configuration file is set in the `git-config` of the emulated mono reposi
 `git config --local toprepo.config <location>`
 and takes the following forms:
 
-* `repo:<ref>:<path>`, a path in the tree of git ref,
-* `local:<path>`, a file relative to the main worktree, and
-* `worktree:<path>`, a file relative to the current worktree.
+* `(may|should|must):repo:<ref>:<path>`, a path in the tree of git ref,
+* `(may|should|must):local:<path>`, a file relative to the main worktree, and
+* `(may|should|must):worktree:<path>`, a file relative to the current worktree.
+
+The last exising location specified in `git config --get-all toprepo.config` is used.
+
+The first keyword of the location specification describes the enforcement level,
+similarily to [IETF RFC 2119](https://www.ietf.org/rfc/rfc2119.txt):
+* `may`, warn if this configuration exists,
+* `should`, warn if this configuration is missing,
+* `must`, error if this configuration is missing and stop the search, which is
+  useful to avoid falling back from local to global git configuration.
 
 By default, the git-toprepo configuration is read from the committed `HEAD` in the remote toprepo,
-i.e. `repo:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml`,
-but it is possible to override it with a local path.
+i.e. `should:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml`,
+but prioritizes `may:worktree:.gittoprepo.user.toml` if it exists.
 
 ### Sub repositories
 

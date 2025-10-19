@@ -184,9 +184,14 @@ impl ConfiguredTopRepo {
         set_config(&[], "remote.origin.pruneTags", "false")?;
         set_config(&[], "submodule.recurse", "false")?;
         set_config(
-            &[],
+            &["--replace-all"],
             &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
-            &format!("repo:{toprepo_ref_prefix}refs/remotes/origin/HEAD:.gittoprepo.toml"),
+            &format!("should:repo:{toprepo_ref_prefix}refs/remotes/origin/HEAD:.gittoprepo.toml"),
+        )?;
+        set_config(
+            &["--add"],
+            &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
+            "may:worktree:.gittoprepo.user.toml",
         )?;
 
         let result = {

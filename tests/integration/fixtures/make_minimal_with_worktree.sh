@@ -8,7 +8,7 @@ git -C from commit --allow-empty -m "init"
 git clone from mono
 cat <<EOF > mono/.gittoprepo.toml
 EOF
-git -C mono config --local toprepo.config local:.gittoprepo.toml
+git -C mono config --local toprepo.config must:local:.gittoprepo.toml
 
 # Cannot create a worktree in the cache because it includes an absolute path
 # that does not exist when the caching is done.
