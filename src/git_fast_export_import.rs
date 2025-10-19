@@ -151,22 +151,20 @@ impl FastExportRepo {
         Self::load_from_path_with_logger(repo_dir, Option::<Vec<&str>>::None, logger)
     }
 
-    pub fn load_from_path<I, S>(repo_dir: &Path, refs: Option<I>) -> Result<Self>
+    pub fn load_from_path<S>(repo_dir: &Path, refs: Option<Vec<S>>) -> Result<Self>
     where
-        I: IntoIterator<Item = S>,
-        S: AsRef<std::ffi::OsStr>,
+        S: AsRef<std::ffi::OsStr> + std::cmp::Ord,
     {
         Self::load_from_path_with_logger(repo_dir, refs, log::logger())
     }
 
-    pub(crate) fn load_from_path_with_logger<I, S>(
+    pub(crate) fn load_from_path_with_logger<S>(
         repo_dir: &Path,
-        refs: Option<I>,
+        refs: Option<Vec<S>>,
         logger: impl log::Log + 'static,
     ) -> Result<Self>
     where
-        I: IntoIterator<Item = S>,
-        S: AsRef<std::ffi::OsStr>,
+        S: AsRef<std::ffi::OsStr> + std::cmp::Ord,
     {
         let mut cmd = git_command(repo_dir);
         cmd.args([
@@ -180,7 +178,9 @@ impl FastExportRepo {
             "--tag-of-filtered-object=drop",
         ]);
         match refs {
-            Some(refs) => {
+            Some(mut refs) => {
+                refs.sort();
+                refs.dedup_by(|a, b| a == b);
                 cmd.arg("--").args(refs);
             }
             None => {

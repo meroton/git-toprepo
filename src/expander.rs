@@ -157,7 +157,8 @@ impl Expander<'_> {
                         stop_commit_ids
                             .iter()
                             .map(|id| format!("^{}", id.deref().to_hex())),
-                    ),
+                    )
+                    .collect_vec(),
             ),
         )?;
 
