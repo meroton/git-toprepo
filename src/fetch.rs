@@ -223,9 +223,9 @@ impl RemoteFetcher {
     pub fn fetch_on_terminal(self) -> Result<()> {
         self.create_command()
             .trace_command(crate::command_span!("git fetch"))
-            .safe_output()
+            .safe_status()
             .context("Failed to spawn git-fetch")?
-            .check_success_with_stderr()
+            .check_success()
             .with_context(|| {
                 format!(
                     "git fetch {} failed",
