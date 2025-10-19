@@ -1264,6 +1264,8 @@ impl BumpCache {
             .collect_vec()
     }
 
+    // TODO: 2025-10-18 Rewrite to a generator to be able to reduce the
+    // last_bumps cache size and speed up.
     pub fn get_bumps<'a>(
         &'a mut self,
         mono_commit: &Rc<MonoRepoCommit>,
@@ -1358,7 +1360,7 @@ impl Default for BumpCache {
     fn default() -> Self {
         Self {
             submodules: LruCache::new(std::num::NonZeroUsize::new(100000).unwrap()),
-            last_bumps: LruCache::new(std::num::NonZeroUsize::new(10000).unwrap()),
+            last_bumps: LruCache::new(std::num::NonZeroUsize::new(100000).unwrap()),
         }
     }
 }
