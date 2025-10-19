@@ -33,6 +33,15 @@ so that each submodule is pushed to its respective upstream repository.
 If running with `-n` or `--dry-run`, the resulting `git push` command lines
 will be printed but not executed.
 
+## Documentation and Presentations
+
+Detailed documentation is located in the [`doc/`](doc/) folder.
+The presentations below might also useful.
+
+* 2025-10-19 [Gerrit Summit 2025](https://gerrit.googlesource.com/summit/2025/+/refs/heads/master/index.md):
+  _Monorepo when your company won't let you_
+  ([slides](https://docs.google.com/presentation/d/1_rkB04jxcaYA1pb-NXFOEgQC0TKHGBemYIrUb-AKCF4))
+
 ## History combination strategy
 
 The basic idea is to combine all the history from all the subrepositories
