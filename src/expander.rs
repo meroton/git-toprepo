@@ -36,11 +36,9 @@ use gix::refs::FullName;
 use gix::refs::FullNameRef;
 use gix::refs::file::ReferenceExt as _;
 use itertools::Itertools as _;
-use lru::LruCache;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::hash::Hash;
 use std::io::Write;
 use std::ops::Deref;
 use std::rc::Rc;
@@ -57,7 +55,7 @@ pub struct Expander<'a> {
     /// Commits that have been expanded, but not yet resolved the mono commit id
     /// and stored in `self.import_cache`.
     pub(crate) expanded_top_commits: HashMap<TopRepoCommitId, Rc<MonoRepoCommit>>,
-    pub(crate) bumps: BumpCache,
+    pub(crate) bumps: BumpInfo,
     pub(crate) inject_at_oldest_super_commit: bool,
 }
 
@@ -543,7 +541,8 @@ impl Expander<'_> {
                 }
                 let first_parent_bump = self
                     .bumps
-                    .get_submodule(first_mono_parent, abs_sub_path)
+                    .get_path(abs_sub_path)
+                    .get_submodule(first_mono_parent)
                     .expect("submodule path exists")
                     .clone(); // Clone to allow mut-borrowing self.bumps again.
                 if let Some(submod) = first_parent_bump.get_known_submod() {
@@ -833,7 +832,7 @@ impl Expander<'_> {
         let regressing_mono_parents = mono_parents
             .iter()
             .filter_map(|p| {
-                if let Some(expanded_submod) = self.bumps.get_submodule(p, abs_sub_path) {
+                if let Some(expanded_submod) = self.bumps.get_path(abs_sub_path).get_submodule(p) {
                     if expanded_submod.get_orig_commit_id() != &submod_commit.commit_id {
                         Some(MonoRepoParent::Mono(p.clone()))
                     } else {
@@ -957,7 +956,8 @@ impl Expander<'_> {
                                 // submodule.
                                 return Ok(Some(
                                     self.bumps
-                                        .get_bumps(&mono_commit, abs_sub_path)
+                                        .get_path(abs_sub_path)
+                                        .get_bumps(&mono_commit)
                                         .first()
                                         .expect("The submodule commit should be in the mono commit")
                                         .clone(),
@@ -987,7 +987,10 @@ impl Expander<'_> {
             // Depth first applied to a last-in-first-out stack means reversing.
             todo.extend(
                 self.bumps
-                    .get_parents_of_last_bumps(&mono_commit, abs_sub_path)
+                    .get_path(abs_sub_path)
+                    .get_parents_of_bumps(&mono_commit)
+                    .deref()
+                    .clone()
                     .into_iter()
                     .rev(),
             );
@@ -1054,18 +1057,145 @@ impl Expander<'_> {
     }
 }
 
-pub struct BumpCache {
-    submodules: LruCache<BumpCacheKey, Rc<ExpandedSubmodule>>,
-    last_bumps: LruCache<BumpCacheKey, Vec<Rc<MonoRepoCommit>>>,
+#[derive(Default)]
+pub struct BumpInfo {
+    paths: HashMap<GitPath, BumpPathInfo>,
 }
 
-#[derive(Clone, Hash, PartialEq, Eq)]
-struct BumpCacheKey {
-    mono_commit: RcKey<MonoRepoCommit>,
+#[derive(Default)]
+struct BumpPathInfo {
     abs_sub_path: GitPath,
+    submodules: HashMap<RcKey<MonoRepoCommit>, Rc<ExpandedSubmodule>>,
+    /// A list of most recent `MonoRepoCommit`s that bumps the submodule at `abs_sub_path`, which migh be the key itself.
+    bumps: HashMap<RcKey<MonoRepoCommit>, OrderedBumpCommits>,
 }
 
-impl BumpCache {
+impl BumpPathInfo {
+    pub fn new(abs_sub_path: GitPath) -> Self {
+        Self {
+            abs_sub_path,
+            submodules: HashMap::new(),
+            bumps: HashMap::new(),
+        }
+    }
+}
+
+type OrderedBumpCommits = Rc<Vec<Rc<MonoRepoCommit>>>;
+
+#[derive(Default)]
+enum OrderedBumpCommitsBuilder {
+    #[default]
+    NoCommitWithBumps,
+    /// No need to create the visited HashSet until extending with more
+    /// bump_commits. Note that the value might be empty, but that reduces the
+    /// number of empty `Vec` need to be allocated.
+    SingleReturnValue(OrderedBumpCommits),
+    ComparingSingleReturnValue {
+        ret: OrderedBumpCommits,
+        visited: HashSet<RcKey<MonoRepoCommit>>,
+    },
+    NewReturnValue {
+        ret: Vec<Rc<MonoRepoCommit>>,
+        visited: HashSet<RcKey<MonoRepoCommit>>,
+    },
+}
+
+impl From<OrderedBumpCommitsBuilder> for OrderedBumpCommits {
+    fn from(val: OrderedBumpCommitsBuilder) -> Self {
+        match val {
+            OrderedBumpCommitsBuilder::NoCommitWithBumps => Rc::new(Vec::new()),
+            OrderedBumpCommitsBuilder::SingleReturnValue(ret) => ret,
+            OrderedBumpCommitsBuilder::ComparingSingleReturnValue { ret, visited: _ } => ret,
+            OrderedBumpCommitsBuilder::NewReturnValue { ret, visited: _ } => Rc::new(ret),
+        }
+    }
+}
+
+impl OrderedBumpCommitsBuilder {
+    /// Add multiple commits, potentially by just referencing the same `Vec`.
+    pub fn extend(&mut self, bump_commits: &Rc<Vec<Rc<MonoRepoCommit>>>) {
+        if let OrderedBumpCommitsBuilder::SingleReturnValue(value) = self
+            && value.is_empty()
+        {
+            // The current reference to an empty `Vec` will be replaced anyway.
+            *self = OrderedBumpCommitsBuilder::NoCommitWithBumps;
+        }
+        if let OrderedBumpCommitsBuilder::NoCommitWithBumps = self {
+            *self = OrderedBumpCommitsBuilder::SingleReturnValue(bump_commits.clone());
+            // No need to create the visited HashSet until extending with more
+            // bump_commits.
+            return;
+        }
+        for bump_commit in bump_commits.iter() {
+            self.push(bump_commit);
+        }
+    }
+
+    /// Add a single commit.
+    pub fn push(&mut self, bump_commit: &Rc<MonoRepoCommit>) {
+        match self {
+            OrderedBumpCommitsBuilder::NoCommitWithBumps => {
+                *self = OrderedBumpCommitsBuilder::NewReturnValue {
+                    ret: vec![bump_commit.clone()],
+                    visited: HashSet::from_iter([RcKey::new(bump_commit)]),
+                }
+            }
+            OrderedBumpCommitsBuilder::SingleReturnValue(ret) => {
+                if ret.is_empty() {
+                    // No need to create the visited HashSet yet.
+                    *ret = Rc::new(vec![bump_commit.clone()]);
+                } else {
+                    *self = OrderedBumpCommitsBuilder::ComparingSingleReturnValue {
+                        ret: ret.clone(),
+                        visited: HashSet::from_iter(ret.iter().map(RcKey::new)),
+                    };
+                    self.push(bump_commit);
+                }
+            }
+            OrderedBumpCommitsBuilder::ComparingSingleReturnValue { ret, visited } => {
+                if visited.insert(RcKey::new(bump_commit)) {
+                    let mut new_ret = Vec::with_capacity(ret.len() + 1);
+                    new_ret.extend(ret.iter().cloned());
+                    new_ret.push(bump_commit.clone());
+                    *self = OrderedBumpCommitsBuilder::NewReturnValue {
+                        ret: new_ret,
+                        visited: std::mem::take(visited),
+                    };
+                }
+            }
+            OrderedBumpCommitsBuilder::NewReturnValue { ret, visited } => {
+                if visited.insert(RcKey::new(bump_commit)) {
+                    ret.push(bump_commit.clone());
+                }
+            }
+        }
+    }
+}
+
+impl BumpInfo {
+    fn get_path(&mut self, abs_sub_path: &GitPath) -> &mut BumpPathInfo {
+        // TODO: 2025-10-23 Avoid .clone() when the entry is already occupied.
+        self.paths
+            .entry(abs_sub_path.clone())
+            .or_insert_with(|| BumpPathInfo::new(abs_sub_path.clone()))
+    }
+
+    /// Get the current TopRepoCommitId for this MonoRepoCommit. Note that
+    /// submodule might have been updated since, but files (non-submodules)
+    /// belonging to the toprepo comes from that commit.
+    pub fn get_top_bump(&self, mut mono_commit: &Rc<MonoRepoCommit>) -> Option<TopRepoCommitId> {
+        // TODO: 2025-09-22 Is caching needed?
+        loop {
+            if let Some(top_bump) = &mono_commit.top_bump {
+                return Some(*top_bump);
+            }
+            let Some(MonoRepoParent::Mono(first_parent)) = mono_commit.parents.first() else {
+                return None;
+            };
+            mono_commit = first_parent;
+        }
+    }
+
     /// Find the submodule content in for `abs_sub_path` in `mono_commit`. Note
     /// that the same submodule might exist multiple times in a recursive
     /// submodule graph, which should be supported.
@@ -1083,7 +1213,7 @@ impl BumpCache {
         abs_sub_path: &GitPath,
         submod_repo_name: &SubRepoName,
     ) -> Option<Rc<ExpandedSubmodule>> {
-        if let Some(submod) = self.get_submodule(mono_commit, abs_sub_path) {
+        if let Some(submod) = self.get_path(abs_sub_path).get_submodule(mono_commit) {
             return Some(submod);
         }
         // abs_sub_path does not exist in mono_commit. Try to resolve a
@@ -1095,7 +1225,8 @@ impl BumpCache {
         let mut duplicated_orig_commit_ids = UniqueContainer::Empty;
         for path in mono_commit.submodule_paths.iter() {
             let submod = self
-                .get_submodule(mono_commit, path)
+                .get_path(path)
+                .get_submodule(mono_commit)
                 .expect("submodule path exists");
             if let Some(submod_reference) = submod.get_known_submod()
                 && submod_reference.repo_name == *submod_repo_name
@@ -1142,83 +1273,6 @@ impl BumpCache {
         None
     }
 
-    pub fn get_submodule(
-        &mut self,
-        mono_commit: &Rc<MonoRepoCommit>,
-        abs_sub_path: &GitPath,
-    ) -> Option<Rc<ExpandedSubmodule>> {
-        if !mono_commit.submodule_paths.contains(abs_sub_path) {
-            // The submodule doesn't exist in this commit.
-            return None;
-        }
-
-        let mut key = BumpCacheKey {
-            mono_commit: RcKey::new(mono_commit),
-            abs_sub_path: abs_sub_path.clone(),
-        };
-
-        let mut depth: usize = 0;
-        let mut current_commit = mono_commit;
-        let ret = loop {
-            key.mono_commit = RcKey::new(current_commit);
-            // Cached?
-            if let Some(submod) = self.submodules.get(&key) {
-                break submod.clone();
-            }
-            // Was the submodule updated in this commit?
-            match current_commit.submodule_bumps.get(abs_sub_path) {
-                Some(ExpandedOrRemovedSubmodule::Expanded(submod)) => {
-                    break Rc::new(submod.clone());
-                }
-                Some(ExpandedOrRemovedSubmodule::Removed) => {
-                    // The submodule was removed in this commit.
-                    unreachable!("removed submodule exists");
-                }
-                None => {
-                    // The submodule was not updated in this commit.
-                }
-            }
-            // Recursively find the submodule through the first parent chain.
-            let Some(MonoRepoParent::Mono(ancestor_commit)) = current_commit.parents.first() else {
-                unreachable!("the submodule was never added");
-            };
-
-            current_commit = ancestor_commit;
-            depth += 1;
-        };
-
-        // Insert the result into the cache.
-        current_commit = mono_commit;
-        for i in 0..depth {
-            // Don't cache every commit in the history of all submodules, that fills
-            // up the caches too much.
-            if i.is_power_of_two() {
-                let key = BumpCacheKey {
-                    mono_commit: RcKey::new(current_commit),
-                    abs_sub_path: abs_sub_path.clone(),
-                };
-                self.submodules.put(key, ret.clone());
-            }
-            let Some(MonoRepoParent::Mono(ancestor_commit)) = current_commit.parents.first() else {
-                unreachable!("ancestors existed last time");
-            };
-            current_commit = ancestor_commit;
-        }
-        Some(ret)
-    }
-
-    pub fn get_top_bump(&self, mut mono_commit: &Rc<MonoRepoCommit>) -> Option<TopRepoCommitId> {
-        // TODO: 2025-09-22 Is caching needed?
-        loop {
-            if let Some(top_bump) = &mono_commit.top_bump {
-                return Some(*top_bump);
-            }
-            let Some(MonoRepoParent::Mono(first_parent)) = mono_commit.parents.first() else {
-                return None;
-            };
-            mono_commit = first_parent;
-        }
-    }
     fn non_descendants_for_all_parents(
         &mut self,
         mono_parents: &Vec<Rc<MonoRepoCommit>>,
@@ -1246,123 +1300,160 @@ impl BumpCache {
         }
         non_descendants
     }
+}
 
-    pub fn get_parents_of_last_bumps(
-        &mut self,
-        mono_commit: &Rc<MonoRepoCommit>,
-        abs_sub_path: &GitPath,
-    ) -> Vec<Rc<MonoRepoCommit>> {
-        let bumps = self.get_bumps(mono_commit, abs_sub_path);
-        bumps
-            .iter()
-            .flat_map(|bump_commit| &bump_commit.parents)
-            .filter_map(|parent| match parent {
-                MonoRepoParent::Mono(parent) => Some(parent),
-                MonoRepoParent::OriginalSubmod(_) => None,
-            })
-            .unique_by(|c| Rc::as_ptr(c).addr())
-            .cloned()
-            .collect_vec()
+impl BumpPathInfo {
+    /// Finds the latest expanded submodule along the first-parent relation
+    /// chain.
+    fn get_submodule(&mut self, mono_commit: &Rc<MonoRepoCommit>) -> Option<Rc<ExpandedSubmodule>> {
+        let key = RcKey::new(mono_commit);
+        if let Some(value) = self.submodules.get(&key) {
+            return Some(value.clone());
+        }
+        if !mono_commit.submodule_paths.contains(&self.abs_sub_path) {
+            // The submodule doesn't exist in this commit.
+            return None;
+        }
+
+        // Recursive call blows the stack, so record the number of jumps so that
+        // the self.submodules storage can be populated in the second pass.
+        let mut depth: usize = 0;
+        let mut current_commit = mono_commit;
+        let ret = loop {
+            let key = RcKey::new(current_commit);
+            // Cached?
+            if let Some(submod) = self.submodules.get(&key) {
+                break submod.clone();
+            }
+            // Was the submodule updated in this commit?
+            match current_commit.submodule_bumps.get(&self.abs_sub_path) {
+                Some(ExpandedOrRemovedSubmodule::Expanded(submod)) => {
+                    break Rc::new(submod.clone());
+                }
+                Some(ExpandedOrRemovedSubmodule::Removed) => {
+                    // The submodule was removed in this commit.
+                    unreachable!("removed submodule exists");
+                }
+                None => {
+                    // The submodule was not updated in this commit.
+                }
+            }
+            // Recursively find the submodule through the first parent chain.
+            let Some(MonoRepoParent::Mono(ancestor_commit)) = current_commit.parents.first() else {
+                unreachable!("the submodule was never added");
+            };
+
+            current_commit = ancestor_commit;
+            depth += 1;
+        };
+
+        // Insert the result into the cache.
+        current_commit = mono_commit;
+        for _i in 0..depth {
+            self.submodules
+                .insert(RcKey::new(current_commit), ret.clone());
+            let Some(MonoRepoParent::Mono(ancestor_commit)) = current_commit.parents.first() else {
+                unreachable!("ancestors existed last time");
+            };
+            current_commit = ancestor_commit;
+        }
+        Some(ret)
     }
 
-    // TODO: 2025-10-18 Rewrite to a generator to be able to reduce the
-    // last_bumps cache size and speed up.
-    pub fn get_bumps<'a>(
-        &'a mut self,
-        mono_commit: &Rc<MonoRepoCommit>,
-        abs_sub_path: &GitPath,
-    ) -> &'a Vec<Rc<MonoRepoCommit>> {
+    pub fn get_parents_of_bumps(&mut self, mono_commit: &Rc<MonoRepoCommit>) -> OrderedBumpCommits {
+        let mut builder = OrderedBumpCommitsBuilder::default();
+        for bump_commit in self.get_bumps(mono_commit).iter() {
+            for bump_commit_parent in &bump_commit.parents {
+                match bump_commit_parent {
+                    MonoRepoParent::Mono(bump_commit_parent) => {
+                        builder.push(bump_commit_parent);
+                    }
+                    MonoRepoParent::OriginalSubmod(_) => {}
+                }
+            }
+        }
+        builder.into()
+    }
+
+    /// Finds the most recent `MonoRepoCommit`s that bumped this submodule path.
+    /// The ancestry is search in depth-first order and stops recursing when a
+    /// bump commit has been found, which means that the first-parent line has
+    /// highest priority.
+    fn get_bumps(&mut self, mono_commit: &Rc<MonoRepoCommit>) -> OrderedBumpCommits {
         // This function is prone to stack overflow if implemented recursively.
         //
         // Caching information far back in the history is probably less useful.
         // Cache more sparsely the deeper we go.
-        let mut key = BumpCacheKey {
-            mono_commit: RcKey::new(mono_commit),
-            abs_sub_path: abs_sub_path.clone(),
-        };
-        if self.last_bumps.contains(&key) {
-            return self.last_bumps.get(&key).unwrap();
+        let key = RcKey::new(mono_commit);
+        if let Some(bump_commits) = self.bumps.get(&key) {
+            return bump_commits.clone();
+        }
+        if !mono_commit.submodule_paths.contains(&self.abs_sub_path) {
+            // The submodule does not exist at abs_sub_path in this
+            // commit.
+            return Rc::new(Vec::new());
         }
 
-        struct StackEntry {
-            mono_commit: Rc<MonoRepoCommit>,
-            commit_key: RcKey<MonoRepoCommit>,
-            next_parent_idx: usize,
-            ret: Vec<Rc<MonoRepoCommit>>,
-        }
-        // Start with a fake entry that will make mono_commit be computed and
-        // cached.
-        let mut stack = vec![StackEntry {
-            mono_commit: MonoRepoCommit::new_rc(
-                vec![MonoRepoParent::Mono(mono_commit.clone())],
-                None,
-                HashMap::new(),
-            ),
-            commit_key: key.mono_commit,
-            next_parent_idx: 0,
-            ret: Vec::new(),
-        }];
-
-        loop {
-            let entry = stack.last_mut().unwrap();
-            match entry.mono_commit.parents.get(entry.next_parent_idx) {
-                Some(MonoRepoParent::Mono(parent)) => {
-                    // Process one more parent of entry.mono_commit and add the
-                    // result to entry.ret.
-                    entry.next_parent_idx += 1;
-                    key.mono_commit = RcKey::new(parent);
-                    if let Some(parent_ret) = self.last_bumps.get(&key) {
-                        // Cache hit.
-                        entry.ret.extend(parent_ret.iter().cloned());
-                    } else if parent.submodule_bumps.contains_key(abs_sub_path) {
-                        // The submodule was added, updated (compared to first
-                        // parent), moved or copied to abs_sub_path.
-                        entry.ret.push(parent.clone());
-                    } else if parent.submodule_paths.contains(abs_sub_path) {
-                        // The submodule exists here, so push the parent to the
-                        // stack.
-                        let parent = parent.clone();
-                        stack.push(StackEntry {
-                            mono_commit: parent,
-                            commit_key: key.mono_commit,
-                            next_parent_idx: 0,
-                            ret: Vec::new(),
-                        });
-                    } else {
-                        // The submodule does not exist at abs_sub_path in this
-                        // parent.
+        // Start with a fake entry that will make the requested mono_commit be
+        // computed and stored.
+        let mut stack = vec![mono_commit.clone()];
+        while let Some(current_commit) = stack.last().cloned() {
+            let builder = if current_commit
+                .submodule_bumps
+                .contains_key(&self.abs_sub_path)
+            {
+                // The submodule was added, updated (compared to first
+                // parent), moved or copied to abs_sub_path.
+                let mut builder = OrderedBumpCommitsBuilder::default();
+                builder.push(&current_commit);
+                builder
+            } else if current_commit.submodule_paths.contains(&self.abs_sub_path) {
+                // The submodule exists here, so push the parents that need to
+                // be computed to the stack.
+                let untouched_stack_size = stack.len();
+                for parent in &current_commit.parents {
+                    match parent {
+                        MonoRepoParent::Mono(parent) => {
+                            if parent.submodule_paths.contains(&self.abs_sub_path)
+                                && !self.bumps.contains_key(&RcKey::new(parent))
+                            {
+                                stack.push(parent.clone());
+                            }
+                        }
+                        MonoRepoParent::OriginalSubmod(_) => {}
                     }
                 }
-                Some(MonoRepoParent::OriginalSubmod(_)) => {
-                    // The parent is pointing to the original submodule commit,
-                    // not an expanded mono commit. Nothing to do.
-                    entry.next_parent_idx += 1;
+                if stack.len() != untouched_stack_size {
+                    // Sort out the parents first.
+                    continue;
                 }
-                None => {
-                    // No more parents. Extend the child's entry.ret with this
-                    // parent's entry.ret.
-                    let entry = stack.pop().expect("processing stack entry");
-                    key.mono_commit = entry.commit_key;
-                    let ret = entry.ret.into_iter().unique_by(RcKey::new).collect_vec();
-                    if stack.is_empty() {
-                        self.last_bumps.put(key.clone(), ret);
-                        return self.last_bumps.get(&key).expect("just inserted");
+                // Accumulate the results from the parents.
+                let mut builder = OrderedBumpCommitsBuilder::NoCommitWithBumps;
+                for parent in &current_commit.parents {
+                    match parent {
+                        MonoRepoParent::Mono(parent) => {
+                            if parent.submodule_paths.contains(&self.abs_sub_path) {
+                                builder.extend(
+                                    self.bumps
+                                        .get(&RcKey::new(parent))
+                                        .expect("exists from previous step in the stack"),
+                                );
+                            }
+                        }
+                        MonoRepoParent::OriginalSubmod(_) => {}
                     }
-                    // Add the result to the child.
-                    stack.last_mut().unwrap().ret.extend(ret.iter().cloned());
-                    self.last_bumps.put(key.clone(), ret);
                 }
-            }
+                builder
+            } else {
+                // The submodule does not exist at abs_sub_path in this
+                // commit.
+                unreachable!("commits without the submodule are not pushed to the stack");
+            };
+            self.bumps
+                .insert(RcKey::new(&current_commit), builder.into());
+            stack.pop().unwrap();
         }
-    }
-}
-
-impl Default for BumpCache {
-    fn default() -> Self {
-        Self {
-            submodules: LruCache::new(std::num::NonZeroUsize::new(100000).unwrap()),
-            last_bumps: LruCache::new(std::num::NonZeroUsize::new(100000).unwrap()),
-        }
+        self.bumps.get(&key).expect("bumps just resolved").clone()
     }
 }
 
@@ -1652,7 +1743,7 @@ fn recombine(
             fast_importer,
             imported_commits: HashMap::new(),
             expanded_top_commits: HashMap::new(),
-            bumps: crate::expander::BumpCache::default(),
+            bumps: crate::expander::BumpInfo::default(),
             inject_at_oldest_super_commit: false,
         };
         expander.expand_toprepo_commits(
@@ -2137,7 +2228,7 @@ pub fn expand_submodule_ref_onto_head(
         fast_importer,
         imported_commits: HashMap::new(),
         expanded_top_commits: HashMap::new(),
-        bumps: crate::expander::BumpCache::default(),
+        bumps: crate::expander::BumpInfo::default(),
         inject_at_oldest_super_commit: true,
     };
     let expand_result = (|| {
