@@ -266,6 +266,50 @@ fn merge_with_two_submodules() {
     assert_eq!(log_graph, expected_graph);
 }
 
+/// Testing a regression from 2025-10-22.
+#[test]
+fn regression_20251022() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_expander_regression_20251022.sh",
+        )
+        .unwrap(),
+    );
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    let log_graph = extract_log_graph(&monorepo, vec!["HEAD", "--"]);
+    insta::assert_snapshot!(log_graph, @r"
+    *   H11
+    |\
+    | * 10
+    |/|
+    | * 7
+    * |   G9
+    |\ \
+    | * | 4
+    * | | F8
+    | |/
+    |/|
+    * |   E6
+    |\ \
+    | |/
+    |/|
+    | *   D5
+    | |\
+    | | * 3
+    | |/
+    * / C3
+    |/
+    *   B2
+    |\
+    | * 2
+    | * 1
+    * A
+    ");
+}
+
 #[test]
 fn submodule_removal() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
