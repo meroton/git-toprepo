@@ -12,6 +12,94 @@ const GENERIC_CONFIG: &str = r#"
 "#;
 
 #[test]
+fn create_config_from_invalid_ref() {
+    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
+
+    git_command_for_testing(&temp_dir)
+        .args(["init"])
+        .assert()
+        .success();
+
+    git_command_for_testing(&temp_dir)
+        .args([
+            "config",
+            &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
+            "worktree:foo.toml",
+        ])
+        .assert()
+        .success();
+    git_command_for_testing(&temp_dir)
+        .args([
+            "config",
+            "--add",
+            &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
+            "try:local:bar.toml",
+        ])
+        .assert()
+        .success();
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&temp_dir)
+        .arg("config")
+        .arg("show")
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(
+            "WARN: Config file \"foo.toml\" does not exist in the worktree\n\
+            ERROR: No configuration exists, looked at try:local:bar.toml, worktree:foo.toml\n",
+        );
+}
+
+#[test]
+fn missing_config() {
+    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
+
+    git_command_for_testing(&temp_dir)
+        .args(["init"])
+        .assert()
+        .success();
+
+    git_command_for_testing(&temp_dir)
+        .args(["commit", "--allow-empty", "-m", "Initial commit"])
+        .assert()
+        .success();
+
+    // Try a path in the repository.
+    git_command_for_testing(&temp_dir)
+        .args([
+            "config",
+            &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
+            "repo:HEAD:.gittoprepo.toml",
+        ])
+        .assert()
+        .success();
+    git_command_for_testing(&temp_dir)
+        .args([
+            "config",
+            "--add",
+            &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
+            "worktree:nonexisting.toml",
+        ])
+        .assert()
+        .success();
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&temp_dir)
+        .arg("config")
+        .arg("location")
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(
+            "WARN: Config file \"nonexisting.toml\" does not exist in the worktree\n\
+            WARN: Config file .gittoprepo.toml does not exist in HEAD: exit status: 128: \
+            fatal: Not a valid object name HEAD:.gittoprepo.toml\n\
+            ERROR: None of the configured git-toprepo locations did exist\n",
+        );
+}
+
+#[test]
 fn validate_external_file_in_corrupt_repository() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
 

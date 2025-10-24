@@ -96,13 +96,15 @@ of the configuration file is set in the `git-config` of the emulated mono reposi
 `git config --local toprepo.config <location>`
 and takes the following forms:
 
-* `repo:<ref>:<path>`, a path in the tree of git ref,
-* `local:<path>`, a file relative to the main worktree, and
-* `worktree:<path>`, a file relative to the current worktree.
+* `[try:]repo:<ref>:<path>`, a path in the tree of git ref,
+* `[try:]local:<path>`, a file relative to the main worktree, and
+* `[try:]worktree:<path>`, a file relative to the current worktree.
+
+The `try:` prefix doesn't warn if missing.
 
 By default, the git-toprepo configuration is read from the committed `HEAD` in the remote toprepo,
 i.e. `repo:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml`,
-but it is possible to override it with a local path.
+but prioritizes `try:worktree:.gittoprepo.user.toml` if it exists.
 
 ### Sub repositories
 
