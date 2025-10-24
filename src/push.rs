@@ -1,4 +1,4 @@
-use crate::expander::BumpCache;
+use crate::expander::BumpInfo;
 use crate::git::CommitId;
 use crate::git::GitModulesInfo;
 use crate::git::GitPath;
@@ -206,7 +206,7 @@ fn split_for_push_impl(
     )?;
 
     let mut to_push_metadata = Vec::new();
-    let mut bumps = BumpCache::default();
+    let mut bumps = BumpInfo::default();
     let mut imported_mono_commits = HashMap::new();
     let mut imported_submod_commits = HashMap::new();
     for entry in fast_exporter {
