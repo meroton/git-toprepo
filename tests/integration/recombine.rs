@@ -310,6 +310,38 @@ fn regression_20251022() {
     ");
 }
 
+/// Testing a regression from 2025-10-22.
+#[test]
+fn regression_20251023() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_expander_regression_20251023.sh",
+        )
+        .unwrap(),
+    );
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    let log_graph = extract_log_graph(&monorepo, vec!["HEAD", "--"]);
+    insta::assert_snapshot!(log_graph, @r"
+    *-.   F-X7
+    |\ \
+    | | * x6
+    | * | x5
+    |/ /
+    * | E-X4
+    * | D-X4
+    * | C-X3
+    |/
+    *   B-X2
+    |\
+    | * x2
+    | * x1
+    * A
+    ");
+}
+
 #[test]
 fn submodule_removal() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
