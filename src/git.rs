@@ -1,6 +1,5 @@
 use crate::log::CommandSpanExt as _;
 use crate::util::CommandExtension as _;
-use crate::util::NewlineTrimmer as _;
 use anyhow::Context;
 use anyhow::Result;
 use bstr::BString;
@@ -226,20 +225,19 @@ pub(crate) fn git_command(repo: impl AsRef<std::ffi::OsStr>) -> Command {
     command
 }
 
-/// Returns the value of a single entry git configuration key
-/// or `None` if the key is not set.
-pub fn git_config_get(repo: &Path, key: &str) -> anyhow::Result<Option<String>> {
+/// Returns the values of a git configuration key. The returned `Vec` should be
+/// interpreted as the last entry takes precedence or overrides the previous
+/// entries. The returned `Vec` is empty if the key was not found.
+pub fn git_config_get_all(repo: &Path, key: &str) -> anyhow::Result<Vec<String>> {
     let output = git_command(repo)
-        .args(["config", key])
+        .args(["config", "--get-all", key])
         .trace_command(crate::command_span!("git config"))
         .safe_output()?;
     if output.status.code() == Some(1) {
-        Ok(None)
+        Ok(Vec::new())
     } else {
         output.check_success_with_stderr()?;
-        Ok(Some(
-            output.stdout.to_str()?.trim_newline_suffix().to_string(),
-        ))
+        Ok(output.stdout.to_str()?.lines().map(str::to_owned).collect())
     }
 }
 

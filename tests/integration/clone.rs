@@ -83,6 +83,75 @@ fn toprepo_clone() {
 }
 
 #[test]
+fn clone_and_bootstrap() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+
+    git_command_for_testing(&toprepo)
+        .args(["rm", ".gittoprepo.toml"])
+        .assert()
+        .success();
+    git_command_for_testing(&toprepo)
+        .args(["commit", "-m", "Remove .gittoprepo.toml"])
+        .assert()
+        .success();
+
+    cargo_bin_git_toprepo_for_testing()
+        .arg("clone")
+        .arg(&toprepo)
+        .arg(&monorepo)
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(predicates::str::ends_with(
+            "WARN: Config file .gittoprepo.toml does not exist in refs/namespaces/top/refs/remotes/origin/HEAD: \
+            exit status: 128: fatal: path '.gittoprepo.toml' does not exist in 'refs/namespaces/top/refs/remotes/origin/HEAD'\n\
+            ERROR: Config file .gittoprepo.toml does not exist in should:repo:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml\n\
+            INFO: Please run 'git-toprepo config bootstrap > .gittoprepo.user.toml' to generate an initial config and \
+            'git-toprepo recombine' to use it.\n\
+            ERROR: Clone failed due to missing config file\n"
+        ));
+    let config_path = monorepo.join(".gittoprepo.user.toml");
+    assert!(!config_path.exists());
+    let cmd = cargo_bin_git_toprepo_for_testing()
+        .current_dir(&monorepo)
+        .args(["config", "bootstrap"])
+        .assert()
+        .success()
+        .stderr(
+            predicates::str::is_match("^INFO: Finished importing commits in [^\n]*\n$").unwrap(),
+        );
+    let bootstrap_config = &cmd.get_output().stdout;
+    insta::assert_snapshot!(bootstrap_config.to_str().unwrap(), @r#"
+    [repo.subx]
+    urls = ["../subx/"]
+    missing_commits = []
+
+    [repo.suby]
+    urls = ["../suby/"]
+    missing_commits = []
+    "#);
+    std::fs::write(config_path, bootstrap_config).unwrap();
+
+    let cmd = cargo_bin_git_toprepo_for_testing()
+        .current_dir(&monorepo)
+        .arg("recombine")
+        .assert()
+        .success();
+
+    insta::assert_snapshot!(cmd.get_output().stdout.to_str().unwrap(), @r"
+            * [new] 54750c5      -> origin/HEAD
+            * [new] 54750c5      -> origin/main
+            ");
+}
+
+#[test]
 fn double_clone_should_fail() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");

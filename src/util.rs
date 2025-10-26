@@ -436,6 +436,8 @@ impl SafeOutput {
         if !self.status.success() {
             if self.stderr.is_empty() {
                 bail!("{}", self.status);
+            } else if !self.stderr.trim_ascii().contains(&b'\n') {
+                bail!("{}: {}", self.status, String::from_utf8_lossy(&self.stderr));
             } else {
                 bail!(
                     "{}:\n{}",
