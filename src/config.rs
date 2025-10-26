@@ -389,8 +389,11 @@ impl SubRepoConfig {
         match &self.fetch.url {
             Some(url) => url,
             None => {
-                assert!(self.validate().is_ok());
-                &self.urls[0]
+                // More URLs might have been added during load, but keep using
+                // the first one, the only one that was loaded.
+                self.urls
+                    .first()
+                    .expect("at least one URL did exist when loading the config")
             }
         }
     }

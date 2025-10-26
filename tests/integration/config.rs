@@ -204,3 +204,73 @@ missing_commits = []
         .stderr(predicate::str::contains("ERROR:").not())
         .stderr(predicate::str::contains("WARN:").not());
 }
+
+#[test]
+/// The URLs in the `.gitmodules` file at HEAD are assumed to be the current
+/// ones. Set them as `fetch.url` in the config.
+fn bootstrap_multiple_urls_in_history() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+
+    std::fs::write(
+        toprepo.join(".gitmodules"),
+        r#"
+[submodule "subx"]
+	path = subx
+	url = https://other.example/subx
+[submodule "suby"]
+	path = suby
+	url = https://other.example/suby.git
+"#,
+    )
+    .unwrap();
+    git_command_for_testing(&toprepo)
+        .args(["add", ".gitmodules"])
+        .assert()
+        .success();
+    git_command_for_testing(&toprepo)
+        .args(["commit", "-m", "New urls"])
+        .assert()
+        .success();
+    git_command_for_testing(&toprepo)
+        .args(["rm", "suby"])
+        .assert()
+        .success();
+    git_command_for_testing(&toprepo)
+        .args(["commit", "-m", "Remove suby"])
+        .assert()
+        .success();
+
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+
+    // subx has an URL in HEAD:.gitmodules, suby does not and therfore becomes
+    // disabled.
+    let expected_boostrap_config = &r#"
+[repo.subx]
+urls = ["../subx/", "https://other.example/subx"]
+missing_commits = []
+
+[repo.subx.fetch]
+url = "https://other.example/subx"
+
+[repo.suby]
+urls = ["../suby/", "https://other.example/suby.git"]
+enabled = false
+missing_commits = []
+"#[1..];
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&monorepo)
+        .args(["config", "bootstrap"])
+        .assert()
+        .success()
+        .stdout(expected_boostrap_config)
+        .stderr(predicate::str::contains("ERROR:").not())
+        .stderr(predicate::str::contains("WARN:").not());
+}
