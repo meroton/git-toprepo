@@ -707,7 +707,6 @@ dependencies = [
  "itertools",
  "lazy_static",
  "log",
- "lru",
  "oneshot",
  "pathdiff",
  "predicates",
@@ -2389,15 +2388,6 @@ name = "log"
 version = "0.4.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
-
-[[package]]
-name = "lru"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfe949189f46fabb938b3a9a0be30fdd93fd8a09260da863399a8cf3db756ec8"
-dependencies = [
- "hashbrown 0.15.5",
-]
 
 [[package]]
 name = "maybe-async"
