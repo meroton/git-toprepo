@@ -53,6 +53,9 @@
               BUILD_SCM_TAG = "nix";
               BUILD_SCM_TIMESTAMP = fakeTimestamp;
               BUILD_SCM_REVISION = fakeRev;
+              patchPhase = ''
+                patchShebangs --build ./tests/integration/fixtures
+              '';
               nativeBuildInputs = with pkgs; [
                   git
                   python3
