@@ -24,6 +24,7 @@ impl RepoWithTwoSubmodules {
         );
         let toprepo = temp_dir.join("top");
         let monorepo = temp_dir.join("mono");
+        let subx_repo = temp_dir.join("subx");
         crate::fixtures::toprepo::clone(&toprepo, &monorepo);
         std::fs::create_dir(monorepo.join("subdir_part_of_top")).unwrap();
 
@@ -35,6 +36,14 @@ impl RepoWithTwoSubmodules {
             .args(["commit", "--allow-empty", "-m", "Empty test commit in top"])
             .assert()
             .success();
+        git_command_for_testing(&subx_repo)
+            .args(["checkout", "-b", "subfoo"])
+            .assert()
+            .success();
+        git_command_for_testing(&subx_repo)
+            .args(["commit", "--allow-empty", "-m", "Empty test commit in subx"])
+            .assert()
+            .success();
         // Make sure suby cannot be fetched, as it is not needed.
         let suby_repo = temp_dir.join("suby");
         assert!(suby_repo.is_dir());
@@ -43,7 +52,7 @@ impl RepoWithTwoSubmodules {
         Self {
             toprepo,
             monorepo,
-            subx_repo: temp_dir.join("subx"),
+            subx_repo,
             temp_dir,
         }
     }
@@ -411,6 +420,42 @@ fn with_refspec_arg_success(#[case] remote: &str) {
         .assert()
         .success()
         .stdout("Empty test commit in top\n");
+    // Check that no extra temporary refs are available.
+    git_command_for_testing(&repo.monorepo)
+        .args(["show-ref"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::is_match(
+                [
+                    ".* refs/namespaces/subx/refs/heads/main\n",
+                    ".* refs/namespaces/suby/refs/heads/main\n",
+                    ".* refs/namespaces/top/refs/remotes/origin/HEAD\n",
+                    ".* refs/namespaces/top/refs/remotes/origin/main\n",
+                    ".* refs/remotes/origin/HEAD\n",
+                    ".* refs/remotes/origin/main\n",
+                ]
+                .join(""),
+            )
+            .unwrap(),
+        );
+}
+
+#[rstest]
+#[case::submod_url("../subx")]
+#[case::directory("subx/")]
+fn submod_with_refspec_arg_success(#[case] remote: &str) {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&repo.monorepo)
+        .args(["fetch", remote, "refs/heads/subfoo:refs/heads/bar"])
+        .assert()
+        .success();
+    git_command_for_testing(&repo.monorepo)
+        .args(["show", "--format=%s", "--quiet", "refs/heads/bar", "--"])
+        .assert()
+        .success()
+        .stdout("Empty test commit in subx\n");
     // Check that no extra temporary refs are available.
     git_command_for_testing(&repo.monorepo)
         .args(["show-ref"])
