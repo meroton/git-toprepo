@@ -420,7 +420,14 @@ impl<'a> FetchParamsResolver<'a> {
         {
             return Ok(ret);
         }
-        let url = gix::Url::from_bytes(remote_bstr)?;
+        let mut url = gix::Url::from_bytes(remote_bstr)?;
+        if url.scheme == gix::url::Scheme::File
+            && let Ok(cwd) = std::env::current_dir()
+            && let Some(cwd_str) = cwd.to_str()
+            && let Ok(cwd_url) = gix::Url::from_bytes(cwd_str.into())
+        {
+            url = cwd_url.join(&url);
+        }
         // TODO: 2025-09-22 If we refactor the repo view to contain a list of all
         // *projects* including super itself. We do not need tiered access here.
         // #unified-git-config.

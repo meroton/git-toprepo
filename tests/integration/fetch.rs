@@ -3,6 +3,7 @@ use git_toprepo_testtools::test_util::git_command_for_testing;
 use itertools::Itertools as _;
 use predicates::prelude::*;
 use rstest::rstest;
+use std::path::Path;
 
 struct RepoWithTwoSubmodules {
     pub toprepo: std::path::PathBuf,
@@ -22,8 +23,12 @@ impl RepoWithTwoSubmodules {
             )
             .unwrap(),
         );
+        // For relative path dirs to be tested, and distinguish between
+        // mono/../repox and mono/../top/../repox, use a subdir for mono repo.
         let toprepo = temp_dir.join("top");
-        let monorepo = temp_dir.join("mono");
+        let monorepo = temp_dir.join("outermono/innermono");
+        let subx_repo = temp_dir.join("repox");
+        std::fs::create_dir(monorepo.parent().unwrap()).unwrap();
         crate::fixtures::toprepo::clone(&toprepo, &monorepo);
         std::fs::create_dir(monorepo.join("subdir_part_of_top")).unwrap();
 
@@ -33,6 +38,14 @@ impl RepoWithTwoSubmodules {
             .success();
         git_command_for_testing(&toprepo)
             .args(["commit", "--allow-empty", "-m", "Empty test commit in top"])
+            .assert()
+            .success();
+        git_command_for_testing(&subx_repo)
+            .args(["checkout", "-b", "subfoo"])
+            .assert()
+            .success();
+        git_command_for_testing(&subx_repo)
+            .args(["commit", "--allow-empty", "-m", "Empty test commit in subx"])
             .assert()
             .success();
         // Make sure suby cannot be fetched, as it is not needed.
@@ -403,6 +416,127 @@ fn with_refspec_arg_success(#[case] remote: &str) {
         .assert()
         .success()
         .stdout("Empty test commit in top\n");
+    // Check that no extra temporary refs are available.
+    git_command_for_testing(&repo.monorepo)
+        .args(["show-ref"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::is_match(
+                [
+                    ".* refs/namespaces/namex/refs/heads/main\n",
+                    ".* refs/namespaces/namey/refs/heads/main\n",
+                    ".* refs/namespaces/top/refs/remotes/origin/HEAD\n",
+                    ".* refs/namespaces/top/refs/remotes/origin/main\n",
+                    ".* refs/remotes/origin/HEAD\n",
+                    ".* refs/remotes/origin/main\n",
+                ]
+                .join(""),
+            )
+            .unwrap(),
+        );
+}
+
+#[test]
+fn with_refspec_arg_absolute_submod_remote_path_from_root() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    submod_with_refspec_arg_success(&repo, &repo.monorepo, &repo.subx_repo);
+}
+
+#[test]
+fn with_refspec_arg_absolute_submod_remote_path_from_subdir() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    submod_with_refspec_arg_success(&repo, &repo.monorepo.join("other"), &repo.subx_repo);
+}
+
+#[test]
+fn with_refspec_arg_relative_submod_remote_path_from_root() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    submod_with_refspec_arg_success(&repo, &repo.monorepo, Path::new("../../repox"));
+}
+
+#[test]
+fn with_refspec_arg_relative_submod_remote_path_from_subdir() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    submod_with_refspec_arg_success(
+        &repo,
+        &repo.monorepo.join("other"),
+        Path::new("../../../repox"),
+    );
+    // Check that outermono/innermono/other/../repox fails, even if ../repox is
+    // part of the .gittoprepo.toml config, because it is neither a submodule
+    // path inside the worktree nor a local path outside the worktree that can
+    // be fetched from.
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(repo.monorepo.join("other"))
+        .args(["fetch", "../repox", "refs/heads/subfoo:refs/heads/bar"])
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(
+            predicate::str::is_match(
+                "^ERROR: No configured submodule URL matches \".*/outermono/innermono/repox\"\\n$",
+            )
+            .unwrap(),
+        );
+}
+
+#[test]
+fn with_refspec_arg_absolute_submod_worktree_directory_from_root() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    submod_with_refspec_arg_success(&repo, &repo.monorepo, &repo.monorepo.join("subpathx"));
+}
+
+#[test]
+fn with_refspec_arg_absolute_submod_worktree_directory_from_subdir() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    submod_with_refspec_arg_success(
+        &repo,
+        &repo.monorepo.join("other"),
+        &repo.monorepo.join("subpathx"),
+    );
+}
+
+#[test]
+fn with_refspec_arg_relative_submod_worktree_directory_from_root() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    submod_with_refspec_arg_success(&repo, &repo.monorepo, Path::new("subpathx"));
+}
+
+#[test]
+fn with_refspec_arg_relative_submod_worktree_directory_from_subdir() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    submod_with_refspec_arg_success(
+        &repo,
+        &repo.monorepo.join("other"),
+        Path::new("../subpathx"),
+    );
+    // Check that mono/other/subpathx fails, even if "subpathx" is a submodule.
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(repo.monorepo.join("other"))
+        .args(["fetch", "subpathx", "refs/heads/subfoo:refs/heads/bar"])
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr("ERROR: No configured submodule URL matches \"subpathx\"\n");
+}
+
+fn submod_with_refspec_arg_success(repo: &RepoWithTwoSubmodules, cwd: &Path, remote: &Path) {
+    std::fs::create_dir_all(cwd).unwrap();
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(cwd)
+        .args([
+            "fetch",
+            remote.to_str().unwrap(),
+            "refs/heads/subfoo:refs/heads/bar",
+        ])
+        .assert()
+        .success();
+    git_command_for_testing(&repo.monorepo)
+        .args(["show", "--format=%s", "--quiet", "refs/heads/bar", "--"])
+        .assert()
+        .success()
+        .stdout("Empty test commit in subx\n");
     // Check that no extra temporary refs are available.
     git_command_for_testing(&repo.monorepo)
         .args(["show-ref"])
