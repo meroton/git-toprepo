@@ -577,9 +577,10 @@ impl<'a> FetchParamsResolver<'a> {
             });
         }
         let base_url = self.get_default_top_url()?;
+        let full_url = base_url.join(&url);
         let name = self
             .ledger
-            .get_name_from_similar_full_url(url.clone(), &base_url)?;
+            .get_name_from_similar_full_url(full_url.clone(), &base_url)?;
         let RepoName::SubRepo(submod_name) = &name else {
             unreachable!("Already checked that top URLs are not matching");
         };
@@ -603,7 +604,7 @@ impl<'a> FetchParamsResolver<'a> {
         Ok(ResolvedFetchParams {
             repo: name,
             path: submod_path.clone(),
-            url,
+            url: full_url,
         })
     }
 }
