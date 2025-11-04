@@ -941,7 +941,7 @@ impl<'a> CommitLoader<'a> {
                     CommitLogLevel {
                         is_tip: true,
                         log_missing_repo_configs: self.log_missing_config_warnings,
-                        level: log::Level::Warn,
+                        level: log::Level::Trace,
                     }
                 } else {
                     CommitLogLevel {
@@ -1028,11 +1028,7 @@ impl<'a> CommitLoader<'a> {
             CommitLogLevel {
                 is_tip,
                 log_missing_repo_configs: self.log_missing_config_warnings,
-                level: if is_tip {
-                    log::Level::Warn
-                } else {
-                    log::Level::Trace
-                },
+                level: log::Level::Trace,
             },
         )
         .context(context)
@@ -1089,6 +1085,52 @@ impl<'a> CommitLoader<'a> {
             &commit.submodule_bumps
         };
         for (path, bump) in submodule_paths_to_check {
+            match bump {
+                ThinSubmodule::AddedOrModified(cached_thin_submod) => {
+                    let submod_repo_name = Self::get_submod_repo_name(
+                        commit.dot_gitmodules,
+                        commit.parents.first(),
+                        path,
+                        &repo_storage.url,
+                        ledger,
+                        dot_gitmodules_cache,
+                        commit_log_level,
+                    );
+                    if submod_repo_name != cached_thin_submod.repo_name {
+                        anyhow::bail!(
+                            "Submodule {path} was cached as repo {:?} but is now {:?}",
+                            cached_thin_submod.repo_name,
+                            submod_repo_name
+                        );
+                    }
+                }
+                ThinSubmodule::Removed => (),
+            }
+        }
+        Ok(())
+    }
+
+    /// Checks `commit` for any errors and logs warnings in case of a problem.
+    pub(crate) fn validate_commit(
+        repo_storage: &RepoData,
+        commit: &ThinCommit,
+        ledger: &mut SubRepoLedger,
+        dot_gitmodules_cache: &mut DotGitModulesCache,
+    ) -> Result<()> {
+        let commit_log_level = CommitLogLevel {
+            is_tip: true,
+            log_missing_repo_configs: true,
+            level: log::Level::Warn,
+        };
+        if commit.tree_id.is_empty_tree() {
+            log::log!(
+                commit_log_level.level,
+                "With git-submodule, this empty commit results in a directory that is empty, \
+                but with git-toprepo it will disappear. To avoid this problem, commit a file.",
+            );
+        }
+        for path in commit.submodule_paths.iter() {
+            let bump = commit.get_submodule(path).expect("submodule exists");
             match bump {
                 ThinSubmodule::AddedOrModified(cached_thin_submod) => {
                     let submod_repo_name = Self::get_submod_repo_name(
@@ -1796,12 +1838,19 @@ impl RepoFetcher {
 
 /// `DotGitModulesCache` is a caching storage of parsed `.gitmodules` content
 /// that is read directly from blobs in a git repository. file by given a blob `id`.
-struct DotGitModulesCache<'a> {
+pub(crate) struct DotGitModulesCache<'a> {
     repo: &'a gix::Repository,
     cache: HashMap<BlobId, Option<GitModulesInfo>>,
 }
 
-impl DotGitModulesCache<'_> {
+impl<'a> DotGitModulesCache<'a> {
+    pub fn new(repo: &'a gix::Repository) -> Self {
+        Self {
+            repo,
+            cache: HashMap::new(),
+        }
+    }
+
     /// Parse the `.gitmodules` file given by the `BlobId` and return the map
     /// from path to url.
     pub fn get_from_blob_id(
