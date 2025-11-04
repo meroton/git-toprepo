@@ -121,7 +121,7 @@ pub enum FileChange {
 #[derive(Debug)]
 pub struct FastExportRepo {
     /// Holds the tracing span open while FastExportRepo is in use.
-    #[allow(unused)]
+    #[expect(unused)]
     span_guard: tracing::span::EnteredSpan,
     stderr_thread: Option<std::thread::JoinHandle<()>>,
 
@@ -511,7 +511,7 @@ impl Iterator for FastExportRepo {
 
 pub struct FastImportRepo {
     /// Holds the tracing span open while FastExportRepo is in use.
-    #[allow(unused)]
+    #[expect(unused)]
     span_guard: tracing::span::EnteredSpan,
     stderr_thread: Option<std::thread::JoinHandle<()>>,
     process: std::process::Child,

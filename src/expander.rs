@@ -464,7 +464,7 @@ impl Expander<'_> {
         Ok(mono_commit)
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn emit_mono_commit_with_tree_updates(
         &mut self,
         source_path: &GitPath,

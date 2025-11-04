@@ -10,7 +10,7 @@ struct RepoWithTwoSubmodules {
     pub subx_repo: std::path::PathBuf,
 
     /// Keep during the lifetime of the struct to let the directory exist.
-    #[allow(unused)]
+    #[expect(unused)]
     temp_dir: git_toprepo_testtools::test_util::MaybePermanentTempDir,
 }
 
