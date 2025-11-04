@@ -354,8 +354,6 @@ pub struct CommitLoader<'a> {
     thread_pool: threadpool::ThreadPool,
     ongoing_jobs_in_threads: usize,
 
-    /// Flag if the repository content should be loaded after fetch is done.
-    pub load_after_fetch: bool,
     /// Flag if submodule commits that are missing should be fetched.
     pub fetch_missing_commits: bool,
 
@@ -422,7 +420,6 @@ impl<'a> CommitLoader<'a> {
             log_missing_config_warnings: true,
             thread_pool,
             ongoing_jobs_in_threads: 0,
-            load_after_fetch: true,
             fetch_missing_commits: true,
             repos_to_fetch: VecDeque::new(),
             repos_to_load: VecDeque::new(),
@@ -711,10 +708,8 @@ impl<'a> CommitLoader<'a> {
         repo_fetcher.fetch_states = RepoFetcherState::Done;
 
         // Load the fetched data.
-        if self.load_after_fetch {
-            self.load_repo(repo_name)
-                .expect("configuration exists for repo");
-        }
+        self.load_repo(repo_name)
+            .expect("configuration exists for repo");
     }
 
     /// Loads basic information, i.e. `ThinCommit` information, about all
