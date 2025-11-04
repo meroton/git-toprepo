@@ -554,12 +554,13 @@ fn copes_with_bad_dot_gitmodules_content(
         .success()
         .stderr(
             predicate::str::is_match(format!(
-                r#"\nWARN: Commit [0-9a-f]+ in top \(refs/[^)]+\): {expected_warning}"#
+                r#"\nWARN: Top commit [0-9a-f]+ \(refs/remotes/origin/(HEAD|main)\): {expected_warning}"#
             ))
             .unwrap(),
         )
         .stderr(predicate::function(|stderr: &str| {
-            stderr.matches("WARN:").count() == 1
+            // The warning exists for both refs/remotes/origin/{HEAD,main}.
+            stderr.matches("WARN:").count() == 2
         }));
 }
 
@@ -591,17 +592,32 @@ fn warn_for_empty_submodule() {
         .args(["commit", "-m", "Remove all files"])
         .assert()
         .success();
+    let subx_head_rev = git_rev_parse(&subxrepo, "HEAD");
+    git_update_submodule_in_index(&toprepo, "subx", &subx_head_rev);
+    git_command_for_testing(&toprepo)
+        .args(["commit", "-m", "Remove all files in subx"])
+        .assert()
+        .success();
+    let msg_pattern = |gitref: &str| {
+        format!(
+            "\\nWARN: Top commit [0-9a-f]+ \\({gitref}\\): \
+            Submodule commit [0-9a-f]+ at subx \\(subx\\): \
+            With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\\. \
+            To avoid this problem, commit a file\\.\\n"
+        )
+    };
     cargo_bin_git_toprepo_for_testing()
         .arg("clone")
         .arg(&toprepo)
         .arg(&monorepo)
         .assert()
         .success()
-        .stderr(predicate::str::is_match(
-            "\\nWARN: Commit [0-9a-f]+ in subx \\(refs/heads/main\\): \
-            With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\\. \
-            To avoid this problem, commit a file\\.\\n").unwrap(),
-        );
+        .stderr(predicate::str::is_match(msg_pattern("refs/remotes/origin/HEAD")).unwrap())
+        .stderr(predicate::str::is_match(msg_pattern("refs/remotes/origin/main")).unwrap())
+        .stderr(predicate::function(|stderr: &str| {
+            // The warning exists for both refs/remotes/origin/{HEAD,main}.
+            stderr.matches("WARN:").count() == 2
+        }));
 
     // Fix the warning.
     std::fs::write(subxrepo.join("file.txt"), "content\n").unwrap();
@@ -613,6 +629,12 @@ fn warn_for_empty_submodule() {
         .args(["commit", "-m", "add a file"])
         .assert()
         .success();
+    let subx_head_rev = git_rev_parse(&subxrepo, "HEAD");
+    git_update_submodule_in_index(&toprepo, "subx", &subx_head_rev);
+    git_command_for_testing(&toprepo)
+        .args(["commit", "-m", "Add a file in subx"])
+        .assert()
+        .success();
     cargo_bin_git_toprepo_for_testing()
         .args(["clone", "-vv"])
         .arg(&toprepo)
@@ -620,7 +642,11 @@ fn warn_for_empty_submodule() {
         .assert()
         .success()
         // Note that the trace message does not include any branch name.
-        .stderr(    predicate::str::is_match(r"\nTRACE: Commit [0-9a-f]+ in subx: With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\. To avoid this problem, commit a file\.\n").unwrap())
+        .stderr(predicate::str::is_match(
+            "\\nTRACE: Commit [0-9a-f]+ in subx: \
+             With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\\. \
+             To avoid this problem, commit a file\\.\\n"
+        ).unwrap())
         .stderr(predicate::str::contains("WARN:").not());
 }
 

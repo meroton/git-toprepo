@@ -1753,14 +1753,58 @@ fn recombine(
         )?;
         expander.wait()?;
     }
+
+    // TODO: 2025-11-04 Move the commit validation to a better place to avoid
+    // spreading the code between loader.rs and expander.rs.
+    let mut bumps = crate::expander::BumpInfo::default();
     // Map the refs to the expanded mono commit ids.
     // Collect all new monorepo commits.
     for (monorepo_ref_name, top_commit_id, old_target) in todo_commit_tips {
-        let (mono_commit_id, _mono_commit) = configured_repo
+        let (mono_commit_id, mono_commit) = configured_repo
             .import_cache
             .top_to_mono_commit_map
             .get(&top_commit_id)
-            .expect("mono commit was cached or just filtered and must therefore exist");
+            .expect("mono commit was cached or just combined and must therefore exist");
+        // Print warnings because the top repo tips can be updated to fix the problems.
+        if monorepo_ref_name.as_bstr().starts_with(b"refs/remotes/") {
+            let top_context = format!("Top commit {top_commit_id} ({monorepo_ref_name})");
+            let _top_log_scope_guard = crate::log::scope(&top_context);
+            if let Some(repo_data) = configured_repo.import_cache.repos.get(&RepoName::Top)
+                && let Some(top_commit) = repo_data.thin_commits.get(&*top_commit_id)
+            {
+                crate::loader::CommitLoader::validate_commit(
+                    repo_data,
+                    top_commit,
+                    &mut configured_repo.ledger,
+                    &mut crate::loader::DotGitModulesCache::new(&configured_repo.gix_repo),
+                )
+                .with_context(|| top_context.clone())?;
+            }
+            for path in mono_commit.submodule_paths.iter().sorted() {
+                if let Some(expanded_submod) = bumps.get_path(path).get_submodule(mono_commit)
+                    && let Some(submod_ref) = expanded_submod.get_known_submod()
+                    && let Some(repo_data) = configured_repo
+                        .import_cache
+                        .repos
+                        .get(&RepoName::SubRepo(submod_ref.repo_name.clone()))
+                    && let Some(sub_commit) = repo_data.thin_commits.get(&submod_ref.orig_commit_id)
+                {
+                    let sub_context = format!(
+                        "Submodule commit {} at {path} ({})",
+                        sub_commit.commit_id, submod_ref.repo_name
+                    );
+                    let _sub_log_scope_guard = crate::log::scope(&sub_context);
+                    crate::loader::CommitLoader::validate_commit(
+                        repo_data,
+                        sub_commit,
+                        &mut configured_repo.ledger,
+                        &mut crate::loader::DotGitModulesCache::new(&configured_repo.gix_repo),
+                    )
+                    .context(sub_context)
+                    .with_context(|| top_context.clone())?;
+                }
+            }
+        }
         update_actions.insert(
             monorepo_ref_name,
             MonoRefUpdateAction::new(
