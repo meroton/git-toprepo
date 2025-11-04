@@ -399,7 +399,7 @@ impl GitTopRepoConfig {
             }
             match location.enforcement {
                 ConfigEnforcement::May => {
-                    log::warn!("Using suggested (may) config {}", location.path)
+                    log::warn!("Using suggested config {}", location)
                 }
                 ConfigEnforcement::Should => {}
                 ConfigEnforcement::Must => {}
