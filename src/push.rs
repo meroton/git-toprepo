@@ -589,7 +589,7 @@ struct CurrentPushItem {
     pb_status: indicatif::ProgressBar,
 
     /// Keep a handle to the progress task to keep it visible in the UI.
-    #[allow(unused)]
+    #[expect(unused)]
     progress_task: ProgressTaskHandle,
 }
 
