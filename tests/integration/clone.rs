@@ -2,6 +2,7 @@ use anyhow::Context as _;
 use bstr::ByteSlice as _;
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
+use git_toprepo_testtools::test_util::git_rev_parse;
 use predicates::prelude::*;
 
 #[test]
@@ -176,4 +177,63 @@ fn double_clone_should_fail() {
         .arg(&monorepo)
         .assert()
         .success();
+}
+
+#[test]
+fn checkout_should_not_add_branch_tracking() {
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    assert_eq!(
+        git_rev_parse(&monorepo, "refs/namespaces/top/refs/remotes/origin/main"),
+        git_rev_parse(&toprepo, "refs/heads/main")
+    );
+
+    git_command_for_testing(&monorepo)
+        .args(["checkout", "main"])
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr("error: pathspec 'main' did not match any file(s) known to git\n");
+
+    git_command_for_testing(&monorepo)
+        .args(["checkout", "-b", "main", "origin/main"])
+        .assert()
+        .success();
+    assert_ne!(
+        git_rev_parse(&monorepo, "refs/heads/main"),
+        git_rev_parse(&toprepo, "refs/heads/main")
+    );
+    assert_eq!(
+        git_rev_parse(&monorepo, "refs/heads/main"),
+        git_rev_parse(&monorepo, "refs/remotes/origin/main")
+    );
+    git_command_for_testing(&monorepo)
+        .args(["config", "--list"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("branch.main.").not());
+    git_command_for_testing(&monorepo)
+        .args(["pull"])
+        .assert()
+        .code(1);
+
+    // Make sure it is due to our config and not by luck.
+    let monorepo = temp_dir.join("mono2");
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    git_command_for_testing(&monorepo)
+        .args(["config", "--unset-all", "checkout.guess"])
+        .assert()
+        .success();
+    git_command_for_testing(&monorepo)
+        .args(["checkout", "main"])
+        .assert()
+        .success();
+    // monorepo:main = toprepo:main is NOT wanted.
+    assert_ne!(
+        git_rev_parse(&monorepo, "refs/heads/main"),
+        git_rev_parse(&monorepo, "refs/remotes/origin/main")
+    );
 }

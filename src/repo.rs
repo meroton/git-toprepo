@@ -183,6 +183,11 @@ impl ConfiguredTopRepo {
         set_config(&[], "remote.origin.tagOpt", "--no-tags")?;
         set_config(&[], "remote.origin.pruneTags", "false")?;
         set_config(&[], "submodule.recurse", "false")?;
+        // Avoid `git checkout main` to start following
+        // `refs/namespaces/top/refs/remotes/origin/main` which `--guess`
+        // (default) does because it matches `remote.origin.fetch`. Instead, the
+        // user should run `git checkout -b main origin/main`.
+        set_config(&[], "checkout.guess", "false")?;
         set_config(
             &["--replace-all"],
             &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
