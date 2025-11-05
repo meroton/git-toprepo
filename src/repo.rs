@@ -194,6 +194,32 @@ impl ConfiguredTopRepo {
             "may:worktree:.gittoprepo.user.toml",
         )?;
 
+        let pre_push_hook_path = Path::new(
+            git_command(directory)
+                .args(["rev-parse", "--path-format=absolute", "--git-path", "hooks"])
+                .trace_command(crate::command_span!("git hash-object"))
+                .safe_output()?
+                .check_success_with_stderr()
+                .context("Failed to rev-parse .git/hooks directory")?
+                .stdout
+                .to_str()?
+                .trim_newline_suffix(),
+        )
+        .join("pre-push");
+        let pre_push_hook_content = &r#"
+#!/bin/sh
+# This is an optional hook to improve the error message when running 'git push' instead of 'git-toprepo push'.
+if test "${GIT_TOPREPO_ALLOW_PUSH:-0}" != "1"; then
+    echo "ERROR: Please use 'git-toprepo push' instead of 'git push'.
+
+If you really want to push without git-toprepo, use 'git push --no-verify' or 'export GIT_TOPREPO_ALLOW_PUSH=1'." >&2
+    exit 1
+fi
+exit 0
+"#[1..];
+        crate::util::write_executable(&pre_push_hook_path, pre_push_hook_content)
+            .with_context(|| format!("Failed to write {}", pre_push_hook_path.to_string_lossy()))?;
+
         let result = {
             let (process, _span_guard) = git_command(directory)
                 .args(["hash-object", "-t", "blob", "-w", "--stdin"])
