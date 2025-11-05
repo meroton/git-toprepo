@@ -33,7 +33,30 @@ so that each submodule is pushed to its respective upstream repository.
 If running with `-n` or `--dry-run`, the resulting `git push` command lines
 will be printed but not executed.
 
-## Documentation and Presentations
+### Replaced Git commands
+
+When using git-toprepo, commands interacting with a remote server are wrapped,
+operations acting on the local git repository stay the same.
+
+| Regular git                       | git-toprepo                                |
+| --------------------------------- | ------------------------------------------ |
+| `git init`                        | `git toprepo init`                         |
+| `git clone`                       | `git toprepo clone`                        |
+| `git fetch`                       | `git toprepo fetch`                        |
+| `git push`                        | `git toprepo push`                         |
+| `git pull`                        | `<not implemented>`                        |
+| `git checkout origin/<branch>`    | `git checkout origin/<branch>`             |
+| `git checkout <branch>`           | `git checkout -b <branch> origin/<branch>` |
+| `git merge`                       | `git merge`                                |
+| `git rebase`                      | `git rebase`                               |
+| `git submodule`                   | `git submodule`                            |
+| `git <command>`                   | `git <command>`                            |
+
+NOTE: When using `git checkout <branch>` to create a tracking branch, be more
+specific and use `git checkout -b <branch> origin/<branch>`. All other `git
+checkout` usage works as for a normal git repository.
+
+## Documentation and presentations
 
 Detailed documentation is located in the [`doc/`](doc/) folder.
 The presentations below might also useful.
