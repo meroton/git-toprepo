@@ -91,9 +91,16 @@ The algorithm steps are:
 
 ## Configuration
 
-The configuration is specified in [Toml](https://toml.io/) format. The location
-of the configuration file is set in the `git-config` of the emulated mono repository using
-`git config --local toprepo.config <location>`
+By default, the git-toprepo configuration is read from the committed `HEAD` in the remote toprepo,
+i.e. `should:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml`,
+but prioritizes `may:worktree:.gittoprepo.user.toml` if it exists.
+
+The configuration is specified in [Toml](https://toml.io/) format.
+
+### Configuration location
+
+The location of the configuration file is set in the `git-config` of the
+emulated mono repository using `git config --local toprepo.config <location>`
 and takes the following forms:
 
 * `(may|should|must):repo:<ref>:<path>`, a path in the tree of git ref,
@@ -109,9 +116,6 @@ similarily to [IETF RFC 2119](https://www.ietf.org/rfc/rfc2119.txt):
 * `must`, error if this configuration is missing and stop the search, which is
   useful to avoid falling back from local to global git configuration.
 
-By default, the git-toprepo configuration is read from the committed `HEAD` in the remote toprepo,
-i.e. `should:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml`,
-but prioritizes `may:worktree:.gittoprepo.user.toml` if it exists.
 
 ### Sub repositories
 
