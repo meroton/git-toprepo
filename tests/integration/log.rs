@@ -1,7 +1,6 @@
-use bstr::ByteSlice as _;
-use git_toprepo::util::NewlineTrimmer as _;
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
+use git_toprepo_testtools::test_util::git_rev_parse;
 use predicates::prelude::*;
 
 #[test]
@@ -19,31 +18,13 @@ fn only_fixable_missing_gitmodules_warnings() {
         .args(["commit", "-m", "No .gitmodules"])
         .assert()
         .success();
-    let missing_gitmodules_rev = git_command_for_testing(&toprepo)
-        .args(["rev-parse", "HEAD"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .to_str()
-        .unwrap()
-        .trim_newline_suffix()
-        .to_owned();
+    let missing_gitmodules_rev = git_rev_parse(&toprepo, "HEAD");
     // With another commit, the commit above is no longer fixable.
     git_command_for_testing(&toprepo)
         .args(["commit", "--allow-empty", "-m", "Still no .gitmodules"])
         .assert()
         .success();
-    let still_missing_gitmodules_rev = git_command_for_testing(&toprepo)
-        .args(["rev-parse", "HEAD"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .to_str()
-        .unwrap()
-        .trim_newline_suffix()
-        .to_owned();
+    let still_missing_gitmodules_rev = git_rev_parse(&toprepo, "HEAD");
 
     cargo_bin_git_toprepo_for_testing()
         .arg("clone")
@@ -124,16 +105,7 @@ fn always_show_missing_submod_commit_warnings() {
     let monorepo = temp_dir.join("mono");
 
     // Make top.git/sub reference a non-existent commit.
-    let original_sub_rev = git_command_for_testing(&subrepo)
-        .args(["rev-parse", "HEAD"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .to_str()
-        .unwrap()
-        .trim_newline_suffix()
-        .to_owned();
+    let original_sub_rev = git_rev_parse(&subrepo, "HEAD");
     git_command_for_testing(&subrepo)
         .args(["commit", "--amend", "-m", "Different message"])
         .assert()

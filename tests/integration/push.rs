@@ -1,6 +1,6 @@
-use git_toprepo::util::NewlineTrimmer as _;
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
+use git_toprepo_testtools::test_util::git_rev_parse;
 use itertools::Itertools as _;
 use predicates::prelude::*;
 
@@ -143,14 +143,7 @@ fn revision_as_push_arg() {
         .assert()
         .success();
 
-    let cmd = git_command_for_testing(&monorepo)
-        .args(["rev-parse", "HEAD"])
-        .assert()
-        .success();
-    let out = cmd.get_output();
-    let revision = String::from_utf8(out.to_owned().stdout).unwrap();
-    let revision = revision.trim_newline_suffix();
-
+    let revision = git_rev_parse(&monorepo, "HEAD");
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .arg("push")
@@ -230,14 +223,8 @@ fn shortrev_as_push_arg() {
         .assert()
         .success();
 
-    let cmd = git_command_for_testing(&monorepo)
-        .args(["rev-parse", "--short", "HEAD"])
-        .assert()
-        .success();
-    let output = cmd.get_output();
-    let rev = String::from_utf8(output.to_owned().stdout).unwrap();
-    let rev = rev.trim();
-
+    // Not a full rev.
+    let rev = &git_rev_parse(&monorepo, "HEAD")[..13];
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", format!("{rev}:refs/heads/foo").as_str()])
