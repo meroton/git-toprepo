@@ -754,6 +754,11 @@ fn print_updates() {
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
     let top_head_rev = "9c6fda5";
+    assert_eq!(
+        &git_rev_parse(&toprepo, "HEAD")[..7],
+        top_head_rev,
+        "All commit hashes will differ if top_head_rev is wrong"
+    );
     let mono_head_rev = "9ddc65e";
 
     cargo_bin_git_toprepo_for_testing()
@@ -767,16 +772,11 @@ fn print_updates() {
  * [new] {mono_head_rev}      -> origin/main
 "
         ));
-    git_command_for_testing(&toprepo)
-        .args(["rev-parse", "HEAD"])
-        .assert()
-        .success()
-        .stdout(predicate::str::starts_with(top_head_rev));
-    git_command_for_testing(&monorepo)
-        .args(["rev-parse", "HEAD"])
-        .assert()
-        .success()
-        .stdout(predicate::str::starts_with(mono_head_rev));
+    assert_eq!(
+        &git_rev_parse(&monorepo, "HEAD")[..7],
+        mono_head_rev,
+        "All commit hashes will differ if mono_head_rev is wrong"
+    );
 
     git_command_for_testing(&monorepo)
         .args([
