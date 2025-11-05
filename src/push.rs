@@ -680,6 +680,7 @@ impl PushTask {
         // Run the command.
         if !dry_run {
             let (mut proc, _span_guard) = git_command(self.context.toprepo.git_dir())
+                .env("GIT_TOPREPO_ALLOW_PUSH", "1")
                 .arg("push")
                 .arg(push_info.push_url.to_bstring().to_os_str()?)
                 .args(&extra_args)
