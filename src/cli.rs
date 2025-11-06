@@ -33,8 +33,8 @@ while keeping the original submodule structure on the remote server.\
 #[derive(Parser, Debug)]
 #[command(about = ABOUT)]
 pub struct Cli {
-    /// Run as if started in <path>.
-    #[arg(value_name = "path", short = 'C')]
+    /// Run as if started in <PATH>.
+    #[arg(value_name = "PATH", short = 'C')]
     pub working_directory: Option<PathBuf>,
 
     #[clap(flatten)]
@@ -326,18 +326,18 @@ pub struct Fetch {
     /// relative path to a submodule in the repository. This argument will be
     /// used to resolve which URL to fetch from and which directory to filter
     /// into, unless `--path` overrides the directory.
-    #[arg(value_name = "remote-ish")]
+    #[arg(value_name = "REMOTE-ISH")]
     pub remote: Option<String>,
 
     /// The worktree path to filter into, relative to the working directory.
     /// This path is used to override the repo to filter into which is otherwise
     /// deduced from the `remote` argument.
-    #[arg(long, value_name = "submod")]
+    #[arg(long, value_name = "SUBMOD")]
     pub path: Option<PathBuf>,
 
     /// A reference to fetch from the top repository or submodule. Refspec
     /// wildcards are not supported.
-    #[arg(value_name = "ref", num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec))]
+    #[arg(value_name = "REF", num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec))]
     pub refspecs: Option<Vec<(String, String)>>,
 }
 
@@ -631,12 +631,12 @@ pub struct Push {
 
     /// A configured git remote in the mono repository or a URL of the top
     /// repository to push to. Submodules are calculated relative this remote.
-    #[arg(value_name = "top-remote")]
+    #[arg(value_name = "TOP-REMOTE")]
     pub top_remote: String,
 
     /// A reference to push from the top repository. Refspec wildcards are not
     /// supported.
-    #[arg(value_name = "refspec", required=true, num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec))]
+    #[arg(value_name = "REFSPEC", required=true, num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec))]
     pub refspecs: Vec<(String, String)>,
 }
 
