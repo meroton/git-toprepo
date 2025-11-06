@@ -12,7 +12,8 @@ anyhow = "1.0.100"
 bincode = { version = "2.0.1", features = ["serde"] }
 bstr = { version = "1.12.0", features = ["serde"] }
 chrono = { version = "0.4.42", features = ["serde"] }
-clap = { version = "4.5.48", features = ["derive", "string"] }
+# clap feature unstable-v5 includes default max_term_width=100.
+clap = { version = "4.5.48", features = ["derive", "string", "wrap_help", "unstable-v5"] }
 colored = "3.0.0"
 encoding_rs = "0.8.35"
 gix = { version = "0.73.0", features = ["serde"] }
