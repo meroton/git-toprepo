@@ -31,7 +31,7 @@ git-toprepo merges subrepositories into a common history, similar to git-subtree
 #[command(about = ABOUT)]
 pub struct Cli {
     /// Run as if started in <path>.
-    #[arg(name = "path", short = 'C')]
+    #[arg(value_name = "path", short = 'C')]
     pub working_directory: Option<PathBuf>,
 
     #[clap(flatten)]
@@ -126,7 +126,7 @@ pub enum Commands {
     Dump(Dump),
 
     /// Print the version of the git-toprepo tool.
-    #[clap(aliases = ["-V", "--version"])]
+    #[command(aliases = ["-V", "--version"])]
     Version,
 }
 
@@ -140,7 +140,7 @@ pub struct Init {
     pub directory: Option<PathBuf>,
 
     /// Initialize even if the target directory is not empty.
-    #[clap(long)]
+    #[arg(long)]
     pub force: bool,
 }
 
@@ -153,7 +153,7 @@ pub struct Clone {
     pub recombine: Recombine,
 
     /// After fetching the top repository, skip fetching the submodules.
-    #[clap(long)]
+    #[arg(long)]
     pub minimal: bool,
 }
 
@@ -204,12 +204,12 @@ macro_rules! info_is_emulated_monorepo_doc {
 
 #[derive(Args, Debug)]
 pub struct Info {
-    #[clap(value_enum, group = "single")]
+    #[arg(value_enum, group = "single")]
     pub value: Option<InfoValue>,
 
     // Make clap detect the docs.
     #[doc = info_is_emulated_monorepo_doc!()]
-    #[clap(long, group = "single", help = info_is_emulated_monorepo_doc!())]
+    #[arg(long, group = "single", help = info_is_emulated_monorepo_doc!())]
     pub is_emulated_monorepo: bool,
 }
 
@@ -219,7 +219,7 @@ impl Info {
 }
 
 #[derive(clap::ValueEnum, Debug, Clone, Copy)]
-#[clap(rename_all = "kebab-case")]
+#[value(rename_all = "kebab-case")]
 pub enum InfoValue {
     /// The location of the configuration file.
     ConfigLocation,
@@ -291,7 +291,7 @@ pub struct Recombine {
     pub keep_going: bool,
 
     /// Number of concurrent threads to load the repository.
-    #[arg(long("jobs"), name = "N", default_value = "7")]
+    #[arg(long("jobs"), value_name = "N", default_value = "7")]
     pub job_count: std::num::NonZero<u16>,
 
     /// Skip fetching missing submodule commits.
@@ -311,7 +311,7 @@ pub struct Fetch {
     pub keep_going: bool,
 
     /// Number of concurrent threads to perform git-fetch and the filtering.
-    #[arg(long("jobs"), name = "N", default_value = "7")]
+    #[arg(long("jobs"), value_name = "N", default_value = "7")]
     pub job_count: std::num::NonZero<u16>,
 
     /// Skip the combining history step after fetching the top repository.
@@ -323,18 +323,18 @@ pub struct Fetch {
     /// relative path to a submodule in the repository. This argument will be
     /// used to resolve which URL to fetch from and which directory to filter
     /// into, unless `--path` overrides the directory.
-    #[arg(name = "remote-ish", verbatim_doc_comment)]
+    #[arg(value_name = "remote-ish", verbatim_doc_comment)]
     pub remote: Option<String>,
 
     /// The worktree path to filter into, relative to the working directory.
     /// This path is used to override the repo to filter into which is otherwise
     /// deduced from the `remote` argument.
-    #[arg(long, name = "submod", verbatim_doc_comment)]
+    #[arg(long, value_name = "submod", verbatim_doc_comment)]
     pub path: Option<PathBuf>,
 
     /// A reference to fetch from the top repository or submodule. Refspec
     /// wildcards are not supported.
-    #[arg(id = "ref", num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec), verbatim_doc_comment)]
+    #[arg(value_name = "ref", num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec))]
     pub refspecs: Option<Vec<(String, String)>>,
 }
 
@@ -619,7 +619,7 @@ pub struct Push {
     pub fail_fast: bool,
 
     /// Number of concurrent threads to load the repository.
-    #[arg(long("jobs"), name = "N", default_value = "7")]
+    #[arg(long("jobs"), value_name = "N", default_value = "7")]
     pub job_count: std::num::NonZero<u16>,
 
     /// Forward `--force` to `git push`. `--force-with-lease` is unsupported.
@@ -628,12 +628,12 @@ pub struct Push {
 
     /// A configured git remote in the mono repository or a URL of the top
     /// repository to push to. Submodules are calculated relative this remote.
-    #[arg(name = "top-remote", verbatim_doc_comment)]
+    #[arg(value_name = "top-remote", verbatim_doc_comment)]
     pub top_remote: String,
 
     /// A reference to push from the top repository. Refspec wildcards are not
     /// supported.
-    #[arg(id = "refspec", required=true, num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec), verbatim_doc_comment)]
+    #[arg(value_name = "refspec", required=true, num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec), verbatim_doc_comment)]
     pub refspecs: Vec<(String, String)>,
 }
 
