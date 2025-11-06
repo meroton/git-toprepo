@@ -22,9 +22,12 @@ use std::ops::Deref as _;
 use std::path::Path;
 use std::path::PathBuf;
 
-const ABOUT: &str = "git-submodule made easy with git-toprepo.
+const ABOUT: &str = "\
+git-toprepo - git-submodules made easy with a client-side monorepo
 
-git-toprepo merges subrepositories into a common history, similar to git-subtree.\
+git-toprepo combines submodules into a common history, similar to git-subtree, \
+and lets you work with an emulated monorepo locally \
+while keeping the original submodule structure on the remote server.\
 ";
 
 #[derive(Parser, Debug)]
@@ -86,7 +89,7 @@ impl LogLevelArg {
 
 #[derive(Subcommand, Debug)]
 pub enum GitAndCommands {
-    /// Optional "git" word to simplify pasting copied commands, for example:
+    /// Ignored word to simplify pasting copied commands into e.g.
     /// `git-toprepo git fetch ...`.
     #[command(subcommand)]
     Git(Commands),
@@ -209,7 +212,7 @@ pub struct Info {
 
     // Make clap detect the docs.
     #[doc = info_is_emulated_monorepo_doc!()]
-    #[arg(long, group = "single", help = info_is_emulated_monorepo_doc!())]
+    #[arg(long, group = "single", help = info_is_emulated_monorepo_doc!().trim_end_matches('.'))]
     pub is_emulated_monorepo: bool,
 }
 
@@ -229,7 +232,7 @@ pub enum InfoValue {
     GitDir,
     /// The path to the import cache file.
     ImportCache,
-    /// The main worktree path, which might be the same as the current worktree.
+    /// The main worktree path, which might be the current worktree.
     MainWorktree,
     /// The version of git-toprepo.
     Version,
@@ -323,13 +326,13 @@ pub struct Fetch {
     /// relative path to a submodule in the repository. This argument will be
     /// used to resolve which URL to fetch from and which directory to filter
     /// into, unless `--path` overrides the directory.
-    #[arg(value_name = "remote-ish", verbatim_doc_comment)]
+    #[arg(value_name = "remote-ish")]
     pub remote: Option<String>,
 
     /// The worktree path to filter into, relative to the working directory.
     /// This path is used to override the repo to filter into which is otherwise
     /// deduced from the `remote` argument.
-    #[arg(long, value_name = "submod", verbatim_doc_comment)]
+    #[arg(long, value_name = "submod")]
     pub path: Option<PathBuf>,
 
     /// A reference to fetch from the top repository or submodule. Refspec
@@ -628,12 +631,12 @@ pub struct Push {
 
     /// A configured git remote in the mono repository or a URL of the top
     /// repository to push to. Submodules are calculated relative this remote.
-    #[arg(value_name = "top-remote", verbatim_doc_comment)]
+    #[arg(value_name = "top-remote")]
     pub top_remote: String,
 
     /// A reference to push from the top repository. Refspec wildcards are not
     /// supported.
-    #[arg(value_name = "refspec", required=true, num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec), verbatim_doc_comment)]
+    #[arg(value_name = "refspec", required=true, num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec))]
     pub refspecs: Vec<(String, String)>,
 }
 
