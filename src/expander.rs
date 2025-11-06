@@ -131,8 +131,10 @@ impl Expander<'_> {
         c: usize,
     ) -> Result<()> {
         log::info!("Expanding the toprepo to a monorepo...");
-        self.progress
-            .set_draw_target(indicatif::ProgressDrawTarget::stderr_with_hz(10));
+        if !self.progress.is_hidden() {
+            self.progress
+                .set_draw_target(indicatif::ProgressDrawTarget::stderr_with_hz(10));
+        }
         let pb = self.progress.add(
             indicatif::ProgressBar::new(c as u64)
                 .with_style(

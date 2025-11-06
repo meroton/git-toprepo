@@ -30,6 +30,13 @@ and lets you work with an emulated monorepo locally \
 while keeping the original submodule structure on the remote server.\
 ";
 
+/// When using `global=true` the `display_order` of the arguments is mixed up and
+/// they get interleaved. One alternative is to use a `display_order`, but the
+/// user easily looses focus if all the global options are not separated from the
+/// arguments of interest for a subcommand. Therefore, put global arguments under
+/// a separate heading.
+const GLOBAL_HELP_HEADING: &str = "Global options";
+
 #[derive(Parser, Debug)]
 #[command(about = ABOUT)]
 pub struct Cli {
@@ -40,50 +47,96 @@ pub struct Cli {
     #[clap(flatten)]
     pub log_level: LogLevelArg,
 
+    #[arg(
+        long = "no-progress",
+        action = clap::ArgAction::SetFalse,
+        help = "Hide scrolling progress bars",
+        help_heading=GLOBAL_HELP_HEADING,
+        global=true,
+    )]
+    pub show_progress: bool,
+
     #[command(subcommand)]
     pub command: GitAndCommands,
 }
 
-const DEFAULT_LOG_LEVEL: log::LevelFilter = log::LevelFilter::Info;
+const LOG_LEVEL_DEFAULT: log::LevelFilter = log::LevelFilter::Info;
+
+macro_rules! verbosity_default {
+    () => {
+        3
+    };
+}
+macro_rules! verbosity_max {
+    () => {
+        5
+    };
+}
+macro_rules! verbosity_doc {
+    () => {
+        concat!(
+            "Set a specific log verbosity from 0 to ",
+            verbosity_max!(),
+            ".",
+        )
+    };
+}
 
 #[derive(Args, Debug)]
 #[group(multiple = false)]
 pub struct LogLevelArg {
-    /// Use `-v` for debug or `-vv` for trace log messages.
-    #[arg(long, short = 'v', global=true, default_value = "0", action = clap::ArgAction::Count)]
-    verbose: u8,
+    /// Increase log verbosity.
+    #[arg(
+        long = "verbose",
+        short = 'v',
+        help = "Increase log verbosity with -v or -vv, or ...",
+        help_heading=GLOBAL_HELP_HEADING,
+        global=true,
+        action = clap::ArgAction::Count,
+    )]
+    verbose_increment: u8,
 
-    /// Use `-q` to hide info, `-qq` to hide warnings or `-qqq` to also hide errors messages.
-    #[arg(long, short = 'q', global=true, default_value = "0", action = clap::ArgAction::Count)]
-    quiet: u8,
+    #[doc = verbosity_doc!()]
+    #[arg(
+        long,
+        value_name = "LEVEL",
+        help = format!("... set {}", format!("{}", verbosity_doc!()).strip_prefix("Set ").unwrap().strip_suffix(".").unwrap()),
+        help_heading=GLOBAL_HELP_HEADING,
+        global=true,
+        default_value = verbosity_default!().to_string(),
+        value_parser = clap::builder::RangedU64ValueParser::<u8>::new().range(0..=verbosity_max!()),
+    )]
+    verbosity: u8,
+
+    /// Use `-q` to hide all output to stderr.
+    #[arg(
+        long,
+        short = 'q',
+        help_heading=GLOBAL_HELP_HEADING,
+        global=true,
+    )]
+    pub quiet: bool,
 }
 
 impl LogLevelArg {
     /// Get the log level based on the verbosity and quietness.
     pub fn value(&self) -> Result<log::LevelFilter> {
         let levels = log::LevelFilter::iter().collect_vec();
-        let mut level_i16 = levels
-            .iter()
-            .find_position(|level| *level == &DEFAULT_LOG_LEVEL)
-            .expect("Default log level must be valid")
-            .0 as i16;
-        level_i16 += self.verbose as i16;
-        level_i16 -= self.quiet as i16;
-        if level_i16 < 0 {
-            anyhow::bail!(
-                "Too quiet log level, {} below {}",
-                -level_i16,
-                levels.first().unwrap().as_str()
-            );
-        } else if level_i16 as usize >= levels.len() {
-            anyhow::bail!(
-                "Too verbose log level, {} above {}",
-                level_i16 as usize - levels.len() + 1,
-                levels.last().unwrap().as_str()
-            );
+        debug_assert_eq!(levels.len(), verbosity_max!() + 1);
+        debug_assert_eq!(levels.get(verbosity_default!()), Some(&LOG_LEVEL_DEFAULT));
+        let verbosity = if self.quiet {
+            0
         } else {
-            Ok(levels[level_i16 as usize])
-        }
+            (self.verbosity + self.verbose_increment) as usize
+        };
+        let Some(log_level) = levels.get(verbosity) else {
+            anyhow::bail!(
+                "Too high verbosity level {}, maximum is {}",
+                verbosity,
+                verbosity_max!(),
+            );
+        };
+        Ok(*log_level)
     }
 }
 
@@ -206,13 +259,14 @@ macro_rules! info_is_emulated_monorepo_doc {
 }
 
 #[derive(Args, Debug)]
+#[group(multiple = false)]
 pub struct Info {
-    #[arg(value_enum, group = "single")]
+    #[arg(value_enum)]
     pub value: Option<InfoValue>,
 
     // Make clap detect the docs.
     #[doc = info_is_emulated_monorepo_doc!()]
-    #[arg(long, group = "single", help = info_is_emulated_monorepo_doc!().trim_end_matches('.'))]
+    #[arg(long, help = info_is_emulated_monorepo_doc!().trim_end_matches('.'))]
     pub is_emulated_monorepo: bool,
 }
 
