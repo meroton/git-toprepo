@@ -11,8 +11,10 @@ use serde_with::SerializeAs;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::Hash;
+use std::io::Write;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::ExitStatus;
@@ -323,6 +325,24 @@ where
             }
             UniqueContainer::Multiple => {}
         }
+    }
+}
+
+/// Same as `std::fs::write` but sets the executable bit of the output file.
+pub(crate) fn write_executable<P, C>(path: P, contents: C) -> std::io::Result<()>
+where
+    P: AsRef<Path>,
+    C: AsRef<[u8]>,
+{
+    if cfg!(windows) {
+        std::fs::write(path, contents)
+    } else {
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true);
+        options.write(true);
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o755);
+        let mut file = options.open(path)?;
+        file.write_all(contents.as_ref())
     }
 }
 
