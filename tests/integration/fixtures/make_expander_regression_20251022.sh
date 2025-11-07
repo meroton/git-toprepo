@@ -13,15 +13,7 @@ function commit {
 function unsafe_staged_merge {
     local repo="$1"
     shift
-    local stdouterr
-    if ! stdouterr=$(git -C "$repo" merge --no-ff --no-commit --strategy=ours -m "Dummy" "$@" 2>&1); then
-        # Merge conflicts in submodules are expected.
-        if test "$(echo "$stdouterr" | grep -q foo)" == ""; then
-            echo "ERROR: git -C $repo merge"
-            echo "$stdouterr"
-            return 1
-        fi
-    fi
+    git -C "$repo" merge --no-ff --no-commit --strategy=ours -m "Dummy" "$@"
 }
 
 mkdir top

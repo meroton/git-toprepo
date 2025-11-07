@@ -30,7 +30,7 @@ EOF
 git -C top add .gittoprepo.toml
 
 # Create the following commit history for:
-# subx/Y-main  1
+# subX/Y-main  1
 #              |
 # top-main     A
 

@@ -121,30 +121,30 @@ fn merge_with_one_submodule_a() {
     insta::assert_snapshot!(
         log_graph,
         @r"
-*-.   D6-release
-|\ \
-| | * x-release-5
-| |/
-|/|
-| |
-| |   A subpathx/x-release-5.txt
-* | C4-release
-| |
-| | A C4-release.txt
-| | A subpathx/x-release-4.txt
-| * B3-main
-|/|
-| * x-main-2
-|/
-|
-|   A subpathx/x-main-2.txt
-*   A1-main
-|\
-| * x-main-1
-|
-|   A x-main-1.txt
-* Initial empty commit
-"
+    *-.   D6-release
+    |\ \
+    | | * x-release-5
+    | |/
+    |/|
+    | |
+    | |   A subpathx/x-release-5.txt
+    * | C4-release
+    | |
+    | | A C4-release.txt
+    | | A subpathx/x-release-4.txt
+    | * B3-main
+    |/|
+    | * x-main-2
+    |/
+    |
+    |   A subpathx/x-main-2.txt
+    *   A1-main
+    |\
+    | * x-main-1
+    |
+    |   A x-main-1.txt
+    * Initial empty commit
+    "
     );
 }
 
@@ -161,47 +161,48 @@ fn merge_with_one_submodule_b() {
 
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
+    #[rustfmt::skip] // Infinite indentation bug, rustfmt issue 4609.
     insta::assert_snapshot!(
         log_graph,
         @r"
-*-----.   F8-release
-|\ \ \ \
-| | | | * x-release-7
-| | |_|/|
-| |/| |/
-| |_|/|
-|/| | |
-| * | | D6-release
-| | | |
-| | | | A D6-release.txt
-| | | * x-main-4
-| |_|/
-|/| |
-| | |
-| | |   A subpathx/x-main-4.txt
-* | |   B3-main
-|\ \ \
-| * | | x-main-2
-|/ / /
-| | |
-| | |   A subpathx/x-main-2.txt
-| | * E6-release
-| |/
-| |
-| |   A E6-release.txt
-| * C6-release
-|/|
-| * x-release-5
-|/
-|
-|   A subpathx/x-release-5.txt
-*   A1-main
-|\
-| * x-main-1
-|
-|   A x-main-1.txt
-* Initial empty commit
-"
+    *-----.   F8-release
+    |\ \ \ \
+    | | | | * x-release-7
+    | | |_|/|
+    | |/| |/
+    | |_|/|
+    |/| | |
+    | * | | D6-release
+    | | | |
+    | | | | A D6-release.txt
+    | | | * x-main-4
+    | |_|/
+    |/| |
+    | | |
+    | | |   A subpathx/x-main-4.txt
+    * | |   B3-main
+    |\ \ \
+    | * | | x-main-2
+    |/ / /
+    | | |
+    | | |   A subpathx/x-main-2.txt
+    | | * E6-release
+    | |/
+    | |
+    | |   A E6-release.txt
+    | * C6-release
+    |/|
+    | * x-release-5
+    |/
+    |
+    |   A subpathx/x-release-5.txt
+    *   A1-main
+    |\
+    | * x-main-1
+    |
+    |   A x-main-1.txt
+    * Initial empty commit
+    "
     );
 }
 
@@ -218,47 +219,48 @@ fn merge_with_two_submodules() {
 
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
+    #[rustfmt::skip] // Infinite indentation bug, rustfmt issue 4609.
     insta::assert_snapshot!(
         log_graph,
         @r"
-*---.   D6-release
-|\ \ \
-| | | * y-release-5
-| |_|/
-|/| |
-| | |
-| | |   A subpathy/y-release-5.txt
-| | * x-release-5
-| |/
-|/|
-| |
-| |   A subpathx/x-release-5.txt
-* | C4-release
-| |
-| | A C4-release.txt
-| | A subpathx/x-release-4.txt
-| | A subpathy/y-release-4.txt
-| *   B3-main
-|/|\
-| | * y-main-2
-| |/
-|/|
-| |
-| |   A subpathy/y-main-2.txt
-| * x-main-2
-|/
-|
-|   A subpathx/x-main-2.txt
-*-.   A1-main
-|\ \
-| | * y-main-1
-| |
-| |   A y-main-1.txt
-| * x-main-1
-|
-|   A x-main-1.txt
-* Initial empty commit
-"
+    *---.   D6-release
+    |\ \ \
+    | | | * y-release-5
+    | |_|/
+    |/| |
+    | | |
+    | | |   A subpathy/y-release-5.txt
+    | | * x-release-5
+    | |/
+    |/|
+    | |
+    | |   A subpathx/x-release-5.txt
+    * | C4-release
+    | |
+    | | A C4-release.txt
+    | | A subpathx/x-release-4.txt
+    | | A subpathy/y-release-4.txt
+    | *   B3-main
+    |/|\
+    | | * y-main-2
+    | |/
+    |/|
+    | |
+    | |   A subpathy/y-main-2.txt
+    | * x-main-2
+    |/
+    |
+    |   A subpathx/x-main-2.txt
+    *-.   A1-main
+    |\ \
+    | | * y-main-1
+    | |
+    | |   A y-main-1.txt
+    | * x-main-1
+    |
+    |   A x-main-1.txt
+    * Initial empty commit
+    "
     );
 }
 
@@ -276,6 +278,7 @@ fn regression_20251022() {
 
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     let log_graph = extract_log_graph(&monorepo, vec!["HEAD", "--"]);
+    #[rustfmt::skip] // Infinite indentation bug, rustfmt issue 4609.
     insta::assert_snapshot!(
         log_graph,
         @r"
@@ -357,32 +360,33 @@ fn submodule_removal() {
 
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
+    #[rustfmt::skip] // Infinite indentation bug, rustfmt issue 4609.
     insta::assert_snapshot!(
         log_graph,
         @r"
-*   E
-|\
-| * C
-| |
-| | M .gitmodules
-| | R100 subpathx/1.txt C.txt
-| | D subpathx/2.txt
-| * B
-| |
-| | A B.txt
-| | A subpathx/2.txt
-* | D
-|/
-|
-|   M .gitmodules
-|   R100 subpathx/1.txt D.txt
-*   A
-|\
-| * 1
-|
-|   A 1.txt
-* Initial empty commit
-"
+    *   E
+    |\
+    | * C
+    | |
+    | | M .gitmodules
+    | | R100 subpathx/1.txt C.txt
+    | | D subpathx/2.txt
+    | * B
+    | |
+    | | A B.txt
+    | | A subpathx/2.txt
+    * | D
+    |/
+    |
+    |   M .gitmodules
+    |   R100 subpathx/1.txt D.txt
+    *   A
+    |\
+    | * 1
+    |
+    |   A 1.txt
+    * Initial empty commit
+    "
     );
 }
 
