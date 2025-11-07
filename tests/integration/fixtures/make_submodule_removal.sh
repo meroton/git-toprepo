@@ -13,17 +13,24 @@ function commit {
 function unsafe_staged_merge {
     local repo="$1"
     shift
-    # Skip checking exit code, merging conflicts in submodules will fail.
-    git -C "$repo" merge --no-ff --no-commit --strategy=ours -m "Dummy" "$@" || true
+    local stdouterr
+    if ! stdouterr=$(git -C "$repo" merge --no-ff --no-commit --strategy=ours -m "Dummy" "$@" 2>&1); then
+        # Merge conflicts in submodules are expected.
+        if test "$(echo "$stdouterr" | grep -q foo)" == ""; then
+            echo "ERROR: git -C $repo merge"
+            echo "$stdouterr"
+            return 1
+        fi
+    fi
 }
 
 mkdir top
-mkdir subx
+mkdir repox
 git -C top init -q --initial-branch main
-git -C subx init -q --initial-branch main
+git -C repox init -q --initial-branch main
 cat <<EOF > top/.gittoprepo.toml
-[repo.subx]
-urls = ["../subx/"]
+[repo.namex]
+urls = ["../repox/"]
 EOF
 git -C top add .gittoprepo.toml
 
@@ -34,18 +41,18 @@ git -C top add .gittoprepo.toml
 #        \     |    /
 # top     -----D0---
 
-subx_rev_1=$(commit subx "1")
-subx_rev_2=$(commit subx "2")
+subx_rev_1=$(commit repox "1")
+subx_rev_2=$(commit repox "2")
 
-git -C top -c protocol.file.allow=always submodule add --force ../subx/ subx
-git -C top update-index --cacheinfo "160000,${subx_rev_1},subx"
+git -C top -c protocol.file.allow=always submodule add --force ../repox/ subpathx
+git -C top update-index --cacheinfo "160000,${subx_rev_1},subpathx"
 top_rev_a=$(commit top "A")
-git -C top update-index --cacheinfo "160000,${subx_rev_2},subx"
+git -C top update-index --cacheinfo "160000,${subx_rev_2},subpathx"
 commit top "B"
-git -C top rm subx
+git -C top rm subpathx
 top_rev_c=$(commit top "C")
 git -C top reset --hard "$top_rev_a"
-git -C top rm subx
+git -C top rm subpathx
 commit top "D"
 unsafe_staged_merge top "$top_rev_c"
 commit top "E"

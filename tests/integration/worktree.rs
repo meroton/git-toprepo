@@ -138,13 +138,13 @@ fn push() {
         .stdout("")
         .stderr(
             predicate::str::is_match(
-                "INFO: Would run git push .*subx/ -o topic=work [0-9a-f]+:refs/dry/run\n",
+                "INFO: Would run git push .*repox/ -o topic=work [0-9a-f]+:refs/dry/run\n",
             )
             .unwrap(),
         )
         .stderr(
             predicate::str::is_match(
-                "INFO: Would run git push .*suby/ -o topic=work [0-9a-f]+:refs/dry/run\n",
+                "INFO: Would run git push .*repoy/ -o topic=work [0-9a-f]+:refs/dry/run\n",
             )
             .unwrap(),
         )

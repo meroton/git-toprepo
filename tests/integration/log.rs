@@ -39,10 +39,10 @@ fn only_fixable_missing_gitmodules_warnings_in_top_repo() {
         .assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            "WARN: Top commit {still_missing_gitmodules_rev} (refs/remotes/origin/HEAD): Cannot resolve submodule subx, .gitmodules is missing",
+            "WARN: Top commit {still_missing_gitmodules_rev} (refs/remotes/origin/HEAD): Cannot resolve submodule subpathx, .gitmodules is missing",
         )))
         .stderr(predicate::str::contains(format!(
-            "WARN: Top commit {still_missing_gitmodules_rev} (refs/remotes/origin/main): Cannot resolve submodule subx, .gitmodules is missing",
+            "WARN: Top commit {still_missing_gitmodules_rev} (refs/remotes/origin/main): Cannot resolve submodule subpathx, .gitmodules is missing",
         )))
         .stderr(predicate::function(|stderr: &str| {
             // There should be only one warning about missing .gitmodules, the tip of the branch that is fixable.
@@ -93,7 +93,7 @@ fn only_fixable_missing_gitmodules_warnings_in_top_repo() {
         .success()
         .stderr(predicate::str::contains(format!(
             "WARN: Top commit {missing_gitmodules_rev} (refs/remotes/origin/first-missing-gitmodules): \
-             Cannot resolve submodule subx, .gitmodules is missing",
+             Cannot resolve submodule subpathx, .gitmodules is missing",
         )))
         .stderr(predicate::function(|stderr: &str| {
             // There should be only one warning about missing .gitmodules, the tip of the branch that is fixable.
@@ -106,7 +106,7 @@ fn only_fixable_missing_gitmodules_warnings_in_top_repo() {
         .success()
         .stderr(predicate::str::contains(format!(
             "WARN: Top commit {missing_gitmodules_rev} (refs/remotes/origin/first-missing-gitmodules): \
-             Cannot resolve submodule subx, .gitmodules is missing",
+             Cannot resolve submodule subpathx, .gitmodules is missing",
         )))
         .stderr(predicate::function(|stderr: &str| {
             // There should be only one warning about missing .gitmodules, the tip of the branch that is fixable.
@@ -123,7 +123,7 @@ fn only_fixable_missing_gitmodules_warnings_in_submodule() {
         .unwrap(),
     );
     let toprepo = temp_dir.join("top");
-    let subxrepo = temp_dir.join("subx");
+    let subxrepo = temp_dir.join("repox");
     let monorepo = temp_dir.join("mono");
 
     // Remove .gitmodules.
@@ -146,7 +146,7 @@ fn only_fixable_missing_gitmodules_warnings_in_submodule() {
         .assert()
         .success();
     let missing_gitmodules_subx_rev = git_rev_parse(&subxrepo, "HEAD");
-    git_update_submodule_in_index(&toprepo, "subx", &missing_gitmodules_subx_rev);
+    git_update_submodule_in_index(&toprepo, "subpathx", &missing_gitmodules_subx_rev);
     git_command_for_testing(&toprepo)
         .args(["commit", "-m", "No .gitmodules"])
         .assert()
@@ -162,8 +162,8 @@ fn only_fixable_missing_gitmodules_warnings_in_submodule() {
     let expected_msg = |gitref: &str| {
         format!(
             "WARN: Top commit {still_missing_gitmodules_top_rev} ({gitref}): \
-             Submodule commit {missing_gitmodules_subx_rev} at subx (subx): \
-             Cannot resolve submodule suby, .gitmodules is missing\n",
+             Submodule commit {missing_gitmodules_subx_rev} at subpathx (namex): \
+             Cannot resolve submodule subpathy, .gitmodules is missing\n",
         )
     };
     cargo_bin_git_toprepo_for_testing()
@@ -201,7 +201,7 @@ fn only_fixable_missing_gitmodules_warnings_in_submodule() {
         .args(["commit", "-m", "Restore .gitmodules"])
         .assert()
         .success();
-    git_update_submodule_in_index(&toprepo, "subx", &git_rev_parse(&subxrepo, "HEAD"));
+    git_update_submodule_in_index(&toprepo, "subpathx", &git_rev_parse(&subxrepo, "HEAD"));
     git_command_for_testing(&toprepo)
         .args(["commit", "-m", "Restore .gitmodules"])
         .assert()
@@ -235,8 +235,8 @@ fn only_fixable_missing_gitmodules_warnings_in_submodule() {
         .success()
         .stderr(predicate::str::contains(format!(
             "WARN: Top commit {missing_gitmodules_top_rev} (refs/remotes/origin/first-missing-gitmodules): \
-             Submodule commit {missing_gitmodules_subx_rev} at subx (subx): \
-             Cannot resolve submodule suby, .gitmodules is missing",
+             Submodule commit {missing_gitmodules_subx_rev} at subpathx (namex): \
+             Cannot resolve submodule subpathy, .gitmodules is missing",
         )))
         .stderr(predicate::function(|stderr: &str| {
             // Only the top repo branch above should be warned about.
@@ -250,8 +250,8 @@ fn only_fixable_missing_gitmodules_warnings_in_submodule() {
         .success()
         .stderr(predicate::str::contains(format!(
             "WARN: Top commit {missing_gitmodules_top_rev} (refs/remotes/origin/first-missing-gitmodules): \
-             Submodule commit {missing_gitmodules_subx_rev} at subx (subx): \
-             Cannot resolve submodule suby, .gitmodules is missing",
+             Submodule commit {missing_gitmodules_subx_rev} at subpathx (namex): \
+             Cannot resolve submodule subpathy, .gitmodules is missing",
         )))
         .stderr(predicate::function(|stderr: &str| {
             // Only the top repo branch above should be warned about.
@@ -263,7 +263,7 @@ fn only_fixable_missing_gitmodules_warnings_in_submodule() {
 fn always_show_missing_submod_commit_warnings() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
-    let subrepo = temp_dir.join("sub");
+    let subrepo = temp_dir.join("repo");
     let monorepo = temp_dir.join("mono");
 
     // Make top.git/sub reference a non-existent commit.
@@ -286,7 +286,7 @@ fn always_show_missing_submod_commit_warnings() {
         .assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            "WARN: Commit {original_sub_rev} in sub is missing, referenced from top"
+            "WARN: Commit {original_sub_rev} in name is missing, referenced from top"
         )))
         .stderr(
             predicate::function(|stderr: &str| {
@@ -301,7 +301,7 @@ fn always_show_missing_submod_commit_warnings() {
         .assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            "WARN: Commit {original_sub_rev} in sub is missing, referenced from top"
+            "WARN: Commit {original_sub_rev} in name is missing, referenced from top"
         )))
         .stderr(predicate::function(|stderr: &str| {
             // There should be only one warning, for the commit that is missing.
@@ -313,7 +313,7 @@ fn always_show_missing_submod_commit_warnings() {
         .assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            "WARN: Commit {original_sub_rev} in sub is missing, referenced from top"
+            "WARN: Commit {original_sub_rev} in name is missing, referenced from top"
         )))
         .stderr(predicate::function(|stderr: &str| {
             // There should be only one warning, for the commit that is missing.

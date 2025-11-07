@@ -13,19 +13,26 @@ function commit {
 function unsafe_staged_merge {
     local repo="$1"
     shift
-    # Skip checking exit code, merging conflicts in submodules will fail.
-    git -C "$repo" merge --no-ff --no-commit --strategy=ours -m "Dummy" "$@" || true
+    local stdouterr
+    if ! stdouterr=$(git -C "$repo" merge --no-ff --no-commit --strategy=ours -m "Dummy" "$@" 2>&1); then
+        # Merge conflicts in submodules are expected.
+        if test "$(echo "$stdouterr" | grep -q foo)" == ""; then
+            echo "ERROR: git -C $repo merge"
+            echo "$stdouterr"
+            return 1
+        fi
+    fi
 }
 
 mkdir top
-mkdir sub
+mkdir repo
 git -C top init -q --initial-branch main
-git -C sub init -q --initial-branch main
+git -C repo init -q --initial-branch main
 # Accept push options and set a pre-receive hook.
 git -C top config receive.advertisePushOptions true
-git -C sub config receive.advertisePushOptions true
+git -C repo config receive.advertisePushOptions true
 top_prereceive_hook_path="$(git -C top rev-parse --path-format=absolute --git-path hooks)/pre-receive"
-sub_prereceive_hook_path="$(git -C sub rev-parse --path-format=absolute --git-path hooks)/pre-receive"
+sub_prereceive_hook_path="$(git -C repo rev-parse --path-format=absolute --git-path hooks)/pre-receive"
 cat > "$top_prereceive_hook_path" <<"EOF"
 #!/bin/sh
 if test -n "$GIT_PUSH_OPTION_COUNT"
@@ -46,8 +53,8 @@ chmod +x "$top_prereceive_hook_path"
 cp "$top_prereceive_hook_path" "$sub_prereceive_hook_path"
 
 cat <<EOF > top/.gittoprepo.toml
-[repo.sub]
-urls = ["../sub/"]
+[repo.name]
+urls = ["../repo/"]
 EOF
 git -C top add .gittoprepo.toml
 
@@ -55,29 +62,29 @@ git -C top add .gittoprepo.toml
 # top  A---B---C---D-------E---F---G
 #          |       |       |       |
 # sub  1---2-------3---4---5---6---7
-sub_rev__=$(commit sub "1")
-sub_rev_2=$(commit sub "2")
-sub_rev_3=$(commit sub "3")
-sub_rev__=$(commit sub "4")
-sub_rev_5=$(commit sub "5")
-sub_rev__=$(commit sub "6")
-sub_rev_7=$(commit sub "7")
+sub_rev__=$(commit repo "1")
+sub_rev_2=$(commit repo "2")
+sub_rev_3=$(commit repo "3")
+sub_rev__=$(commit repo "4")
+sub_rev_5=$(commit repo "5")
+sub_rev__=$(commit repo "6")
+sub_rev_7=$(commit repo "7")
 
 # shellcheck disable=SC2269
 sub_rev__=$sub_rev__  # unused
 
 commit top "A"
-git -C top -c protocol.file.allow=always submodule add --force ../sub/ sub
-git -C top submodule deinit -f sub
-git -C top update-index --cacheinfo "160000,${sub_rev_2},sub"
+git -C top -c protocol.file.allow=always submodule add --force ../repo/ subpath
+git -C top submodule deinit -f subpath
+git -C top update-index --cacheinfo "160000,${sub_rev_2},subpath"
 commit top "B"
 commit top "C"
-git -C top update-index --cacheinfo "160000,${sub_rev_3},sub"
+git -C top update-index --cacheinfo "160000,${sub_rev_3},subpath"
 commit top "D"
-git -C top update-index --cacheinfo "160000,${sub_rev_5},sub"
+git -C top update-index --cacheinfo "160000,${sub_rev_5},subpath"
 commit top "E"
 commit top "F"
-git -C top update-index --cacheinfo "160000,${sub_rev_7},sub"
+git -C top update-index --cacheinfo "160000,${sub_rev_7},subpath"
 top_rev_g=$(commit top "G")
 
 # Continue with:
@@ -89,40 +96,40 @@ top_rev_g=$(commit top "G")
 #         \ |         | / \ |   |       /
 #         8b---------9b   11---12-----/
 
-sub_rev_8b=$(commit sub "8b")
-sub_rev_9b=$(commit sub "9b")
-git -C sub reset --hard "$sub_rev_7"
-sub_rev_8a=$(commit sub "8a")
-sub_rev_9a=$(commit sub "9a")
-unsafe_staged_merge sub "$sub_rev_9b"
-sub_rev_10=$(commit sub "10")
-sub_rev_11=$(commit sub "11")
-sub_rev_12=$(commit sub "12")
-git -C sub reset --hard "$sub_rev_10"
-unsafe_staged_merge sub "$sub_rev_12"
-sub_rev_13=$(commit sub "13")
+sub_rev_8b=$(commit repo "8b")
+sub_rev_9b=$(commit repo "9b")
+git -C repo reset --hard "$sub_rev_7"
+sub_rev_8a=$(commit repo "8a")
+sub_rev_9a=$(commit repo "9a")
+unsafe_staged_merge repo "$sub_rev_9b"
+sub_rev_10=$(commit repo "10")
+sub_rev_11=$(commit repo "11")
+sub_rev_12=$(commit repo "12")
+git -C repo reset --hard "$sub_rev_10"
+unsafe_staged_merge repo "$sub_rev_12"
+sub_rev_13=$(commit repo "13")
 
-git -C top update-index --cacheinfo "160000,${sub_rev_8b},sub"
+git -C top update-index --cacheinfo "160000,${sub_rev_8b},subpath"
 commit top "Hb"
-git -C top update-index --cacheinfo "160000,${sub_rev_9b},sub"
+git -C top update-index --cacheinfo "160000,${sub_rev_9b},subpath"
 top_rev_ib=$(commit top "Ib")
 git -C top reset --hard "$top_rev_g"
-git -C top update-index --cacheinfo "160000,${sub_rev_8a},sub"
+git -C top update-index --cacheinfo "160000,${sub_rev_8a},subpath"
 commit top "Ha"
-git -C top update-index --cacheinfo "160000,${sub_rev_9a},sub"
+git -C top update-index --cacheinfo "160000,${sub_rev_9a},subpath"
 commit top "Ia"
 unsafe_staged_merge top "$top_rev_ib"
-git -C top update-index --cacheinfo "160000,${sub_rev_10},sub"
+git -C top update-index --cacheinfo "160000,${sub_rev_10},subpath"
 top_rev_j=$(commit top "J")
-git -C top update-index --cacheinfo "160000,${sub_rev_11},sub"
+git -C top update-index --cacheinfo "160000,${sub_rev_11},subpath"
 commit top "K"
-git -C top update-index --cacheinfo "160000,${sub_rev_12},sub"
+git -C top update-index --cacheinfo "160000,${sub_rev_12},subpath"
 top_rev_l=$(commit top "L")
 git -C top reset --hard "$top_rev_j"
 unsafe_staged_merge top "$top_rev_l"
-git -C top update-index --cacheinfo "160000,${sub_rev_10},sub"
+git -C top update-index --cacheinfo "160000,${sub_rev_10},subpath"
 top_rev_m=$(commit top "M")
 git -C top reset --hard "$top_rev_j"
 unsafe_staged_merge top "$top_rev_m"
-git -C top update-index --cacheinfo "160000,${sub_rev_13},sub"
+git -C top update-index --cacheinfo "160000,${sub_rev_13},subpath"
 commit top "N"

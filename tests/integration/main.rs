@@ -34,9 +34,9 @@ mod main {
 
     #[rstest]
     #[case::default(".", &[])]
-    #[case::pwd_sub("sub", &[])]
-    #[case::c_sub(".", &["-C", "sub"])]
-    #[case::pwd_sub_c_dotdot("sub", &["-C", ".."])]
+    #[case::pwd_sub("repo", &[])]
+    #[case::c_sub(".", &["-C", "repo"])]
+    #[case::pwd_sub_c_dotdot("repo", &["-C", ".."])]
     fn commands_in_uninitialized_repo_fails(
         #[case] pwd_sub_dir: &str,
         #[case] dash_c: &[&str],
@@ -52,14 +52,14 @@ mod main {
         use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 
         let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
-        std::fs::create_dir(temp_dir.join("sub")).unwrap();
+        std::fs::create_dir(temp_dir.join("repo")).unwrap();
         let expected_stderr = "ERROR: git-config \'toprepo.config\' is missing. Is this an initialized git-toprepo?\n";
 
         git_command_for_testing(&temp_dir)
             .args(["init", "--quiet"])
             .assert()
             .success();
-        std::fs::create_dir_all(temp_dir.join("sub")).unwrap();
+        std::fs::create_dir_all(temp_dir.join("repo")).unwrap();
 
         cargo_bin_git_toprepo_for_testing()
             .current_dir(temp_dir.join(pwd_sub_dir))
@@ -72,9 +72,9 @@ mod main {
 
     #[rstest]
     #[case::default(".", &[], "")]
-    #[case::pwd_sub("sub", &[], "sub")]
-    #[case::c_sub(".", &["-C", "sub"], "sub")]
-    #[case::pwd_sub_c_dotdot("sub", &["-C", ".."], "")]
+    #[case::pwd_sub("repo", &[], "repo")]
+    #[case::c_sub(".", &["-C", "repo"], "repo")]
+    #[case::pwd_sub_c_dotdot("repo", &["-C", ".."], "")]
     fn commands_outside_git_repos_fail(
         #[case] pwd_sub_dir: &str,
         #[case] dash_c: &[&str],
@@ -89,7 +89,7 @@ mod main {
         command: &str,
     ) {
         let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
-        std::fs::create_dir_all(temp_dir.join("sub")).unwrap();
+        std::fs::create_dir_all(temp_dir.join("repo")).unwrap();
         let expected_stderr = predicate::str::is_match(format!(
             "^ERROR: Could not find a git repository in '{}' or in any of its parents\n$",
             temp_dir.join(final_dir).canonicalize().unwrap().display()

@@ -130,12 +130,12 @@ fn clone_and_bootstrap() {
         );
     let bootstrap_config = &cmd.get_output().stdout;
     insta::assert_snapshot!(bootstrap_config.to_str().unwrap(), @r#"
-    [repo.subx]
-    urls = ["../subx/"]
+    [repo.repox]
+    urls = ["../repox/"]
     missing_commits = []
 
-    [repo.suby]
-    urls = ["../suby/"]
+    [repo.repoy]
+    urls = ["../repoy/"]
     missing_commits = []
     "#);
     std::fs::write(config_path, bootstrap_config).unwrap();
@@ -149,9 +149,9 @@ fn clone_and_bootstrap() {
     insta::assert_snapshot!(
         cmd.get_output().stdout.to_str().unwrap(),
         @r"
-            * [new] 54750c5      -> origin/HEAD
-            * [new] 54750c5      -> origin/main
-            "
+    * [new] 787fec1      -> origin/HEAD
+    * [new] 787fec1      -> origin/main
+    "
     );
 }
 

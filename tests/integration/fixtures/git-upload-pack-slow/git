@@ -16,7 +16,7 @@ containsElement() {
 # Use git-upload-pack-slow.py to simulate patchy connections during git fetch.
 # Only do so when fetching from subx.
 export PATH=$OLD_PATH
-if test "$1" = "-C" && test "$3" = "fetch" && containsElement '--negotiation-tip=refs/namespaces/subx/*' "$@"; then
+if test "$1" = "-C" && test "$3" = "fetch" && containsElement '--negotiation-tip=refs/namespaces/namex/*' "$@"; then
     script_dir=$(dirname "$0")
     working_dir="$2"
     shift 3
