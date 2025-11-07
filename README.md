@@ -33,7 +33,40 @@ so that each submodule is pushed to its respective upstream repository.
 If running with `-n` or `--dry-run`, the resulting `git push` command lines
 will be printed but not executed.
 
-## Documentation and Presentations
+### Replaced Git commands
+
+When using git-toprepo, commands interacting with a remote server are wrapped,
+operations acting on the local git repository stay the same.
+
+| Regular git                       | git-toprepo                                |
+| --------------------------------- | ------------------------------------------ |
+| `git init`                        | `git toprepo init`                         |
+| `git clone`                       | `git toprepo clone`                        |
+| `git fetch`                       | `git toprepo fetch`                        |
+| `git push`                        | `git toprepo push`                         |
+| `git pull`                        | `git toprepo fetch && git rebase/merge`    |
+| `git checkout origin/<branch>`    | `git checkout origin/<branch>`             |
+| `git checkout <branch>`           | `git checkout -b <branch> origin/<branch>` |
+| `git merge`                       | `git merge`                                |
+| `git rebase`                      | `git rebase`                               |
+| `git submodule`                   | `git submodule`                            |
+| `git <command>`                   | `git <command>`                            |
+
+When using `git checkout <branch>` to create a tracking branch, be more specific
+and use `git checkout -b <branch> origin/<branch>`. All other `git
+checkout` usage works as for a normal git repository.
+
+Without tracking branches, `git pull` doesn't work. Plese use
+`git toprepo fetch` followed by `git rebase ` or `git merge` instead.
+
+TIP: For simplification, command lines like
+`git fetch URL REF && git cherry-pick FETCH_HEAD` can be inserted right after
+`git toprepo` and have the extra `git` ignored, for example
+`git toprepo git fetch URL REF && git cherry-pick FETCH_HEAD`.
+This is useful when copying commands straight from code review systems like
+Gerrit, GitHub or GitLab.
+
+## Documentation and presentations
 
 Detailed documentation is located in the [`doc/`](doc/) folder.
 The presentations below might also useful.
