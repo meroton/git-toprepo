@@ -110,7 +110,7 @@ fn clone_and_bootstrap() {
         .assert()
         .code(1)
         .stdout("")
-        .stderr(predicates::str::ends_with(
+        .stderr(predicate::str::ends_with(
             "WARN: Config file .gittoprepo.toml does not exist in refs/namespaces/top/refs/remotes/origin/HEAD: \
             exit status: 128: fatal: path '.gittoprepo.toml' does not exist in 'refs/namespaces/top/refs/remotes/origin/HEAD'\n\
             ERROR: Config file .gittoprepo.toml does not exist in should:repo:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml\n\
@@ -126,7 +126,7 @@ fn clone_and_bootstrap() {
         .assert()
         .success()
         .stderr(
-            predicates::str::is_match("^INFO: Finished importing commits in [^\n]*\n$").unwrap(),
+            predicate::str::is_match("^INFO: Finished importing commits in [^\n]*\n$").unwrap(),
         );
     let bootstrap_config = &cmd.get_output().stdout;
     insta::assert_snapshot!(bootstrap_config.to_str().unwrap(), @r#"
@@ -214,7 +214,7 @@ fn checkout_should_not_add_branch_tracking() {
         .args(["config", "--list"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("branch.main.").not());
+        .stdout(predicate::str::contains("branch.main.").not());
     git_command_for_testing(&monorepo)
         .args(["pull"])
         .assert()
