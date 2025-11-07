@@ -73,7 +73,8 @@ The presentations below might also useful.
 
 * 2025-10-19 [Gerrit Summit 2025](https://gerrit.googlesource.com/summit/2025/+/refs/heads/master/index.md):
   _Monorepo when your company won't let you_
-  ([slides](https://docs.google.com/presentation/d/1_rkB04jxcaYA1pb-NXFOEgQC0TKHGBemYIrUb-AKCF4))
+  ([video](https://www.youtube.com/watch?v=2fZqdkNamMM),
+  [slides](https://docs.google.com/presentation/d/1_rkB04jxcaYA1pb-NXFOEgQC0TKHGBemYIrUb-AKCF4))
 
 ## History combination strategy
 
