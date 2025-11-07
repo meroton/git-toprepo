@@ -72,7 +72,8 @@ git -C top -c i18n.commitEncoding=bad-encoding commit -m "$(printf "Bad \xFF enc
 # Move subx two steps forward. Change the URL for suby to simulate an unknown
 # repository. Remove subz.
 git -C top update-index --cacheinfo "160000,${subx_rev_3},subpathx"
-sed -i 's/subpathy/sub-unknown/g' top/.gitmodules
+sed 's/subpathy/sub-unknown/g' < top/.gitmodules > top/.gitmodules.new
+mv top/.gitmodules.new top/.gitmodules
 git -C top add .gitmodules
 git -C top rm subpathz
 git -C top commit -m "Update git submodules
