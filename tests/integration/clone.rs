@@ -146,10 +146,13 @@ fn clone_and_bootstrap() {
         .assert()
         .success();
 
-    insta::assert_snapshot!(cmd.get_output().stdout.to_str().unwrap(), @r"
+    insta::assert_snapshot!(
+        cmd.get_output().stdout.to_str().unwrap(),
+        @r"
             * [new] 54750c5      -> origin/HEAD
             * [new] 54750c5      -> origin/main
-            ");
+            "
+    );
 }
 
 #[test]
