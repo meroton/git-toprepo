@@ -13,17 +13,16 @@ function commit {
 function unsafe_staged_merge {
     local repo="$1"
     shift
-    # Skip checking exit code, merging conflicts in submodules will fail.
-    git -C "$repo" merge --no-ff --no-commit --strategy=ours -m "Dummy" "$@" || true
+    git -C "$repo" merge --no-ff --no-commit --strategy=ours -m "Dummy" "$@"
 }
 
 mkdir top
-mkdir subx
+mkdir repox
 git -C top init -q --initial-branch main
-git -C subx init -q --initial-branch main
+git -C repox init -q --initial-branch main
 cat <<EOF > top/.gittoprepo.toml
-[repo.subx]
-urls = ["../subx/"]
+[repo.namex]
+urls = ["../repox/"]
 EOF
 git -C top add .gittoprepo.toml
 
@@ -36,25 +35,25 @@ git -C top add .gittoprepo.toml
 #              \|      \|
 # top-release   C-------D
 
-subx_rev_1=$(commit subx "x-main-1")
-commit subx "x-main-2"
-subx_rev_3=$(commit subx "x-main-3")
-git -C subx reset --hard "$subx_rev_1"
-subx_rev_4=$(commit subx "x-release-4")
-commit subx "x-release-5"
-unsafe_staged_merge subx "$subx_rev_3"
-subx_rev_6=$(commit subx "x-release-6")
+subx_rev_1=$(commit repox "x-main-1")
+commit repox "x-main-2"
+subx_rev_3=$(commit repox "x-main-3")
+git -C repox reset --hard "$subx_rev_1"
+subx_rev_4=$(commit repox "x-release-4")
+commit repox "x-release-5"
+unsafe_staged_merge repox "$subx_rev_3"
+subx_rev_6=$(commit repox "x-release-6")
 
-git -C top -c protocol.file.allow=always submodule add --force ../subx/ subx
-git -C top submodule deinit -f subx
-git -C top update-index --cacheinfo "160000,${subx_rev_1},subx"
+git -C top -c protocol.file.allow=always submodule add --force ../repox/ subpathx
+git -C top submodule deinit -f subpathx
+git -C top update-index --cacheinfo "160000,${subx_rev_1},subpathx"
 top_rev_a=$(commit top "A1-main")
-git -C top update-index --cacheinfo "160000,${subx_rev_3},subx"
+git -C top update-index --cacheinfo "160000,${subx_rev_3},subpathx"
 top_rev_b=$(commit top "B3-main")
 git -C top reset --hard "$top_rev_a"
-git -C top update-index --cacheinfo "160000,${subx_rev_4},subx"
+git -C top update-index --cacheinfo "160000,${subx_rev_4},subpathx"
 commit top "C4-release"
 unsafe_staged_merge top "$top_rev_b"
-git -C top update-index --cacheinfo "160000,${subx_rev_6},subx"
+git -C top update-index --cacheinfo "160000,${subx_rev_6},subpathx"
 commit top "D6-release"
 

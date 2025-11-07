@@ -98,9 +98,9 @@ fn submodule_commit() {
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
-    std::fs::write(monorepo.join("sub/file.txt"), "text\n").unwrap();
+    std::fs::write(monorepo.join("subpath/file.txt"), "text\n").unwrap();
     git_command_for_testing(&monorepo)
-        .args(["add", "sub/file.txt"])
+        .args(["add", "subpath/file.txt"])
         .assert()
         .success();
     git_command_for_testing(&monorepo)
@@ -115,11 +115,11 @@ fn submodule_commit() {
         .success()
         .stderr(predicate::str::contains(format!(
             "To {}/\n",
-            toprepo.join("../sub").canonicalize().unwrap().display()
+            toprepo.join("../repo").canonicalize().unwrap().display()
         )))
         .stderr(predicate::str::is_match(r"\n \* \[new branch\]\s+[0-9a-f]+ -> foo\n").unwrap());
 
-    git_command_for_testing(toprepo.join("../sub"))
+    git_command_for_testing(toprepo.join("../repo"))
         .args(["show", "refs/heads/foo:file.txt"])
         .assert()
         .success()
@@ -191,10 +191,10 @@ fn inside_subdirectories() {
     // Push again, this is the reference behavior and should be repeated in subdirectories.
     for (wd, flags) in [
         (&monorepo, vec![]),
-        (&monorepo.join("sub"), vec![]),
+        (&monorepo.join("subpath"), vec![]),
         // `-C .` should trivially give the same result.
-        (&monorepo, vec!["-C", "sub"]),
-        (&monorepo.join("sub"), vec!["-C", "."]),
+        (&monorepo, vec!["-C", "subpath"]),
+        (&monorepo.join("subpath"), vec!["-C", "."]),
     ] {
         cargo_bin_git_toprepo_for_testing()
             .current_dir(wd)
@@ -247,15 +247,15 @@ fn shortrev_as_push_arg() {
 fn root_and_submodule_commits_in_series() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
-    let subrepo = temp_dir.join("sub");
+    let subrepo = temp_dir.join("repo");
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
     std::fs::write(monorepo.join("file.txt"), "top\n").unwrap();
-    std::fs::write(monorepo.join("sub/file.txt"), "submodule\n").unwrap();
+    std::fs::write(monorepo.join("subpath/file.txt"), "submodule\n").unwrap();
 
     git_command_for_testing(&monorepo)
-        .args(["add", "file.txt", "sub/file.txt"])
+        .args(["add", "file.txt", "subpath/file.txt"])
         .assert()
         .success();
     git_command_for_testing(&monorepo)
@@ -272,12 +272,12 @@ fn root_and_submodule_commits_in_series() {
         .stderr(
             predicate::str::is_match(
                 "\
-INFO: Running git push .*/sub/? -o topic=my-topic [0-9a-f]+:refs/heads/foo
-INFO: Stderr from git push .*/sub/? -o topic=my-topic [0-9a-f]+:refs/heads/foo
+INFO: Running git push .*/repo/? -o topic=my-topic [0-9a-f]+:refs/heads/foo
+INFO: Stderr from git push .*/repo/? -o topic=my-topic [0-9a-f]+:refs/heads/foo
 remote: GIT_PUSH_OPTION_0=topic=my-topic\\s*
 remote: pre-receive hook sleeping\\s*
 remote: pre-receive hook continues\\s*
-To .*/sub/?
+To .*/repo/?
  \\* \\[new branch\\]\\s+[0-9a-f]+ -> foo
 INFO: Running git push .*/top/? -o topic=my-topic [0-9a-f]+:refs/heads/foo
 INFO: Stderr from git push .*/top/? -o topic=my-topic [0-9a-f]+:refs/heads/foo
@@ -307,15 +307,15 @@ To .*/top/?
 fn root_and_submodule_commits_in_parallel() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
-    let subrepo = temp_dir.join("sub");
+    let subrepo = temp_dir.join("repo");
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
     std::fs::write(monorepo.join("file.txt"), "top\n").unwrap();
-    std::fs::write(monorepo.join("sub/file.txt"), "submodule\n").unwrap();
+    std::fs::write(monorepo.join("subpath/file.txt"), "submodule\n").unwrap();
 
     git_command_for_testing(&monorepo)
-        .args(["add", "file.txt", "sub/file.txt"])
+        .args(["add", "file.txt", "subpath/file.txt"])
         .assert()
         .success();
     git_command_for_testing(&monorepo)
@@ -401,13 +401,13 @@ fn original_submodule_commit_as_parent() {
         .stdout("")
         .stderr(
             predicate::str::is_match(
-                "INFO: Would run git push .*subx/ -o topic=work [0-9a-f]+:refs/dry/run\n",
+                "INFO: Would run git push .*repox/ -o topic=work [0-9a-f]+:refs/dry/run\n",
             )
             .unwrap(),
         )
         .stderr(
             predicate::str::is_match(
-                "INFO: Would run git push .*suby/ -o topic=work [0-9a-f]+:refs/dry/run\n",
+                "INFO: Would run git push .*repoy/ -o topic=work [0-9a-f]+:refs/dry/run\n",
             )
             .unwrap(),
         )
@@ -426,15 +426,15 @@ fn original_submodule_commit_as_parent() {
 fn topic_removed_from_commit_message() {
     let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
     let toprepo = temp_dir.join("top");
-    let subrepo = temp_dir.join("sub");
+    let subrepo = temp_dir.join("repo");
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
     std::fs::write(monorepo.join("file.txt"), "top\n").unwrap();
-    std::fs::write(monorepo.join("sub/file.txt"), "submodule\n").unwrap();
+    std::fs::write(monorepo.join("subpath/file.txt"), "submodule\n").unwrap();
 
     git_command_for_testing(&monorepo)
-        .args(["add", "file.txt", "sub/file.txt"])
+        .args(["add", "file.txt", "subpath/file.txt"])
         .assert()
         .success();
     git_command_for_testing(&monorepo)
@@ -502,10 +502,10 @@ fn topic_is_required_for_multi_repo_push() {
 
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     std::fs::write(monorepo.join("top.txt"), "top\n").unwrap();
-    std::fs::write(monorepo.join("subx/file.txt"), "subx\n").unwrap();
-    std::fs::write(monorepo.join("suby/file.txt"), "suby\n").unwrap();
+    std::fs::write(monorepo.join("subpathx/file.txt"), "subx\n").unwrap();
+    std::fs::write(monorepo.join("subpathy/file.txt"), "suby\n").unwrap();
     git_command_for_testing(&monorepo)
-        .args(["add", "top.txt", "subx/file.txt", "suby/file.txt"])
+        .args(["add", "top.txt", "subpathx/file.txt", "subpathy/file.txt"])
         .assert()
         .success();
     git_command_for_testing(&monorepo)
@@ -532,15 +532,15 @@ fn keep_commit_ancestry_for_all_repos() {
     );
     let monorepo = temp_dir.join("mono");
     let toprepo = temp_dir.join("top");
-    let subx = temp_dir.join("subx");
-    let suby = temp_dir.join("suby");
+    let subx = temp_dir.join("repox");
+    let suby = temp_dir.join("repoy");
 
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     std::fs::write(monorepo.join("top.txt"), "top\n").unwrap();
-    std::fs::write(monorepo.join("subx/file.txt"), "subx\n").unwrap();
-    std::fs::write(monorepo.join("suby/file.txt"), "suby\n").unwrap();
+    std::fs::write(monorepo.join("subpathx/file.txt"), "subx\n").unwrap();
+    std::fs::write(monorepo.join("subpathy/file.txt"), "suby\n").unwrap();
     git_command_for_testing(&monorepo)
-        .args(["add", "top.txt", "subx/file.txt", "suby/file.txt"])
+        .args(["add", "top.txt", "subpathx/file.txt", "subpathy/file.txt"])
         .assert()
         .success();
     git_command_for_testing(&monorepo)
@@ -548,10 +548,10 @@ fn keep_commit_ancestry_for_all_repos() {
         .assert()
         .success();
     std::fs::write(monorepo.join("top.txt"), "top2\n").unwrap();
-    std::fs::write(monorepo.join("subx/file.txt"), "subx2\n").unwrap();
-    std::fs::write(monorepo.join("suby/file.txt"), "suby2\n").unwrap();
+    std::fs::write(monorepo.join("subpathx/file.txt"), "subx2\n").unwrap();
+    std::fs::write(monorepo.join("subpathy/file.txt"), "suby2\n").unwrap();
     git_command_for_testing(&monorepo)
-        .args(["add", "top.txt", "subx/file.txt", "suby/file.txt"])
+        .args(["add", "top.txt", "subpathx/file.txt", "subpathy/file.txt"])
         .assert()
         .success();
     git_command_for_testing(&monorepo)
@@ -594,8 +594,8 @@ fn force_push() {
 
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     std::fs::write(monorepo.join("top.txt"), "top\n").unwrap();
-    std::fs::write(monorepo.join("subx/file.txt"), "subx\n").unwrap();
-    std::fs::write(monorepo.join("suby/file.txt"), "suby\n").unwrap();
+    std::fs::write(monorepo.join("subpathx/file.txt"), "subx\n").unwrap();
+    std::fs::write(monorepo.join("subpathy/file.txt"), "suby\n").unwrap();
     git_command_for_testing(&monorepo)
         .args(["add", "top.txt"])
         .assert()

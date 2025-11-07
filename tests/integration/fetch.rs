@@ -36,14 +36,14 @@ impl RepoWithTwoSubmodules {
             .assert()
             .success();
         // Make sure suby cannot be fetched, as it is not needed.
-        let suby_repo = temp_dir.join("suby");
+        let suby_repo = temp_dir.join("repoy");
         assert!(suby_repo.is_dir());
         std::fs::remove_dir_all(&suby_repo).unwrap();
 
         Self {
             toprepo,
             monorepo,
-            subx_repo: temp_dir.join("subx"),
+            subx_repo: temp_dir.join("repox"),
             temp_dir,
         }
     }
@@ -69,8 +69,8 @@ fn print_fetch_duration() {
         .stderr(predicate::str::contains(
             "INFO: git fetch <top> completed in ",
         ))
-        .stderr(predicate::str::is_match("INFO: git fetch .*subx/ completed in ").unwrap())
-        .stderr(predicate::str::is_match("INFO: git fetch .*suby/ completed in ").unwrap());
+        .stderr(predicate::str::is_match("INFO: git fetch .*repox/ completed in ").unwrap())
+        .stderr(predicate::str::is_match("INFO: git fetch .*repoy/ completed in ").unwrap());
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .arg("fetch")
@@ -79,8 +79,8 @@ fn print_fetch_duration() {
         .stderr(predicate::str::contains(
             "INFO: git fetch <top> completed in ",
         ))
-        .stderr(predicate::str::contains("subx").not())
-        .stderr(predicate::str::contains("suby").not());
+        .stderr(predicate::str::contains("repox").not())
+        .stderr(predicate::str::contains("repoy").not());
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn download_only_for_needed_commits() {
         .args([
             "update-index",
             "--cacheinfo",
-            "160000,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,subx",
+            "160000,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,subpathx",
         ])
         .assert()
         .success();
@@ -109,41 +109,41 @@ fn download_only_for_needed_commits() {
         .assert()
         .success();
     // Make sure suby cannot be fetched, as it is not needed.
-    let suby_repo = temp_dir.join("suby");
+    let suby_repo = temp_dir.join("repoy");
     assert!(suby_repo.is_dir());
     std::fs::remove_dir_all(&suby_repo).unwrap();
 
+    // Success because suby wasn't needed to be fetched.
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["fetch"])
         .assert()
         .success()
         .stderr(predicate::str::contains(
-            "WARN: Commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa in subx is missing, referenced from top\n"
+            "WARN: Commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa in namex is missing, referenced from top\n"
         ));
 
     // Check the filter result.
+    let expected_ls_tree_stdout = "\
+100644 blob 5488142f0fb986fa257ab2704c5e744f04c63ddd\t.gitmodules
+100644 blob a947b37238208308b7108a266d9466aa976977fb\t.gittoprepo.toml
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tA1-main.txt
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tinit.txt
+160000 commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tsubpathx
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tsubpathy/y-main-1.txt
+";
     git_command_for_testing(&monorepo)
         .args(["ls-tree", "-r", "origin/main"])
         .assert()
         .success()
-        .stdout(
-            "\
-100644 blob 73bf371d38ac93f7592bdee317c8ea53fead1c8c\t.gitmodules
-100644 blob ed6ed9e7ce37c1f13f718aeaf54c522610a994c2\t.gittoprepo.toml
-100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tA1-main.txt
-100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tinit.txt
-160000 commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tsubx
-100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tsuby/y-main-1.txt
-",
-        );
+        .stdout(expected_ls_tree_stdout);
 
     // After updating suby, fetch should fail as the suby remote is missing.
     git_command_for_testing(&toprepo)
         .args([
             "update-index",
             "--cacheinfo",
-            "160000,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,suby",
+            "160000,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,subpathy",
         ])
         .assert()
         .success();
@@ -158,7 +158,7 @@ fn download_only_for_needed_commits() {
         .code(1)
         .stderr(
             predicate::str::is_match(
-                "ERROR: Fetching suby: git fetch .*/suby/ failed: exit status: 128",
+                "ERROR: Fetching namey: git fetch .*/repoy/ failed: exit status: 128",
             )
             .unwrap(),
         )
@@ -169,21 +169,13 @@ fn download_only_for_needed_commits() {
             "fatal: Could not read from remote repository.",
         ));
 
-    // Check the filter result, suby should not be updated as fetching failed.
+    // Check the filter result, nothing should not be updated as fetching
+    // failed, even if suby was bumped in the fetched toprepo main branch.
     git_command_for_testing(&monorepo)
         .args(["ls-tree", "-r", "origin/main"])
         .assert()
         .success()
-        .stdout(
-            "\
-100644 blob 73bf371d38ac93f7592bdee317c8ea53fead1c8c\t.gitmodules
-100644 blob ed6ed9e7ce37c1f13f718aeaf54c522610a994c2\t.gittoprepo.toml
-100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tA1-main.txt
-100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tinit.txt
-160000 commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tsubx
-100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tsuby/y-main-1.txt
-",
-        );
+        .stdout(expected_ls_tree_stdout);
 }
 
 #[rstest]
@@ -297,8 +289,8 @@ fn info_fetch_head(#[case] remote: &str) {
         .stdout(
             predicate::str::is_match(
                 [
-                    ".* refs/namespaces/subx/refs/heads/main\n",
-                    ".* refs/namespaces/suby/refs/heads/main\n",
+                    ".* refs/namespaces/namex/refs/heads/main\n",
+                    ".* refs/namespaces/namey/refs/heads/main\n",
                     ".* refs/namespaces/top/refs/remotes/origin/HEAD\n",
                     ".* refs/namespaces/top/refs/remotes/origin/main\n",
                     ".* refs/remotes/origin/HEAD\n",
@@ -330,8 +322,8 @@ fn top_dir_into_fetch_head_fails(#[case] remote: &str) {
 fn two_times_should_keep_refs() {
     let expected_show_ref_output = predicate::str::is_match(
         [
-            ".* refs/namespaces/subx/refs/heads/main\n",
-            ".* refs/namespaces/suby/refs/heads/main\n",
+            ".* refs/namespaces/namex/refs/heads/main\n",
+            ".* refs/namespaces/namey/refs/heads/main\n",
             ".* refs/namespaces/top/refs/remotes/origin/HEAD\n",
             ".* refs/namespaces/top/refs/remotes/origin/foo\n",
             ".* refs/namespaces/top/refs/remotes/origin/main\n",
@@ -419,8 +411,8 @@ fn with_refspec_arg_success(#[case] remote: &str) {
         .stdout(
             predicate::str::is_match(
                 [
-                    ".* refs/namespaces/subx/refs/heads/main\n",
-                    ".* refs/namespaces/suby/refs/heads/main\n",
+                    ".* refs/namespaces/namex/refs/heads/main\n",
+                    ".* refs/namespaces/namey/refs/heads/main\n",
                     ".* refs/namespaces/top/refs/remotes/origin/HEAD\n",
                     ".* refs/namespaces/top/refs/remotes/origin/main\n",
                     ".* refs/remotes/origin/HEAD\n",
@@ -523,8 +515,8 @@ fn force_with_refspec_arg_not_implemented_yet() {
             predicate::str::is_match(
                 [
                     ".* refs/heads/bar\n",
-                    ".* refs/namespaces/subx/refs/heads/main\n",
-                    ".* refs/namespaces/suby/refs/heads/main\n",
+                    ".* refs/namespaces/namex/refs/heads/main\n",
+                    ".* refs/namespaces/namey/refs/heads/main\n",
                     ".* refs/namespaces/top/refs/remotes/origin/HEAD\n",
                     ".* refs/namespaces/top/refs/remotes/origin/main\n",
                     ".* refs/remotes/origin/HEAD\n",
@@ -539,14 +531,14 @@ fn force_with_refspec_arg_not_implemented_yet() {
 /// Test `git fetch` does not time out while printing progress messages.
 fn no_timeout_with_progress_checker(cmd: assert_cmd::assert::Assert) {
     cmd.success()
-        .stderr(predicate::str::contains("WARN: Fetching subx:").not());
+        .stderr(predicate::str::contains("WARN: Fetching namex:").not());
 }
 
 /// Test `git fetch` does not time out while printing progress messages.
 fn idle_progress_with_successful_retry_checker(cmd: assert_cmd::assert::Assert) {
     cmd.success().stderr(
         predicate::str::is_match(
-            "WARN: Fetching subx: git fetch .* timed out, was silent 1s, retrying",
+            "WARN: Fetching namex: git fetch .* timed out, was silent 1s, retrying",
         )
         .unwrap(),
     );
@@ -558,21 +550,21 @@ fn too_many_timeouts_checker(cmd: assert_cmd::assert::Assert) {
         .stderr(
             predicate::str::is_match(
                 "\
-WARN: Fetching subx: git fetch .* timed out, was silent 1s, retrying
-WARN: Fetching subx: git fetch .* timed out, was silent 1s, retrying
+WARN: Fetching namex: git fetch .* timed out, was silent 1s, retrying
+WARN: Fetching namex: git fetch .* timed out, was silent 1s, retrying
 ",
             )
             .unwrap(),
         )
         .stderr(
             predicate::str::is_match(
-                "ERROR: Fetching subx: git fetch .* exceeded timeout retry limit",
+                "ERROR: Fetching namex: git fetch .* exceeded timeout retry limit",
             )
             .unwrap(),
         )
         // No INFO message about successful fetch.
         .stderr(
-            predicate::str::is_match("INFO: git fetch .*subx")
+            predicate::str::is_match("INFO: git fetch .*repox")
                 .unwrap()
                 .not(),
         );
@@ -611,7 +603,7 @@ fn timeout(
         .args([
             "update-index",
             "--cacheinfo",
-            "160000,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,subx",
+            "160000,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,subpathx",
         ])
         .assert()
         .success();
@@ -652,11 +644,11 @@ fn unaffected_by_dot_gitmodules_recurse_true() {
         &r#"
 [submodule "subx"]
 	path = subx
-	url = ../subx/
+	url = ../repox/
     recurse = true
 [submodule "suby"]
 	path = suby
-	url = ../suby/
+	url = ../repoy/
 "#[1..],
     )
     .unwrap();
@@ -687,8 +679,8 @@ fn unaffected_by_dot_gitmodules_recurse_true() {
         .stdout(
             predicate::str::is_match(
                 "^\
-[0-9a-f]+ refs/namespaces/subx/refs/heads/main
-[0-9a-f]+ refs/namespaces/suby/refs/heads/main
+[0-9a-f]+ refs/namespaces/namex/refs/heads/main
+[0-9a-f]+ refs/namespaces/namey/refs/heads/main
 [0-9a-f]+ refs/namespaces/top/refs/remotes/origin/HEAD
 [0-9a-f]+ refs/namespaces/top/refs/remotes/origin/main
 [0-9a-f]+ refs/remotes/origin/HEAD

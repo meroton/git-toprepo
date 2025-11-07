@@ -104,7 +104,7 @@ fn print_in_basic_git_repo() {
         .args(["init", "--initial-branch", "main"])
         .assert()
         .success();
-    let subdir = temp_dir.join("sub");
+    let subdir = temp_dir.join("repo");
     std::fs::create_dir(&subdir).unwrap();
 
     let space = " ";
@@ -145,7 +145,7 @@ version "#,
 #[test]
 fn flag_is_emulated_monorepo() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
-    let subdir = temp_dir.join("sub");
+    let subdir = temp_dir.join("repo");
     std::fs::create_dir(&subdir).unwrap();
 
     // Without a git repository.

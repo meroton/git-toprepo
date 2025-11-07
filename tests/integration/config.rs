@@ -219,7 +219,7 @@ fn validate_use_correct_working_directory() {
         .args(["init"])
         .assert()
         .success();
-    let subdir = temp_dir.join("subdir");
+    let subdir = temp_dir.join("repodir");
     std::fs::create_dir(&subdir).unwrap();
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&subdir)
@@ -237,8 +237,8 @@ fn bootstrap_after_clone() {
     let monorepo = temp_dir.join("mono");
 
     let expected_boostrap_config = &r#"
-[repo.sub]
-urls = ["../sub/"]
+[repo.repo]
+urls = ["../repo/"]
 missing_commits = []
 "#[1..];
 
@@ -282,12 +282,12 @@ fn bootstrap_on_existing() {
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
     let expected_boostrap_config: &str = &r#"
-[repo.subx]
-urls = ["../subx/"]
+[repo.repox]
+urls = ["../repox/"]
 missing_commits = []
 
-[repo.suby]
-urls = ["../suby/"]
+[repo.repoy]
+urls = ["../repoy/"]
 missing_commits = []
 "#[1..];
 
@@ -317,12 +317,12 @@ fn bootstrap_multiple_urls_in_history() {
     std::fs::write(
         toprepo.join(".gitmodules"),
         r#"
-[submodule "subx"]
-	path = subx
-	url = https://other.example/subx
-[submodule "suby"]
-	path = suby
-	url = https://other.example/suby.git
+[submodule "repox"]
+	path = subpathx
+	url = https://other.example/repox
+[submodule "repoy"]
+	path = subpathy
+	url = https://other.example/repoy.git
 "#,
     )
     .unwrap();
@@ -335,7 +335,7 @@ fn bootstrap_multiple_urls_in_history() {
         .assert()
         .success();
     git_command_for_testing(&toprepo)
-        .args(["rm", "suby"])
+        .args(["rm", "subpathy"])
         .assert()
         .success();
     git_command_for_testing(&toprepo)
@@ -348,15 +348,15 @@ fn bootstrap_multiple_urls_in_history() {
     // subx has an URL in HEAD:.gitmodules, suby does not and therfore becomes
     // disabled.
     let expected_boostrap_config = &r#"
-[repo.subx]
-urls = ["../subx/", "https://other.example/subx"]
+[repo.repox]
+urls = ["../repox/", "https://other.example/repox"]
 missing_commits = []
 
-[repo.subx.fetch]
-url = "https://other.example/subx"
+[repo.repox.fetch]
+url = "https://other.example/repox"
 
-[repo.suby]
-urls = ["../suby/", "https://other.example/suby.git"]
+[repo.repoy]
+urls = ["../repoy/", "https://other.example/repoy.git"]
 enabled = false
 missing_commits = []
 "#[1..];

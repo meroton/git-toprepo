@@ -11,21 +11,21 @@ function commit {
 }
 
 mkdir top
-mkdir subx
-mkdir suby
+mkdir repox
+mkdir repoy
 git -C top init -q --initial-branch main
-git -C subx init -q --initial-branch main
-git -C suby init -q --initial-branch main
+git -C repox init -q --initial-branch main
+git -C repoy init -q --initial-branch main
 # Accept push options.
 git -C top config receive.advertisePushOptions true
-git -C subx config receive.advertisePushOptions true
-git -C suby config receive.advertisePushOptions true
+git -C repox config receive.advertisePushOptions true
+git -C repoy config receive.advertisePushOptions true
 
 cat <<EOF > top/.gittoprepo.toml
-[repo.subx]
-urls = ["../subx/"]
-[repo.suby]
-urls = ["../suby/"]
+[repo.namex]
+urls = ["../repox/"]
+[repo.namey]
+urls = ["../repoy/"]
 EOF
 git -C top add .gittoprepo.toml
 
@@ -34,13 +34,13 @@ git -C top add .gittoprepo.toml
 #              |
 # top-main     A
 
-subx_rev_1=$(commit subx "x-main-1")
-suby_rev_1=$(commit suby "y-main-1")
+subx_rev_1=$(commit repox "x-main-1")
+suby_rev_1=$(commit repoy "y-main-1")
 
 commit top "init"
-git -C top -c protocol.file.allow=always submodule add --force ../subx/ subx
-git -C top -c protocol.file.allow=always submodule add --force ../suby/ suby
-git -C top submodule deinit -f subx suby
-git -C top update-index --cacheinfo "160000,${subx_rev_1},subx"
-git -C top update-index --cacheinfo "160000,${suby_rev_1},suby"
+git -C top -c protocol.file.allow=always submodule add --force ../repox/ subpathx
+git -C top -c protocol.file.allow=always submodule add --force ../repoy/ subpathy
+git -C top submodule deinit -f subpathx subpathy
+git -C top update-index --cacheinfo "160000,${subx_rev_1},subpathx"
+git -C top update-index --cacheinfo "160000,${suby_rev_1},subpathy"
 commit top "A1-main"

@@ -26,53 +26,53 @@ fn init_and_recombine_example() {
     |\ \
     | | * 12
     | | |
-    | | | A sub/12.txt
+    | | | A subpath/12.txt
     | | * 11
     | |/
     |/|
     | |
-    | |   A sub/11.txt
+    | |   A subpath/11.txt
     | *   M
     |/|\
-    | | * Resetting submodule sub to 2903c2551c19
+    | | * Resetting submodule subpath to 2903c2551c19
     | |/
     | |
-    | |   D sub/11.txt
-    | |   D sub/12.txt
+    | |   D subpath/11.txt
+    | |   D subpath/12.txt
     | * L
     | |
     | | A L.txt
-    | | A sub/12.txt
+    | | A subpath/12.txt
     | * K
     |/
     |
     |   A K.txt
-    |   A sub/11.txt
+    |   A subpath/11.txt
     *   J
     |\
     | * Ib
     | |
     | | A Ib.txt
-    | | A sub/9b.txt
+    | | A subpath/9b.txt
     | * Hb
     | |
     | | A Hb.txt
-    | | A sub/8b.txt
+    | | A subpath/8b.txt
     * | Ia
     | |
     | | A Ia.txt
-    | | A sub/9a.txt
+    | | A subpath/9a.txt
     * | Ha
     |/
     |
     |   A Ha.txt
-    |   A sub/8a.txt
+    |   A subpath/8a.txt
     *   G
     |\
     | * 6
     |/
     |
-    |   A sub/6.txt
+    |   A subpath/6.txt
     * F
     |
     | A F.txt
@@ -81,11 +81,11 @@ fn init_and_recombine_example() {
     | * 4
     |/
     |
-    |   A sub/4.txt
+    |   A subpath/4.txt
     * D
     |
     | A D.txt
-    | A sub/3.txt
+    | A subpath/3.txt
     * C
     |
     | A C.txt
@@ -127,17 +127,17 @@ fn merge_with_one_submodule_a() {
     | |/
     |/|
     | |
-    | |   A subx/x-release-5.txt
+    | |   A subpathx/x-release-5.txt
     * | C4-release
     | |
     | | A C4-release.txt
-    | | A subx/x-release-4.txt
+    | | A subpathx/x-release-4.txt
     | * B3-main
     |/|
     | * x-main-2
     |/
     |
-    |   A subx/x-main-2.txt
+    |   A subpathx/x-main-2.txt
     *   A1-main
     |\
     | * x-main-1
@@ -161,6 +161,7 @@ fn merge_with_one_submodule_b() {
 
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
+    #[rustfmt::skip] // Infinite indentation bug, rustfmt issue 4609.
     insta::assert_snapshot!(
         log_graph,
         @r"
@@ -178,13 +179,13 @@ fn merge_with_one_submodule_b() {
     | |_|/
     |/| |
     | | |
-    | | |   A subx/x-main-4.txt
+    | | |   A subpathx/x-main-4.txt
     * | |   B3-main
     |\ \ \
     | * | | x-main-2
     |/ / /
     | | |
-    | | |   A subx/x-main-2.txt
+    | | |   A subpathx/x-main-2.txt
     | | * E6-release
     | |/
     | |
@@ -194,7 +195,7 @@ fn merge_with_one_submodule_b() {
     | * x-release-5
     |/
     |
-    |   A subx/x-release-5.txt
+    |   A subpathx/x-release-5.txt
     *   A1-main
     |\
     | * x-main-1
@@ -218,6 +219,7 @@ fn merge_with_two_submodules() {
 
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
+    #[rustfmt::skip] // Infinite indentation bug, rustfmt issue 4609.
     insta::assert_snapshot!(
         log_graph,
         @r"
@@ -227,28 +229,28 @@ fn merge_with_two_submodules() {
     | |_|/
     |/| |
     | | |
-    | | |   A suby/y-release-5.txt
+    | | |   A subpathy/y-release-5.txt
     | | * x-release-5
     | |/
     |/|
     | |
-    | |   A subx/x-release-5.txt
+    | |   A subpathx/x-release-5.txt
     * | C4-release
     | |
     | | A C4-release.txt
-    | | A subx/x-release-4.txt
-    | | A suby/y-release-4.txt
+    | | A subpathx/x-release-4.txt
+    | | A subpathy/y-release-4.txt
     | *   B3-main
     |/|\
     | | * y-main-2
     | |/
     |/|
     | |
-    | |   A suby/y-main-2.txt
+    | |   A subpathy/y-main-2.txt
     | * x-main-2
     |/
     |
-    |   A subx/x-main-2.txt
+    |   A subpathx/x-main-2.txt
     *-.   A1-main
     |\ \
     | | * y-main-1
@@ -276,6 +278,7 @@ fn regression_20251022() {
 
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     let log_graph = extract_log_graph(&monorepo, vec!["HEAD", "--"]);
+    #[rustfmt::skip] // Infinite indentation bug, rustfmt issue 4609.
     insta::assert_snapshot!(
         log_graph,
         @r"
@@ -357,6 +360,7 @@ fn submodule_removal() {
 
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
     let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
+    #[rustfmt::skip] // Infinite indentation bug, rustfmt issue 4609.
     insta::assert_snapshot!(
         log_graph,
         @r"
@@ -365,17 +369,17 @@ fn submodule_removal() {
     | * C
     | |
     | | M .gitmodules
-    | | R100 subx/1.txt C.txt
-    | | D subx/2.txt
+    | | R100 subpathx/1.txt C.txt
+    | | D subpathx/2.txt
     | * B
     | |
     | | A B.txt
-    | | A subx/2.txt
+    | | A subpathx/2.txt
     * | D
     |/
     |
     |   M .gitmodules
-    |   R100 subx/1.txt D.txt
+    |   R100 subpathx/1.txt D.txt
     *   A
     |\
     | * 1
@@ -403,31 +407,31 @@ fn moved_submodule() {
     * E
     |
     | M .gitmodules
-    | R100 suby/1.txt E.txt
-    | R100 suby/2.txt subx/1.txt
-    | R100 suby/3.txt subx/2.txt
-    | A subx/3.txt
-    | A subz/1.txt
-    | A subz/2.txt
-    | A subz/3.txt
+    | R100 subpathy/1.txt E.txt
+    | R100 subpathy/2.txt subpathx/1.txt
+    | R100 subpathy/3.txt subpathx/2.txt
+    | A subpathx/3.txt
+    | A subpathz/1.txt
+    | A subpathz/2.txt
+    | A subpathz/3.txt
     * D
     |
     | M .gitmodules
-    | R100 subx/1.txt D.txt
-    | D subx/2.txt
+    | R100 subpathx/1.txt D.txt
+    | D subpathx/2.txt
     * C
     |
     | M .gitmodules
     | A C.txt
-    | A subx/1.txt
-    | A subx/2.txt
-    | A suby/3.txt
+    | A subpathx/1.txt
+    | A subpathx/2.txt
+    | A subpathy/3.txt
     * B
     |
     | M .gitmodules
-    | R100 subx/1.txt B.txt
-    | A suby/1.txt
-    | A suby/2.txt
+    | R100 subpathx/1.txt B.txt
+    | A subpathy/1.txt
+    | A subpathy/2.txt
     *   A
     |\
     | * 1
@@ -457,14 +461,14 @@ fn inner_submodule() {
     * C-X3-Y2
     |
     | A C-X3-Y2.txt
-    | A subx/x3-y2.txt
+    | A subpathx/x3-y2.txt
     * B-X2-Y1
     |
     | A B-X2-Y1.txt
-    | A subx/.gitmodules
-    | A subx/suby/y-1.txt
-    | A subx/suby/y-2.txt
-    | A subx/x2-y2.txt
+    | A subpathx/.gitmodules
+    | A subpathx/subpathy/y-1.txt
+    | A subpathx/subpathy/y-2.txt
+    | A subpathx/x2-y2.txt
     *   A1-X1
     |\
     | * x-1
@@ -490,12 +494,12 @@ fn inner_submodule() {
     B-X2-Y1.txt
     C-X3-Y2.txt
     init.txt
-    subx/.gitmodules
-    subx/suby/y-1.txt
-    subx/suby/y-2.txt
-    subx/x-1.txt
-    subx/x2-y2.txt
-    subx/x3-y2.txt
+    subpathx/.gitmodules
+    subpathx/subpathy/y-1.txt
+    subpathx/subpathy/y-2.txt
+    subpathx/x-1.txt
+    subpathx/x2-y2.txt
+    subpathx/x3-y2.txt
     "
     );
 }
@@ -517,17 +521,17 @@ fn extract_log_graph(repo_path: &Path, extra_args: Vec<&str>) -> String {
 
 #[rstest]
 #[case::duplicated_key(&r#"
-[submodule "subx"]
-	path = subx
-	url = ../subx/
+[submodule "same_name"]
+	path = subpathx
+	url = ../repox/
 # Duplicate the entry, same key.
 # https://github.com/meroton/git-toprepo/issues/31
-[submodule "subx"]
-	path = suby
-	url = ../suby/
-"#[1..], r#"Missing path "subx" in .gitmodules\n"#)]
+[submodule "same_name"]
+	path = subpathy
+	url = ../repoy/
+"#[1..], r#"Missing path "subpathx" in .gitmodules\n"#)]
 #[case::bad_syntax(&r#"
-[submodule "subx"
+[submodule "same_name"
 "#[1..], "Failed to parse .gitmodules: Got an unexpected token on line 1 while trying to parse a section header: ")]
 fn copes_with_bad_dot_gitmodules_content(
     #[case] gitmodules_content: &str,
@@ -586,7 +590,7 @@ fn warn_for_empty_submodule() {
         .unwrap(),
     );
     let toprepo = temp_dir.join("top");
-    let subxrepo = temp_dir.join("subx");
+    let subxrepo = temp_dir.join("repox");
     let monorepo = temp_dir.join("mono");
     let monorepo2 = temp_dir.join("mono2");
 
@@ -599,7 +603,7 @@ fn warn_for_empty_submodule() {
         .assert()
         .success();
     let subx_head_rev = git_rev_parse(&subxrepo, "HEAD");
-    git_update_submodule_in_index(&toprepo, "subx", &subx_head_rev);
+    git_update_submodule_in_index(&toprepo, "subpathx", &subx_head_rev);
     git_command_for_testing(&toprepo)
         .args(["commit", "-m", "Remove all files in subx"])
         .assert()
@@ -607,7 +611,7 @@ fn warn_for_empty_submodule() {
     let msg_pattern = |gitref: &str| {
         format!(
             "\\nWARN: Top commit [0-9a-f]+ \\({gitref}\\): \
-            Submodule commit [0-9a-f]+ at subx \\(subx\\): \
+            Submodule commit [0-9a-f]+ at subpathx \\(namex\\): \
             With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\\. \
             To avoid this problem, commit a file\\.\\n"
         )
@@ -636,7 +640,7 @@ fn warn_for_empty_submodule() {
         .assert()
         .success();
     let subx_head_rev = git_rev_parse(&subxrepo, "HEAD");
-    git_update_submodule_in_index(&toprepo, "subx", &subx_head_rev);
+    git_update_submodule_in_index(&toprepo, "subpathx", &subx_head_rev);
     git_command_for_testing(&toprepo)
         .args(["commit", "-m", "Add a file in subx"])
         .assert()
@@ -649,7 +653,7 @@ fn warn_for_empty_submodule() {
         .success()
         // Note that the trace message does not include any branch name.
         .stderr(predicate::str::is_match(
-            "\\nTRACE: Commit [0-9a-f]+ in subx: \
+            "\\nTRACE: Commit [0-9a-f]+ in namex: \
              With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\\. \
              To avoid this problem, commit a file\\.\\n"
         ).unwrap())
@@ -667,7 +671,7 @@ fn config_missing_commits() {
         .unwrap(),
     );
     let toprepo = temp_dir.join("top");
-    let subyrepo = temp_dir.join("suby");
+    let subyrepo = temp_dir.join("repoy");
     let monorepo = temp_dir.join("mono");
     let monorepo2 = temp_dir.join("mono2");
 
@@ -677,14 +681,14 @@ fn config_missing_commits() {
         toprepo.join(".gittoprepo.toml"),
         &format!(
             r#"
-[repo.subx]
-urls = ["../subx/"]
+[repo.namex]
+urls = ["../repox/"]
 missing_commits = [
     # Non-existing commit.
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 ]
-[repo.suby]
-urls = ["../suby/"]
+[repo.namey]
+urls = ["../repoy/"]
 missing_commits = [
     # Commit that exists.
     "{suby_missing_rev}",
@@ -700,7 +704,7 @@ missing_commits = [
         .assert()
         .success();
     let expected_warnings = "\
-        WARN: Commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa in subx is \
+        WARN: Commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa in namex is \
         configured as missing but was never referenced from any repo\n";
     cargo_bin_git_toprepo_for_testing()
         .arg("clone")
@@ -728,27 +732,31 @@ missing_commits = [
         );
 
     // Update subx to somthing that does not exist.
-    git_update_submodule_in_index(&toprepo, "subx", "cccccccccccccccccccccccccccccccccccccccc");
+    git_update_submodule_in_index(
+        &toprepo,
+        "subpathx",
+        "cccccccccccccccccccccccccccccccccccccccc",
+    );
     // Add a commit to suby so that it is loaded.
     git_command_for_testing(&subyrepo)
         .args(["commit", "--allow-empty", "-m", "Second empty commit"])
         .assert()
         .success();
-    git_update_submodule_in_index(&toprepo, "suby", &git_rev_parse(&subyrepo, "HEAD"));
+    git_update_submodule_in_index(&toprepo, "subpathy", &git_rev_parse(&subyrepo, "HEAD"));
     git_command_for_testing(&toprepo)
         .args(["commit", "-m", "Update subx and suby"])
         .assert()
         .success();
     let some_expected_warnings = format!(
-        "WARN: Commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa in subx is \
+        "WARN: Commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa in namex is \
         configured as missing but was never referenced from any repo\n\
-        WARN: Commit {suby_missing_rev} in suby exists \
+        WARN: Commit {suby_missing_rev} in namey exists \
         but is configured as missing\n\
-        WARN: Commit bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb in suby is \
+        WARN: Commit bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb in namey is \
         configured as missing but was never referenced from any repo\n\
         ",
     );
-    let missing_commit_subx_c_warning = "\nWARN: Commit cccccccccccccccccccccccccccccccccccccccc in subx is missing, referenced from top\n";
+    let missing_commit_subx_c_warning = "\nWARN: Commit cccccccccccccccccccccccccccccccccccccccc in namex is missing, referenced from top\n";
     cargo_bin_git_toprepo_for_testing()
         .args(["clone"])
         .arg(&toprepo)
@@ -785,13 +793,13 @@ fn print_updates() {
     );
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
-    let top_head_rev = "9c6fda5";
+    let top_head_rev = "e1644da";
     assert_eq!(
         &git_rev_parse(&toprepo, "HEAD")[..7],
         top_head_rev,
         "All commit hashes will differ if top_head_rev is wrong"
     );
-    let mono_head_rev = "9ddc65e";
+    let mono_head_rev = "db59d86";
 
     cargo_bin_git_toprepo_for_testing()
         .arg("clone")
@@ -933,12 +941,12 @@ fn print_updates() {
     insta::assert_snapshot!(
         fetch_stdout,
         @r"
-    * [new] cfa5366                     -> origin/main
-    * [new tag] 8bd46b9                 -> v1.0-nested
-    + [forced update] 9ddc65e...cfa5366 -> origin/HEAD
-      9ddc65e..fbfac05                  -> origin/other
-    t [updated tag] 9ddc65e..5feaf42    -> v1.0
-    - [deleted tag] 9ddc65e             -> v2.0
-    "
+    * [new] a6afcc9                     -> origin/main
+    * [new tag] 9f086bb                 -> v1.0-nested
+    + [forced update] db59d86...a6afcc9 -> origin/HEAD
+      db59d86..77dbca5                  -> origin/other
+    t [updated tag] db59d86..d51577c    -> v1.0
+    - [deleted tag] db59d86             -> v2.0
+    ",
     );
 }

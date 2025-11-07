@@ -37,7 +37,7 @@ fn dump_git_modules() {
         .arg("git-modules")
         .assert()
         .success()
-        .stdout("main/project.git .\nmain/subx subx\n");
+        .stdout("main/project.git .\nmain/repox subpathx\n");
     // Test a subdirectory which is not a submodule.
     cargo_bin_git_toprepo_for_testing()
         .current_dir(monorepo.join("subdir"))
@@ -45,15 +45,15 @@ fn dump_git_modules() {
         .arg("git-modules")
         .assert()
         .success()
-        .stdout("main/project.git .\nmain/subx subx\n");
+        .stdout("main/project.git .\nmain/repox subpathx\n");
     // Test a subdirectory which is not an integrated submodule.
     cargo_bin_git_toprepo_for_testing()
-        .current_dir(monorepo.join("subx"))
+        .current_dir(monorepo.join("subpathx"))
         .arg("dump")
         .arg("git-modules")
         .assert()
         .success()
-        .stdout("main/project.git .\nmain/subx subx\n");
+        .stdout("main/project.git .\nmain/repox subpathx\n");
 
     // Without any remote, dumping git-modules will fail.
     git_command_for_testing(&monorepo)
@@ -240,7 +240,12 @@ fn cache_version_change_detection() {
         let old_code = std::fs::read_to_string(file!()).unwrap();
         let new_code = old_code.replace(
             EXPECTED_IMPORT_CACHE_VERSION,
-            "#cache-format-vNNN - PLEASE UPDATE THIS NUMBER",
+            // The line below should not be changed. Format it so that grep
+            // doesn't find these lines.
+            "#cache-format\
+             -vNNN - \
+             PLEASE UPDATE \
+             THIS NUMBER",
         );
         assert_ne!(
             old_code,

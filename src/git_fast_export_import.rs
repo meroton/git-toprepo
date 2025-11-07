@@ -874,7 +874,7 @@ mod tests {
     /// repo structure and returns the top repo path.
     fn setup_example_repo(path: &Path) -> PathBuf {
         let top_repo = path.join("top");
-        let sub_repo = path.join("sub");
+        let sub_repo = path.join("repo");
 
         std::fs::create_dir_all(&top_repo).unwrap();
         std::fs::create_dir_all(&sub_repo).unwrap();
@@ -899,15 +899,17 @@ mod tests {
                 "protocol.file.allow=always",
                 "submodule",
                 "add",
-                "../sub/", // TODO: 2025-09-22 Absolute or relative path?
-                           // sub_repo.to_str().unwrap(),
+                // TODO: 2025-09-22 Absolute or relative path?
+                // sub_repo.to_str().unwrap(),
+                "../repo/",
+                "subpath",
             ])
             .assert()
             .success();
         commit(&top_repo, "B");
         commit(&top_repo, "C");
         let sub_rev_3 = commit(&sub_repo, "3");
-        git_update_submodule_in_index(&top_repo, "sub", &sub_rev_3.to_string());
+        git_update_submodule_in_index(&top_repo, "subpath", &sub_rev_3.to_string());
 
         commit(&top_repo, "D");
         top_repo
@@ -975,7 +977,7 @@ mod tests {
             // might exclude PartialEq and this test if it's not needed elsewhere.
             commit_d.file_changes.first().unwrap(),
             &ChangedFile {
-                path: BString::from(b"sub"),
+                path: BString::from(b"subpath"),
                 change: FileChange::Modified {
                     mode: BString::from(b"160000"),
                     hash: BString::from(b"d3598d6ae2988833b437d1f57ce75fdc38fd8d1b"),
@@ -984,11 +986,11 @@ mod tests {
         );
         assert_eq!(
             commit_d.parents,
-            vec![gix::ObjectId::from_hex(b"2f17fb2b56a72c73e0cfc0bc45f21e03fe675466").unwrap()]
+            vec![gix::ObjectId::from_hex(b"ae11fd4eafaddb3c0c5efe299159eda23791273f").unwrap()]
         );
         assert_eq!(
             commit_d.original_id,
-            gix::ObjectId::from_hex(b"345fab2492c99865ba67457c6c47a76fedd5e75b").unwrap(),
+            gix::ObjectId::from_hex(b"4c83f77d194de441537443aa9a576bc3e123a417").unwrap(),
         );
         assert_eq!(commit_d.encoding, None);
     }

@@ -13,17 +13,16 @@ function commit {
 function unsafe_staged_merge {
     local repo="$1"
     shift
-    # Skip checking exit code, merging conflicts in submodules will fail.
-    git -C "$repo" merge --no-ff --no-commit --strategy=ours -m "Dummy" "$@" || true
+    git -C "$repo" merge --no-ff --no-commit --strategy=ours -m "Dummy" "$@"
 }
 
 mkdir top
-mkdir subx
+mkdir repox
 git -C top init -q --initial-branch main
-git -C subx init -q --initial-branch main
+git -C repox init -q --initial-branch main
 cat <<EOF > top/.gittoprepo.toml
-[repo.subx]
-urls = ["../subx/"]
+[repo.namex]
+urls = ["../repox/"]
 EOF
 git -C top add .gittoprepo.toml
 
@@ -34,21 +33,25 @@ git -C top add .gittoprepo.toml
 #       |    |    |   |    |
 # top   A1---B2---C---D----E
 
-subx_rev_1=$(commit subx "1")
-subx_rev_2=$(commit subx "2")
-commit subx "3"
+subx_rev_1=$(commit repox "1")
+subx_rev_2=$(commit repox "2")
+commit repox "3"
 
-git -C top -c protocol.file.allow=always submodule add --force ../subx/ subx
-git -C top update-index --cacheinfo "160000,${subx_rev_1},subx"
+git -C top -c protocol.file.allow=always submodule add --force ../repox/ subpathx
+git -C top update-index --cacheinfo "160000,${subx_rev_1},subpathx"
 commit top "A"
-git -C top mv subx suby
-git -C top update-index --cacheinfo "160000,${subx_rev_2},suby"
+# Move from subpathx to subpathy.
+git -C top mv subpathx subpathy
+git -C top update-index --cacheinfo "160000,${subx_rev_2},subpathy"
+# Copy back to subpathx and bump subpathy.
 commit top "B"
-git -C top mv suby subx
-git -C top -c protocol.file.allow=always submodule add --force ../subx/ suby
+git -C top mv subpathy subpathx
+git -C top -c protocol.file.allow=always submodule add --force ../repox/ subpathy
 commit top "C"
-git -C top rm -ff subx
+# Remove subpathx.
+git -C top rm -ff subpathx
 commit top "D"
-git -C top mv suby subz
-git -C top -c protocol.file.allow=always submodule add --force ../subx/ subx
+# Replace subpathy with both subpathx and subpathz.
+git -C top mv subpathy subpathz
+git -C top -c protocol.file.allow=always submodule add --force ../repox/ subpathx
 commit top "E"

@@ -3,280 +3,280 @@ source: tests/integration/dump.rs
 expression: example_import_cache_json
 ---
 {
-  "config_checksum": "6c10545879319d948b2bcb241d61c0c31bd86a485b423d1a2cb40eb56ffe3a56",
+  "config_checksum": "51daac791e19c7a0f311663a83448f9a2d66a5ff4f98f4c791508180ae9dcd88",
   "repos": {
     "top": {
       "url": "",
       "thin_commits": [
         {
-          "commit_id": "a235165c84ee49036461a6fa0e722514acfca289",
-          "tree_id": "14bd462e43dbd427d587532e10c5016c8109cbce",
+          "commit_id": "069eeba9e2420340bf6f2723fdb24c7b9086dd27",
+          "tree_id": "4978c894a6adb3728b9f7cd729ed1b024e3b558a",
           "parents": [],
           "dot_gitmodules": null,
           "submodule_bumps": {}
         },
         {
-          "commit_id": "4ceb005e5e4a5d38a03ced78a677ce10368d3c9e",
-          "tree_id": "cca95a2cfbc2f517fbb31b9dcefe4a1f9bd68b35",
+          "commit_id": "73e66a375bbc6000ba600a3703429c071a6ed11c",
+          "tree_id": "9511e1dbe79e963674d0e9a68c7302241fc1042e",
           "parents": [
-            "a235165c84ee49036461a6fa0e722514acfca289"
+            "069eeba9e2420340bf6f2723fdb24c7b9086dd27"
           ],
           "dot_gitmodules": {
             "mode": "100644",
-            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+            "id": "0d2aaa7e76d00006d4e4f52cc26cf4a44d999e99"
           },
           "submodule_bumps": {
-            "sub": {
+            "subpath": {
               "AddedOrModified": {
-                "repo_name": "sub",
+                "repo_name": "name",
                 "commit_id": "da37f5616c317ec223fe1080825d59ae36cf3e1c"
               }
             }
           }
         },
         {
-          "commit_id": "d4e089cb28015ad7b27936c71de9d75c28f000d3",
-          "tree_id": "5fa89535086ff58592dd5656bd7967003c657947",
+          "commit_id": "218dafd2d2391999c4c3e4aa40dd7b5ac1260c17",
+          "tree_id": "1f5b8b8b375d3de5142832f4055c34d24ea3310a",
           "parents": [
-            "4ceb005e5e4a5d38a03ced78a677ce10368d3c9e"
+            "73e66a375bbc6000ba600a3703429c071a6ed11c"
           ],
           "dot_gitmodules": {
             "mode": "100644",
-            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+            "id": "0d2aaa7e76d00006d4e4f52cc26cf4a44d999e99"
           },
           "submodule_bumps": {}
         },
         {
-          "commit_id": "3f11df6fef17b829d892d1ea00fd1cf17168e78c",
-          "tree_id": "bf7b1da765357710a9c79ec74e3cd532f8e32679",
+          "commit_id": "df501158bb485fc6f4795ed4e1e5941d039f788c",
+          "tree_id": "d617e6028c48477a3c85d89b1591d1a1ea0cbdb9",
           "parents": [
-            "d4e089cb28015ad7b27936c71de9d75c28f000d3"
+            "218dafd2d2391999c4c3e4aa40dd7b5ac1260c17"
           ],
           "dot_gitmodules": {
             "mode": "100644",
-            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+            "id": "0d2aaa7e76d00006d4e4f52cc26cf4a44d999e99"
           },
           "submodule_bumps": {
-            "sub": {
+            "subpath": {
               "AddedOrModified": {
-                "repo_name": "sub",
+                "repo_name": "name",
                 "commit_id": "5c77b8c321d915c670fbc93e25fc794f6c5e6fcf"
               }
             }
           }
         },
         {
-          "commit_id": "60015887808c4a8721fe88118e00836e58446be7",
-          "tree_id": "d9b1a55c6de0fd856df252862d3ccc581dc37a5d",
+          "commit_id": "d40b56e3d7390f4ab72a3fcef7e71a56679e8a17",
+          "tree_id": "835a24dcc30f3f7c8a731d454e68754a95f61325",
           "parents": [
-            "3f11df6fef17b829d892d1ea00fd1cf17168e78c"
+            "df501158bb485fc6f4795ed4e1e5941d039f788c"
           ],
           "dot_gitmodules": {
             "mode": "100644",
-            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+            "id": "0d2aaa7e76d00006d4e4f52cc26cf4a44d999e99"
           },
           "submodule_bumps": {
-            "sub": {
+            "subpath": {
               "AddedOrModified": {
-                "repo_name": "sub",
+                "repo_name": "name",
                 "commit_id": "d971db2bbcd8ffaeaaef7e437b51b706cc95993d"
               }
             }
           }
         },
         {
-          "commit_id": "a8f46977939d7dd470c1e3761aab27f6a691304b",
-          "tree_id": "ad2dff4f19e4ba29d837048a6bc7af26f6bbd62a",
+          "commit_id": "5cc78f49abe74311150984fc251a80af64f2ade4",
+          "tree_id": "7dadd0393d1cf1715e911703ddb8a352c74a42fc",
           "parents": [
-            "60015887808c4a8721fe88118e00836e58446be7"
+            "d40b56e3d7390f4ab72a3fcef7e71a56679e8a17"
           ],
           "dot_gitmodules": {
             "mode": "100644",
-            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+            "id": "0d2aaa7e76d00006d4e4f52cc26cf4a44d999e99"
           },
           "submodule_bumps": {}
         },
         {
-          "commit_id": "0f506eea0a05f3ccae334f66ba2e98d06790cf6a",
-          "tree_id": "8c685d2a3c93b8012399e8329d7f6440b4c3363f",
+          "commit_id": "c94e878c6a8e1c93cf6dc2b7a32abe68231c6fa6",
+          "tree_id": "571bbc4b1e2c87a8814f33c693d9a16c2934624b",
           "parents": [
-            "a8f46977939d7dd470c1e3761aab27f6a691304b"
+            "5cc78f49abe74311150984fc251a80af64f2ade4"
           ],
           "dot_gitmodules": {
             "mode": "100644",
-            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+            "id": "0d2aaa7e76d00006d4e4f52cc26cf4a44d999e99"
           },
           "submodule_bumps": {
-            "sub": {
+            "subpath": {
               "AddedOrModified": {
-                "repo_name": "sub",
+                "repo_name": "name",
                 "commit_id": "8560dae0bf89676911fa4c9c70a1a8415f81830f"
               }
             }
           }
         },
         {
-          "commit_id": "1e4ca4909c255ad55def21a07b9acba43805ae3c",
-          "tree_id": "566cafe495c4da9dbbf790aab776de8d12ac0471",
+          "commit_id": "2db880ac1f5f60b957984b13fadc9320e6b9e796",
+          "tree_id": "f14213e739c2f07231df2484a0979cf73672fcb4",
           "parents": [
-            "0f506eea0a05f3ccae334f66ba2e98d06790cf6a"
+            "c94e878c6a8e1c93cf6dc2b7a32abe68231c6fa6"
           ],
           "dot_gitmodules": {
             "mode": "100644",
-            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+            "id": "0d2aaa7e76d00006d4e4f52cc26cf4a44d999e99"
           },
           "submodule_bumps": {
-            "sub": {
+            "subpath": {
               "AddedOrModified": {
-                "repo_name": "sub",
-                "commit_id": "51d22bcaa20bc2c00a44d0ccd0a73d6cc6d9090c"
-              }
-            }
-          }
-        },
-        {
-          "commit_id": "528f7d4ef927815530803fe90cff727b5ecc7660",
-          "tree_id": "8a484a10feccf7885be157534c4f8cc69f13fb8f",
-          "parents": [
-            "0f506eea0a05f3ccae334f66ba2e98d06790cf6a"
-          ],
-          "dot_gitmodules": {
-            "mode": "100644",
-            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
-          },
-          "submodule_bumps": {
-            "sub": {
-              "AddedOrModified": {
-                "repo_name": "sub",
+                "repo_name": "name",
                 "commit_id": "ba9e6e31c29f7b0ece4794930b6049f91522f635"
               }
             }
           }
         },
         {
-          "commit_id": "48c1c78c0d7134ac414446f5374a07780bfbfe0e",
-          "tree_id": "fe66f9c0a5674cd43534bde749a27355ca39ecf5",
+          "commit_id": "46c4e7b2410d2b47a61c26e94e42627a3e18be16",
+          "tree_id": "c773f16db3a392e1f1e6590e887970682512db42",
           "parents": [
-            "528f7d4ef927815530803fe90cff727b5ecc7660"
+            "c94e878c6a8e1c93cf6dc2b7a32abe68231c6fa6"
           ],
           "dot_gitmodules": {
             "mode": "100644",
-            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+            "id": "0d2aaa7e76d00006d4e4f52cc26cf4a44d999e99"
           },
           "submodule_bumps": {
-            "sub": {
+            "subpath": {
               "AddedOrModified": {
-                "repo_name": "sub",
-                "commit_id": "23de8b96349af3576546122ec94380e0ecf4ad80"
+                "repo_name": "name",
+                "commit_id": "51d22bcaa20bc2c00a44d0ccd0a73d6cc6d9090c"
               }
             }
           }
         },
         {
-          "commit_id": "5b52f75ef3ea96cc06932f6a48d05687e1a5bcdd",
-          "tree_id": "5e21e94b436f955db7d5e9908c0b5b028445b0ab",
+          "commit_id": "12032c6e047ae64ea4fd43a12f42c8b492f1cb7d",
+          "tree_id": "b17781b38f9e7b2fdb448d481d88424470d6f720",
           "parents": [
-            "1e4ca4909c255ad55def21a07b9acba43805ae3c"
+            "46c4e7b2410d2b47a61c26e94e42627a3e18be16"
           ],
           "dot_gitmodules": {
             "mode": "100644",
-            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+            "id": "0d2aaa7e76d00006d4e4f52cc26cf4a44d999e99"
           },
           "submodule_bumps": {
-            "sub": {
+            "subpath": {
               "AddedOrModified": {
-                "repo_name": "sub",
+                "repo_name": "name",
                 "commit_id": "23aaa97e0c677f66d417037924aec18e36b4c383"
               }
             }
           }
         },
         {
-          "commit_id": "b055adba931f6e420960d9ed13674497c690dd9b",
-          "tree_id": "410ee5f8212f46684f1e20e04b34b207da04a114",
+          "commit_id": "ba08436ded1ecf2292fbf05c18667a8296dd20d6",
+          "tree_id": "d31172c98b12104f21c594b04e5a162706f228a2",
           "parents": [
-            "5b52f75ef3ea96cc06932f6a48d05687e1a5bcdd",
-            "48c1c78c0d7134ac414446f5374a07780bfbfe0e"
+            "2db880ac1f5f60b957984b13fadc9320e6b9e796"
           ],
           "dot_gitmodules": {
             "mode": "100644",
-            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+            "id": "0d2aaa7e76d00006d4e4f52cc26cf4a44d999e99"
           },
           "submodule_bumps": {
-            "sub": {
+            "subpath": {
               "AddedOrModified": {
-                "repo_name": "sub",
+                "repo_name": "name",
+                "commit_id": "23de8b96349af3576546122ec94380e0ecf4ad80"
+              }
+            }
+          }
+        },
+        {
+          "commit_id": "0df5c2525106baab38b685ac0bd2fb1fedd44d23",
+          "tree_id": "ef905783754ae74f309d3c551397505f9551ec79",
+          "parents": [
+            "12032c6e047ae64ea4fd43a12f42c8b492f1cb7d",
+            "ba08436ded1ecf2292fbf05c18667a8296dd20d6"
+          ],
+          "dot_gitmodules": {
+            "mode": "100644",
+            "id": "0d2aaa7e76d00006d4e4f52cc26cf4a44d999e99"
+          },
+          "submodule_bumps": {
+            "subpath": {
+              "AddedOrModified": {
+                "repo_name": "name",
                 "commit_id": "2903c2551c192dca42419c599a1f8da9b7cc3480"
               }
             }
           }
         },
         {
-          "commit_id": "41ec359ef0cd54849a6180d605e126ceb1eab5f9",
-          "tree_id": "f8797b848823b6cbf575da059699384f4533a37e",
+          "commit_id": "13140e54e307cef67dc91603c7f98a9aea3e226e",
+          "tree_id": "59c7484ccc175ddcd34c64b88a374288bb0480a1",
           "parents": [
-            "b055adba931f6e420960d9ed13674497c690dd9b"
+            "0df5c2525106baab38b685ac0bd2fb1fedd44d23"
           ],
           "dot_gitmodules": {
             "mode": "100644",
-            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+            "id": "0d2aaa7e76d00006d4e4f52cc26cf4a44d999e99"
           },
           "submodule_bumps": {
-            "sub": {
+            "subpath": {
               "AddedOrModified": {
-                "repo_name": "sub",
+                "repo_name": "name",
                 "commit_id": "dbed55f447fe4f4977bde97833d77ad311c50d72"
               }
             }
           }
         },
         {
-          "commit_id": "5517f2e13949b153e85e687c0487798d2c60bba5",
-          "tree_id": "1168a40c535736475e84c0b34cce9397451aade1",
+          "commit_id": "be6c5b30771d5ed615b5470dba1c4732d8154e5d",
+          "tree_id": "dba2cff2aaec668998a4bf41549e351ca594178c",
           "parents": [
-            "41ec359ef0cd54849a6180d605e126ceb1eab5f9"
+            "13140e54e307cef67dc91603c7f98a9aea3e226e"
           ],
           "dot_gitmodules": {
             "mode": "100644",
-            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+            "id": "0d2aaa7e76d00006d4e4f52cc26cf4a44d999e99"
           },
           "submodule_bumps": {
-            "sub": {
+            "subpath": {
               "AddedOrModified": {
-                "repo_name": "sub",
+                "repo_name": "name",
                 "commit_id": "e9cbab3933de00b9911865e620820d326a208028"
               }
             }
           }
         },
         {
-          "commit_id": "52ba1eda1b794272abaeaa3875eb3c4cd3a59734",
-          "tree_id": "36c98baecf1cac89ba3daf7974991f45f6c6d989",
+          "commit_id": "3f9ecd12bef87543440635e222136f080ebc69f5",
+          "tree_id": "148a412804d9dcf0c145cc9d4179b15b7f1e4d78",
           "parents": [
-            "b055adba931f6e420960d9ed13674497c690dd9b",
-            "5517f2e13949b153e85e687c0487798d2c60bba5"
+            "0df5c2525106baab38b685ac0bd2fb1fedd44d23",
+            "be6c5b30771d5ed615b5470dba1c4732d8154e5d"
           ],
           "dot_gitmodules": {
             "mode": "100644",
-            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+            "id": "0d2aaa7e76d00006d4e4f52cc26cf4a44d999e99"
           },
           "submodule_bumps": {}
         },
         {
-          "commit_id": "4f4531cc9ecf946fef57fc4ad8c48edbbccdf220",
-          "tree_id": "75758f9ae284c7e85ffbea7e05d27e3ec6629cb2",
+          "commit_id": "99d84ad7509635b63fc12cc49606b54182b1f96b",
+          "tree_id": "984ac39d524e6b77e0a4adad9280b11f1c5bca5b",
           "parents": [
-            "b055adba931f6e420960d9ed13674497c690dd9b",
-            "52ba1eda1b794272abaeaa3875eb3c4cd3a59734"
+            "0df5c2525106baab38b685ac0bd2fb1fedd44d23",
+            "3f9ecd12bef87543440635e222136f080ebc69f5"
           ],
           "dot_gitmodules": {
             "mode": "100644",
-            "id": "526ca13733ac957333d89cc067d5ce71fdbce603"
+            "id": "0d2aaa7e76d00006d4e4f52cc26cf4a44d999e99"
           },
           "submodule_bumps": {
-            "sub": {
+            "subpath": {
               "AddedOrModified": {
-                "repo_name": "sub",
+                "repo_name": "name",
                 "commit_id": "9554dde5ce3ac625acc4fd352d4c416dfb6eeb41"
               }
             }
@@ -284,26 +284,26 @@ expression: example_import_cache_json
         }
       ],
       "dedup_cache": {
-        "01757b70c6202d7ec455aa7aa25e7cbeaa82217b": "5517f2e13949b153e85e687c0487798d2c60bba5",
-        "0b072b80bc5fe37964ad4fa4a2339ebb7179ff79": "528f7d4ef927815530803fe90cff727b5ecc7660",
-        "0d39b32b83de053fa98449797e28029dda2aba1e": "41ec359ef0cd54849a6180d605e126ceb1eab5f9",
-        "2119f83b141f7b9c7cf9799e1435f5b7e637569b": "60015887808c4a8721fe88118e00836e58446be7",
-        "2f6d2cb7b0b7de91365c32a5fe955602ff4a58bb": "48c1c78c0d7134ac414446f5374a07780bfbfe0e",
-        "43091301736e3184a4fd7a8db8125743c3b9e1f9": "52ba1eda1b794272abaeaa3875eb3c4cd3a59734",
-        "5401350ae12305e7b4b76de9632afb074e52ca06": "a235165c84ee49036461a6fa0e722514acfca289",
-        "7242c9e0ab39aa831cbb9d6ab8d817f0be6d8ef3": "1e4ca4909c255ad55def21a07b9acba43805ae3c",
-        "7db003614264721b089b515aee7498650ee4e3e8": "3f11df6fef17b829d892d1ea00fd1cf17168e78c",
-        "89d8e42e5a897b770dd3ec52772bcf294740df88": "5b52f75ef3ea96cc06932f6a48d05687e1a5bcdd",
-        "a1cc78e2097673fe5f7ea0fae0e7cfd0ef750934": "4ceb005e5e4a5d38a03ced78a677ce10368d3c9e",
-        "ab6d4da2d8058fb99601cfaf4500bf4657543eca": "a8f46977939d7dd470c1e3761aab27f6a691304b",
-        "bd2a83b4d8c78af5284831fc8b1254a4d2b78e65": "4f4531cc9ecf946fef57fc4ad8c48edbbccdf220",
-        "d118801154c4920a2be90a5c86e007a7ba2d93a6": "0f506eea0a05f3ccae334f66ba2e98d06790cf6a",
-        "e58d9366829b2f6deee98f5144036b25185c2731": "b055adba931f6e420960d9ed13674497c690dd9b",
-        "f7eabf1a98e165e4fae9f6f7ffd3960852849e3f": "d4e089cb28015ad7b27936c71de9d75c28f000d3"
+        "1b1c74f9231639fe2d7b17285adb96f2ce331797": "46c4e7b2410d2b47a61c26e94e42627a3e18be16",
+        "24a2342d4f77eed87a405d3383a28f2fbfc1295d": "218dafd2d2391999c4c3e4aa40dd7b5ac1260c17",
+        "2fc3d91fd450b6e37e7a0550c7330b997d21643a": "12032c6e047ae64ea4fd43a12f42c8b492f1cb7d",
+        "32879dcb373c67413feb67994907b9e6dcab188b": "73e66a375bbc6000ba600a3703429c071a6ed11c",
+        "51ebf5b923b8c2aa9dc6856ed5ac9cf8ec96f364": "3f9ecd12bef87543440635e222136f080ebc69f5",
+        "52df6a1f81f1d12d614a9460e16c8efed5fb08d6": "d40b56e3d7390f4ab72a3fcef7e71a56679e8a17",
+        "55a9ab2802fcaca94b0639db1cae62c05b300b4f": "13140e54e307cef67dc91603c7f98a9aea3e226e",
+        "7d4a882f3106a5f95f6487bae106319e520a3f8d": "2db880ac1f5f60b957984b13fadc9320e6b9e796",
+        "82dc32d62f16c0898a38c871b6d49ab5676a901a": "c94e878c6a8e1c93cf6dc2b7a32abe68231c6fa6",
+        "917a0db53dccd4482f9cb39ce44cb3b5c1ea3d25": "ba08436ded1ecf2292fbf05c18667a8296dd20d6",
+        "946afe1ff7d4ed018469a2107bdc5dab586c3012": "99d84ad7509635b63fc12cc49606b54182b1f96b",
+        "9e0e7f3f7d99db071b086145bd8751213d28b370": "0df5c2525106baab38b685ac0bd2fb1fedd44d23",
+        "acec18d074ff20a466a63320b5651f61f434e4a3": "069eeba9e2420340bf6f2723fdb24c7b9086dd27",
+        "d0536e7bd0167b09c703246348393b40e4d1d37a": "be6c5b30771d5ed615b5470dba1c4732d8154e5d",
+        "d3df3e9c3f88be03ea2ae536bc0a40749bc3f35f": "5cc78f49abe74311150984fc251a80af64f2ade4",
+        "e6a80878eab284be3f7b54ff6e5ef19ca0a3bc2e": "df501158bb485fc6f4795ed4e1e5941d039f788c"
       }
     },
-    "sub": {
-      "url": "../sub/",
+    "name": {
+      "url": "../repo/",
       "thin_commits": [
         {
           "commit_id": "af8092ec3806ca29c9e36874d74fe027e3a77e88",
@@ -462,16 +462,16 @@ expression: example_import_cache_json
   },
   "monorepo_commits": [
     {
-      "commit_id": "98231b6d1d371bb1997afd7aa5d3898ed1f17609",
+      "commit_id": "b9a0380198306f2a9baef22f6d39a7a884473f27",
       "parents": [],
-      "top_bump": "a235165c84ee49036461a6fa0e722514acfca289",
+      "top_bump": "069eeba9e2420340bf6f2723fdb24c7b9086dd27",
       "submodule_bumps": {}
     },
     {
-      "commit_id": "192a2408744b66d045f428a79ed5dba2ed4941f1",
+      "commit_id": "ce78d24c26aa944f2845792b1fe430e7abf6369d",
       "parents": [
         {
-          "Mono": "98231b6d1d371bb1997afd7aa5d3898ed1f17609"
+          "Mono": "b9a0380198306f2a9baef22f6d39a7a884473f27"
         },
         {
           "OriginalSubmod": {
@@ -479,12 +479,12 @@ expression: example_import_cache_json
           }
         }
       ],
-      "top_bump": "4ceb005e5e4a5d38a03ced78a677ce10368d3c9e",
+      "top_bump": "73e66a375bbc6000ba600a3703429c071a6ed11c",
       "submodule_bumps": {
-        "sub": {
+        "subpath": {
           "Expanded": {
             "Expanded": {
-              "repo_name": "sub",
+              "repo_name": "name",
               "orig_commit_id": "da37f5616c317ec223fe1080825d59ae36cf3e1c"
             }
           }
@@ -492,28 +492,28 @@ expression: example_import_cache_json
       }
     },
     {
-      "commit_id": "d438dd9a7f79f91546ecddc210ddd977885aae76",
+      "commit_id": "070e48053546be21c72404be787cf1d04f3fdd1e",
       "parents": [
         {
-          "Mono": "192a2408744b66d045f428a79ed5dba2ed4941f1"
+          "Mono": "ce78d24c26aa944f2845792b1fe430e7abf6369d"
         }
       ],
-      "top_bump": "d4e089cb28015ad7b27936c71de9d75c28f000d3",
+      "top_bump": "218dafd2d2391999c4c3e4aa40dd7b5ac1260c17",
       "submodule_bumps": {}
     },
     {
-      "commit_id": "78df1c2c163d0139951fb5145c8ec62e1b7fc661",
+      "commit_id": "4a465d5940aab4d51781ff29b239af1ca9061838",
       "parents": [
         {
-          "Mono": "d438dd9a7f79f91546ecddc210ddd977885aae76"
+          "Mono": "070e48053546be21c72404be787cf1d04f3fdd1e"
         }
       ],
-      "top_bump": "3f11df6fef17b829d892d1ea00fd1cf17168e78c",
+      "top_bump": "df501158bb485fc6f4795ed4e1e5941d039f788c",
       "submodule_bumps": {
-        "sub": {
+        "subpath": {
           "Expanded": {
             "Expanded": {
-              "repo_name": "sub",
+              "repo_name": "name",
               "orig_commit_id": "5c77b8c321d915c670fbc93e25fc794f6c5e6fcf"
             }
           }
@@ -521,18 +521,18 @@ expression: example_import_cache_json
       }
     },
     {
-      "commit_id": "fc3b201e80542633776cacd2f1daeb096d11f74d",
+      "commit_id": "6194be608dbd458be9ef573381650499edc96541",
       "parents": [
         {
-          "Mono": "78df1c2c163d0139951fb5145c8ec62e1b7fc661"
+          "Mono": "4a465d5940aab4d51781ff29b239af1ca9061838"
         }
       ],
       "top_bump": null,
       "submodule_bumps": {
-        "sub": {
+        "subpath": {
           "Expanded": {
             "Expanded": {
-              "repo_name": "sub",
+              "repo_name": "name",
               "orig_commit_id": "992625a824c7c9af30289d3f2de755307c61e286"
             }
           }
@@ -540,21 +540,21 @@ expression: example_import_cache_json
       }
     },
     {
-      "commit_id": "c1c0d0c682f8cd06e35b1e5375f66de1a2d8b6f9",
+      "commit_id": "ca9f657cf7298bdad40baba9553408406fbc57a3",
       "parents": [
         {
-          "Mono": "78df1c2c163d0139951fb5145c8ec62e1b7fc661"
+          "Mono": "4a465d5940aab4d51781ff29b239af1ca9061838"
         },
         {
-          "Mono": "fc3b201e80542633776cacd2f1daeb096d11f74d"
+          "Mono": "6194be608dbd458be9ef573381650499edc96541"
         }
       ],
-      "top_bump": "60015887808c4a8721fe88118e00836e58446be7",
+      "top_bump": "d40b56e3d7390f4ab72a3fcef7e71a56679e8a17",
       "submodule_bumps": {
-        "sub": {
+        "subpath": {
           "Expanded": {
             "Expanded": {
-              "repo_name": "sub",
+              "repo_name": "name",
               "orig_commit_id": "d971db2bbcd8ffaeaaef7e437b51b706cc95993d"
             }
           }
@@ -562,28 +562,28 @@ expression: example_import_cache_json
       }
     },
     {
-      "commit_id": "807846e8f8c79432b4c691ab7a18978a41c9bd06",
+      "commit_id": "de9dfa445f13b533b3e7d53df4425643e8ac51f1",
       "parents": [
         {
-          "Mono": "c1c0d0c682f8cd06e35b1e5375f66de1a2d8b6f9"
+          "Mono": "ca9f657cf7298bdad40baba9553408406fbc57a3"
         }
       ],
-      "top_bump": "a8f46977939d7dd470c1e3761aab27f6a691304b",
+      "top_bump": "5cc78f49abe74311150984fc251a80af64f2ade4",
       "submodule_bumps": {}
     },
     {
-      "commit_id": "3f5fd4513a6672f0c4c5ad320fb6789d7b835790",
+      "commit_id": "436d705dcfa1dcd8c5f994ca129c5972c1e0f7f1",
       "parents": [
         {
-          "Mono": "807846e8f8c79432b4c691ab7a18978a41c9bd06"
+          "Mono": "de9dfa445f13b533b3e7d53df4425643e8ac51f1"
         }
       ],
       "top_bump": null,
       "submodule_bumps": {
-        "sub": {
+        "subpath": {
           "Expanded": {
             "Expanded": {
-              "repo_name": "sub",
+              "repo_name": "name",
               "orig_commit_id": "6101de2201c29ad2776337c2b00bb8b40eea28ae"
             }
           }
@@ -591,21 +591,21 @@ expression: example_import_cache_json
       }
     },
     {
-      "commit_id": "7e8d63a4dc8c39a9619317e4bf38549fe70a3230",
+      "commit_id": "b6733ef32d6d4bb5287ce444cc83fad2d64f2dcd",
       "parents": [
         {
-          "Mono": "807846e8f8c79432b4c691ab7a18978a41c9bd06"
+          "Mono": "de9dfa445f13b533b3e7d53df4425643e8ac51f1"
         },
         {
-          "Mono": "3f5fd4513a6672f0c4c5ad320fb6789d7b835790"
+          "Mono": "436d705dcfa1dcd8c5f994ca129c5972c1e0f7f1"
         }
       ],
-      "top_bump": "0f506eea0a05f3ccae334f66ba2e98d06790cf6a",
+      "top_bump": "c94e878c6a8e1c93cf6dc2b7a32abe68231c6fa6",
       "submodule_bumps": {
-        "sub": {
+        "subpath": {
           "Expanded": {
             "Expanded": {
-              "repo_name": "sub",
+              "repo_name": "name",
               "orig_commit_id": "8560dae0bf89676911fa4c9c70a1a8415f81830f"
             }
           }
@@ -613,37 +613,18 @@ expression: example_import_cache_json
       }
     },
     {
-      "commit_id": "60a77ab8ed2d4c673cb11e7f983d243409c85622",
+      "commit_id": "7e38d87a76e238d85d7e99781b40efd68f2c4e00",
       "parents": [
         {
-          "Mono": "7e8d63a4dc8c39a9619317e4bf38549fe70a3230"
+          "Mono": "b6733ef32d6d4bb5287ce444cc83fad2d64f2dcd"
         }
       ],
-      "top_bump": "528f7d4ef927815530803fe90cff727b5ecc7660",
+      "top_bump": "46c4e7b2410d2b47a61c26e94e42627a3e18be16",
       "submodule_bumps": {
-        "sub": {
+        "subpath": {
           "Expanded": {
             "Expanded": {
-              "repo_name": "sub",
-              "orig_commit_id": "ba9e6e31c29f7b0ece4794930b6049f91522f635"
-            }
-          }
-        }
-      }
-    },
-    {
-      "commit_id": "9cc647c93b9ca128c5846c78cfde4dbca36382b7",
-      "parents": [
-        {
-          "Mono": "7e8d63a4dc8c39a9619317e4bf38549fe70a3230"
-        }
-      ],
-      "top_bump": "1e4ca4909c255ad55def21a07b9acba43805ae3c",
-      "submodule_bumps": {
-        "sub": {
-          "Expanded": {
-            "Expanded": {
-              "repo_name": "sub",
+              "repo_name": "name",
               "orig_commit_id": "51d22bcaa20bc2c00a44d0ccd0a73d6cc6d9090c"
             }
           }
@@ -651,37 +632,37 @@ expression: example_import_cache_json
       }
     },
     {
-      "commit_id": "1891f900ebdd77c837f64915af659a49c8287940",
+      "commit_id": "f73cb13cf5cf850227864033a11298bcfdd7d16b",
       "parents": [
         {
-          "Mono": "9cc647c93b9ca128c5846c78cfde4dbca36382b7"
+          "Mono": "b6733ef32d6d4bb5287ce444cc83fad2d64f2dcd"
         }
       ],
-      "top_bump": "5b52f75ef3ea96cc06932f6a48d05687e1a5bcdd",
+      "top_bump": "2db880ac1f5f60b957984b13fadc9320e6b9e796",
       "submodule_bumps": {
-        "sub": {
+        "subpath": {
           "Expanded": {
             "Expanded": {
-              "repo_name": "sub",
-              "orig_commit_id": "23aaa97e0c677f66d417037924aec18e36b4c383"
+              "repo_name": "name",
+              "orig_commit_id": "ba9e6e31c29f7b0ece4794930b6049f91522f635"
             }
           }
         }
       }
     },
     {
-      "commit_id": "93384210c23aca3d705584d81eb29489282729b7",
+      "commit_id": "3bd4529f242bf0cc8dfd4a4c7148a125fe9aa654",
       "parents": [
         {
-          "Mono": "60a77ab8ed2d4c673cb11e7f983d243409c85622"
+          "Mono": "f73cb13cf5cf850227864033a11298bcfdd7d16b"
         }
       ],
-      "top_bump": "48c1c78c0d7134ac414446f5374a07780bfbfe0e",
+      "top_bump": "ba08436ded1ecf2292fbf05c18667a8296dd20d6",
       "submodule_bumps": {
-        "sub": {
+        "subpath": {
           "Expanded": {
             "Expanded": {
-              "repo_name": "sub",
+              "repo_name": "name",
               "orig_commit_id": "23de8b96349af3576546122ec94380e0ecf4ad80"
             }
           }
@@ -689,21 +670,40 @@ expression: example_import_cache_json
       }
     },
     {
-      "commit_id": "dbf519c10ce782002dc851ba73d1bf9bcc8eceb7",
+      "commit_id": "8dce0fb97c714dbfd90dd57e4ec6520c38b146f3",
       "parents": [
         {
-          "Mono": "1891f900ebdd77c837f64915af659a49c8287940"
-        },
-        {
-          "Mono": "93384210c23aca3d705584d81eb29489282729b7"
+          "Mono": "7e38d87a76e238d85d7e99781b40efd68f2c4e00"
         }
       ],
-      "top_bump": "b055adba931f6e420960d9ed13674497c690dd9b",
+      "top_bump": "12032c6e047ae64ea4fd43a12f42c8b492f1cb7d",
       "submodule_bumps": {
-        "sub": {
+        "subpath": {
           "Expanded": {
             "Expanded": {
-              "repo_name": "sub",
+              "repo_name": "name",
+              "orig_commit_id": "23aaa97e0c677f66d417037924aec18e36b4c383"
+            }
+          }
+        }
+      }
+    },
+    {
+      "commit_id": "481b742c9aac670a805a813250817fce06aa515b",
+      "parents": [
+        {
+          "Mono": "8dce0fb97c714dbfd90dd57e4ec6520c38b146f3"
+        },
+        {
+          "Mono": "3bd4529f242bf0cc8dfd4a4c7148a125fe9aa654"
+        }
+      ],
+      "top_bump": "0df5c2525106baab38b685ac0bd2fb1fedd44d23",
+      "submodule_bumps": {
+        "subpath": {
+          "Expanded": {
+            "Expanded": {
+              "repo_name": "name",
               "orig_commit_id": "2903c2551c192dca42419c599a1f8da9b7cc3480"
             }
           }
@@ -711,18 +711,18 @@ expression: example_import_cache_json
       }
     },
     {
-      "commit_id": "4e30f01414718663e0fb6817f83ebca9b44359c1",
+      "commit_id": "09ce848351c9028637f3c909193e50d941aedc0d",
       "parents": [
         {
-          "Mono": "dbf519c10ce782002dc851ba73d1bf9bcc8eceb7"
+          "Mono": "481b742c9aac670a805a813250817fce06aa515b"
         }
       ],
-      "top_bump": "41ec359ef0cd54849a6180d605e126ceb1eab5f9",
+      "top_bump": "13140e54e307cef67dc91603c7f98a9aea3e226e",
       "submodule_bumps": {
-        "sub": {
+        "subpath": {
           "Expanded": {
             "Expanded": {
-              "repo_name": "sub",
+              "repo_name": "name",
               "orig_commit_id": "dbed55f447fe4f4977bde97833d77ad311c50d72"
             }
           }
@@ -730,18 +730,18 @@ expression: example_import_cache_json
       }
     },
     {
-      "commit_id": "7277b17fa7f968a53b02d96a665e3e31d3ee81ae",
+      "commit_id": "77df392e4afbf05c5d82fdc8eb0ded99d7db6f56",
       "parents": [
         {
-          "Mono": "dbf519c10ce782002dc851ba73d1bf9bcc8eceb7"
+          "Mono": "481b742c9aac670a805a813250817fce06aa515b"
         }
       ],
       "top_bump": null,
       "submodule_bumps": {
-        "sub": {
+        "subpath": {
           "Expanded": {
             "Expanded": {
-              "repo_name": "sub",
+              "repo_name": "name",
               "orig_commit_id": "dbed55f447fe4f4977bde97833d77ad311c50d72"
             }
           }
@@ -749,18 +749,18 @@ expression: example_import_cache_json
       }
     },
     {
-      "commit_id": "9e2fef495831d7ee9fc186b9de73c9c013cc9922",
+      "commit_id": "06b0ea8386432f3c38eade0f17c55c973830f897",
       "parents": [
         {
-          "Mono": "7277b17fa7f968a53b02d96a665e3e31d3ee81ae"
+          "Mono": "09ce848351c9028637f3c909193e50d941aedc0d"
         }
       ],
-      "top_bump": null,
+      "top_bump": "be6c5b30771d5ed615b5470dba1c4732d8154e5d",
       "submodule_bumps": {
-        "sub": {
+        "subpath": {
           "Expanded": {
             "Expanded": {
-              "repo_name": "sub",
+              "repo_name": "name",
               "orig_commit_id": "e9cbab3933de00b9911865e620820d326a208028"
             }
           }
@@ -768,18 +768,18 @@ expression: example_import_cache_json
       }
     },
     {
-      "commit_id": "c808a1a99f83a66cabf6a77de45ff92e17d3a91d",
+      "commit_id": "afec67567e7cd3bd63325c39387a056292067933",
       "parents": [
         {
-          "Mono": "4e30f01414718663e0fb6817f83ebca9b44359c1"
+          "Mono": "77df392e4afbf05c5d82fdc8eb0ded99d7db6f56"
         }
       ],
-      "top_bump": "5517f2e13949b153e85e687c0487798d2c60bba5",
+      "top_bump": null,
       "submodule_bumps": {
-        "sub": {
+        "subpath": {
           "Expanded": {
             "Expanded": {
-              "repo_name": "sub",
+              "repo_name": "name",
               "orig_commit_id": "e9cbab3933de00b9911865e620820d326a208028"
             }
           }
@@ -787,18 +787,18 @@ expression: example_import_cache_json
       }
     },
     {
-      "commit_id": "591fd0d0d35e71d6e2550787eed365ec105c2abf",
+      "commit_id": "4aa351c30d70b197af8bfa1786e34d8f15764ee6",
       "parents": [
         {
-          "Mono": "c808a1a99f83a66cabf6a77de45ff92e17d3a91d"
+          "Mono": "06b0ea8386432f3c38eade0f17c55c973830f897"
         }
       ],
       "top_bump": null,
       "submodule_bumps": {
-        "sub": {
+        "subpath": {
           "Expanded": {
             "Expanded": {
-              "repo_name": "sub",
+              "repo_name": "name",
               "orig_commit_id": "2903c2551c192dca42419c599a1f8da9b7cc3480"
             }
           }
@@ -806,40 +806,40 @@ expression: example_import_cache_json
       }
     },
     {
-      "commit_id": "5d250b7cabe206833d512a18d266eeb7e3b0a7fc",
+      "commit_id": "17f55c320f653f7205561d5f0ccb349950530120",
       "parents": [
         {
-          "Mono": "dbf519c10ce782002dc851ba73d1bf9bcc8eceb7"
+          "Mono": "481b742c9aac670a805a813250817fce06aa515b"
         },
         {
-          "Mono": "c808a1a99f83a66cabf6a77de45ff92e17d3a91d"
+          "Mono": "06b0ea8386432f3c38eade0f17c55c973830f897"
         },
         {
-          "Mono": "591fd0d0d35e71d6e2550787eed365ec105c2abf"
+          "Mono": "4aa351c30d70b197af8bfa1786e34d8f15764ee6"
         }
       ],
-      "top_bump": "52ba1eda1b794272abaeaa3875eb3c4cd3a59734",
+      "top_bump": "3f9ecd12bef87543440635e222136f080ebc69f5",
       "submodule_bumps": {}
     },
     {
-      "commit_id": "0e2c0762835b776c83d98dd8be2985eeb9c11d39",
+      "commit_id": "7afbc9f4628f32b8e835b91db780e88cc8a7f316",
       "parents": [
         {
-          "Mono": "dbf519c10ce782002dc851ba73d1bf9bcc8eceb7"
+          "Mono": "481b742c9aac670a805a813250817fce06aa515b"
         },
         {
-          "Mono": "5d250b7cabe206833d512a18d266eeb7e3b0a7fc"
+          "Mono": "17f55c320f653f7205561d5f0ccb349950530120"
         },
         {
-          "Mono": "9e2fef495831d7ee9fc186b9de73c9c013cc9922"
+          "Mono": "afec67567e7cd3bd63325c39387a056292067933"
         }
       ],
-      "top_bump": "4f4531cc9ecf946fef57fc4ad8c48edbbccdf220",
+      "top_bump": "99d84ad7509635b63fc12cc49606b54182b1f96b",
       "submodule_bumps": {
-        "sub": {
+        "subpath": {
           "Expanded": {
             "Expanded": {
-              "repo_name": "sub",
+              "repo_name": "name",
               "orig_commit_id": "9554dde5ce3ac625acc4fd352d4c416dfb6eeb41"
             }
           }
@@ -848,22 +848,22 @@ expression: example_import_cache_json
     }
   ],
   "top_to_mono_commit_map": {
-    "0f506eea0a05f3ccae334f66ba2e98d06790cf6a": "7e8d63a4dc8c39a9619317e4bf38549fe70a3230",
-    "1e4ca4909c255ad55def21a07b9acba43805ae3c": "9cc647c93b9ca128c5846c78cfde4dbca36382b7",
-    "3f11df6fef17b829d892d1ea00fd1cf17168e78c": "78df1c2c163d0139951fb5145c8ec62e1b7fc661",
-    "41ec359ef0cd54849a6180d605e126ceb1eab5f9": "4e30f01414718663e0fb6817f83ebca9b44359c1",
-    "48c1c78c0d7134ac414446f5374a07780bfbfe0e": "93384210c23aca3d705584d81eb29489282729b7",
-    "4ceb005e5e4a5d38a03ced78a677ce10368d3c9e": "192a2408744b66d045f428a79ed5dba2ed4941f1",
-    "4f4531cc9ecf946fef57fc4ad8c48edbbccdf220": "0e2c0762835b776c83d98dd8be2985eeb9c11d39",
-    "528f7d4ef927815530803fe90cff727b5ecc7660": "60a77ab8ed2d4c673cb11e7f983d243409c85622",
-    "52ba1eda1b794272abaeaa3875eb3c4cd3a59734": "5d250b7cabe206833d512a18d266eeb7e3b0a7fc",
-    "5517f2e13949b153e85e687c0487798d2c60bba5": "c808a1a99f83a66cabf6a77de45ff92e17d3a91d",
-    "5b52f75ef3ea96cc06932f6a48d05687e1a5bcdd": "1891f900ebdd77c837f64915af659a49c8287940",
-    "60015887808c4a8721fe88118e00836e58446be7": "c1c0d0c682f8cd06e35b1e5375f66de1a2d8b6f9",
-    "a235165c84ee49036461a6fa0e722514acfca289": "98231b6d1d371bb1997afd7aa5d3898ed1f17609",
-    "a8f46977939d7dd470c1e3761aab27f6a691304b": "807846e8f8c79432b4c691ab7a18978a41c9bd06",
-    "b055adba931f6e420960d9ed13674497c690dd9b": "dbf519c10ce782002dc851ba73d1bf9bcc8eceb7",
-    "d4e089cb28015ad7b27936c71de9d75c28f000d3": "d438dd9a7f79f91546ecddc210ddd977885aae76"
+    "069eeba9e2420340bf6f2723fdb24c7b9086dd27": "b9a0380198306f2a9baef22f6d39a7a884473f27",
+    "0df5c2525106baab38b685ac0bd2fb1fedd44d23": "481b742c9aac670a805a813250817fce06aa515b",
+    "12032c6e047ae64ea4fd43a12f42c8b492f1cb7d": "8dce0fb97c714dbfd90dd57e4ec6520c38b146f3",
+    "13140e54e307cef67dc91603c7f98a9aea3e226e": "09ce848351c9028637f3c909193e50d941aedc0d",
+    "218dafd2d2391999c4c3e4aa40dd7b5ac1260c17": "070e48053546be21c72404be787cf1d04f3fdd1e",
+    "2db880ac1f5f60b957984b13fadc9320e6b9e796": "f73cb13cf5cf850227864033a11298bcfdd7d16b",
+    "3f9ecd12bef87543440635e222136f080ebc69f5": "17f55c320f653f7205561d5f0ccb349950530120",
+    "46c4e7b2410d2b47a61c26e94e42627a3e18be16": "7e38d87a76e238d85d7e99781b40efd68f2c4e00",
+    "5cc78f49abe74311150984fc251a80af64f2ade4": "de9dfa445f13b533b3e7d53df4425643e8ac51f1",
+    "73e66a375bbc6000ba600a3703429c071a6ed11c": "ce78d24c26aa944f2845792b1fe430e7abf6369d",
+    "99d84ad7509635b63fc12cc49606b54182b1f96b": "7afbc9f4628f32b8e835b91db780e88cc8a7f316",
+    "ba08436ded1ecf2292fbf05c18667a8296dd20d6": "3bd4529f242bf0cc8dfd4a4c7148a125fe9aa654",
+    "be6c5b30771d5ed615b5470dba1c4732d8154e5d": "06b0ea8386432f3c38eade0f17c55c973830f897",
+    "c94e878c6a8e1c93cf6dc2b7a32abe68231c6fa6": "b6733ef32d6d4bb5287ce444cc83fad2d64f2dcd",
+    "d40b56e3d7390f4ab72a3fcef7e71a56679e8a17": "ca9f657cf7298bdad40baba9553408406fbc57a3",
+    "df501158bb485fc6f4795ed4e1e5941d039f788c": "4a465d5940aab4d51781ff29b239af1ca9061838"
   },
   "dedup": {
     "commits": {}
