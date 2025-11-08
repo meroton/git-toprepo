@@ -11,7 +11,10 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: [ubuntu-latest] # TODO: macos-latest, windows-latest
+        os:
+          # TODO: windows-latest
+          - ubuntu-latest
+          - macos-latest
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     env:
@@ -36,21 +39,39 @@ jobs:
       fail-fast: true
       matrix:
         platform:
+          - { suffix: darwin-x86_64, rust_target: x86_64-apple-darwin }
+          - { suffix: darwin-aarch64, rust_target: aarch64-apple-darwin }
           - { suffix: linux-x86_64, rust_target: x86_64-unknown-linux-musl }
+          - { suffix: linux-aarch64, rust_target: aarch64-unknown-linux-musl }
     name: build (${{ matrix.platform.rust_target }})
     runs-on: ubuntu-latest
     env:
       CARGO_TERM_COLOR: always
     steps:
-      - uses: actions/checkout@v4
-      # Install the toolchain before rust-cache.
-      - shell: bash
-        run: rustup target add ${{ matrix.platform.rust_target }}
-      - uses: Swatinem/rust-cache@v2
+      - name: Set up MacOS Cross Compiler
+        if: ${{ endsWith(matrix.platform.rust_target, '-apple-darwin') }}
+        uses: Timmmm/setup-osxcross@v2
+        with:
+          # Using the version for macos-latest.
+          # https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
+          osx-version: "15.5"
 
-      - name: Build ${{ matrix.platform.rust_target }}
+      - uses: actions/checkout@v4
+      - name: Collect build metadata
+        id: build_metadata
         shell: bash
-        run: cargo build --release --target ${{ matrix.platform.rust_target }}
+        run: |
+          set -eux
+          sed -n 's/channel = "\(.*\)"/rust_toolchain=\1/p' < rust-toolchain.toml >> $GITHUB_OUTPUT
+      - name: Build ${{ matrix.platform.rust_target }}
+        uses: houseabsolute/actions-rust-cross@v1
+        with:
+          command: build
+          toolchain: ${{ steps.build_metadata.outputs.rust_toolchain }}
+          target: ${{ matrix.platform.rust_target }}
+          args: "--locked --release"
+          # Keep stack traces, 12 MiB instead of 9 MiB.
+          strip: false
       - name: Upload ${{ matrix.platform.rust_target }}
         if: ${{ github.event_name == 'push' }}
         uses: actions/upload-artifact@v4
@@ -58,7 +79,6 @@ jobs:
           name: git-toprepo-${{ matrix.platform.suffix }}
           path: target/${{ matrix.platform.rust_target }}/release/git-toprepo
           if-no-files-found: error
-
       - name: Check for modified workspace
         shell: bash
         run: git add . && git diff --exit-code HEAD --
@@ -67,7 +87,9 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os:
+          - ubuntu-latest
+          - macos-latest
     name: nix-build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     permissions:
