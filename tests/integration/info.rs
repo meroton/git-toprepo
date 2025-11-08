@@ -37,12 +37,14 @@ fn print_specific_value() {
 
 #[test]
 fn print_in_monorepo_worktree() {
-    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+    let temp_dir_guard = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
             "../integration/fixtures/make_minimal_with_worktree.sh",
         )
         .unwrap(),
     );
+    // macOS needs canonicalize() to resolve the /var symlink into /private/var.
+    let temp_dir = temp_dir_guard.canonicalize().unwrap();
     let monorepo = temp_dir.join("mono");
     let worktree = temp_dir.join("worktree");
 
@@ -99,7 +101,9 @@ version "#,
 
 #[test]
 fn print_in_basic_git_repo() {
-    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
+    let temp_dir_guard = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
+    // macOS needs canonicalize() to resolve the /var symlink into /private/var.
+    let temp_dir = temp_dir_guard.canonicalize().unwrap();
     git_command_for_testing(&temp_dir)
         .args(["init", "--initial-branch", "main"])
         .assert()
