@@ -25,14 +25,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify git hash
+        shell: bash
         run: |
           set -eux
           [ "$(git rev-parse HEAD)" == "$(git rev-parse ${{ github.event.release.tag_name }})" ]
       # Install the toolchain before rust-cache.
-      - run: rustup target add ${{ matrix.platform.rust_target }}
+      - shell: bash
+        run: rustup target add ${{ matrix.platform.rust_target }}
       - uses: Swatinem/rust-cache@v2
 
       - name: Build ${{ matrix.platform.rust_target }}
+        shell: bash
         run: |
           set -eux
           export BUILD_SCM_TAG="${{ github.event.release.tag_name }}"
@@ -42,6 +45,7 @@ jobs:
           # Make the downloaded filename the same as the link on the GitHub release page.
           mv target/${{ matrix.platform.rust_target }}/release/git-toprepo git-toprepo-${{ github.event.release.tag_name }}-${{ matrix.platform.suffix }}
       - name: Publish ${{ matrix.platform.rust_target }}
+        shell: bash
         run: gh release upload ${{ github.event.release.tag_name }} git-toprepo-${{ github.event.release.tag_name }}-${{ matrix.platform.suffix }} --clobber
         env:
           GITHUB_TOKEN: ${{ github.TOKEN }}

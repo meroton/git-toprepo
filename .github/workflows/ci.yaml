@@ -20,12 +20,15 @@ jobs:
       - uses: actions/checkout@v4
       # Upgrade tools before rust-cache.
       # Use nightly instead of 'stable' to get improved rustfmt features.
-      - run: rustup show
+      - shell: bash
+        run: rustup show
       - uses: Swatinem/rust-cache@v2
 
       - name: Build and test
+        shell: bash
         run: ./build-and-test.sh ci
       - name: Check for modified workspace
+        shell: bash
         run: git add . && git diff --exit-code HEAD --
 
   build:
@@ -42,10 +45,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # Install the toolchain before rust-cache.
-      - run: rustup target add ${{ matrix.platform.rust_target }}
+      - shell: bash
+        run: rustup target add ${{ matrix.platform.rust_target }}
       - uses: Swatinem/rust-cache@v2
 
       - name: Build ${{ matrix.platform.rust_target }}
+        shell: bash
         run: cargo build --release --target ${{ matrix.platform.rust_target }}
       - name: Upload ${{ matrix.platform.rust_target }}
         if: ${{ github.event_name == 'push' }}
@@ -56,6 +61,7 @@ jobs:
           if-no-files-found: error
 
       - name: Check for modified workspace
+        shell: bash
         run: git add . && git diff --exit-code HEAD --
 
   nix-build:
@@ -95,4 +101,5 @@ jobs:
           # except any version with the key that is the same as the `primary-key`
           purge-primary-key: never
       - name: Build
+        shell: bash
         run: nix build
