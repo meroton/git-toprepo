@@ -36,8 +36,7 @@ jobs:
       fail-fast: true
       matrix:
         platform:
-          - rust_target: x86_64-unknown-linux-musl
-            suffix: .linux_amd64
+          - { suffix: linux-x86_64, rust_target: x86_64-unknown-linux-musl }
     name: build (${{ matrix.platform.rust_target }})
     runs-on: ubuntu-latest
     env:
@@ -56,7 +55,7 @@ jobs:
         if: ${{ github.event_name == 'push' }}
         uses: actions/upload-artifact@v4
         with:
-          name: git-toprepo${{ matrix.platform.suffix }}
+          name: git-toprepo-${{ matrix.platform.suffix }}
           path: target/${{ matrix.platform.rust_target }}/release/git-toprepo
           if-no-files-found: error
 
