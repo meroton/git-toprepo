@@ -15,8 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - rust_target: x86_64-unknown-linux-musl
-            suffix: linux-x86_64
+          - { suffix: linux-x86_64, rust_target: x86_64-unknown-linux-musl }
     name: publish (${{ matrix.platform.rust_target }})
     environment: release-on-github
     runs-on: ubuntu-latest
