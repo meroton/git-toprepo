@@ -322,9 +322,8 @@ pub struct Fetch {
     pub skip_combine: bool,
 
     /// A configured git-remote in the mono repository, a URL to a remote top
-    /// repository, a URL to a remote submodule repository, a working directory
-    /// relative path to a submodule in the repository. This argument will be
-    /// used to resolve which URL to fetch from and which directory to filter
+    /// repository or a URL to a remote submodule repository. This argument will
+    /// be used to resolve which URL to fetch from and which directory to filter
     /// into, unless `--path` overrides the directory.
     #[arg(value_name = "REMOTE-ISH")]
     pub remote: Option<String>,
@@ -394,7 +393,6 @@ impl<'a> FetchParamsResolver<'a> {
     ) -> Result<ResolvedFetchParams> {
         // Convert from working directory relative `Path` to worktree relative
         // `GitPath`.
-        // TODO: 2025-09-22 why does this not have a git-toprepo object?
         let override_path = match override_path {
             Some(path) => Some(repo_relative_path(&self.worktree, path)?),
             None => None,
@@ -414,18 +412,15 @@ impl<'a> FetchParamsResolver<'a> {
         if self.repo.remote_names().contains(remote_bstr) {
             return self.resolve_as_remote_name(remote, override_path);
         }
-        // If not git-remote name, is it a worktree path?
-        if !remote.contains("://")
-            && let Some(ret) = self.try_resolve_as_worktree_path(remote, &override_path)?
-        {
-            return Ok(ret);
-        }
         let mut url = gix::Url::from_bytes(remote_bstr)?;
         if url.scheme == gix::url::Scheme::File
             && let Ok(cwd) = std::env::current_dir()
             && let Some(cwd_str) = cwd.to_str()
             && let Ok(cwd_url) = gix::Url::from_bytes(cwd_str.into())
         {
+            // If the remote is a local directory, the matching from url to the
+            // git-toprepo configured submodule need the path to be resolved to
+            // an absolute path. Matching ../../../path/to/repo doesn't work.
             url = cwd_url.join(&url);
         }
         // TODO: 2025-09-22 If we refactor the repo view to contain a list of all
@@ -506,44 +501,6 @@ impl<'a> FetchParamsResolver<'a> {
             path: override_path,
             url,
         })
-    }
-
-    fn try_resolve_as_worktree_path(
-        &self,
-        remote: &str,
-        override_path: &Option<GitPath>,
-    ) -> Result<Option<ResolvedFetchParams>> {
-        if override_path.is_some() {
-            anyhow::bail!(
-                "Cannot use --path when specifying a worktree relative path (submodule path) as 'remote-ish'"
-            );
-        }
-        match repo_relative_path(&self.worktree, Path::new(&remote)) {
-            Ok(repo_rel_path) if repo_rel_path.is_empty() => {
-                // If the path is empty, then it is the top repository.
-                Ok(Some(ResolvedFetchParams {
-                    repo: RepoName::Top,
-                    path: GitPath::default(),
-                    url: self.get_default_top_url()?,
-                }))
-            }
-            Ok(repo_rel_path) => {
-                // The path is relative to the worktree.
-                let (submod_name, submod_url) = self
-                    .get_submodule_from_path(&repo_rel_path)
-                    .with_context(|| format!("Submodule {repo_rel_path} not found in config"))?;
-                let full_url = self.get_default_top_url()?.join(&submod_url);
-                Ok(Some(ResolvedFetchParams {
-                    repo: RepoName::from(submod_name),
-                    path: repo_rel_path,
-                    url: full_url,
-                }))
-            }
-            Err(_err) => {
-                // Not a worktree path, so must be a URL.
-                Ok(None)
-            }
-        }
     }
 
     fn try_resolve_as_remote_url(
