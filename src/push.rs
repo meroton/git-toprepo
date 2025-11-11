@@ -289,7 +289,7 @@ fn split_for_push_impl(
                 // Calculate the commit messages for each submodule.
                 let mono_commit_message = exported_mono_commit.message.to_str()?;
                 let (push_messages, mut residual_message) =
-                    crate::commit_message::split_commit_message(mono_commit_message.to_owned())?;
+                    crate::commit_message::split_commit_message(mono_commit_message)?;
                 if residual_message.is_none() {
                     let one_message = push_messages.values().next().expect("at least one message");
                     if push_messages.values().all(|msg| msg == one_message) {
@@ -383,7 +383,7 @@ fn split_for_push_impl(
                         author_info: exported_mono_commit.author_info.clone(),
                         committer_info: exported_mono_commit.committer_info.clone(),
                         encoding: exported_mono_commit.encoding.clone(),
-                        message: bstr::BString::from(subrepo_message.message.clone()),
+                        message: bstr::BString::from(subrepo_message.full_message()),
                         file_changes,
                         parents,
                         original_id: None,
