@@ -1,3 +1,26 @@
+/// This module combines commit messages, from multiple submodule commit
+/// messages into a single mono commit message, and splitting a mono commit
+/// message apart again. The extra footer `Git-Toprepo-Ref: PATH [SHA1]`
+/// identifies the source for each message. This is also used when different
+/// messages for a single mono commit is wanted for the submodules involved.
+///
+/// # Commit message combination algorithm
+/// After the steps described below, the commit messages are concatenated with a
+/// single empty line as separator. The reverse operation of splitting is not
+/// perfect, i.e. multiple empty lines or no trailing newline will not be
+/// reproduced after splitting the mon commit messages.
+///
+/// 1. Automatic commit messages like: "Update submodules" are ignored.
+/// 2. The footer `Git-Toprepo-Ref: PATH [SHA1]` is added to each commit
+///    message.
+/// 3. Commit message with the same subject and body are deduplicated, the
+///    footers are concatenated.
+/// 4. Commit messages without footers have their footers placed first.
+/// 5. Footers are deduplicated by putting `Git-Toprepo-Ref` lines immediately
+///    after each other.
+/// 6. When splitting, the footers after the last `Git-Toprepo-Ref` line are
+///    applied to all the commit messages. The typical use case is that Gerrit's
+///    `Change-Id` has been added and should apply to all the commits.
 use crate::git::CommitId;
 use crate::git::GitPath;
 use crate::repo::ExpandedOrRemovedSubmodule;
@@ -7,10 +30,8 @@ use anyhow::anyhow;
 use bstr::BStr;
 use bstr::ByteSlice;
 use gix::prelude::ObjectIdExt as _;
-use itertools::Itertools;
-use std::collections::BTreeMap;
+use itertools::Itertools as _;
 use std::collections::HashMap;
-use std::collections::HashSet;
 
 /// The rewritten commit messages gets this additinal footer in the form
 /// `Git-Toprepo-Ref: path commit-id`.
@@ -50,17 +71,18 @@ pub fn calculate_mono_commit_message_from_commits(
             ));
             let (submod_message, status) = match submod {
                 ExpandedOrRemovedSubmodule::Expanded(ExpandedSubmodule::Expanded(submod)) => {
-                    let message = match get_and_decode_commit_message(repo, submod.orig_commit_id) {
-                        Ok(submod_message) => Some(submod_message),
-                        Err(err) => {
-                            log::warn!(
-                                "Failed to get commit message {} at {path}: {err:#}",
-                                submod.orig_commit_id
-                            );
-                            None
-                        }
-                    };
-                    (message, submod.orig_commit_id.to_string())
+                    let submod_message =
+                        match get_and_decode_commit_message(repo, submod.orig_commit_id) {
+                            Ok(decoded_message) => Some(CommitMessage::from_full(decoded_message)),
+                            Err(err) => {
+                                log::warn!(
+                                    "Failed to get commit message {} at {path}: {err:#}",
+                                    submod.orig_commit_id
+                                );
+                                None
+                            }
+                        };
+                    (submod_message, submod.orig_commit_id.to_string())
                 }
                 ExpandedOrRemovedSubmodule::Expanded(ExpandedSubmodule::KeptAsSubmodule(
                     submod_commit_id,
@@ -88,9 +110,12 @@ pub fn calculate_mono_commit_message_from_commits(
                     // A short commit id is enough as a subject line, the full id is in the footer.
                     let short_submod_commit_id = submod.orig_commit_id.attach(repo).shorten_or_id();
                     (
-                        Some(format!(
-                            "Regressed (not fully implemented) to {short_submod_commit_id}",
-                        )),
+                        Some(CommitMessage {
+                            subject_and_body: format!(
+                                "Regressed (not fully implemented) to {short_submod_commit_id}\n",
+                            ),
+                            footer: String::new(),
+                        }),
                         format!("{} regressed", submod.orig_commit_id),
                     )
                 }
@@ -111,17 +136,79 @@ pub fn calculate_mono_commit_message_from_commits(
         let _scope_guard_path = crate::log::scope(format!("Path {super_path}/",));
         CommitMessageInfo {
             path: super_path.clone(),
-            message: Some(decode_commit_message(super_commit)),
+            message: Some(CommitMessage::from_full(decode_commit_message(
+                super_commit,
+            ))),
             status: super_commit_id.to_string(),
         }
     };
     calculate_mono_commit_message(super_info, sub_commit_infos)
 }
 
+#[derive(Clone, PartialEq)]
+struct CommitMessage {
+    pub subject_and_body: String,
+    pub footer: String,
+}
+
+impl CommitMessage {
+    fn from_full(full_message: String) -> Self {
+        let (subject_and_body, footer) = full_message.trim_end().split("\n\n").fold(
+            (String::new(), None),
+            |(mut msg_but_last, last_chunk), chunk| {
+                if msg_but_last.is_empty() {
+                    (format!("{chunk}\n"), None)
+                } else {
+                    if let Some(last_chunk) = last_chunk {
+                        msg_but_last.push('\n');
+                        msg_but_last.push_str(last_chunk);
+                        msg_but_last.push('\n');
+                    }
+                    if chunk.lines().all(|line| is_footer_line(line.into())) {
+                        (msg_but_last, Some(chunk))
+                    } else {
+                        msg_but_last.push('\n');
+                        msg_but_last.push_str(chunk);
+                        msg_but_last.push('\n');
+                        (msg_but_last, None)
+                    }
+                }
+            },
+        );
+        Self {
+            subject_and_body,
+            footer: footer.map_or(String::new(), |footer_str| {
+                debug_assert!(!footer_str.ends_with('\n'));
+                format!("{footer_str}\n")
+            }),
+        }
+    }
+}
+
 pub struct CommitMessageInfo {
     path: GitPath,
-    message: Option<String>,
+    message: Option<CommitMessage>,
     status: String,
+}
+
+pub struct CommitMessageInfoWithMessage {
+    path: GitPath,
+    message: CommitMessage,
+    status: String,
+}
+
+impl CommitMessageInfoWithMessage {
+    fn format_toprepo_footer(&self) -> String {
+        let path_if_empty = if self.path.is_empty() {
+            TOPREPO_DISPLAY_PATH
+        } else {
+            ""
+        };
+        format!(
+            "{GIT_TOPREPO_FOOTER_PREFIX} {}{path_if_empty} {}\n",
+            self.path, self.status
+        )
+    }
 }
 
 /// Construct a commit message from the submodule updates.
@@ -152,111 +239,138 @@ fn calculate_mono_commit_message(
     super_info: CommitMessageInfo,
     sub_infos: Vec<CommitMessageInfo>,
 ) -> String {
-    let all_statuses_ordered = sub_infos
-        .iter()
-        .map(|info| (info.path.clone(), info.status.clone()))
-        .chain(std::iter::once((
-            super_info.path.clone(),
-            super_info.status.clone(),
-        )))
-        .collect::<BTreeMap<_, _>>();
-
-    let mut interesting_messages: BTreeMap<_, _> = sub_infos
-        .into_iter()
-        .filter_map(|info| {
-            let message = info.message?;
-            if !is_interesting_message(&message) {
-                return None;
-            }
-            Some((info.path, message))
-        })
-        .collect();
+    let mut interesting_messages = Vec::with_capacity(sub_infos.len() + 1);
+    let mut boring_messages = Vec::with_capacity(sub_infos.len() + 1);
+    for info in sub_infos {
+        if info
+            .message
+            .as_ref()
+            .is_some_and(|msg| is_interesting_message(&msg.subject_and_body))
+        {
+            interesting_messages.push(CommitMessageInfoWithMessage {
+                path: info.path,
+                message: info.message.unwrap(),
+                status:info.status,
+            });
+        } else {
+            boring_messages.push(info);
+        }
+    }
     // Add the super repo commit message.
-    if let Some(super_message) = super_info.message
-        && (is_interesting_message(&super_message) || interesting_messages.is_empty())
+    if let Some(super_message) = &super_info.message
+        && (is_interesting_message(&super_message.subject_and_body)
+            || interesting_messages.is_empty())
     {
         // Even if the message is boring, if there are no submodule messages,
         // use the super repo message anyway.
-        interesting_messages.insert(super_info.path.clone(), super_message);
-    }
-    if interesting_messages.is_empty() {
-        // No interesting messages amon any submodule. Use a default boring message.
-        interesting_messages.insert(
-            super_info.path.clone(),
-            "Update git submodules\n".to_owned(),
-        );
+        interesting_messages.push(CommitMessageInfoWithMessage {
+            path: super_info.path,
+            message: super_info.message.unwrap(),
+            status:super_info.status,
+        });
+    } else if interesting_messages.is_empty() {
+        // No interesting messages among the submodules. Use a default boring
+        // message.
+        interesting_messages.push(CommitMessageInfoWithMessage {
+            path: super_info.path,
+            message: CommitMessage {
+                subject_and_body: "Update git submodules\n".to_owned(),
+                footer: String::new(),
+            },
+            status: super_info.status,
+        });
     }
 
-    // Group by identical messages, sort by how much that message is used.
-    let mut message_to_paths = HashMap::new();
-    for (path, msg) in &interesting_messages {
-        message_to_paths
-            .entry(msg.clone())
-            .or_insert_with(Vec::new)
-            .push(path.clone());
-    }
-    // In case of just one message, put all footers in the same paragraph in order.
-    if message_to_paths.len() == 1 {
-        *message_to_paths.values_mut().next().unwrap() =
-            all_statuses_ordered.keys().cloned().collect();
-    }
-    let message_and_sorted_paths = message_to_paths
-        .into_iter()
-        .map(|(msg, mut paths)| {
-            // The super_path is a prefix to all other paths and will therefore
-            // be first.
-            paths.sort();
-            (msg, paths)
+    // In case of just one message, put footers for the boring messages there as well.
+    let boring_subject_and_body = if interesting_messages
+        .iter()
+        .map(|info| &info.message.subject_and_body)
+        .all_equal()
+    {
+        let one_message = &interesting_messages.first().unwrap().message;
+        one_message.subject_and_body.clone()
+    } else {
+        String::new()
+    };
+    let mut all_messages = interesting_messages;
+    for boring_info in boring_messages {
+        all_messages.push(CommitMessageInfoWithMessage {
+            path: boring_info.path,
+            message: CommitMessage {
+                subject_and_body: boring_subject_and_body.clone(),
+                footer: boring_info.message.map_or_else(|| String::new(), |msg| msg.footer),
+            },
+            status: boring_info.status,
         })
-        .sorted_by(|(_, lhs_paths), (_, rhs_paths)| {
-            // Prioritise the super commit message.
-            (lhs_paths.first() != Some(&super_info.path))
-                .cmp(&(rhs_paths.first() != Some(&super_info.path)))
-                // Then prioritise messages used by more submodules.
-                .then_with(|| rhs_paths.len().cmp(&lhs_paths.len()))
-                .then_with(|| lhs_paths.cmp(rhs_paths))
-        })
-        .collect_vec();
+    }
 
-    let mut paths_done = HashSet::new();
-    let mut mono_message = String::new();
-    for (msg, ordered_paths) in message_and_sorted_paths {
-        if !mono_message.is_empty() && !mono_message.ends_with("\n\n") {
-            mono_message.push('\n');
+    let mut all_combined_messages = Vec::new();
+
+    // Group messages by subject_and_body, then by footer.
+    all_messages.sort_by(|a, b| {
+        let a_key = (&a.message.subject_and_body, &a.message.footer);
+        let b_key = (&b.message.subject_and_body, &b.message.footer);
+        a_key.cmp(&b_key)
+    });
+    // Go through each subject and body chunk.
+    for text_chunk in all_messages.chunk_by_mut(|a, b| {
+        a.message.subject_and_body == b.message.subject_and_body
+    }) {
+        let mut one_combined_message = text_chunk
+            .first()
+            .unwrap()
+            .message
+            .subject_and_body.clone();
+        let empty_subject_and_body = one_combined_message.is_empty();
+        if !empty_subject_and_body {
+            debug_assert!(one_combined_message.ends_with('\n'));
+            one_combined_message.push('\n');
         }
-        mono_message.push_str(&msg);
-        if !mono_message.ends_with('\n') {
-            mono_message.push('\n');
-        }
-        if !commit_message_has_footer(mono_message.as_bytes().as_bstr()) {
-            // Add an empty line before our new footer.
-            mono_message.push('\n');
-        }
-        // Add some footers.
-        for path in ordered_paths {
-            let status = all_statuses_ordered
-                .get(&path)
-                .unwrap_or_else(|| unreachable!("Path {path} not in all_statuses"));
-            let path_if_empty = if path.is_empty() { "<top>" } else { "" };
-            mono_message.push_str(&format!(
-                "{GIT_TOPREPO_FOOTER_PREFIX} {path}{path_if_empty} {status}\n"
-            ));
-            paths_done.insert(path.clone());
-        }
-    }
-    // Print the remaining paths in order.
-    let mut first_extra_path = true;
-    for (path, status) in all_statuses_ordered.iter() {
-        if !paths_done.contains(path) {
-            if first_extra_path {
-                first_extra_path = false;
-                mono_message.push('\n');
+
+        let mut footer_chunks = Vec::new();
+        for footer_chunk in
+            text_chunk.chunk_by_mut(|a, b| a.message.footer == b.message.footer)
+        {
+            footer_chunk.sort_by(|a, b| a.path.cmp(&b.path));
+            let first_info = footer_chunk.first().unwrap();
+            if first_info.message.footer.is_empty() {
+                // Paths for empty footers are always placed first.
+                for info in footer_chunk {
+                    one_combined_message.push_str(&info.format_toprepo_footer());
+                }
+            } else {
+                footer_chunks.push(footer_chunk);
             }
-            let path_if_empty = if path.is_empty() { "<top>" } else { "" };
-            mono_message.push_str(&format!(
-                "{GIT_TOPREPO_FOOTER_PREFIX} {path}{path_if_empty} {status}\n"
-            ));
         }
+        // Sort by "smallest" path.
+        footer_chunks.sort_by(|a_chunk, b_chunk| a_chunk.first().unwrap().path.cmp(&b_chunk.first().unwrap().path));
+        for footer_chunk in footer_chunks {
+            // Add a footer and all the paths in order.
+            let footer_str = &footer_chunk.first().unwrap().message.footer;
+            debug_assert!(footer_str.ends_with('\n'));
+            one_combined_message.push_str(footer_str);
+            for info in footer_chunk {
+                one_combined_message.push_str(&info.format_toprepo_footer());
+            }
+        }
+
+        // The combined messages should be sorted by smallest path, but a
+        // chunk with empty subject and body should still be last.
+        let smallest_path = text_chunk.iter().map(|info| &info.path).min().unwrap();
+        all_combined_messages.push((empty_subject_and_body, smallest_path, one_combined_message));
+    }
+
+    all_combined_messages.sort_by(|(a_empty_subject_and_body, a_smallest_path, _), (b_empty_subject_and_body, b_smallest_path, _)| {
+        let a_key = (*a_empty_subject_and_body, a_smallest_path);
+        let b_key = (*b_empty_subject_and_body, b_smallest_path);
+        a_key.cmp(&b_key)
+    });
+    let mut mono_message = String::new();
+    for (_, _, combined_message) in all_combined_messages {
+        if !mono_message.is_empty() {
+            mono_message.push('\n');
+        }
+        mono_message.push_str(&combined_message);
     }
     mono_message
 }
