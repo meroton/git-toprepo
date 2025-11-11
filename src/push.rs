@@ -383,7 +383,7 @@ fn split_for_push_impl(
                         author_info: exported_mono_commit.author_info.clone(),
                         committer_info: exported_mono_commit.committer_info.clone(),
                         encoding: exported_mono_commit.encoding.clone(),
-                        message: bstr::BString::from(subrepo_message.message.clone()),
+                        message: bstr::BString::from(subrepo_message.full_message()),
                         file_changes,
                         parents,
                         original_id: None,

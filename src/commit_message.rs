@@ -50,9 +50,26 @@ const TOPREPO_DISPLAY_PATH: &str = "<top>";
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PushMessage {
     /// The commit message for the commit to push to a remote.
-    pub message: String,
+    pub subject_and_body: String,
+    /// Footer for the commit message.
+    pub footer: String,
     /// Any potential topic for the commit to belong to.
     pub topic: Option<String>,
+}
+
+impl PushMessage {
+    /// Concatenate subject, body and footer.
+    pub fn full_message(&self) -> String {
+        let mut subject_and_body: &str = &self.subject_and_body;
+        while subject_and_body.ends_with("\n\n") {
+            subject_and_body = &subject_and_body[..subject_and_body.len() - 1];
+        }
+        if self.footer.is_empty() {
+            subject_and_body.to_owned()
+        } else {
+            format!("{subject_and_body}\n{}", self.footer)
+        }
+    }
 }
 
 pub fn calculate_mono_commit_message_from_commits(
@@ -250,7 +267,7 @@ fn calculate_mono_commit_message(
             interesting_messages.push(CommitMessageInfoWithMessage {
                 path: info.path,
                 message: info.message.unwrap(),
-                status:info.status,
+                status: info.status,
             });
         } else {
             boring_messages.push(info);
@@ -266,7 +283,7 @@ fn calculate_mono_commit_message(
         interesting_messages.push(CommitMessageInfoWithMessage {
             path: super_info.path,
             message: super_info.message.unwrap(),
-            status:super_info.status,
+            status: super_info.status,
         });
     } else if interesting_messages.is_empty() {
         // No interesting messages among the submodules. Use a default boring
@@ -298,7 +315,9 @@ fn calculate_mono_commit_message(
             path: boring_info.path,
             message: CommitMessage {
                 subject_and_body: boring_subject_and_body.clone(),
-                footer: boring_info.message.map_or_else(|| String::new(), |msg| msg.footer),
+                footer: boring_info
+                    .message
+                    .map_or_else(|| String::new(), |msg| msg.footer),
             },
             status: boring_info.status,
         })
@@ -313,14 +332,10 @@ fn calculate_mono_commit_message(
         a_key.cmp(&b_key)
     });
     // Go through each subject and body chunk.
-    for text_chunk in all_messages.chunk_by_mut(|a, b| {
-        a.message.subject_and_body == b.message.subject_and_body
-    }) {
-        let mut one_combined_message = text_chunk
-            .first()
-            .unwrap()
-            .message
-            .subject_and_body.clone();
+    for text_chunk in
+        all_messages.chunk_by_mut(|a, b| a.message.subject_and_body == b.message.subject_and_body)
+    {
+        let mut one_combined_message = text_chunk.first().unwrap().message.subject_and_body.clone();
         let empty_subject_and_body = one_combined_message.is_empty();
         if !empty_subject_and_body {
             debug_assert!(one_combined_message.ends_with('\n'));
@@ -328,9 +343,7 @@ fn calculate_mono_commit_message(
         }
 
         let mut footer_chunks = Vec::new();
-        for footer_chunk in
-            text_chunk.chunk_by_mut(|a, b| a.message.footer == b.message.footer)
-        {
+        for footer_chunk in text_chunk.chunk_by_mut(|a, b| a.message.footer == b.message.footer) {
             footer_chunk.sort_by(|a, b| a.path.cmp(&b.path));
             let first_info = footer_chunk.first().unwrap();
             if first_info.message.footer.is_empty() {
@@ -343,7 +356,13 @@ fn calculate_mono_commit_message(
             }
         }
         // Sort by "smallest" path.
-        footer_chunks.sort_by(|a_chunk, b_chunk| a_chunk.first().unwrap().path.cmp(&b_chunk.first().unwrap().path));
+        footer_chunks.sort_by(|a_chunk, b_chunk| {
+            a_chunk
+                .first()
+                .unwrap()
+                .path
+                .cmp(&b_chunk.first().unwrap().path)
+        });
         for footer_chunk in footer_chunks {
             // Add a footer and all the paths in order.
             let footer_str = &footer_chunk.first().unwrap().message.footer;
@@ -360,11 +379,14 @@ fn calculate_mono_commit_message(
         all_combined_messages.push((empty_subject_and_body, smallest_path, one_combined_message));
     }
 
-    all_combined_messages.sort_by(|(a_empty_subject_and_body, a_smallest_path, _), (b_empty_subject_and_body, b_smallest_path, _)| {
-        let a_key = (*a_empty_subject_and_body, a_smallest_path);
-        let b_key = (*b_empty_subject_and_body, b_smallest_path);
-        a_key.cmp(&b_key)
-    });
+    all_combined_messages.sort_by(
+        |(a_empty_subject_and_body, a_smallest_path, _),
+         (b_empty_subject_and_body, b_smallest_path, _)| {
+            let a_key = (*a_empty_subject_and_body, a_smallest_path);
+            let b_key = (*b_empty_subject_and_body, b_smallest_path);
+            a_key.cmp(&b_key)
+        },
+    );
     let mut mono_message = String::new();
     for (_, _, combined_message) in all_combined_messages {
         if !mono_message.is_empty() {
@@ -481,6 +503,31 @@ fn decode_commit_message(commit: &gix::objs::CommitRef<'_>) -> String {
 pub fn split_commit_message(
     full_message: String,
 ) -> Result<(HashMap<GitPath, PushMessage>, Option<PushMessage>)> {
+    #[derive(Debug, Default, Clone)]
+    struct PerPathData {
+        /// Extracted topic footer.
+        topic: Option<String>,
+        /// The footer part, including the trailing newline unless empty.
+        footer: String,
+    }
+    impl PerPathData {
+        fn is_empty(&self) -> bool {
+            self.topic.is_none() && self.footer.is_empty()
+        }
+
+        fn merge(&self, other: &Self) -> Result<Self> {
+            if let Some(old_topic) = &self.topic
+                && let Some(new_topic) = &other.topic
+            {
+                anyhow::bail!("Multiple topic footers: {new_topic} {old_topic}");
+            }
+            Ok(Self {
+                topic: self.topic.clone().or(other.topic.clone()),
+                footer: format!("{}{}", self.footer, other.footer),
+            })
+        }
+    }
+
     #[derive(Debug)]
     enum SplitState {
         /// Empty line before the subject.
@@ -493,44 +540,57 @@ pub fn split_commit_message(
         /// a paragraph, continue with the commit message to find the first
         /// footer with a git-toprepo key.
         MaybeFooter {
-            /// The commit message so far, with some footers removed.
-            tidy_message: String,
-            /// The full commit message so far, including all footers.
+            /// The subject and body of the commit message, usually with multiple trailing newlines.
+            subject_and_body: String,
+            /// The full commit message so far, including all footer lines.
             full_message: String,
-            /// Any topic footer found so far.
-            topic: Option<String>,
+            /// Collected footer data so far.
+            pending_data: PerPathData,
         },
         /// So far conforming to be a footer of a commit message, containing at
         /// least one TopRepo footer line. If it turns out to be a valid footer
         /// paragraph, this is the end of the commit message and the next
         /// paragraph starts a message for a different submodule.
         ToprepoFooter {
-            /// The commit message so far, with some footers removed.
-            tidy_message: String,
+            /// The subject and body of the commit message, usually with multiple trailing newlines.
+            subject_and_body: String,
             /// The full commit message so far, including all footers.
             full_message: String,
-            /// Any topic footer found so far.
-            topic: Option<String>,
-            /// The submodule paths found so far.
-            paths: Vec<GitPath>,
+            /// Collected footer data so far.
+            pending_data: PerPathData,
+            /// The submodule paths found so far and their corresponting footers.
+            paths: Vec<(GitPath, PerPathData)>,
         },
     }
     impl SplitState {
         fn add_toprepo_footer_path(&mut self, path: GitPath) {
             match self {
                 SplitState::MaybeFooter {
-                    tidy_message,
+                    subject_and_body,
                     full_message,
-                    topic,
+                    pending_data,
                 } => {
                     *self = SplitState::ToprepoFooter {
-                        tidy_message: std::mem::take(tidy_message),
+                        subject_and_body: std::mem::take(subject_and_body),
                         full_message: std::mem::take(full_message),
-                        topic: topic.take(),
-                        paths: vec![path],
+                        pending_data: Default::default(),
+                        paths: vec![(path, std::mem::take(pending_data))],
                     }
                 }
-                SplitState::ToprepoFooter { paths, .. } => paths.push(path),
+                SplitState::ToprepoFooter {
+                    pending_data,
+                    paths,
+                    ..
+                } => {
+                    let footer_data = if pending_data.is_empty() {
+                        // Use the same footer as the previous path.
+                        let last_data = &paths.last().unwrap().1;
+                        last_data.clone()
+                    } else {
+                        std::mem::take(pending_data)
+                    };
+                    paths.push((path, footer_data));
+                }
                 _ => unreachable!(
                     "TopRepo footer path can only be added in MaybeFooter or ToprepoFooter state"
                 ),
@@ -548,44 +608,51 @@ pub fn split_commit_message(
                 SplitState::Subject { message } | SplitState::Body { message } => {
                     let new_message = std::mem::take(message) + "\n";
                     state = SplitState::MaybeFooter {
-                        tidy_message: new_message.clone(),
+                        subject_and_body: new_message.clone(),
                         full_message: new_message,
-                        topic: None,
+                        pending_data: Default::default(),
                     };
                 }
                 SplitState::MaybeFooter {
-                    tidy_message,
+                    subject_and_body,
                     full_message,
-                    topic: _,
+                    pending_data,
                 } => {
                     // No TopRepo footer found, maybe the next paragraph is the
                     // actualy footer and this was just a footer pattern in the body
                     // of the commit message.
-                    *tidy_message += "\n";
                     *full_message += "\n";
+                    *subject_and_body = full_message.clone();
+                    *pending_data = PerPathData::default();
                 }
                 SplitState::ToprepoFooter {
-                    tidy_message,
+                    subject_and_body,
                     full_message: _,
-                    topic,
+                    pending_data,
                     paths,
                 } => {
-                    let mut final_message = tidy_message.as_str();
-                    while final_message.ends_with("\n\n") {
-                        final_message = &final_message[..final_message.len() - 1];
+                    let mut subject_and_body = subject_and_body.as_str();
+                    while subject_and_body.ends_with("\n\n") {
+                        subject_and_body = &subject_and_body[..subject_and_body.len() - 1];
                     }
-                    for path in paths {
+                    for (path, footer_data) in paths {
+                        // Append the unassociated pending footer to all the
+                        // messages, which can e.g. be Gerrit's Change-Id.
+                        let merged_footer_data = footer_data.merge(pending_data)?;
                         if all_messages
                             .insert(
                                 path.clone(),
                                 PushMessage {
-                                    message: final_message.to_owned(),
-                                    topic: topic.clone(),
+                                    subject_and_body: subject_and_body.to_owned(),
+                                    footer: merged_footer_data.footer,
+                                    topic: merged_footer_data.topic,
                                 },
                             )
                             .is_some()
                         {
-                            anyhow::bail!("Multiple commit messages for submodule {path}");
+                            anyhow::bail!(
+                                "Multiple commit messages for submodule {path}",
+                            );
                         }
                     }
                     state = SplitState::BeforeSubject;
@@ -604,24 +671,24 @@ pub fn split_commit_message(
                     message.push('\n');
                 }
                 SplitState::MaybeFooter {
-                    tidy_message,
+                    subject_and_body: _,
                     full_message,
-                    topic,
+                    pending_data,
                 }
                 | SplitState::ToprepoFooter {
-                    tidy_message,
+                    subject_and_body: _,
                     full_message,
-                    topic,
+                    pending_data,
                     paths: _,
                 } => {
                     full_message.push_str(line);
                     full_message.push('\n');
                     if let Some(new_topic) = line.strip_prefix("Topic:") {
                         let new_topic = new_topic.trim();
-                        if let Some(old_topic) = topic {
+                        if let Some(old_topic) = &pending_data.topic {
                             anyhow::bail!("Multiple topic footers: {new_topic} {old_topic}");
                         }
-                        topic.replace(new_topic.to_owned());
+                        pending_data.topic.replace(new_topic.to_owned());
                         // Skip this line from the commit message.
                         continue;
                     }
@@ -632,8 +699,8 @@ pub fn split_commit_message(
                         None => {
                             if is_footer_line(line.as_bytes().as_bstr()) {
                                 // Continue in the footer.
-                                tidy_message.push_str(line);
-                                tidy_message.push('\n');
+                                pending_data.footer.push_str(line);
+                                pending_data.footer.push('\n');
                             } else {
                                 // This paragraph is not a footer at all.
                                 state = SplitState::Body {
@@ -646,24 +713,28 @@ pub fn split_commit_message(
             }
         }
     }
-    let residual_message = match (state, None) {
+    let residual_message = match (state, Default::default()) {
         (SplitState::BeforeSubject, _) => None,
-        (SplitState::Subject { mut message }, topic)
-        | (SplitState::Body { mut message }, topic)
+        (SplitState::Subject { message: mut subject_and_body }, footer_data)
+        | (SplitState::Body { message: mut subject_and_body }, footer_data)
         | (
             SplitState::MaybeFooter {
-                tidy_message: mut message,
+                mut subject_and_body,
                 full_message: _,
-                topic,
+                pending_data: footer_data,
             },
             _,
         ) => {
             // All lines in the message include a newline, so at lease one character and one newline exists.
-            debug_assert!(message.len() >= 2);
-            while message.ends_with("\n\n") {
-                message.pop();
+            debug_assert!(subject_and_body.len() >= 2);
+            while subject_and_body.ends_with("\n\n") {
+                subject_and_body.pop();
             }
-            Some(PushMessage { message, topic })
+            Some(PushMessage {
+                subject_and_body,
+                footer: footer_data.footer,
+                topic: footer_data.topic,
+            })
         }
         (SplitState::ToprepoFooter { .. }, _) => {
             unreachable!("Toprepo footer has been followed by an empty line")
