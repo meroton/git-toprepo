@@ -571,6 +571,65 @@ pub fn is_default<T: Default + PartialEq>(t: &T) -> bool {
     *t == Default::default()
 }
 
+/// Removes trailing lines containing just whitespaces. A line is defined here
+/// as a sequence of characters ending with `\n`. Adds `\n` if missing from the
+/// last line.
+///
+/// # Examples
+/// ```
+/// use git_toprepo::util::ensure_one_trailing_newline;
+///
+/// assert_eq!(&ensure_one_trailing_newline("foo".to_owned()), "foo\n");
+/// assert_eq!(&ensure_one_trailing_newline("foo\n".to_owned()), "foo\n");
+/// assert_eq!(
+///     &ensure_one_trailing_newline("foo\r\n".to_owned()),
+///     "foo\r\n"
+/// );
+/// assert_eq!(
+///     &ensure_one_trailing_newline("foo\nbar\n".to_owned()),
+///     "foo\nbar\n"
+/// );
+/// assert_eq!(
+///     &ensure_one_trailing_newline("foo\r\nbar\r\n".to_owned()),
+///     "foo\r\nbar\r\n"
+/// );
+/// assert_eq!(&ensure_one_trailing_newline("\nfoo".to_owned()), "\nfoo\n");
+///
+/// assert_eq!(&ensure_one_trailing_newline("foo  ".to_owned()), "foo  \n");
+/// assert_eq!(
+///     &ensure_one_trailing_newline("foo \n  ".to_owned()),
+///     "foo \n"
+/// );
+/// assert_eq!(&ensure_one_trailing_newline("foo\n\r".to_owned()), "foo\n");
+/// assert_eq!(
+///     &ensure_one_trailing_newline("foo\n  \n\r\n".to_owned()),
+///     "foo\n"
+/// );
+/// assert_eq!(&ensure_one_trailing_newline(" \n  \n\r\n".to_owned()), "");
+/// ```
+pub fn ensure_one_trailing_newline(mut s: String) -> String {
+    let mut ret_len = s.len();
+    for (idx, c) in s.char_indices().rev() {
+        if c == '\n' {
+            // Include the one byte LF.
+            ret_len = idx + 1;
+        } else if c.is_whitespace() {
+            // Continue
+        } else {
+            // This line should not be removed.
+            if ret_len == s.len() && !s.ends_with('\n') {
+                s.push('\n');
+            } else {
+                s.truncate(ret_len);
+            }
+            return s;
+        }
+    }
+    // The whole string contained just whitespaces and newlines.
+    s.clear();
+    s
+}
+
 /// Removes trailing LF or CRLF from a string.
 ///
 /// # Examples

@@ -33,27 +33,28 @@ fn assemble_golden() {
     insta::assert_snapshot!(
         log_graph,
         @r"
-    * commit 067adf2d29e45ec4d92633b4ca8310dff91347e5
+    * commit 9ac2c1d3d376838ebdd6d2de96e287a66893d921
     | Author: author <author@example.com>
     | Date:   Sat Jan 1 00:00:00 2000 +0000
     |
     |     Update git submodules
     |
-    |     Git-Toprepo-Ref: <top> 3b7a8b0cd81c7201e0c57813c142d4fa1db93bcf
+    |     Git-Toprepo-Ref: <top> 46a6323bebe7135d927f88e116b456451ebc48f7
     |
-    *   commit 8fef8e1a0c3f0517c0222f24c56e370207911998
-    |\  Merge: 0d7d059 261d9cb
+    *   commit 022ae7075428c2dca1950e360f2468b8e5bcdad2
+    |\  Merge: 7e96b58 e39a6a4
     | | Author: author <author@example.com>
     | | Date:   Sat Jan 1 00:00:00 2000 +0000
     | |
     | |     all-3
     | |
-    | |     Git-Toprepo-Ref: <top> af03ca4ed53d9609e4ba2d50cd8ff638ea8c5e12
-    | |     Git-Toprepo-Ref: subpathx 044827c4cbf84f8d007c8ff08f777e28f1fd95f4
+    | |     Git-Toprepo-Ref: <top> e22d0797b2da3b26f2872254ad95e35f3b0539b0
     | |     Git-Toprepo-Ref: subpathy 0123456789012345678901234567890123456789 unknown submodule
     | |     Git-Toprepo-Ref: subpathz removed
+    | |     Footer: X
+    | |     Git-Toprepo-Ref: subpathx 3f148600685ecec54c88517c72213e8be62fa7d2
     | |
-    | * commit 261d9cb4ef4f0eb5d7fcaf122140f326a565a367
+    | * commit e39a6a4b697cec6cf5485153e99c7c29e96d5519
     |/  Author: author <author@example.com>
     |   Date:   Sat Jan 1 00:00:00 2000 +0000
     |
@@ -63,16 +64,16 @@ fn assemble_golden() {
     |
     |   A subpathx/sub-2.txt
     |
-    * commit 0d7d0590acd8538ad7dadae3ed377656b0b002f0
+    * commit 7e96b58e1b27c3c35d6e01ae16016c8426d14421
     | Author: author <author@example.com>
     | Date:   Sat Jan 1 00:00:00 2000 +0000
     |
     |     Bad � encoding
     |
-    |     Git-Toprepo-Ref: <top> 15b61c56e6a14b79d6608c2be893b54466422fc7
+    |     Git-Toprepo-Ref: <top> 39f908a3cabd91f91a5450e9159f9ca241080af6
     |
-    *   commit 74de9abeef2fd0c7301b3ea7ae59a63df0662ae2
-    |\  Merge: ed8be82 5cacb9a
+    *   commit ee87bca2a6f840f1890d343bc8396d0a61790167
+    |\  Merge: 607ebe2 264b7e1
     | | Author: author <author@example.com>
     | | Date:   Sat Jan 1 00:00:00 2000 +0000
     | |
@@ -80,7 +81,7 @@ fn assemble_golden() {
     | |
     | |     End with some extra empty lines that are trimmed.
     | |
-    | |     Git-Toprepo-Ref: <top> 65cb033eafa099a956f7fbac57cd6b5605c1768d
+    | |     Git-Toprepo-Ref: <top> 25f73dd213e262bddbaa6825507981ce6d540190
     | |
     | |     x-1
     | |
@@ -88,14 +89,14 @@ fn assemble_golden() {
     | |
     | |     Git-Toprepo-Ref: subpathy 0123456789012345678901234567890123456789 not found
     | |
-    | * commit 5cacb9a9c95b309ff273a12a7951a496e59bdf7a
+    | * commit 264b7e1a1133d914d1c383914e1bdcfb8e15e198
     |/  Author: author <author@example.com>
     |   Date:   Sat Jan 1 00:00:00 2000 +0000
     |
     |       Resetting submodule subpathx to 55653d7a847a
     |
     |       The gitlinks of the parents to this commit references the commit:
-    |       - 044827c4cbf84f8d007c8ff08f777e28f1fd95f4
+    |       - 3f148600685ecec54c88517c72213e8be62fa7d2
     |       Regress the gitlink to the earlier commit
     |       55653d7a847a2d66486230ecca4b8d56ddb0bbc6:
     |
@@ -104,15 +105,17 @@ fn assemble_golden() {
     |   D subpathx/all-3.txt
     |   D subpathx/sub-2.txt
     |
-    * commit ed8be82c59942fe463a4fa7f391a65833fed3b6d
+    * commit 607ebe2a59812ce2e86bac276cacc2cf8e0d4f0c
     | Author: author <author@example.com>
     | Date:   Sat Jan 1 00:00:00 2000 +0000
     |
     |     all-3
     |
-    |     Git-Toprepo-Ref: <top> 7ae573ce6810e8c447571e9ba96f7d27397b98b2
-    |     Git-Toprepo-Ref: subpathx 044827c4cbf84f8d007c8ff08f777e28f1fd95f4
-    |     Git-Toprepo-Ref: subpathy 1e5d12ddd8d2b9e8c160a471a8943f6015f389a2
+    |     Git-Toprepo-Ref: <top> de226a6a2b6f0b7927f10179470578f87b3f98bd
+    |     Footer: X
+    |     Git-Toprepo-Ref: subpathx 3f148600685ecec54c88517c72213e8be62fa7d2
+    |     Footer: Y
+    |     Git-Toprepo-Ref: subpathy 92c35e7b31db5264abd4bf71b5cfe0a8d0c389e3
     |
     | A all-3.txt
     | A subpathx/all-3.txt
@@ -224,10 +227,11 @@ fn split_example() {
 
 Body text
 
+Topic: my-topic
 With: a footer
 Git-Toprepo-Ref: <top>
 Topic: my-topic
-Git-Toprepo-Ref: subpathy anything-random
+Git-Toprepo-Ref: subpathy something-random
 
 subx subject
 
@@ -255,7 +259,7 @@ subx-footer: keep-this-line
     );
     assert_eq!(
         git_commit_message(&subyrepo, "other"),
-        "Add files\n\nBody text\n\nWith: a footer\n"
+        "Add files\n\nBody text\n"
     );
 }
 

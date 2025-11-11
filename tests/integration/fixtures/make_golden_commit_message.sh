@@ -3,9 +3,14 @@ set -eu -o pipefail
 
 function commit {
     local repo="$1"
-    local message="$2"
-    touch "${repo}/${message}.txt"
-    git -C "$repo" add "${message}.txt"
+    local file="$2"
+    if test "$#" -ge 3; then
+        local message="$3"
+    else
+        local message="$file"
+    fi
+    touch "${repo}/${file}.txt"
+    git -C "$repo" add "${file}.txt"
     git -C "$repo" commit -q -m "$message"
     git -C "$repo" rev-parse HEAD
 }
@@ -36,10 +41,14 @@ git -C top add .gittoprepo.toml
 
 subx_rev_1=$(commit repox "x-1")
 subx_rev_2=$(commit repox "sub-2")
-subx_rev_3=$(commit repox "all-3")
+subx_rev_3=$(commit repox "all-3" "all-3
+
+Footer: X")
 suby_rev_1=$(commit repoy "y-1")
 suby_rev_2=$(commit repoy "top-and-y-2")
-suby_rev_3=$(commit repoy "all-3")
+suby_rev_3=$(commit repoy "all-3" "all-3
+
+Footer: Y")
 subz_rev_1=$(commit repoz "z-1")
 
 git -C top -c protocol.file.allow=always submodule add --force ../repox/ subpathx
