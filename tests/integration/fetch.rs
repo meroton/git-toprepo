@@ -3,6 +3,7 @@ use git_toprepo_testtools::test_util::git_command_for_testing;
 use itertools::Itertools as _;
 use predicates::prelude::*;
 use rstest::rstest;
+use std::path::Path;
 
 struct RepoWithTwoSubmodules {
     pub toprepo: std::path::PathBuf,
@@ -11,19 +12,25 @@ struct RepoWithTwoSubmodules {
 
     /// Keep during the lifetime of the struct to let the directory exist.
     #[expect(unused)]
-    temp_dir: git_toprepo_testtools::test_util::MaybePermanentTempDir,
+    temp_dir_guard: git_toprepo_testtools::test_util::MaybePermanentTempDir,
 }
 
 impl RepoWithTwoSubmodules {
     pub fn new_minimal_with_two_submodules() -> Self {
-        let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        let temp_dir_guard = git_toprepo_testtools::test_util::maybe_keep_tempdir(
             gix_testtools::scripted_fixture_writable(
                 "../integration/fixtures/make_minimal_with_two_submodules.sh",
             )
             .unwrap(),
         );
+        // macOS needs canonicalize() to resolve the /var symlink into /private/var.
+        let temp_dir = temp_dir_guard.canonicalize().unwrap();
+        // For relative path dirs to be tested, and distinguish between
+        // mono/../repox and mono/../top/../repox, use a subdir for mono repo.
         let toprepo = temp_dir.join("top");
-        let monorepo = temp_dir.join("mono");
+        let monorepo = temp_dir.join("outermono/innermono");
+        let subx_repo = temp_dir.join("repox");
+        std::fs::create_dir(monorepo.parent().unwrap()).unwrap();
         crate::fixtures::toprepo::clone(&toprepo, &monorepo);
         std::fs::create_dir(monorepo.join("subdir_part_of_top")).unwrap();
 
@@ -35,6 +42,14 @@ impl RepoWithTwoSubmodules {
             .args(["commit", "--allow-empty", "-m", "Empty test commit in top"])
             .assert()
             .success();
+        git_command_for_testing(&subx_repo)
+            .args(["checkout", "-b", "subfoo"])
+            .assert()
+            .success();
+        git_command_for_testing(&subx_repo)
+            .args(["commit", "--allow-empty", "-m", "Empty test commit in subx"])
+            .assert()
+            .success();
         // Make sure suby cannot be fetched, as it is not needed.
         let suby_repo = temp_dir.join("repoy");
         assert!(suby_repo.is_dir());
@@ -44,7 +59,7 @@ impl RepoWithTwoSubmodules {
             toprepo,
             monorepo,
             subx_repo: temp_dir.join("repox"),
-            temp_dir,
+            temp_dir_guard,
         }
     }
 }
@@ -197,22 +212,6 @@ fn origin_without_refspec_arg(#[case] remote: Option<&str>) {
 }
 
 #[rstest]
-#[case::local_root_dir(".")]
-#[case::local_subdir("subdir_part_of_top")]
-fn top_dir_without_refspec_arg_fails(#[case] remote: &str) {
-    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
-    cargo_bin_git_toprepo_for_testing()
-        .current_dir(&repo.monorepo)
-        .args(["fetch", remote])
-        .assert()
-        .code(1)
-        .stderr(predicate::str::contains(format!(
-            "ERROR: Failed to fetch: The git-remote {remote:?} was not found among \"origin\".\n\
-                When no refspecs are provided, a name among `git remote -v` must be specified.\n",
-        )));
-}
-
-#[rstest]
 #[case::no_remote(None)]
 #[case::origin(Some("origin"))]
 fn without_refspec_arg_prunes_refs(#[case] remote: Option<&str>) {
@@ -266,14 +265,12 @@ fn refspec_arg_without_remote_fails() {
         ));
 }
 
-#[rstest]
-#[case::origin("origin")]
-#[case::local_root_dir(".")]
-fn info_fetch_head(#[case] remote: &str) {
+#[test]
+fn info_fetch_head() {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
-        .args(["fetch", remote, "refs/heads/foo"])
+        .args(["fetch", "origin", "refs/heads/foo"])
         .assert()
         .success();
     git_command_for_testing(&repo.monorepo)
@@ -300,21 +297,6 @@ fn info_fetch_head(#[case] remote: &str) {
             )
             .unwrap(),
         );
-}
-
-#[rstest]
-#[case::local_subdir("subdir_part_of_top")]
-fn top_dir_into_fetch_head_fails(#[case] remote: &str) {
-    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
-    cargo_bin_git_toprepo_for_testing()
-    .current_dir(&repo.monorepo).args(["fetch", remote, "refs/heads/foo"])
-        .assert()
-        .code(1)
-        .stderr(predicate::str::contains(
-            format!(
-                "ERROR: Submodule {remote} not found in config: subdir_part_of_top is not a submodule\n",
-            ),
-        ));
 }
 
 /// This regression test ensures that fetching twice does not remove the refs.
@@ -388,14 +370,12 @@ fn two_times_should_keep_refs() {
         .stdout(expected_show_ref_output);
 }
 
-#[rstest]
-#[case::origin("origin")]
-#[case::local_root_dir(".")]
-fn with_refspec_arg_success(#[case] remote: &str) {
+#[test]
+fn top_with_refspec_arg_success() {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
-        .args(["fetch", remote, "refs/heads/foo:refs/heads/bar"])
+        .args(["fetch", "origin", "refs/heads/foo:refs/heads/bar"])
         .assert()
         .success();
     git_command_for_testing(&repo.monorepo)
@@ -424,19 +404,84 @@ fn with_refspec_arg_success(#[case] remote: &str) {
         );
 }
 
-#[rstest]
-#[case::local_subdir("subdir_part_of_top")]
-fn top_dir_with_refspec_arg_fails(#[case] remote: &str) {
+#[test]
+fn with_refspec_arg_absolute_submod_remote_path_from_root() {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    submod_with_refspec_arg_success(&repo, &repo.monorepo, &repo.subx_repo);
+}
+
+#[test]
+fn with_refspec_arg_absolute_submod_remote_path_from_subdir() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    submod_with_refspec_arg_success(&repo, &repo.monorepo.join("other"), &repo.subx_repo);
+}
+
+#[test]
+fn with_refspec_arg_relative_submod_remote_path_from_root() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    submod_with_refspec_arg_success(&repo, &repo.monorepo, Path::new("../../repox"));
+}
+
+#[test]
+fn with_refspec_arg_relative_submod_remote_path_from_subdir() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    submod_with_refspec_arg_success(
+        &repo,
+        &repo.monorepo.join("other"),
+        Path::new("../../../repox"),
+    );
+    // Check that outermono/innermono/other/../repox fails, even if ../repox is
+    // part of the .gittoprepo.toml config, because it is not a local path that
+    // can be fetched from.
     cargo_bin_git_toprepo_for_testing()
-    .current_dir(&repo.monorepo).args(["fetch", remote, "refs/heads/foo:refs/heads/bar"])
+        .current_dir(repo.monorepo.join("other"))
+        .args(["fetch", "../repox", "refs/heads/subfoo:refs/heads/bar"])
         .assert()
         .code(1)
-        .stderr(predicate::str::contains(
-            format!(
-                "ERROR: Submodule {remote} not found in config: subdir_part_of_top is not a submodule\n",
-            ),
-        ));
+        .stdout("")
+        .stderr(
+            predicate::str::is_match(
+                "^ERROR: No configured submodule URL matches \".*/outermono/innermono/repox\"\\n$",
+            )
+            .unwrap(),
+        );
+}
+
+fn submod_with_refspec_arg_success(repo: &RepoWithTwoSubmodules, cwd: &Path, remote: &Path) {
+    std::fs::create_dir_all(cwd).unwrap();
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(cwd)
+        .args([
+            "fetch",
+            remote.to_str().unwrap(),
+            "refs/heads/subfoo:refs/heads/bar",
+        ])
+        .assert()
+        .success();
+    git_command_for_testing(&repo.monorepo)
+        .args(["show", "--format=%s", "--quiet", "refs/heads/bar", "--"])
+        .assert()
+        .success()
+        .stdout("Empty test commit in subx\n");
+    // Check that no extra temporary refs are available.
+    git_command_for_testing(&repo.monorepo)
+        .args(["show-ref"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::is_match(
+                [
+                    ".* refs/namespaces/namex/refs/heads/main\n",
+                    ".* refs/namespaces/namey/refs/heads/main\n",
+                    ".* refs/namespaces/top/refs/remotes/origin/HEAD\n",
+                    ".* refs/namespaces/top/refs/remotes/origin/main\n",
+                    ".* refs/remotes/origin/HEAD\n",
+                    ".* refs/remotes/origin/main\n",
+                ]
+                .join(""),
+            )
+            .unwrap(),
+        );
 }
 
 #[test]
