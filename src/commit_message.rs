@@ -25,6 +25,7 @@ use crate::git::CommitId;
 use crate::git::GitPath;
 use crate::repo::ExpandedOrRemovedSubmodule;
 use crate::repo::ExpandedSubmodule;
+use crate::util::IterSingleUnique as _;
 use anyhow::Result;
 use anyhow::anyhow;
 use bstr::BStr;
@@ -60,32 +61,32 @@ pub struct PushMessage {
 impl PushMessage {
     /// Concatenate subject, body and footer.
     pub fn full_message(&self) -> String {
-        let mut subject_and_body: &str = &self.subject_and_body;
-        while subject_and_body.ends_with("\n\n") {
-            subject_and_body = &subject_and_body[..subject_and_body.len() - 1];
-        }
+        let subject_and_body = &self.subject_and_body;
         if self.footer.is_empty() {
             subject_and_body.to_owned()
         } else {
-            format!("{subject_and_body}\n{}", self.footer)
+            // Make sure there is at least one empty line before the footer.
+            let subject_and_body = subject_and_body.strip_suffix('\n').unwrap_or(subject_and_body);
+            let subject_and_body = subject_and_body.strip_suffix('\n').unwrap_or(subject_and_body);
+            format!("{subject_and_body}\n\n{}", self.footer)
         }
     }
 }
 
 pub fn calculate_mono_commit_message_from_commits(
     repo: &gix::Repository,
-    super_path: &GitPath,
-    super_commit_id: &CommitId,
-    super_commit: &gix::objs::CommitRef<'_>,
+    source_path: &GitPath,
+    source_commit_id: &CommitId,
+    source_commit: &gix::objs::CommitRef<'_>,
     submod_updates: &HashMap<GitPath, ExpandedOrRemovedSubmodule>,
 ) -> String {
     let sub_commit_infos = submod_updates
         .iter()
-        .map(|(path, submod)| {
-            let _scope_guard_path = crate::log::scope(format!(
-                "Path {super_path}{}{path}",
-                if super_path.is_empty() { "" } else { "/" }
-            ));
+        .filter_map(|(path, submod)| {
+            if path == source_path {
+                return None;
+            }
+            let _scope_guard_path = crate::log::scope(format!("Path {path}"));
             let (submod_message, status) = match submod {
                 ExpandedOrRemovedSubmodule::Expanded(ExpandedSubmodule::Expanded(submod)) => {
                     let submod_message =
@@ -141,28 +142,28 @@ pub fn calculate_mono_commit_message_from_commits(
                     (None, "removed".to_owned())
                 }
             };
-            CommitMessageInfo {
+            Some(CommitMessageInfo {
                 path: path.clone(),
                 message: submod_message,
                 status,
-            }
+            })
         })
         .collect_vec();
-    // Add the super repo commit message.
-    let super_info = {
-        let _scope_guard_path = crate::log::scope(format!("Path {super_path}/",));
+    // Add the source repo commit message.
+    let source_info = {
+        let _scope_guard_path = crate::log::scope(format!("Path {source_path}/",));
         CommitMessageInfo {
-            path: super_path.clone(),
+            path: source_path.clone(),
             message: Some(CommitMessage::from_full(decode_commit_message(
-                super_commit,
+                source_commit,
             ))),
-            status: super_commit_id.to_string(),
+            status: source_commit_id.to_string(),
         }
     };
-    calculate_mono_commit_message(super_info, sub_commit_infos)
+    calculate_mono_commit_message(source_info, sub_commit_infos)
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct CommitMessage {
     pub subject_and_body: String,
     pub footer: String,
@@ -172,18 +173,22 @@ impl CommitMessage {
     fn from_full(full_message: String) -> Self {
         let (subject_and_body, footer) = full_message.trim_end().split("\n\n").fold(
             (String::new(), None),
-            |(mut msg_but_last, last_chunk), chunk| {
+            |(mut msg_but_last, prev_chunk), chunk| {
                 if msg_but_last.is_empty() {
+                    // Subject paragraph.
                     (format!("{chunk}\n"), None)
                 } else {
-                    if let Some(last_chunk) = last_chunk {
+                    // prev_chunk was not the footer, append to the body.
+                    if let Some(prev_chunk) = prev_chunk {
                         msg_but_last.push('\n');
-                        msg_but_last.push_str(last_chunk);
+                        msg_but_last.push_str(prev_chunk);
                         msg_but_last.push('\n');
                     }
                     if chunk.lines().all(|line| is_footer_line(line.into())) {
+                        // chunk is a potential footer.
                         (msg_but_last, Some(chunk))
                     } else {
+                        // chunk is not a footer.
                         msg_but_last.push('\n');
                         msg_but_last.push_str(chunk);
                         msg_but_last.push('\n');
@@ -202,12 +207,14 @@ impl CommitMessage {
     }
 }
 
+#[derive(Debug)]
 pub struct CommitMessageInfo {
     path: GitPath,
     message: Option<CommitMessage>,
     status: String,
 }
 
+#[derive(Debug)]
 pub struct CommitMessageInfoWithMessage {
     path: GitPath,
     message: CommitMessage,
@@ -253,7 +260,7 @@ impl CommitMessageInfoWithMessage {
 /// message to the toprepo change anyway. Therefore, compose a message from the
 /// interesting messages only.
 fn calculate_mono_commit_message(
-    super_info: CommitMessageInfo,
+    source_info: CommitMessageInfo,
     sub_infos: Vec<CommitMessageInfo>,
 ) -> String {
     let mut interesting_messages = Vec::with_capacity(sub_infos.len() + 1);
@@ -273,42 +280,40 @@ fn calculate_mono_commit_message(
             boring_messages.push(info);
         }
     }
-    // Add the super repo commit message.
-    if let Some(super_message) = &super_info.message
-        && (is_interesting_message(&super_message.subject_and_body)
+    // Add the source repo commit message.
+    if let Some(source_message) = &source_info.message
+        && (is_interesting_message(&source_message.subject_and_body)
             || interesting_messages.is_empty())
     {
         // Even if the message is boring, if there are no submodule messages,
-        // use the super repo message anyway.
+        // use the source repo message anyway.
         interesting_messages.push(CommitMessageInfoWithMessage {
-            path: super_info.path,
-            message: super_info.message.unwrap(),
-            status: super_info.status,
+            path: source_info.path,
+            message: source_info.message.unwrap(),
+            status: source_info.status,
         });
     } else if interesting_messages.is_empty() {
         // No interesting messages among the submodules. Use a default boring
         // message.
         interesting_messages.push(CommitMessageInfoWithMessage {
-            path: super_info.path,
+            path: source_info.path,
             message: CommitMessage {
                 subject_and_body: "Update git submodules\n".to_owned(),
                 footer: String::new(),
             },
-            status: super_info.status,
+            status: source_info.status,
         });
+    } else {
+        boring_messages.push(source_info);
     }
 
     // In case of just one message, put footers for the boring messages there as well.
-    let boring_subject_and_body = if interesting_messages
+    let boring_subject_and_body = interesting_messages
         .iter()
         .map(|info| &info.message.subject_and_body)
-        .all_equal()
-    {
-        let one_message = &interesting_messages.first().unwrap().message;
-        one_message.subject_and_body.clone()
-    } else {
-        String::new()
-    };
+        .single_unique()
+        .cloned()
+        .unwrap_or_default();
     let mut all_messages = interesting_messages;
     for boring_info in boring_messages {
         all_messages.push(CommitMessageInfoWithMessage {
@@ -357,11 +362,9 @@ fn calculate_mono_commit_message(
         }
         // Sort by "smallest" path.
         footer_chunks.sort_by(|a_chunk, b_chunk| {
-            a_chunk
-                .first()
-                .unwrap()
-                .path
-                .cmp(&b_chunk.first().unwrap().path)
+            let a_key = &a_chunk.first().unwrap().path;
+            let b_key = &b_chunk.first().unwrap().path;
+            a_key.cmp(b_key)
         });
         for footer_chunk in footer_chunks {
             // Add a footer and all the paths in order.
@@ -650,9 +653,7 @@ pub fn split_commit_message(
                             )
                             .is_some()
                         {
-                            anyhow::bail!(
-                                "Multiple commit messages for submodule {path}",
-                            );
+                            anyhow::bail!("Multiple commit messages for submodule {path}",);
                         }
                     }
                     state = SplitState::BeforeSubject;
@@ -715,8 +716,18 @@ pub fn split_commit_message(
     }
     let residual_message = match (state, Default::default()) {
         (SplitState::BeforeSubject, _) => None,
-        (SplitState::Subject { message: mut subject_and_body }, footer_data)
-        | (SplitState::Body { message: mut subject_and_body }, footer_data)
+        (
+            SplitState::Subject {
+                message: mut subject_and_body,
+            },
+            footer_data,
+        )
+        | (
+            SplitState::Body {
+                message: mut subject_and_body,
+            },
+            footer_data,
+        )
         | (
             SplitState::MaybeFooter {
                 mut subject_and_body,
@@ -955,4 +966,79 @@ fn is_footer_line(line: &BStr) -> bool {
 
 pub fn is_footer_line_for_tests_only(line: &BStr) -> bool {
     is_footer_line(line)
+}
+
+#[cfg(test)]
+
+mod tests {
+    use super::*;
+
+    const SUBJECTS: &[&str] = &["Subject line", "Subject...\n... lines"];
+    const BODIES: &[&str] = &[
+        // Verify both with and without trailing newline on subject.
+        "",
+        "\n",
+        "\n\nSingle body line\n",
+        // Verify without trailing newline and extra start newline.
+        "\n\n\nOne\nparagraph",
+        "\n\nFirst\nparagraph\n\nSecond\nparagraph\n",
+    ];
+    const FOOTERS: &[(Option<&str>, &str)] = &[
+        (None, ""),
+        (Some("X"), "\n\nFooter: A\nTopic: X\nFooter: B"),
+        (Some("Y"), "\n\nTopic: Y\nFooter: C\n\n"),
+        (Some("Z"), "\n\nFooter: D\nTopic: Z\n"),
+        (Some("W"), "\n\nTopic: W"),
+        (None, "\n\nFooter: E\n\n"),
+    ];
+
+    #[test]
+    fn exhaustive_combine_and_split() {
+        let mut messages = Vec::with_capacity(5);
+        for repo_count in 1..4 {
+            many_combinations_impl(repo_count, &mut messages);
+            assert!(messages.is_empty());
+        }
+    }
+
+    fn many_combinations_impl(repo_count: usize, messages: &mut Vec<PushMessage>) {
+        if repo_count > 0 {
+            for subject in SUBJECTS {
+                for body in BODIES {
+                    let subject_and_body = format!("{subject}{body}");
+                    for (topic, footer) in FOOTERS {
+                        messages.push(PushMessage {
+                            subject_and_body: subject_and_body.clone(),
+                            topic: topic.map(|s| s.to_owned()),
+                            footer: (*footer).to_owned(),
+                        });
+                        many_combinations_impl(repo_count - 1, messages);
+                        messages.pop();
+                    }
+                }
+            }
+        } else {
+            let mut msg_infos_iter =
+                messages
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, msg)| CommitMessageInfo {
+                        path: GitPath::new(format!("sub/{idx}-path").into()),
+                        message: Some(CommitMessage {
+                            subject_and_body: msg.subject_and_body.clone(),
+                            footer: msg.footer.clone(),
+                        }),
+                        status: format!("status {idx}"),
+                    });
+            let source_info = msg_infos_iter.next().unwrap();
+            let sub_infos = msg_infos_iter.collect_vec();
+            let mono_message = calculate_mono_commit_message(source_info, sub_infos);
+            let (parts, residual) = split_commit_message(mono_message).unwrap();
+            assert!(residual.is_none());
+            for (idx, msg) in messages.iter().enumerate() {
+                let path = GitPath::new(format!("sub/{idx}-path").into());
+                assert_eq!(parts.get(&path).unwrap(), msg);
+            }
+        }
+    }
 }
