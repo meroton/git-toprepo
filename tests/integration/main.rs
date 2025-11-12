@@ -121,8 +121,8 @@ Options:
   -h, --help     Print help
 
 Global options:
-  -v, --verbose...         Increase log verbosity with -v or -vv, or ...
-      --verbosity <LEVEL>  ... set a specific log verbosity from 0 to 5 [default: 3]
+  -v...                    Increase log verbosity with -v or -vv, or ...
+      --verbosity <LEVEL>  ... set the log level error, warn, info, debug or trace [default: info]
   -q, --quiet              Use `-q` to hide all output to stderr
       --no-progress        Hide scrolling progress bars
 "#,
@@ -144,8 +144,8 @@ Options:
   -h, --help                  Print help (see more with '--help')
 
 Global options:
-  -v, --verbose...         Increase log verbosity with -v or -vv, or ...
-      --verbosity <LEVEL>  ... set a specific log verbosity from 0 to 5 [default: 3]
+  -v...                    Increase log verbosity with -v or -vv, or ...
+      --verbosity <LEVEL>  ... set the log level error, warn, info, debug or trace [default: info]
   -q, --quiet              Use `-q` to hide all output to stderr
       --no-progress        Hide scrolling progress bars
 "#,

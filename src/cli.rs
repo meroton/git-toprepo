@@ -62,36 +62,23 @@ pub struct Cli {
 
 const LOG_LEVEL_DEFAULT: log::LevelFilter = log::LevelFilter::Info;
 
-macro_rules! verbosity_default {
-    () => {
-        3
-    };
-}
-macro_rules! verbosity_max {
-    () => {
-        5
-    };
-}
 macro_rules! verbosity_doc {
     () => {
-        concat!(
-            "Set a specific log verbosity from 0 to ",
-            verbosity_max!(),
-            ".",
-        )
+        "Set the log level error, warn, info, debug or trace."
     };
 }
 
+// The exclusiveness doesn't work with global=true.
+// #[group(multiple = false)]
 #[derive(Args, Debug)]
-#[group(multiple = false)]
 pub struct LogLevelArg {
     /// Increase log verbosity.
     #[arg(
-        long = "verbose",
         short = 'v',
         help = "Increase log verbosity with -v or -vv, or ...",
         help_heading=GLOBAL_HELP_HEADING,
         global=true,
+        group="log-level",
         action = clap::ArgAction::Count,
     )]
     verbose_increment: u8,
@@ -103,10 +90,11 @@ pub struct LogLevelArg {
         help = format!("... set {}", format!("{}", verbosity_doc!()).strip_prefix("Set ").unwrap().strip_suffix(".").unwrap()),
         help_heading=GLOBAL_HELP_HEADING,
         global=true,
-        default_value = verbosity_default!().to_string(),
-        value_parser = clap::builder::RangedU64ValueParser::<u8>::new().range(0..=verbosity_max!()),
+        group="log-level",
+        default_value = LOG_LEVEL_DEFAULT.to_string().to_lowercase(),
+        value_parser = clap::value_parser!(log::Level),
     )]
-    verbosity: u8,
+    verbosity: log::Level,
 
     /// Use `-q` to hide all output to stderr.
     #[arg(
@@ -114,6 +102,7 @@ pub struct LogLevelArg {
         short = 'q',
         help_heading=GLOBAL_HELP_HEADING,
         global=true,
+        group="log-level",
     )]
     pub quiet: bool,
 }
@@ -121,22 +110,35 @@ pub struct LogLevelArg {
 impl LogLevelArg {
     /// Get the log level based on the verbosity and quietness.
     pub fn value(&self) -> Result<log::LevelFilter> {
-        let levels = log::LevelFilter::iter().collect_vec();
-        debug_assert_eq!(levels.len(), verbosity_max!() + 1);
-        debug_assert_eq!(levels.get(verbosity_default!()), Some(&LOG_LEVEL_DEFAULT));
-        let verbosity = if self.quiet {
-            0
+        // Verify verbosity_doc at some point, so why not here.
+        // Excluding LevelFilter::Off to avoid confusion with
+        // --quiet for the user.
+        debug_assert_eq!(
+            verbosity_doc!(),
+            format!("Set the log level {}.", {
+                let mut levels = log::Level::iter().collect_vec();
+                let last_level = levels.pop().unwrap();
+                format!("{} or {last_level}", levels.into_iter().join(", ")).to_lowercase()
+            })
+        );
+        let mut level = if self.quiet {
+            log::Level::Error
         } else {
-            (self.verbosity + self.verbose_increment) as usize
+            self.verbosity
         };
-        let Some(log_level) = levels.get(verbosity) else {
-            anyhow::bail!(
-                "Too high verbosity level {}, maximum is {}",
-                verbosity,
-                verbosity_max!(),
-            );
-        };
-        Ok(*log_level)
+        for i in 0..self.verbose_increment {
+            let old_level = level;
+            level = old_level.increment_severity();
+            if level == old_level {
+                let increment_left = self.verbose_increment - i;
+                anyhow::bail!(
+                    "Too high verbosity level, {increment_left} step{} past {}",
+                    if increment_left == 1 { "" } else { "s" },
+                    level.as_str().to_lowercase(),
+                );
+            }
+        }
+        Ok(level.to_level_filter())
     }
 }
 
