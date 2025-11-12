@@ -638,58 +638,105 @@ fn is_interesting_message(message: &str) -> bool {
 ///
 /// # Examples
 /// ```
+/// use git_toprepo::commit_message::extract_commit_message_footer;
+///
+/// let verify_no_footer = |msg: &str| {
+///     assert_eq!(
+///         extract_commit_message_footer(msg.into()),
+///         (msg.into(), None)
+///     );
+/// };
+///
+/// verify_no_footer("Subject line\nmore subject");
+/// verify_no_footer("Subject line\n\nBody (invalid footer line)\n");
+/// verify_no_footer("Subject line\n\nInvalid_Key: value\nValid-Key: value");
+///
+/// assert_eq!(
+///     extract_commit_message_footer("Subject line\n\nFooter-Key: value".into()),
+///     ("Subject line\n\n".into(), Some("Footer-Key: value".into())),
+/// );
+/// assert_eq!(
+///     extract_commit_message_footer("Subject line\n\nFooter-Key: value".into()),
+///     ("Subject line\n\n".into(), Some("Footer-Key: value".into()))
+/// );
+/// verify_no_footer("Subject line\n\nFooter Key: value");
+/// assert_eq!(
+///     extract_commit_message_footer("Subject line\n\nBody\n\nFooter-Key: value".into()),
+///     (
+///         "Subject line\n\nBody\n\n".into(),
+///         Some("Footer-Key: value".into())
+///     )
+/// );
+/// verify_no_footer("Subject line\n\nBody\n\nFooter Key: value");
+/// assert_eq!(
+///     extract_commit_message_footer(
+///         "Subject line\n\nFooter-Key: value\nAnother-Footer: another value".into()
+///     ),
+///     (
+///         "Subject line\n\n".into(),
+///         Some("Footer-Key: value\nAnother-Footer: another value".into())
+///     )
+/// );
+/// verify_no_footer("Subject line\n\nFooter Key: value\nAnother-Footer: value\n");
+///
+/// verify_no_footer("Subject line\n\nBad^Key: value");
+/// verify_no_footer("Subject line\n\nBad_Key: value");
+///
+/// assert_eq!(
+///     extract_commit_message_footer(
+///         "With CRLF, spaces\nand extra newlines\n\r\n\r\nFooter-Key: value\r\n   \n".into()
+///     ),
+///     (
+///         "With CRLF, spaces\nand extra newlines\n\r\n\r\n".into(),
+///         Some("Footer-Key: value\r\n   \n".into())
+///     )
+/// );
+/// ```
+pub fn extract_commit_message_footer(message: &BStr) -> (&BStr, Option<&BStr>) {
+    let mut footer_start = None;
+    let mut line_start = message.len() - message.trim_start().len();
+    let mut between_paragraphs = false;
+    while line_start < message.len() {
+        let line_end = line_start
+            + message[line_start..]
+                .find_byte(b'\n')
+                .unwrap_or_else(|| message.len() - line_start - 1)
+            + 1;
+        let line = &message[line_start..line_end];
+        if line.trim_start().is_empty() {
+            between_paragraphs = true;
+        } else {
+            if is_footer_line(line) {
+                if between_paragraphs {
+                    footer_start = Some(line_start);
+                }
+            } else {
+                // Non-empty line that is not a footer, then the whole paragraph
+                // is discarded.
+                footer_start = None;
+            }
+            between_paragraphs = false;
+        }
+        line_start = line_end;
+    }
+    (
+        &message[0..footer_start.unwrap_or_else(|| message.len())],
+        footer_start.map(|idx| &message[idx..message.len()]),
+    )
+}
+
+/// Check if the commit message has a footer section.
+///
+/// # Examples
+/// ```
 /// use git_toprepo::commit_message::commit_message_has_footer;
 ///
 /// assert!(!commit_message_has_footer("Subject line".into()));
-/// assert!(!commit_message_has_footer(
-///     "Subject line\nmore subject".into()
-/// ));
-/// assert!(!commit_message_has_footer(
-///     "Subject line\n\nBody (invalid footer line)\n".into()
-/// ));
-/// assert!(!commit_message_has_footer(
-///     "Subject line\n\nInvalid_Key: value\nValid-Key: value".into()
-/// ));
-///
 /// assert!(commit_message_has_footer(
 ///     "Subject line\n\nFooter-Key: value".into()
 /// ));
-/// assert!(!commit_message_has_footer(
-///     "Subject line\n\nFooter Key: value".into()
-/// ));
-/// assert!(commit_message_has_footer(
-///     "Subject line\n\nBody\n\nFooter-Key: value".into()
-/// ));
-/// assert!(!commit_message_has_footer(
-///     "Subject line\n\nBody\n\nFooter Key: value".into()
-/// ));
-/// assert!(commit_message_has_footer(
-///     "Subject line\n\nFooter-Key: value\nAnother-Footer: another value".into()
-/// ));
-/// assert!(!commit_message_has_footer(
-///     "Subject line\n\nFooter Key: value\nAnother-Footer: value\n".into()
-/// ));
-///
-/// assert!(!commit_message_has_footer(
-///     "Subject line\n\nBad^Key: value".into()
-/// ));
-/// assert!(!commit_message_has_footer(
-///     "Subject line\n\nBad_Key: value".into()
-/// ));
-/// ```
 pub fn commit_message_has_footer(message: &BStr) -> bool {
-    let Some(footer_idx) = message.trim_end().rfind("\n\n") else {
-        // Just the subject line, no footer.
-        return false;
-    };
-    let footer = message[footer_idx + 2..].as_bstr();
-    // The last paragraph is a footer if all lines are footer lines.
-    for line in footer.lines() {
-        if !is_footer_line(line.as_bstr()) {
-            return false;
-        }
-    }
-    true
+    extract_commit_message_footer(message).1.is_some()
 }
 
 /// Check if the line is a proper footer line.
