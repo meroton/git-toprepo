@@ -289,7 +289,7 @@ fn split_for_push_impl(
                 // Calculate the commit messages for each submodule.
                 let mono_commit_message = exported_mono_commit.message.to_str()?;
                 let (push_messages, mut residual_message) =
-                    crate::commit_message::split_commit_message(mono_commit_message.to_owned())?;
+                    crate::commit_message::split_commit_message(mono_commit_message)?;
                 if residual_message.is_none() {
                     let one_message = push_messages.values().next().expect("at least one message");
                     if push_messages.values().all(|msg| msg == one_message) {
