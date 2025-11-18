@@ -4,7 +4,6 @@ use crate::cli::Cli;
 use crate::cli::Commands;
 use anyhow::Context;
 use anyhow::Result;
-use anyhow::bail;
 use bstr::BStr;
 use bstr::ByteSlice as _;
 use clap::Parser;
@@ -136,7 +135,7 @@ fn verify_config_existence_after_clone(repo_dir: &Path) -> Result<()> {
             "Please run 'git-toprepo config bootstrap > .gittoprepo.user.toml' to generate an initial config \
             and 'git-toprepo recombine' to use it."
         );
-        bail!("Clone failed due to missing config file");
+        anyhow::bail!("Clone failed due to missing config file");
     }
     Ok(())
 }
@@ -338,7 +337,7 @@ fn fetch(fetch_args: &cli::Fetch, configured_repo: &mut ConfiguredTopRepo) -> Re
             fetch_with_refspec(
                 fetch_args,
                 resolved_args,
-                &detailed_refspecs,
+                detailed_refspecs.clone(),
                 configured_repo,
                 &progress,
             )
@@ -441,7 +440,7 @@ fn fetch_on_terminal_with_duration_print(fetcher: git_toprepo::fetch::RemoteFetc
     Ok(())
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum FetchDestinationRef {
     Normal(FullName),
     /// Special case for `FETCH_HEAD` ref. The lines in `.git/FETCH_HEAD` file looks like
@@ -463,7 +462,7 @@ impl FetchDestinationRef {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct DetailedFetchRefspec {
     /// Whether the refspec sets force-fetch (starts with `+`).
     // TODO: 2025-09-22 Implement force fetch with + refspec.
@@ -522,7 +521,7 @@ fn detail_refspecs(
 fn fetch_with_refspec(
     fetch_args: &cli::Fetch,
     resolved_args: cli::ResolvedFetchParams,
-    detailed_refspecs: &Vec<DetailedFetchRefspec>,
+    detailed_refspecs: Vec<DetailedFetchRefspec>,
     configured_repo: &mut ConfiguredTopRepo,
     progress: &indicatif::MultiProgress,
 ) -> Result<()> {
@@ -562,7 +561,8 @@ fn fetch_with_refspec(
             subrepos: configured_repo.ledger.subrepos.clone(),
         };
 
-        match &resolved_args.repo {
+        let mut ret = Ok(());
+        let successful_detailed_refspecs = match &resolved_args.repo {
             RepoName::Top => {
                 let top_refs = detailed_refspecs
                     .iter()
@@ -572,28 +572,35 @@ fn fetch_with_refspec(
                     progress,
                     top_refs,
                 )?;
+                detailed_refspecs
             }
             RepoName::SubRepo(sub_repo_name) => {
-                for refspec in detailed_refspecs {
-                    // TODO: 2025-09-22 Reuse the git-fast-import process for all refspecs.
-                    let dest_ref = refspec.destination.get_filtered_ref();
-                    if let Err(err) = git_toprepo::expander::expand_submodule_ref_onto_head(
-                        configured_repo,
-                        progress,
-                        refspec.unfiltered_ref.as_ref(),
-                        sub_repo_name,
-                        &resolved_args.path,
-                        dest_ref,
-                    ) {
-                        log::error!("Failed to expand {}: {err:#}", refspec.remote_ref);
-                    }
-                }
+                detailed_refspecs
+                    .into_iter()
+                    .filter(|refspec| {
+                        // TODO: 2025-09-22 Reuse the git-fast-import process for all refspecs.
+                        let dest_ref = refspec.destination.get_filtered_ref();
+                        if let Err(err) = git_toprepo::expander::expand_submodule_ref_onto_head(
+                            configured_repo,
+                            progress,
+                            refspec.unfiltered_ref.as_ref(),
+                            sub_repo_name,
+                            &resolved_args.path,
+                            dest_ref,
+                        ) {
+                            log::error!("Commit {}: {err:#}", refspec.remote_ref);
+                            ret = Err(anyhow::anyhow!("Some refs failed to expand"));
+                            return false;
+                        }
+                        true
+                    })
+                    .collect_vec()
             }
-        }
+        };
 
         // Update .git/FETCH_HEAD.
         let mut fetch_head_lines = Vec::new();
-        for refspec in detailed_refspecs {
+        for refspec in successful_detailed_refspecs {
             match &refspec.destination {
                 FetchDestinationRef::Normal(_normal_ref) => {
                     // Normal ref is written by git-fast-import.
@@ -643,7 +650,7 @@ fn fetch_with_refspec(
                 .unwrap_or(fetch_head_path);
             log::info!("Updated {}", human_display_fetch_head_path.display());
         }
-        Ok(())
+        ret
     })
 }
 

@@ -1,5 +1,6 @@
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
+use git_toprepo_testtools::test_util::git_rev_parse;
 use itertools::Itertools as _;
 use predicates::prelude::*;
 use rstest::rstest;
@@ -473,6 +474,55 @@ fn submod_with_refspec_arg_success(repo: &RepoWithTwoSubmodules, cwd: &Path, rem
                 [
                     ".* refs/namespaces/namex/refs/heads/main\n",
                     ".* refs/namespaces/namey/refs/heads/main\n",
+                    ".* refs/namespaces/top/refs/remotes/origin/HEAD\n",
+                    ".* refs/namespaces/top/refs/remotes/origin/main\n",
+                    ".* refs/remotes/origin/HEAD\n",
+                    ".* refs/remotes/origin/main\n",
+                ]
+                .join(""),
+            )
+            .unwrap(),
+        );
+}
+
+/// Verify the behaviour for fetching a submod commit that was merged to the
+/// submodule before the submodule was added to the toprepo. This means that the
+/// fetched commit has no corresponding monocommit.
+#[test]
+fn submod_commit_merged_before_monorepo() {
+    let temp_dir = crate::fixtures::toprepo::readme_example_tempdir();
+    let toprepo = temp_dir.join("top");
+    let subrepo = temp_dir.join("repo");
+    let monorepo = temp_dir.join("mono");
+    let commit_merged_before_monorepo = git_rev_parse(&subrepo, "HEAD~10");
+
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&monorepo)
+        .args([
+            "fetch",
+            "../repo",
+            &commit_merged_before_monorepo,
+        ])
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains(format!(
+            "\nERROR: Commit {commit_merged_before_monorepo} cannot be expanded onto any monocommit in the history of HEAD. \
+            Running \'git toprepo recombine\' may help unless the commit is older than the submodule in the super repository. \
+            You may still be able to \'git cherry-pick -Xsubtree=subpath\'.\n"
+        )));
+    // Because expansion failed, refs/namespaces/name/refs/fetch-heads/0 will be available.
+    git_command_for_testing(&monorepo)
+        .args(["show-ref"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::is_match(
+                [
+                    &format!(
+                        "{commit_merged_before_monorepo} refs/namespaces/name/refs/fetch-heads/0\n"
+                    ),
+                    ".* refs/namespaces/name/refs/heads/main\n",
                     ".* refs/namespaces/top/refs/remotes/origin/HEAD\n",
                     ".* refs/namespaces/top/refs/remotes/origin/main\n",
                     ".* refs/remotes/origin/HEAD\n",
