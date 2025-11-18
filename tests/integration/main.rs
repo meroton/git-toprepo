@@ -123,7 +123,7 @@ Options:
 Global options:
   -v...                    Increase log verbosity with -v or -vv, or ...
       --verbosity <LEVEL>  ... set the log level error, warn, info, debug or trace [default: info]
-  -q, --quiet              Use `-q` to hide all output to stderr
+  -q, --quiet              Hide all diagnostic and logging output but print errors
       --no-progress        Hide scrolling progress bars
 "#,
             ))
@@ -146,7 +146,7 @@ Options:
 Global options:
   -v...                    Increase log verbosity with -v or -vv, or ...
       --verbosity <LEVEL>  ... set the log level error, warn, info, debug or trace [default: info]
-  -q, --quiet              Use `-q` to hide all output to stderr
+  -q, --quiet              Hide all diagnostic and logging output but print errors
       --no-progress        Hide scrolling progress bars
 "#,
             ))

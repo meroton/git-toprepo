@@ -17,7 +17,6 @@ use git_toprepo::loader::SubRepoLedger;
 use git_toprepo::repo_name::RepoName;
 use git_toprepo::repo_name::SubRepoName;
 use git_toprepo::util::UniqueContainer;
-use itertools::Itertools;
 use std::ops::Deref as _;
 use std::path::Path;
 use std::path::PathBuf;
@@ -62,10 +61,29 @@ pub struct Cli {
 
 const LOG_LEVEL_DEFAULT: log::LevelFilter = log::LevelFilter::Info;
 
+/// The `--verbosity` doc string literal used both for documentation and for cli
+/// usage help.
+///
+/// Excluding `LevelFilter::Off` to avoid confusion with `--quiet` which sets
+/// `LevelFilter::Error`.
 macro_rules! verbosity_doc {
     () => {
         "Set the log level error, warn, info, debug or trace."
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use itertools::Itertools as _;
+
+    #[test]
+    pub fn verbosity_doc_macro() {
+        let mut levels = log::Level::iter().collect_vec();
+        let last_level = levels.pop().unwrap();
+        let levels_str =
+            format!("{} or {last_level}", levels.into_iter().join(", ")).to_lowercase();
+        assert_eq!(verbosity_doc!(), format!("Set the log level {levels_str}."));
+    }
 }
 
 // The exclusiveness doesn't work with global=true.
@@ -96,7 +114,7 @@ pub struct LogLevelArg {
     )]
     verbosity: log::Level,
 
-    /// Use `-q` to hide all output to stderr.
+    /// Hide all diagnostic and logging output but print errors.
     #[arg(
         long,
         short = 'q',
@@ -110,17 +128,6 @@ pub struct LogLevelArg {
 impl LogLevelArg {
     /// Get the log level based on the verbosity and quietness.
     pub fn value(&self) -> Result<log::LevelFilter> {
-        // Verify verbosity_doc at some point, so why not here.
-        // Excluding LevelFilter::Off to avoid confusion with
-        // --quiet for the user.
-        debug_assert_eq!(
-            verbosity_doc!(),
-            format!("Set the log level {}.", {
-                let mut levels = log::Level::iter().collect_vec();
-                let last_level = levels.pop().unwrap();
-                format!("{} or {last_level}", levels.into_iter().join(", ")).to_lowercase()
-            })
-        );
         let mut level = if self.quiet {
             log::Level::Error
         } else {
