@@ -13,6 +13,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use tracing_log::LogTracer;
 use tracing_subscriber::layer::SubscriberExt as _;
@@ -104,6 +105,7 @@ static GLOBAL_LOGGER: std::sync::OnceLock<GlobalLogger> = std::sync::OnceLock::n
 
 pub fn init() -> &'static GlobalLogger {
     let global_logger = GlobalLogger {
+        show_progress: AtomicBool::new(true),
         log_to_stderr: Mutex::new(StderrLogger::new()),
         log_to_file: Arc::new(Mutex::new(Some(GlobalFileTraceLogger::init_tracing()))),
     };
@@ -154,6 +156,8 @@ impl StderrLogger {
 }
 
 pub struct GlobalLogger {
+    /// Show progress bars if set and stderr is a tty.
+    pub show_progress: AtomicBool,
     log_to_stderr: Mutex<StderrLogger>,
     log_to_file: Arc<Mutex<Option<GlobalFileTraceLogger>>>,
 }
@@ -181,21 +185,30 @@ impl GlobalLogger {
         }
     }
 
-    /// Wraps the current logger with an `indicatif::MultiProgress` instance
-    /// and makes sure the progress bar does not interfere with the
-    /// logging output.
+    /// Wraps the current logger with an `indicatif::MultiProgress` instance and
+    /// makes sure the progress bar does not interfere with the logging output.
     ///
-    /// TODO: 2025-09-22 This implementation creates an extra thread for logging,
-    /// which is not ideal.
+    /// Only if `self.show_progress` is `true` and stderr is a tty, progress
+    /// bars will be shown.
+    ///
+    /// TODO: 2025-09-22 This implementation creates an extra thread for
+    /// logging, which is not ideal.
     pub fn with_progress<F, T>(&self, task: F) -> Result<T>
     where
         F: FnOnce(indicatif::MultiProgress) -> Result<T>,
     {
         let progress = indicatif::MultiProgress::new();
-        // TODO: 2025-02-27 The rate limiter seems to be a bit broken. 1 Hz is
-        // not smooth, default 20 Hz hogs the CPU, 2 Hz is a good compromise as
-        // the result is actually much higher anyway.
-        progress.set_draw_target(indicatif::ProgressDrawTarget::stderr_with_hz(2));
+        if self
+            .show_progress
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            // TODO: 2025-02-27 The rate limiter seems to be a bit broken. 1 Hz is
+            // not smooth, default 20 Hz hogs the CPU, 2 Hz is a good compromise as
+            // the result is actually much higher anyway.
+            progress.set_draw_target(indicatif::ProgressDrawTarget::stderr_with_hz(2));
+        } else {
+            progress.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+        }
 
         let progress_clone = progress.clone();
         let old_stderr_log_fn =

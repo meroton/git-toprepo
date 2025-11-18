@@ -948,6 +948,10 @@ where
     let args = Cli::parse_from(argv);
 
     if let Some(logger) = logger {
+        logger.show_progress.store(
+            args.show_progress && !args.log_level.quiet,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         match args.log_level.value() {
             Ok(level) => logger.set_stderr_log_level(level),
             Err(err) => {

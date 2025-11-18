@@ -17,7 +17,6 @@ use git_toprepo::loader::SubRepoLedger;
 use git_toprepo::repo_name::RepoName;
 use git_toprepo::repo_name::SubRepoName;
 use git_toprepo::util::UniqueContainer;
-use itertools::Itertools;
 use std::ops::Deref as _;
 use std::path::Path;
 use std::path::PathBuf;
@@ -30,6 +29,13 @@ and lets you work with an emulated monorepo locally \
 while keeping the original submodule structure on the remote server.\
 ";
 
+/// When using `global=true` the `display_order` of the arguments is mixed up and
+/// they get interleaved. One alternative is to use a `display_order`, but the
+/// user easily looses focus if all the global options are not separated from the
+/// arguments of interest for a subcommand. Therefore, put global arguments under
+/// a separate heading.
+const GLOBAL_HELP_HEADING: &str = "Global options";
+
 #[derive(Parser, Debug)]
 #[command(about = ABOUT)]
 pub struct Cli {
@@ -40,50 +46,106 @@ pub struct Cli {
     #[clap(flatten)]
     pub log_level: LogLevelArg,
 
+    #[arg(
+        long = "no-progress",
+        action = clap::ArgAction::SetFalse,
+        help = "Hide progress bars",
+        help_heading=GLOBAL_HELP_HEADING,
+        global=true,
+    )]
+    pub show_progress: bool,
+
     #[command(subcommand)]
     pub command: GitAndCommands,
 }
 
-const DEFAULT_LOG_LEVEL: log::LevelFilter = log::LevelFilter::Info;
+const LOG_LEVEL_DEFAULT: log::LevelFilter = log::LevelFilter::Info;
 
+/// The `--verbosity` doc string literal used both for documentation and for cli
+/// usage help.
+///
+/// Excluding `LevelFilter::Off` to avoid confusion with `--quiet` which sets
+/// `LevelFilter::Error`.
+macro_rules! verbosity_doc {
+    () => {
+        "Set the log level error, warn, info, debug or trace."
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use itertools::Itertools as _;
+
+    #[test]
+    pub fn verbosity_doc_macro() {
+        let mut levels = log::Level::iter().collect_vec();
+        let last_level = levels.pop().unwrap();
+        let levels_str =
+            format!("{} or {last_level}", levels.into_iter().join(", ")).to_lowercase();
+        assert_eq!(verbosity_doc!(), format!("Set the log level {levels_str}."));
+    }
+}
+
+// The exclusiveness doesn't work with global=true.
+// #[group(multiple = false)]
 #[derive(Args, Debug)]
-#[group(multiple = false)]
 pub struct LogLevelArg {
-    /// Use `-v` for debug or `-vv` for trace log messages.
-    #[arg(long, short = 'v', global=true, default_value = "0", action = clap::ArgAction::Count)]
-    verbose: u8,
+    /// Increase log verbosity.
+    #[arg(
+        short = 'v',
+        help = "Increase log verbosity with -v or -vv, or ...",
+        help_heading=GLOBAL_HELP_HEADING,
+        global=true,
+        group="log-level",
+        action = clap::ArgAction::Count,
+    )]
+    verbose_increment: u8,
 
-    /// Use `-q` to hide info, `-qq` to hide warnings or `-qqq` to also hide errors messages.
-    #[arg(long, short = 'q', global=true, default_value = "0", action = clap::ArgAction::Count)]
-    quiet: u8,
+    #[doc = verbosity_doc!()]
+    #[arg(
+        long,
+        value_name = "LEVEL",
+        help = format!("... set {}", format!("{}", verbosity_doc!()).strip_prefix("Set ").unwrap().strip_suffix(".").unwrap()),
+        help_heading=GLOBAL_HELP_HEADING,
+        global=true,
+        group="log-level",
+        default_value = LOG_LEVEL_DEFAULT.to_string().to_lowercase(),
+        value_parser = clap::value_parser!(log::Level),
+    )]
+    verbosity: log::Level,
+
+    /// Hide all diagnostic and logging output apart from errors.
+    #[arg(
+        long,
+        short = 'q',
+        help_heading=GLOBAL_HELP_HEADING,
+        global=true,
+        group="log-level",
+    )]
+    pub quiet: bool,
 }
 
 impl LogLevelArg {
     /// Get the log level based on the verbosity and quietness.
     pub fn value(&self) -> Result<log::LevelFilter> {
-        let levels = log::LevelFilter::iter().collect_vec();
-        let mut level_i16 = levels
-            .iter()
-            .find_position(|level| *level == &DEFAULT_LOG_LEVEL)
-            .expect("Default log level must be valid")
-            .0 as i16;
-        level_i16 += self.verbose as i16;
-        level_i16 -= self.quiet as i16;
-        if level_i16 < 0 {
-            anyhow::bail!(
-                "Too quiet log level, {} below {}",
-                -level_i16,
-                levels.first().unwrap().as_str()
-            );
-        } else if level_i16 as usize >= levels.len() {
-            anyhow::bail!(
-                "Too verbose log level, {} above {}",
-                level_i16 as usize - levels.len() + 1,
-                levels.last().unwrap().as_str()
-            );
+        let mut level = if self.quiet {
+            log::Level::Error
         } else {
-            Ok(levels[level_i16 as usize])
+            self.verbosity
+        };
+        for i in 0..self.verbose_increment {
+            let old_level = level;
+            level = old_level.increment_severity();
+            if level == old_level {
+                let increment_left = self.verbose_increment - i;
+                anyhow::bail!(
+                    "Too high verbosity level, {increment_left} step{} past {}",
+                    if increment_left == 1 { "" } else { "s" },
+                    level.as_str().to_lowercase(),
+                );
+            }
         }
+        Ok(level.to_level_filter())
     }
 }
 
@@ -206,13 +268,14 @@ macro_rules! info_is_emulated_monorepo_doc {
 }
 
 #[derive(Args, Debug)]
+#[group(multiple = false)]
 pub struct Info {
-    #[arg(value_enum, group = "single")]
+    #[arg(value_enum)]
     pub value: Option<InfoValue>,
 
     // Make clap detect the docs.
     #[doc = info_is_emulated_monorepo_doc!()]
-    #[arg(long, group = "single", help = info_is_emulated_monorepo_doc!().trim_end_matches('.'))]
+    #[arg(long, help = info_is_emulated_monorepo_doc!().trim_end_matches('.'))]
     pub is_emulated_monorepo: bool,
 }
 

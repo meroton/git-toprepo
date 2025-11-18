@@ -104,4 +104,52 @@ mod main {
             .failure()
             .stderr(expected_stderr.clone());
     }
+
+    /// Verify the verbosity options ordering.
+    #[test]
+    fn verbosity_help_text() {
+        cargo_bin_git_toprepo_for_testing()
+            .arg("help")
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(
+                r#"
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -C <PATH>      Run as if started in <PATH>
+  -h, --help     Print help
+
+Global options:
+  -v...                    Increase log verbosity with -v or -vv, or ...
+      --verbosity <LEVEL>  ... set the log level error, warn, info, debug or trace [default: info]
+  -q, --quiet              Hide all diagnostic and logging output apart from errors
+      --no-progress        Hide progress bars
+"#,
+            ))
+            .stderr("");
+    }
+
+    /// Verify the verbosity options ordering.
+    #[test]
+    fn verbosity_help_text_in_subcommand() {
+        cargo_bin_git_toprepo_for_testing()
+            .args(["info", "-h"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(
+                r#"
+Options:
+      --is-emulated-monorepo  Exit with code 3 if the repository is not initialized by git-toprepo
+  -h, --help                  Print help (see more with '--help')
+
+Global options:
+  -v...                    Increase log verbosity with -v or -vv, or ...
+      --verbosity <LEVEL>  ... set the log level error, warn, info, debug or trace [default: info]
+  -q, --quiet              Hide all diagnostic and logging output apart from errors
+      --no-progress        Hide progress bars
+"#,
+            ))
+            .stderr("");
+    }
 }
