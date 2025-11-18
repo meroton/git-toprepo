@@ -49,7 +49,7 @@ pub struct Cli {
     #[arg(
         long = "no-progress",
         action = clap::ArgAction::SetFalse,
-        help = "Hide scrolling progress bars",
+        help = "Hide progress bars",
         help_heading=GLOBAL_HELP_HEADING,
         global=true,
     )]
@@ -114,7 +114,7 @@ pub struct LogLevelArg {
     )]
     verbosity: log::Level,
 
-    /// Hide all diagnostic and logging output but print errors.
+    /// Hide all diagnostic and logging output apart from errors.
     #[arg(
         long,
         short = 'q',

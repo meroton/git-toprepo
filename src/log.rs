@@ -156,7 +156,7 @@ impl StderrLogger {
 }
 
 pub struct GlobalLogger {
-    /// Show scrolling progress if set and stderr is a tty.
+    /// Show progress bars if set and stderr is a tty.
     pub show_progress: AtomicBool,
     log_to_stderr: Mutex<StderrLogger>,
     log_to_file: Arc<Mutex<Option<GlobalFileTraceLogger>>>,
@@ -188,8 +188,8 @@ impl GlobalLogger {
     /// Wraps the current logger with an `indicatif::MultiProgress` instance and
     /// makes sure the progress bar does not interfere with the logging output.
     ///
-    /// Only if `self.show_progress` is `true` and stderr is a tty, scrolling
-    /// progress bars will be shown.
+    /// Only if `self.show_progress` is `true` and stderr is a tty, progress
+    /// bars will be shown.
     ///
     /// TODO: 2025-09-22 This implementation creates an extra thread for
     /// logging, which is not ideal.
