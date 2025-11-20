@@ -2289,7 +2289,8 @@ pub fn expand_submodule_ref_onto_head(
                 "Commit {} cannot be expanded onto any monocommit in the history of HEAD. \
                  Running 'git toprepo recombine' may help unless \
                  the commit is older than the submodule in the super repository. \
-                 You may still be able to 'git cherry-pick -Xsubtree={abs_sub_path}'.",
+                 You may still be able to 'git cherry-pick -Xsubtree={abs_sub_path} {}'.",
+                thin_commit_to_inject.commit_id,
                 thin_commit_to_inject.commit_id,
             );
             anyhow::bail!(
