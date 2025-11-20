@@ -81,13 +81,15 @@ pushed commits that contain the same content. Unfortunately, this also means
 that Gerrit complains when pushing an old patch-set again.
 
 #### Branch tracking
-Because git-toprepo need to expand the commits after the fetch into monocommits,
-`git pull` does not work. Plese use `git toprepo fetch` followed by `git rebase`
-or `git merge` instead.
+Because git-toprepo needs to expand the commits after the fetch into
+monocommits, `git pull` does not work. Plese use `git toprepo fetch` followed by
+`git rebase` or `git merge` instead.
 
-Avoid creating tracking branches with `git checkout <branch>`, use
+git-toprepo sets the git config `checkout.guess=false` to avoid accidental
+branch tracking `git checkout <branch>`, use
 `git checkout -b <branch> origin/<branch>` instead. All other `git checkout`
-usage works as for a normal git repository.
+usage works as for a normal git repository. (Git's guess is that you want to
+track the non-expanded topcommits, not the monocommits.)
 
 #### git submodule
 The git-toprepo configuration might state that some submodules should not be
