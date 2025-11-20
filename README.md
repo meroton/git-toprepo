@@ -38,26 +38,19 @@ will be printed but not executed.
 When using git-toprepo, commands interacting with a remote server are wrapped,
 operations acting on the local git repository stay the same.
 
-| Regular git                       | git-toprepo                                |
-| --------------------------------- | ------------------------------------------ |
-| `git init`                        | `git toprepo init`                         |
-| `git clone`                       | `git toprepo clone`                        |
-| `git fetch`                       | `git toprepo fetch`                        |
-| `git push`                        | `git toprepo push`                         |
-| `git pull`                        | `git toprepo fetch && git rebase/merge`    |
-| `git checkout origin/<branch>`    | `git checkout origin/<branch>`             |
-| `git checkout <branch>`           | `git checkout -b <branch> origin/<branch>` |
-| `git merge`                       | `git merge`                                |
-| `git rebase`                      | `git rebase`                               |
-| `git submodule`                   | `git submodule`                            |
-| `git <command>`                   | `git <command>`                            |
-
-When using `git checkout <branch>` to create a tracking branch, be more specific
-and use `git checkout -b <branch> origin/<branch>`. All other `git
-checkout` usage works as for a normal git repository.
-
-Without tracking branches, `git pull` doesn't work. Plese use
-`git toprepo fetch` followed by `git rebase ` or `git merge` instead.
+| Regular git                    | git-toprepo                                                     |
+| ------------------------------ | --------------------------------------------------------------- |
+| `git init`                     | `git toprepo init`                                              |
+| `git clone`                    | `git toprepo clone`                                             |
+| `git fetch`                    | `git toprepo fetch`[*](#git-toprepo-fetch)                      |
+| `git push`                     | `git toprepo push`[*](#git-toprepo-push)                        |
+| `git pull`                     | `git toprepo fetch && git rebase/merge`[*](#branch-tracking)    |
+| `git checkout origin/<branch>` | `git checkout origin/<branch>`                                  |
+| `git checkout <branch>`        | `git checkout -b <branch> origin/<branch>`[*](#branch-tracking) |
+| `git merge`                    | `git merge`                                                     |
+| `git rebase`                   | `git rebase`                                                    |
+| `git submodule`                | `git submodule`[*](#git-submodule)                              |
+| `git <command>`                | `git <command>`                                                 |
 
 TIP: For simplification, command lines like
 `git fetch URL REF && git cherry-pick FETCH_HEAD` can be inserted right after
@@ -65,6 +58,42 @@ TIP: For simplification, command lines like
 `git toprepo git fetch URL REF && git cherry-pick FETCH_HEAD`.
 This is useful when copying commands straight from code review systems like
 Gerrit, GitHub or GitLab.
+
+#### git toprepo fetch
+`git toprepo fetch` is basically a replacement of
+`git fetch && git toprepo recombine`.
+
+`git toprepo fetch REMOTE REF` will fetch the ref into
+`refs/namespaces/NAME/refs/...` and then expand it into a suitable place in the
+history of HEAD. This process will fail if a submodule commit is fetched but
+there is no ancestor that have been expanded into a monocommit.
+
+#### git toprepo push
+`git toprepo push` splits the commits and runs `git push` towards each needed
+remote repository. If the monocommit spans multiple repositories, git-toprepo
+adds the push option `topic=` according to the `Topic:` written in the commit
+message footer.
+
+When amending a commit, the committer date changes, but the content to be pushed
+might stay the same for some target repositories. To avoid pushing commits where
+only the committer date has changed, git-toprepo tries to reuse previously
+pushed commits that contain the same content. Unfortunately, this also means
+that Gerrit complains when pushing an old patch-set again.
+
+#### Branch tracking
+Because git-toprepo needs to expand the commits after the fetch into
+monocommits, `git pull` does not work. Plese use `git toprepo fetch` followed by
+`git rebase` or `git merge` instead.
+
+git-toprepo sets the git config `checkout.guess=false` to avoid accidental
+branch tracking `git checkout <branch>`, use
+`git checkout -b <branch> origin/<branch>` instead. All other `git checkout`
+usage works as for a normal git repository. (Git's guess is that you want to
+track the non-expanded topcommits, not having a monorepo anymore.)
+
+#### git submodule
+The git-toprepo configuration might state that some submodules should not be
+expanded. In those cases, use `git submodule` as you would normally do.
 
 ## Documentation and presentations
 
