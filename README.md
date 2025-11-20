@@ -89,7 +89,7 @@ git-toprepo sets the git config `checkout.guess=false` to avoid accidental
 branch tracking `git checkout <branch>`, use
 `git checkout -b <branch> origin/<branch>` instead. All other `git checkout`
 usage works as for a normal git repository. (Git's guess is that you want to
-track the non-expanded topcommits, not the monocommits.)
+track the non-expanded topcommits, not having a monorepo anymore.)
 
 #### git submodule
 The git-toprepo configuration might state that some submodules should not be
