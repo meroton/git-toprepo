@@ -4,6 +4,7 @@ use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
 use predicates::prelude::*;
 use std::path::Path;
+use bstr::ByteSlice as _;
 
 const GENERIC_CONFIG: &str = r#"
     [repo]
@@ -92,19 +93,33 @@ fn missing_config() {
         .assert()
         .success();
 
-    cargo_bin_git_toprepo_for_testing()
+    let cmd = cargo_bin_git_toprepo_for_testing()
         .current_dir(&temp_dir)
         .arg("config")
         .arg("location")
         .assert()
         .code(1)
-        .stdout("")
-        .stderr(
-            "WARN: Config file \"nonexisting.toml\" does not exist in the worktree\n\
-            ERROR: Config file .gittoprepo.toml does not exist in HEAD: exit status: 128: \
-            fatal: path '.gittoprepo.toml' does not exist in 'HEAD'\n\
-            ERROR: None of the configured git-toprepo locations did exist\n",
-        );
+        .stdout("");
+
+    let stderr = cmd.get_output().stderr.to_str().unwrap();
+    let errors = vec![
+        // Modern git.
+        "WARN: Config file \"nonexisting.toml\" does not exist in the worktree\n\
+        ERROR: Config file .gittoprepo.toml does not exist in HEAD: exit status: 128: \
+        fatal: path '.gittoprepo.toml' does not exist in 'HEAD'\n\
+        ERROR: None of the configured git-toprepo locations did exist\n",
+        // Git version 2.34.1
+        "WARN: Config file \"nonexisting.toml\" does not exist in the worktree\n\
+        ERROR: Config file .gittoprepo.toml does not exist in HEAD: exit status: 128: \
+        fatal: Not a valid object name HEAD:.gittoprepo.toml\n\
+        ERROR: None of the configured git-toprepo locations did exist\n",
+    ];
+    if !(errors.contains(&stderr)) {
+        eprintln!(r#"Unexpected error: "{stderr}", must be either from {errors:?}"#);
+        assert!(false);
+    }
+
+
 }
 
 #[test]
