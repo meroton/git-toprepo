@@ -103,21 +103,37 @@ fn clone_and_bootstrap() {
         .assert()
         .success();
 
-    cargo_bin_git_toprepo_for_testing()
+    let cmd = cargo_bin_git_toprepo_for_testing()
         .arg("clone")
         .arg(&toprepo)
         .arg(&monorepo)
         .assert()
         .code(1)
-        .stdout("")
-        .stderr(predicate::str::ends_with(
-            "WARN: Config file .gittoprepo.toml does not exist in refs/namespaces/top/refs/remotes/origin/HEAD: \
-            exit status: 128: fatal: path '.gittoprepo.toml' does not exist in 'refs/namespaces/top/refs/remotes/origin/HEAD'\n\
-            ERROR: Config file .gittoprepo.toml does not exist in should:repo:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml\n\
-            INFO: Please run 'git-toprepo config bootstrap > .gittoprepo.user.toml' to generate an initial config and \
-            'git-toprepo recombine' to use it.\n\
-            ERROR: Clone failed due to missing config file\n"
-        ));
+        .stdout("");
+
+    let stderr = cmd.get_output().stderr.to_str().unwrap();
+    let errors = vec![
+        // // Modern git.
+        // "WARN: Config file .gittoprepo.toml does not exist in refs/namespaces/top/refs/remotes/origin/HEAD: \
+        // exit status: 128: fatal: path '.gittoprepo.toml' does not exist in 'refs/namespaces/top/refs/remotes/origin/HEAD'\n\
+        // ERROR: Config file .gittoprepo.toml does not exist in should:repo:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml\n\
+        // INFO: Please run 'git-toprepo config bootstrap > .gittoprepo.user.toml' to generate an initial config and \
+        // 'git-toprepo recombine' to use it.\n\
+        // ERROR: Clone failed due to missing config file\n",
+
+        // Git version 2.34.1
+        "WARN: Config file .gittoprepo.toml does not exist in refs/namespaces/top/refs/remotes/origin/HEAD: \
+        exit status: 128: fatal: Not a valid object name refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml\n\
+        ERROR: Config file .gittoprepo.toml does not exist in should:repo:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml\n\
+        INFO: Please run 'git-toprepo config bootstrap > .gittoprepo.user.toml' to generate an initial config and \
+        'git-toprepo recombine' to use it.\n\
+        ERROR: Clone failed due to missing config file\n",
+    ];
+
+    if !(errors.contains(&stderr)) {
+        eprintln!(r#"Unexpected error: "{stderr}", must be either from {errors:?}"#);
+        assert!(false);
+    }
     let config_path = monorepo.join(".gittoprepo.user.toml");
     assert!(!config_path.exists());
     let cmd = cargo_bin_git_toprepo_for_testing()
