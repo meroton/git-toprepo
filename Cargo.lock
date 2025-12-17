@@ -1059,6 +1059,7 @@ dependencies = [
  "predicates",
  "pretty_assertions",
  "rstest 0.26.1",
+ "rust-netrc",
  "serde",
  "serde_json",
  "serde_path_to_error",
