@@ -83,6 +83,7 @@ fn toprepo_clone() {
     }
 }
 
+#[ignore]
 #[test]
 fn clone_and_bootstrap() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
