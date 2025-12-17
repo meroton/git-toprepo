@@ -24,6 +24,7 @@ lazy_static = "1.5.0"
 log = "0.4.28"
 oneshot = "0.1.11"
 pathdiff = "0.2.3"
+rust-netrc = "0.1.2"
 serde = { version = "1.0.226", features = ["default", "derive", "std"] }
 serde_json = "1.0.145"
 serde_path_to_error = "0.1.20"
