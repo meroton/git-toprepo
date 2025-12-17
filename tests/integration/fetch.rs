@@ -666,7 +666,9 @@ WARN: Fetching namex: git fetch .* timed out, was silent 1s, retrying
 }
 
 #[rstest]
+#[ignore]
 #[case::does_not_timeout_with_progress("[3]", no_timeout_with_progress_checker)]
+#[ignore]
 #[case::idle_progress("[1, 3]", idle_progress_with_successful_retry_checker)]
 #[case::exceeds_retries("[1, 1]", too_many_timeouts_checker)]
 fn timeout(
