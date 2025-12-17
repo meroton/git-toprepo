@@ -15,6 +15,7 @@ use git_gr_lib::query::QueryOptions;
 use git_toprepo::config::ConfigLocation;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::GitModulesInfo;
+use git_toprepo::gitreview::parse_git_review;
 use git_toprepo::log::CommandSpanExt as _;
 use git_toprepo::log::ErrorMode;
 use git_toprepo::log::ErrorObserver;
@@ -864,7 +865,34 @@ fn dump(dump_args: &cli::Dump) -> Result<()> {
         }
         cli::Dump::ImportCache(args) => dump_import_cache(args),
         cli::Dump::GitModules => dump_git_modules(),
+        cli::Dump::Gerrit(choice) if choice == &cli::DumpGerrit::Host => dump_gerrit(choice),
+        cli::Dump::Gerrit(choice) if choice == &cli::DumpGerrit::UserOverride => {
+            dump_gerrit(choice)
+        }
+        cli::Dump::Gerrit(choice) if choice == &cli::DumpGerrit::Project => dump_gerrit(choice),
+        cli::Dump::Gerrit(_) => unreachable!(),
     }
+}
+
+fn dump_gerrit(choice: &cli::DumpGerrit) -> Result<()> {
+    let toprepo = gix_discover_current_dir()?;
+    let mut git_review_file = toprepo.workdir().context("Find worktree")?.to_owned();
+    git_review_file.push(".gitreview");
+
+    let mut content: String = "".to_owned();
+    std::fs::File::open(&git_review_file)
+        .context(format!("{}", git_review_file.display()))?
+        .read_to_string(&mut content)
+        .unwrap();
+    let git_review = parse_git_review(&content)?;
+
+    let cons = match choice {
+        cli::DumpGerrit::Host => git_review.host,
+        cli::DumpGerrit::Project => git_review.project,
+        cli::DumpGerrit::UserOverride => anyhow::bail!("No user override is specified."),
+    };
+    println!("{cons}");
+    Ok(())
 }
 
 fn dump_import_cache(args: &cli::DumpImportCache) -> Result<()> {

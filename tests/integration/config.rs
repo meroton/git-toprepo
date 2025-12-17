@@ -11,6 +11,58 @@ const GENERIC_CONFIG: &str = r#"
     url = "ssh://generic/repo.git"
 "#;
 
+const GIT_REVIEW_CONFIG: &str = r#"[gerrit]
+    host=gerrit.server.example
+    project=path/to/repository.git
+    port=2222"#;
+
+#[test]
+fn test_parse_gitreview() {
+    let temp_dir = tempfile::TempDir::with_prefix("git-toprepo-gerrit-").unwrap();
+    // Debug with &temp_dir.into_path() to persist the path.
+    // TODO: Parameterize all integrations tests to keep their temporary files.
+    // Possibly with an environment variable?
+    let temp_dir = temp_dir.path();
+
+    let gitreview = ".gitreview";
+    std::fs::write(temp_dir.join(gitreview), GIT_REVIEW_CONFIG).unwrap();
+
+    let toprepo = ".gittoprepo.toml";
+    std::fs::write(temp_dir.join(toprepo), GENERIC_CONFIG).unwrap();
+
+    git_command_for_testing(temp_dir)
+        .args(["init"])
+        .assert()
+        .success();
+
+    git_command_for_testing(temp_dir)
+        .args([
+            "config",
+            &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY),
+            &format!("local:{toprepo}"),
+        ])
+        .assert()
+        .success();
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(temp_dir)
+        .arg("dump")
+        .arg("gerrit")
+        .arg("host")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("gerrit.server.example"));
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(temp_dir)
+        .arg("dump")
+        .arg("gerrit")
+        .arg("project")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("path/to/repository.git"));
+}
+
 #[test]
 fn create_config_from_invalid_ref() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
