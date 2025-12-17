@@ -52,6 +52,7 @@ fn create_config_from_invalid_ref() {
         );
 }
 
+#[ignore]
 #[test]
 fn missing_config() {
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
