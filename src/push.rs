@@ -46,7 +46,7 @@ pub fn split_for_push(
     progress: &indicatif::MultiProgress,
     top_push_url: &gix::Url,
     local_rev_or_ref: &String,
-) -> Result<Vec<PushMetadata>> {
+) -> Result<Vec<PushData>> {
     if configured_repo.import_cache.monorepo_commits.is_empty() {
         anyhow::bail!("No filtered mono commits exists, please run `git toprepo recombine` first");
     }
@@ -107,7 +107,7 @@ pub fn split_for_push(
                 )
             })?;
 
-        to_push_metadata.push(PushMetadata {
+        to_push_metadata.push(PushData {
             repo_name: RepoName::Top,
             push_url: top_push_url.clone(),
             topic: None,
@@ -188,7 +188,7 @@ fn split_for_push_impl(
     fast_importer: &mut crate::git_fast_export_import_dedup::FastImportRepoDedup<'_>,
     top_push_url: &gix::Url,
     export_refs_args: Vec<std::ffi::OsString>,
-) -> Result<Vec<PushMetadata>> {
+) -> Result<Vec<PushData>> {
     let monorepo_commits = &configured_repo.import_cache.monorepo_commits;
 
     let pb = progress.add(
@@ -407,7 +407,7 @@ fn split_for_push_impl(
                             );
                         }
                     };
-                    to_push_metadata.push(PushMetadata {
+                    to_push_metadata.push(PushData {
                         repo_name,
                         push_url,
                         topic: subrepo_message.topic.clone(),
@@ -459,7 +459,7 @@ fn split_for_push_impl(
 }
 
 #[derive(Debug, Clone)]
-pub struct PushMetadata {
+pub struct PushData {
     pub repo_name: RepoName,
     pub push_url: gix::Url,
     pub topic: Option<String>,
@@ -467,7 +467,7 @@ pub struct PushMetadata {
     pub parents: Vec<CommitId>,
 }
 
-impl PushMetadata {
+impl PushData {
     /// Returns extra parameters for the git-push command.
     pub fn extra_args(&self) -> Vec<String> {
         let mut args = Vec::new();
@@ -515,16 +515,16 @@ impl CommitPusher {
 
     pub fn push(
         &self,
-        push_metadata: Vec<PushMetadata>,
+        commits: Vec<PushData>,
         remote_ref: &FullName,
         extra_args: &[String],
         dry_run: bool,
     ) -> Result<()> {
-        if push_metadata.is_empty() {
+        if commits.is_empty() {
             log::info!("Nothing to push");
             return Ok(());
         }
-        self.push_to_remote_parallel(push_metadata, remote_ref, extra_args, dry_run);
+        self.push_to_remote_parallel(commits, remote_ref, extra_args, dry_run);
         self.context
             .error_observer
             .lock()
@@ -535,23 +535,23 @@ impl CommitPusher {
 
     fn push_to_remote_parallel(
         &self,
-        push_metadata: Vec<PushMetadata>,
+        commits: Vec<PushData>,
         remote_ref: &FullName,
         extra_args: &[String],
         dry_run: bool,
     ) {
-        let splitted_metadata = push_metadata
+        let split = commits
             .into_iter()
             .into_group_map_by(|info| info.push_url.clone());
         let thread_pool = threadpool::ThreadPool::new(std::cmp::min(
             self.thread_count.get(),
-            splitted_metadata.len(),
+            split.len(),
         ));
         // Make push order deterministic.
-        let mut sorted_metadata = splitted_metadata.into_iter().collect::<Vec<_>>();
-        sorted_metadata.sort_by_key(|(push_url, _)| push_url.clone());
-        for (_push_url, url_push_metadata) in sorted_metadata {
-            let mut task = PushTask::new(self.context.clone(), url_push_metadata);
+        let mut sorted = split.into_iter().collect::<Vec<_>>();
+        sorted.sort_by_key(|(push_url, _)| push_url.clone());
+        for (_push_url, commit) in sorted {
+            let mut task = PushTask::new(self.context.clone(), commit);
             let remote_ref = remote_ref.clone();
             let extra_args = extra_args.to_vec();
             let error_observer = self.context.error_observer.clone();
@@ -577,7 +577,7 @@ struct PushTask {
     context: PushContext,
     /// Stuff to push in reverse order, i.e. the last item is pushed first by
     /// using `reversed_push_metadata.pop()`.
-    reversed_push_metadata: Vec<PushMetadata>,
+    reversed_push_metadata: Vec<PushData>,
 
     /// The currently active PushMetadata, if any.
     current_push_item: Option<CurrentPushItem>,
@@ -594,7 +594,7 @@ struct CurrentPushItem {
 }
 
 impl PushTask {
-    pub fn new(context: PushContext, mut push_metadata: Vec<PushMetadata>) -> Self {
+    pub fn new(context: PushContext, mut push_metadata: Vec<PushData>) -> Self {
         context
             .push_progress
             .inc_queue_size(push_metadata.len() as isize);
@@ -630,7 +630,7 @@ impl PushTask {
 
     fn push_one(
         &mut self,
-        push_info: PushMetadata,
+        push_info: PushData,
         remote_ref: &FullName,
         mut extra_args: Vec<String>,
         dry_run: bool,
