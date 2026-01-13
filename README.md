@@ -68,6 +68,9 @@ Gerrit, GitHub or GitLab.
 history of HEAD. This process will fail if a submodule commit is fetched but
 there is no ancestor that have been expanded into a monocommit.
 
+Note that `--tags` is not supported. All tags are fetched and expanded by
+default.
+
 #### git toprepo push
 `git toprepo push` splits the commits and runs `git push` towards each needed
 remote repository. If the monocommit spans multiple repositories, git-toprepo
