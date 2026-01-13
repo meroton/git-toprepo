@@ -157,9 +157,11 @@ The algorithm steps are:
 
 ## Configuration
 
-By default, the git-toprepo configuration is read from the committed `HEAD` in the remote toprepo,
-i.e. `should:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml`,
-but prioritizes `may:worktree:.gittoprepo.user.toml` if it exists.
+By default, during init or clone, the git-toprepo configuration is set to read
+from the committed `HEAD` in the remote toprepo, i.e.
+`should:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml`, but
+prioritizes `may:worktree:.gittoprepo.user.toml` if it exists. This is written
+to the standard `git config`.
 
 The configuration is specified in [Toml](https://toml.io/) format.
 
