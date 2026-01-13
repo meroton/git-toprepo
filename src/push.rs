@@ -169,7 +169,6 @@ fn resolve_push_repo(
             Err(err) => anyhow::bail!("{err:#}"),
         };
         generic_url = generic_url.join(sub_url);
-        push_url = push_url.join(sub_url);
         // Update the return value.
         let sub_repo_name = match ledger.get_or_insert_from_url(&generic_url)? {
             crate::config::GetOrInsertOk::Found((name, _)) => name,
@@ -178,6 +177,12 @@ fn resolve_push_repo(
                 anyhow::bail!("Missing URL {generic_url} in the git-toprepo configuration");
             }
         };
+        let push_sub_url = ledger
+            .subrepos
+            .get(&sub_repo_name)
+            .expect("just inserted")
+            .resolve_push_url();
+        push_url = push_url.join(push_sub_url);
         repo_name = RepoName::SubRepo(sub_repo_name);
     }
 }

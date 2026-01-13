@@ -520,6 +520,69 @@ fn topic_is_required_for_multi_repo_push() {
         .stderr(predicate::str::is_match(r"^ERROR: Multiple submodules are modified in commit [0-9a-f]+, but no topic was provided. Please amend the commit message to add a 'Topic: something-descriptive' footer line.\n$").unwrap());
 }
 
+#[test]
+fn override_url_in_config() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let monorepo = temp_dir.join("mono");
+    let toprepo = temp_dir.join("top");
+    let repox = temp_dir.join("repox");
+    let repoy = temp_dir.join("repoy");
+
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    std::fs::write(monorepo.join("top.txt"), "top\n").unwrap();
+    std::fs::write(monorepo.join("subpathx/file.txt"), "subx\n").unwrap();
+    git_command_for_testing(&monorepo)
+        .args(["add", "top.txt", "subpathx/file.txt"])
+        .assert()
+        .success();
+    git_command_for_testing(&monorepo)
+        .args(["commit", "-m", "Add files\n\nTopic: my-topic"])
+        .assert()
+        .success();
+    // Push top to repox and subx to repoy.
+    std::fs::write(
+        monorepo.join(".gittoprepo.user.toml"),
+        r#"
+[repo.namex]
+urls = ["../repox/"]
+push.url = "../repoy/"
+[repo.namey]
+urls = ["../repoy/"]
+push.url = "../non-existing/"
+"#,
+    )
+    .unwrap();
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&monorepo)
+        .arg("recombine")
+        .assert()
+        .success();
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&monorepo)
+        .arg("push")
+        .arg(&repox)
+        .arg("HEAD:refs/heads/other")
+        .assert()
+        .success();
+
+    git_command_for_testing(&repox)
+        .args(["show", "refs/heads/other:top.txt"])
+        .assert()
+        .success()
+        .stdout("top\n");
+    git_command_for_testing(&repoy)
+        .args(["show", "refs/heads/other:file.txt"])
+        .assert()
+        .success()
+        .stdout("subx\n");
+}
+
 /// Regression test where pushing a commit that modifies multiple submodules did
 /// only keep ancestry for the alphabetically last submodule processed.
 #[test]
