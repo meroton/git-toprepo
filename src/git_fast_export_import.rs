@@ -112,7 +112,7 @@ pub struct ChangedFile {
     pub change: FileChange,
 }
 
-#[derive(Debug, PartialEq, serde::Serialize)]
+#[derive(Debug, PartialEq, serde::Serialize, Clone)]
 pub enum FileChange {
     Deleted,
     Modified { mode: BString, hash: BString },
