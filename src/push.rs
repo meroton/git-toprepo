@@ -40,7 +40,7 @@ use std::sync::Mutex;
 
 /// Splits the mono-repo commits that needs to be pushed into submodule commits
 /// and top-repo commits, so that each commit is pushed to its underlying
-/// repositories.
+/// repository.
 pub fn split_for_push(
     configured_repo: &mut ConfiguredTopRepo,
     progress: &indicatif::MultiProgress,
@@ -209,9 +209,19 @@ fn split_for_push_impl(
     let mut bumps = BumpInfo::default();
     let mut imported_mono_commits = HashMap::new();
     let mut imported_submod_commits = HashMap::new();
+
+    // Iterate over all unmerged monocommits and split them into constituent
+    // repository commits.
     for entry in fast_exporter {
         let entry = entry?;
         match entry {
+            crate::git_fast_export_import::FastExportEntry::Reset(reset) => {
+                log::warn!(
+                    "Resetting {} to {} is unimplemented",
+                    reset.branch,
+                    reset.from
+                );
+            }
             crate::git_fast_export_import::FastExportEntry::Commit(exported_mono_commit) => {
                 let mono_commit_id = MonoRepoCommitId::new(exported_mono_commit.original_id);
                 log::trace!(
@@ -304,6 +314,7 @@ fn split_for_push_impl(
                 let single_push = grouped_file_changes.len() == 1;
                 let mut top_bump = None;
                 let mut submodule_bumps = HashMap::new();
+                // For each constituent repository: Create a commit to push.
                 for ((abs_sub_path, repo_name, push_url), file_changes) in grouped_file_changes {
                     let subrepo_message = match (
                         push_messages.get(&abs_sub_path),
@@ -445,13 +456,6 @@ fn split_for_push_impl(
                 );
                 imported_mono_commits.insert(exported_mono_commit.original_id, mono_commit.clone());
                 pb.inc(1);
-            }
-            crate::git_fast_export_import::FastExportEntry::Reset(reset) => {
-                log::warn!(
-                    "Resetting {} to {} is unimplemented",
-                    reset.branch,
-                    reset.from
-                );
             }
         };
     }
