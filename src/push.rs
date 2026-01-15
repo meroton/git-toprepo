@@ -194,6 +194,14 @@ fn split_for_push_impl(
     top_push_url: &gix::Url,
     export_refs_args: Vec<std::ffi::OsString>,
 ) -> Result<Vec<PushData>> {
+    enum SplitParent {
+        Mono(Rc<MonoRepoCommit>),
+        OriginalCommit {
+            repo_name: RepoName,
+            commit_id: CommitId,
+        },
+    }
+
     let monorepo_commits = &configured_repo.import_cache.monorepo_commits;
 
     let pb = progress.add(
@@ -246,41 +254,6 @@ fn split_for_push_impl(
         );
         let gix_mono_commit = configured_repo.gix_repo.find_commit(*mono_commit_id)?;
 
-        enum SplitParent {
-            Mono(Rc<MonoRepoCommit>),
-            OriginalCommit {
-                repo_name: RepoName,
-                commit_id: CommitId,
-            },
-        }
-
-        let mut split_parents = Vec::new();
-        let mut mandatory_repo_names_among_parents = HashSet::new();
-        for parent_id in exported_mono_commit.parents {
-            if let Some(mono_parent) = monorepo_commits
-                .get(&MonoRepoCommitId::new(parent_id))
-                // Fallback to the newly imported commits.
-                .or_else(|| imported_mono_commits.get(&parent_id))
-            {
-                split_parents.push(SplitParent::Mono(mono_parent.clone()));
-            } else {
-                // Might be a submodule commit. All subrepos that contain this commit should add it as parent.
-                let mut submod_found = false;
-                for (sub_name, subrepo) in &configured_repo.import_cache.repos {
-                    if subrepo.thin_commits.contains_key(&parent_id) {
-                        split_parents.push(SplitParent::OriginalCommit {
-                            repo_name: sub_name.clone(),
-                            commit_id: parent_id,
-                        });
-                        mandatory_repo_names_among_parents.insert(sub_name.clone());
-                        submod_found = true;
-                    }
-                }
-                if !submod_found {
-                    anyhow::bail!("Unknown mono commit parent {}", parent_id.to_hex());
-                }
-            }
-        }
         if exported_mono_commit.file_changes.is_empty() {
             // Unknown which repository to push to if there are no file changes at all.
             anyhow::bail!("Pushing empty commits like {mono_commit_id} is not supported");
@@ -326,6 +299,36 @@ fn split_for_push_impl(
         let single_push = grouped_file_changes.len() == 1;
         let mut top_bump = None;
         let mut submodule_bumps = HashMap::new();
+
+        let mut split_parents = Vec::new();
+        let mut mandatory_repo_names_among_parents = HashSet::new();
+
+        for parent_id in exported_mono_commit.parents {
+            if let Some(mono_parent) = monorepo_commits
+                .get(&MonoRepoCommitId::new(parent_id))
+                // Fallback to the newly imported commits.
+                .or_else(|| imported_mono_commits.get(&parent_id))
+            {
+                split_parents.push(SplitParent::Mono(mono_parent.clone()));
+            } else {
+                // Might be a submodule commit. All subrepos that contain this commit should add it as parent.
+                let mut submod_found = false;
+                for (sub_name, subrepo) in &configured_repo.import_cache.repos {
+                    if subrepo.thin_commits.contains_key(&parent_id) {
+                        split_parents.push(SplitParent::OriginalCommit {
+                            repo_name: sub_name.clone(),
+                            commit_id: parent_id,
+                        });
+                        mandatory_repo_names_among_parents.insert(sub_name.clone());
+                        submod_found = true;
+                    }
+                }
+                if !submod_found {
+                    anyhow::bail!("Unknown mono commit parent {}", parent_id.to_hex());
+                }
+            }
+        }
+
         // For each constituent repository: Create a commit to push.
         for ((abs_sub_path, repo_name, push_url), file_changes) in grouped_file_changes {
             let subrepo_message = match (
