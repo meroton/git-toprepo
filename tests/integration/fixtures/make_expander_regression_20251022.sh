@@ -23,7 +23,7 @@ git -C repo init -q --initial-branch main
 
 cat <<EOF > top/.gittoprepo.toml
 [repo.name]
-urls = ["../repo/"]
+historic_urls = ["../repo/"]
 EOF
 git -C top add .gittoprepo.toml
 

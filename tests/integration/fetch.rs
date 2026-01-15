@@ -154,7 +154,7 @@ fn download_only_for_needed_commits() {
         first_lstree,
         @r"
     100644 blob 5488142f0fb986fa257ab2704c5e744f04c63ddd	.gitmodules
-    100644 blob a947b37238208308b7108a266d9466aa976977fb	.gittoprepo.toml
+    100644 blob ab0f72cd3593290689341ed5e89dbabb11ec3a51	.gittoprepo.toml
     100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	A1-main.txt
     100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	init.txt
     160000 commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	subpathx
@@ -208,7 +208,7 @@ fn download_only_for_needed_commits() {
         second_lstree,
         @r"
     100644 blob 5488142f0fb986fa257ab2704c5e744f04c63ddd	.gitmodules
-    100644 blob a947b37238208308b7108a266d9466aa976977fb	.gittoprepo.toml
+    100644 blob ab0f72cd3593290689341ed5e89dbabb11ec3a51	.gittoprepo.toml
     100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	A1-main.txt
     100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	init.txt
     160000 commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	subpathx

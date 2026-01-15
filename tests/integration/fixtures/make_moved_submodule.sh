@@ -22,7 +22,7 @@ git -C top init -q --initial-branch main
 git -C repox init -q --initial-branch main
 cat <<EOF > top/.gittoprepo.toml
 [repo.namex]
-urls = ["../repox/"]
+historic_urls = ["../repox/"]
 EOF
 git -C top add .gittoprepo.toml
 

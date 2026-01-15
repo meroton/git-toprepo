@@ -204,7 +204,7 @@ suggested `[repo.*]` additions to the `.gittoprepo.toml` configuration.
 
 ```
 [repo.something]
-urls = [
+historic_urls = [
     "https://github.com/meroton/git-toprepo.git",
     "server.example/git-toprepo.git",
 ]

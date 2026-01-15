@@ -1,3 +1,4 @@
+use bstr::ByteSlice as _;
 use git_toprepo::config::TOPREPO_CONFIG_FILE_KEY;
 use git_toprepo::config::toprepo_git_config;
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
@@ -7,7 +8,7 @@ use std::path::Path;
 
 const GENERIC_CONFIG: &str = r#"
     [repo]
-    [repo.foo.fetch]
+    [repo.foo]
     url = "ssh://generic/repo.git"
 "#;
 
@@ -236,12 +237,6 @@ fn bootstrap_after_clone() {
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
 
-    let expected_boostrap_config = &r#"
-[repo.repo]
-urls = ["../repo/"]
-missing_commits = []
-"#[1..];
-
     git_command_for_testing(&toprepo)
         .args(["rm", ".gittoprepo.toml"])
         .assert()
@@ -259,14 +254,22 @@ missing_commits = []
         .code(1)
         .stderr(predicate::str::contains("git-toprepo config bootstrap"));
 
-    cargo_bin_git_toprepo_for_testing()
+    let cmd = cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["config", "bootstrap"])
         .assert()
         .success()
-        .stdout(expected_boostrap_config)
         .stderr(predicate::str::contains("ERROR:").not())
         .stderr(predicate::str::contains("WARN:").not());
+
+    insta::assert_snapshot!(
+        cmd.get_output().stdout.to_str().unwrap(),
+                @r#"
+    [repo.repo]
+    historic_urls = ["../repo/"]
+    missing_commits = []
+    "#
+    );
 }
 
 #[test]
@@ -281,24 +284,26 @@ fn bootstrap_on_existing() {
     let monorepo = temp_dir.join("mono");
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
-    let expected_boostrap_config: &str = &r#"
-[repo.repox]
-urls = ["../repox/"]
-missing_commits = []
-
-[repo.repoy]
-urls = ["../repoy/"]
-missing_commits = []
-"#[1..];
-
-    cargo_bin_git_toprepo_for_testing()
+    let cmd = cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["config", "bootstrap"])
         .assert()
         .success()
-        .stdout(expected_boostrap_config)
         .stderr(predicate::str::contains("ERROR:").not())
         .stderr(predicate::str::contains("WARN:").not());
+
+    insta::assert_snapshot!(
+        cmd.get_output().stdout.to_str().unwrap(),
+                @r#"
+    [repo.repox]
+    historic_urls = ["../repox/"]
+    missing_commits = []
+
+    [repo.repoy]
+    historic_urls = ["../repoy/"]
+    missing_commits = []
+    "#
+    );
 }
 
 #[test]
@@ -345,18 +350,16 @@ fn bootstrap_multiple_urls_in_history() {
 
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
-    // subx has an URL in HEAD:.gitmodules, suby does not and therfore becomes
+    // subx has an URL in HEAD:.gitmodules, suby does not and therefore becomes
     // disabled.
     let expected_boostrap_config = &r#"
 [repo.repox]
-urls = ["../repox/", "https://other.example/repox"]
+url = "https://other.example/repox"
+historic_urls = ["../repox/", "https://other.example/repox"]
 missing_commits = []
 
-[repo.repox.fetch]
-url = "https://other.example/repox"
-
 [repo.repoy]
-urls = ["../repoy/", "https://other.example/repoy.git"]
+historic_urls = ["../repoy/", "https://other.example/repoy.git"]
 enabled = false
 missing_commits = []
 "#[1..];

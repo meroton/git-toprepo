@@ -46,7 +46,7 @@ cp "$top_prereceive_hook_path" "$sub_prereceive_hook_path"
 
 cat <<EOF > top/.gittoprepo.toml
 [repo.name]
-urls = ["../repo/"]
+historic_urls = ["../repo/"]
 EOF
 git -C top add .gittoprepo.toml
 

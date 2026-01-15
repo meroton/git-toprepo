@@ -617,7 +617,11 @@ impl<'a> FetchParamsResolver<'a> {
         let mut matching_submod_path = UniqueContainer::new();
         for (submod_path, submod_url) in &self.gitmod_infos.submodules {
             let Ok(submod_url) = submod_url else { continue };
-            if submod_config.urls.iter().any(|url| url == submod_url) {
+            if submod_config
+                .historic_urls
+                .iter()
+                .any(|url| url == submod_url)
+            {
                 matching_submod_path.insert(submod_path);
             }
         }
