@@ -218,7 +218,6 @@ fn split_for_push_impl(
         Some(export_refs_args),
     )?;
 
-    let mut to_push_metadata = Vec::new();
     let mut bumps = BumpInfo::default();
     let mut imported_mono_commits = HashMap::new();
     let mut imported_submod_commits = HashMap::new();
@@ -242,7 +241,11 @@ fn split_for_push_impl(
         }
     }
 
-    for exported_mono_commit in exported {
+    // Each monocommit is filtered into a vector of constituent commits
+    // that can be pushed.
+    let mut to_push_data: Vec<Vec<PushData>> = vec![Vec::new(); exported.len()];
+
+    for (index, exported_mono_commit) in exported.into_iter().enumerate() {
         let mono_commit_id = MonoRepoCommitId::new(exported_mono_commit.original_id);
         log::trace!(
             "Splitting mono commit {mono_commit_id} with parents {}",
@@ -430,7 +433,7 @@ fn split_for_push_impl(
                     );
                 }
             };
-            to_push_metadata.push(PushData {
+            to_push_data[index].push(PushData {
                 repo_name,
                 push_url,
                 topic: subrepo_message.topic.clone(),
@@ -468,7 +471,7 @@ fn split_for_push_impl(
         pb.inc(1);
     }
 
-    Ok(to_push_metadata)
+    Ok(to_push_data.into_iter().flatten().collect())
 }
 
 #[derive(Debug, Clone)]
