@@ -708,7 +708,7 @@ fn push(push_args: &cli::Push, configured_repo: &mut ConfiguredTopRepo) -> Resul
     let local_rev = local_ref;
 
     git_toprepo::log::get_global_logger().with_progress(|progress| {
-        let push_metadatas =
+        let commits =
             git_toprepo::push::split_for_push(configured_repo, &progress, &base_url, local_rev)?;
         ErrorObserver::run_keep_going(!push_args.fail_fast, |error_observer| {
             let commit_pusher = git_toprepo::push::CommitPusher::new(
@@ -717,7 +717,7 @@ fn push(push_args: &cli::Push, configured_repo: &mut ConfiguredTopRepo) -> Resul
                 error_observer.clone(),
                 push_args.job_count.into(),
             );
-            commit_pusher.push(push_metadatas, &remote_ref, &extra_args, push_args.dry_run)
+            commit_pusher.push(commits, &remote_ref, &extra_args, push_args.dry_run)
         })
     })
 }
