@@ -1,3 +1,4 @@
+use bstr::ByteSlice as _;
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
 use git_toprepo_testtools::test_util::git_rev_parse;
@@ -140,19 +141,26 @@ fn download_only_for_needed_commits() {
         ));
 
     // Check the filter result.
-    let expected_ls_tree_stdout = "\
-100644 blob 5488142f0fb986fa257ab2704c5e744f04c63ddd\t.gitmodules
-100644 blob a947b37238208308b7108a266d9466aa976977fb\t.gittoprepo.toml
-100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tA1-main.txt
-100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tinit.txt
-160000 commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tsubpathx
-100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\tsubpathy/y-main-1.txt
-";
-    git_command_for_testing(&monorepo)
+    let first_lstree = git_command_for_testing(&monorepo)
         .args(["ls-tree", "-r", "origin/main"])
         .assert()
         .success()
-        .stdout(expected_ls_tree_stdout);
+        .get_output()
+        .stdout
+        .to_str()
+        .unwrap()
+        .to_owned();
+    insta::assert_snapshot!(
+        first_lstree,
+        @r"
+    100644 blob 5488142f0fb986fa257ab2704c5e744f04c63ddd	.gitmodules
+    100644 blob a947b37238208308b7108a266d9466aa976977fb	.gittoprepo.toml
+    100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	A1-main.txt
+    100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	init.txt
+    160000 commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	subpathx
+    100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	subpathy/y-main-1.txt
+    "
+    );
 
     // After updating suby, fetch should fail as the suby remote is missing.
     git_command_for_testing(&toprepo)
@@ -187,11 +195,30 @@ fn download_only_for_needed_commits() {
 
     // Check the filter result, nothing should not be updated as fetching
     // failed, even if suby was bumped in the fetched toprepo main branch.
-    git_command_for_testing(&monorepo)
+    let second_lstree = git_command_for_testing(&monorepo)
         .args(["ls-tree", "-r", "origin/main"])
         .assert()
         .success()
-        .stdout(expected_ls_tree_stdout);
+        .get_output()
+        .stdout
+        .to_str()
+        .unwrap()
+        .to_owned();
+    insta::assert_snapshot!(
+        second_lstree,
+        @r"
+    100644 blob 5488142f0fb986fa257ab2704c5e744f04c63ddd	.gitmodules
+    100644 blob a947b37238208308b7108a266d9466aa976977fb	.gittoprepo.toml
+    100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	A1-main.txt
+    100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	init.txt
+    160000 commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	subpathx
+    100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	subpathy/y-main-1.txt
+    ");
+
+    assert_eq!(
+        first_lstree, second_lstree,
+        "ls-tree listings should be the same."
+    )
 }
 
 #[rstest]
