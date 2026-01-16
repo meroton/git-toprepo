@@ -471,6 +471,17 @@ fn split_for_push_impl(
         pb.inc(1);
     }
 
+    for monocommit in to_push_data.iter() {
+        let hosts = monocommit
+            .iter()
+            .map(|constituent| constituent.push_url.host().unwrap_or("<host>"))
+            .collect::<HashSet<&str>>();
+        assert!(
+            hosts.len() == 1,
+            "Only one remote host is supported for a monocommit. Found {hosts:#?}"
+        )
+    }
+
     Ok(to_push_data.into_iter().flatten().collect())
 }
 
