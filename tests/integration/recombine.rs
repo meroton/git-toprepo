@@ -794,11 +794,12 @@ fn print_updates() {
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
 
-    let top_head_rev = &git_rev_parse(&toprepo, "HEAD")[..7];
+    let top_head_rev = git_rev_parse(&toprepo, "HEAD");
     insta::assert_snapshot!(
         top_head_rev,
-        @"e1644da",
+        @"e1644da1279be58036edb234e050d4aec57d653f",
     );
+    let top_head_rev = &top_head_rev[..7];
 
     let stdout = cargo_bin_git_toprepo_for_testing()
         .arg("clone")
@@ -811,14 +812,13 @@ fn print_updates() {
         .to_str()
         .unwrap()
         .to_owned();
-
-    let mono_head_rev = &git_rev_parse(&monorepo, "HEAD")[..7];
+    let mono_head_rev = git_rev_parse(&monorepo, "HEAD");
+    // All commit hashes will differ if mono_head_rev is wrong.
     insta::assert_snapshot!(
         mono_head_rev,
-        @"db59d86",
-        // All commit hashes will differ if mono_head_rev is wrong
+        @"db59d869dfd774e171cf5d42f8a6386d391ed3ec",
     );
-
+    let mono_head_rev = &mono_head_rev[..7];
     assert_eq!(
         stdout,
         // TODO: Please find a way to dedent this and make it look better.
@@ -877,7 +877,7 @@ fn print_updates() {
         ])
         .assert()
         .success();
-    let stdout = cargo_bin_git_toprepo_for_testing()
+    cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .arg("recombine")
         .arg("-v")
@@ -885,22 +885,13 @@ fn print_updates() {
         .success()
         .stderr(predicate::str::contains("WARN: Skipping symbolic ref refs/namespaces/top/refs/symbolic/outside-top that points outside the top repo, to refs/heads/main"))
         .stderr(predicate::function(|s: &str| s.matches("WARN:").count() == 1))
-        .get_output()
-        .stdout
-        .to_str()
-        .unwrap()
-        .to_owned();
-
-    insta::assert_snapshot!(
-        stdout,
-        @r"
-    * [new] db59d86              -> origin/other
-    * [new] link:refs/heads/main -> refs/symbolic/good
-    * [new tag] db59d86          -> v1.0
-    * [new tag] db59d86          -> v2.0
-    = [up to date] db59d86       -> origin/HEAD
-    - [deleted] db59d86          -> origin/main
-    ");
+        .stdout(format!(" * [new] {mono_head_rev}              -> origin/other
+ * [new] link:refs/heads/main -> refs/symbolic/good
+ * [new tag] {mono_head_rev}          -> v1.0
+ * [new tag] {mono_head_rev}          -> v2.0
+ = [up to date] {mono_head_rev}       -> origin/HEAD
+ - [deleted] {mono_head_rev}          -> origin/main
+"));
 
     // Symbolic refs are never pruned, so delete it manually.
     git_command_for_testing(&monorepo)
@@ -968,5 +959,21 @@ fn print_updates() {
     t [updated tag] db59d86..d51577c    -> v1.0
     - [deleted tag] db59d86             -> v2.0
     ",
+    );
+    assert!(
+        fetch_stdout.contains(&format!("\n + [forced update] {mono_head_rev}...")),
+        "Matched against:\n{fetch_stdout}"
+    );
+    assert!(
+        fetch_stdout.contains(&format!("\n   {mono_head_rev}..")),
+        "Matched against:\n{fetch_stdout}"
+    );
+    assert!(
+        fetch_stdout.contains(&format!("\n t [updated tag] {mono_head_rev}..")),
+        "Matched against:\n{fetch_stdout}"
+    );
+    assert!(
+        fetch_stdout.contains(&format!("\n - [deleted tag] {mono_head_rev} ")),
+        "Matched against:\n{fetch_stdout}"
     );
 }
