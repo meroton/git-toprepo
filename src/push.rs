@@ -349,7 +349,12 @@ fn split_for_push_impl(
             };
             if !single_push && subrepo_message.topic.is_none() {
                 anyhow::bail!(
-                    "Multiple submodules are modified in commit {mono_commit_id}, but no topic was provided. Please amend the commit message to add a 'Topic: something-descriptive' footer line."
+                    r#"Multiple submodules are modified in commit {mono_commit_id} "{0}", but no topic was provided. Please amend the commit message to add a 'Topic: something-descriptive' footer line."#,
+                    subrepo_message
+                        .subject_and_body
+                        .lines()
+                        .next()
+                        .unwrap_or(""),
                 );
             }
 

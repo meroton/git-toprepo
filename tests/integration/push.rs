@@ -1,3 +1,4 @@
+use bstr::ByteSlice as _;
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
 use git_toprepo_testtools::test_util::git_rev_parse;
@@ -512,12 +513,15 @@ fn topic_is_required_for_multi_repo_push() {
         .args(["commit", "-m", "Add files"])
         .assert()
         .success();
-    cargo_bin_git_toprepo_for_testing()
+    let cmd = cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)
         .args(["push", "origin", "HEAD:refs/heads/other"])
         .assert()
-        .code(1)
-        .stderr(predicate::str::is_match(r"^ERROR: Multiple submodules are modified in commit [0-9a-f]+, but no topic was provided. Please amend the commit message to add a 'Topic: something-descriptive' footer line.\n$").unwrap());
+        .code(1);
+    insta::assert_snapshot!(
+        cmd.get_output().stderr.to_str().unwrap(),
+                @r#"ERROR: Multiple submodules are modified in commit b50eaeb0ca4f62e17dd6a0b39346b22c65852fbb "Add files", but no topic was provided. Please amend the commit message to add a 'Topic: something-descriptive' footer line."#
+    );
 }
 
 #[test]
