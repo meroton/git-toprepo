@@ -572,6 +572,17 @@ impl CommitPusher {
         extra_args: &[String],
         dry_run: bool,
     ) {
+        let mut hosts = HashSet::new();
+        for u in commits.iter() {
+            let nu = u.push_url.clone();
+            let host = nu.host().map(|s| s.to_owned());
+            hosts.insert(host);
+        }
+        assert!(
+            hosts.len() == 1,
+            "Only a single remote host is suported for a supercommit"
+        );
+
         let split = commits
             .into_iter()
             .into_group_map_by(|info| info.push_url.clone());
