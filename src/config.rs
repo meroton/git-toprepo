@@ -476,21 +476,11 @@ impl GitTopRepoConfig {
     }
 
     /// Validates that the configuration is sane.
+    /// That all submodules have unique urls.
     pub fn validate(&self) -> Result<()> {
-        for (repo_name, subrepo_config) in self.subrepos.iter() {
-            // Validate each subrepo config.
-            subrepo_config.validate().with_context(|| {
-                format!("Invalid subrepo configuration for {repo_name} {self:?}")
-            })?;
-        }
-        self.ensure_unique_urls()?;
-        Ok(())
-    }
-
-    fn ensure_unique_urls(&self) -> Result<()> {
         let mut found = HashMap::<String, SubRepoName>::new();
         for (repo_name, v) in self.subrepos.iter() {
-            for url in v.historic_urls.iter() {
+            for url in v.historic_urls.iter().chain(vec!(&v.url).into_iter()) {
                 match found.entry(url.to_string()) {
                     std::collections::hash_map::Entry::Vacant(entry) => {
                         entry.insert(repo_name.clone());
@@ -583,16 +573,16 @@ impl GlobalFetchConfig {
 /// It is possible to change the push url.
 #[serde_as]
 #[derive(Default, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(default)]
 #[serde(deny_unknown_fields)]
 pub struct SubRepoConfig {
-    #[serde_as(as = "Option<crate::util::SerdeGixUrl>")]
-    pub url: Option<gix::Url>,
+    #[serde_as(as = "crate::util::SerdeGixUrl")]
+    pub url: gix::Url,
     #[serde_as(as = "Vec<crate::util::SerdeGixUrl>")]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub historic_urls: Vec<gix::Url>,
-    #[serde(skip_serializing_if = "is_default")]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub fetch: FetchConfig,
-    #[serde(skip_serializing_if = "is_default")]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub push: PushConfig,
 
     /// If `false`, the subrepo is not enabled. This is useful to avoid fetching
@@ -603,6 +593,7 @@ pub struct SubRepoConfig {
     /// Commits that should not be expanded but rather kept as submodules
     /// because they are permanently missing from the repository.
     #[serde_as(as = "serde_with::IfIsHumanReadable<OrderedHashSet<serde_with::DisplayFromStr>>")]
+    #[serde(default)]
     pub missing_commits: HashSet<CommitId>,
 }
 
@@ -615,40 +606,10 @@ fn is_true(value: &bool) -> bool {
 }
 
 impl SubRepoConfig {
-    /// Validates that the configuration is sane.
-    /// This will check there is a url available to fetch.
-    /// The main `url` should be used, but we allow using a single historic url
-    /// as well. Though one should consider if that is well-defined.
-    pub fn validate(&self) -> Result<()> {
-        if self.url.is_some() {
-            // Ok, explicit URL to fetch from.
-        } else if self.historic_urls.len() == 1 {
-            // Ok, only one URL.
-        } else if !self.enabled && self.historic_urls.len() > 1 {
-            // Doesn't matter if the repo is disabled.
-        } else {
-            bail!("No main url found, and there are multiple .historic_urls.")
-        }
-        Ok(())
-    }
-
-    pub fn resolve_fetch_url(&self) -> &gix::Url {
-        match &self.url {
-            Some(url) => url,
-            None => {
-                // More URLs might have been added during load, but keep using
-                // the first one, the only one that was loaded.
-                self.historic_urls
-                    .first()
-                    .expect("at least one URL did exist when loading the config")
-            }
-        }
-    }
-
-    pub fn resolve_push_url(&self) -> &gix::Url {
+    pub fn resolve_push_url(&self) -> gix::Url {
         match &self.push.url {
-            Some(url) => url,
-            None => self.resolve_fetch_url(),
+            Some(url) => url.clone(),
+            None => self.url.clone(),
         }
     }
 
@@ -656,7 +617,7 @@ impl SubRepoConfig {
         FetchOptions {
             prune: self.fetch.prune,
             depth: self.fetch.depth,
-            url: Some(self.resolve_fetch_url().clone()),
+            url: Some(self.url.clone()),
         }
     }
 
@@ -771,7 +732,7 @@ mod tests {
                 .subrepos
                 .get(&foo_name)
                 .unwrap()
-                .resolve_fetch_url()
+                .url
                 .to_bstring(),
             b"ssh://bar/baz.git".as_bstr()
         );
@@ -875,7 +836,7 @@ mod tests {
                 .subrepos
                 .get(&foo_name)
                 .unwrap()
-                .resolve_fetch_url()
+                .url
                 .to_bstring(),
             b"ssh://bar/baz.git".as_bstr()
         );
@@ -895,10 +856,10 @@ mod tests {
         let err = GitTopRepoConfig::parse_config_toml_string(
             r#"
                 [repo.foo]
-                historic_urls = ["ssh://bar/baz.git"]
+                url = "ssh://bar/baz.git"
 
                 [repo.bar]
-                historic_urls = ["ssh://bar/baz.git"]
+                url = "ssh://bar/baz.git"
             "#,
         )
         .unwrap_err();

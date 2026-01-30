@@ -131,12 +131,12 @@ fn clone_and_bootstrap() {
     let bootstrap_config = &cmd.get_output().stdout;
     insta::assert_snapshot!(bootstrap_config.to_str().unwrap(), @r#"
     [repo.repox]
-    historic_urls = ["../repox/"]
+    url = "../repox/"
     missing_commits = []
     prune = false
 
     [repo.repoy]
-    historic_urls = ["../repoy/"]
+    url = "../repoy/"
     missing_commits = []
     prune = false
     "#);

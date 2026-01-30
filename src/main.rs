@@ -266,20 +266,18 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
                 .with_context(|| format!("Submodule {submod_path}"))
             {
                 Ok(Some(name)) => {
-                    let subrepo_ledger = repo
+                    let subrepo = repo
                         .ledger
                         .subrepos
                         .get_mut(&name)
                         .expect("valid subrepo name");
-                    subrepo_ledger.enabled = true;
+                    subrepo.enabled = true;
                     // TODO: refactor away the length dependence of
                     // historic_urls. If there is just a single url one should
                     // use `url`.
-                    if subrepo_ledger.historic_urls.len() != 1 {
-                        // Use the current URL in the config, the other URLs
-                        // must be from further back in the history and are
-                        // probably not valid any more.
-                        subrepo_ledger.url = Some(submod_url.clone());
+                    if subrepo.historic_urls.len() == 1 {
+                        subrepo.url = submod_url.clone();
+                        subrepo.historic_urls = Vec::new();
                     }
                 }
                 Ok(None) => unreachable!("Submodule {submod_path} should be in the config"),

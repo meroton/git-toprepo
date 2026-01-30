@@ -266,7 +266,7 @@ fn bootstrap_after_clone() {
         cmd.get_output().stdout.to_str().unwrap(),
                 @r#"
     [repo.repo]
-    historic_urls = ["../repo/"]
+    url = "../repo/"
     missing_commits = []
     "#
     );

@@ -182,7 +182,7 @@ fn resolve_push_repo(
             .get(&sub_repo_name)
             .expect("just inserted")
             .resolve_push_url();
-        push_url = push_url.join(push_sub_url);
+        push_url = push_url.join(&push_sub_url);
         repo_name = RepoName::SubRepo(sub_repo_name);
     }
 }

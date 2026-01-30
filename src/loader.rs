@@ -1184,7 +1184,7 @@ impl<'a> CommitLoader<'a> {
                     .subrepos
                     .get(submod_repo_name)
                     .with_context(|| format!("Repo {repo_name} not found in config"))?;
-                let fetch_url = submod_contig.resolve_fetch_url();
+                let fetch_url = submod_contig.url.clone();
                 (submod_contig.enabled, fetch_url.clone())
             }
         };
