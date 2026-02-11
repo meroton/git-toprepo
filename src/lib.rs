@@ -2,6 +2,7 @@ pub mod commit_message;
 pub mod config;
 pub mod expander;
 pub mod fetch;
+pub mod gerrit;
 pub mod git;
 pub mod git_fast_export_import;
 pub mod git_fast_export_import_dedup;
