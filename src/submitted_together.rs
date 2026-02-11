@@ -183,6 +183,9 @@ pub fn split_by_supercommits(
 }
 
 pub fn order_submitted_together(cons: Vec<NewChange>) -> Result<ChangesSubmittedTogether> {
+    // Create a slimmer data representation for only the relevant fields to the
+    // reordering algorithm. Reorder those and then rewrite the original commits
+    // from `restoration` into the reordered structure.
     let substrate: Vec<SubmittedTogether<String>> = cons.clone().vec_into();
     let restoration = cons
         .iter()
@@ -246,14 +249,13 @@ where
         return Ok(res);
     }
 
-    let mut count = 0;
     // TODO: We do not necessarily need to own The ST<T> in here.
     // but want to reuse `group_by_secondary` with the inner data.
     // If we can make `group_by_secondary` work with either owned or reference
     // data this can be improved.
     let mut topic_backlinks: HashMap<String, Vec<SubmittedTogether<T>>> = HashMap::new();
+    let count = cons.len();
     for c in cons.iter() {
-        count += 1;
         if let Some(topic) = c.topic.clone() {
             topic_backlinks.entry(topic).or_default().push(c.clone())
         }

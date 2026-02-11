@@ -19,8 +19,10 @@ use git_gr_lib::gerrit::HTTPPasswordPolicy;
 use git_gr_lib::query::QueryOptions;
 use git_toprepo::config::ConfigLocation;
 use git_toprepo::config::GitTopRepoConfig;
+use git_toprepo::git::get_default_remote_url;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::gitreview::parse_git_review;
+use git_toprepo::gerrit;
 use git_toprepo::log::CommandSpanExt as _;
 use git_toprepo::log::ErrorMode;
 use git_toprepo::log::ErrorObserver;
@@ -315,23 +317,32 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     // It is in fact load bearing with the hacky git-gr overrides.
 
     let toprepo = gix_discover_current_dir()?;
+
+    #[expect(unused)]
     let git_review_file = toprepo
         .workdir()
         .context("Find worktree")?
         .to_owned()
         .join(".gitreview");
 
-    let mut content: String = "".to_owned();
-    File::open(git_review_file)
-        .context("Open gitreview file")?
-        .read_to_string(&mut content)
-        .context("Read gitreview file")?;
-    let git_review = parse_git_review(&content)?;
-    let http_host = git_review.host;
-    let ssh_host = git_review.ssh_host;
+    let ssh_host = get_default_remote_url(&toprepo)?;
+    let http_host = gerrit::http_host(&ssh_host);
     // TODO: git-gr: Why do we need to know the port? It is sufficient for ssh to know
     // it right? Refactor git-gr to omit ports.
-    let port = git_review.port.unwrap_or(22);
+
+    let port = 22;
+
+    /* TODO: Override semantics, or initial seed. to avoid the http call?
+    if git_review_file.exists() {
+        let mut content: String = "".to_owned();
+        File::open(git_review_file)
+            .context("Open gitreview file")?
+            .read_to_string(&mut content)
+            .context("Read gitreview file")?;
+        let git_review = parse_git_review(&content)?;
+        let port = git_review.port.unwrap_or(22);
+    }
+    */
 
     // let parsed_remote = git_gr_lib::gerrit_project::parse_remote_url(&checkout.remote).unwrap();
     // TODO: How should we ask for the username, or autodetect it?
@@ -345,17 +356,19 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     let authenticator = netrc
         .hosts
         .get(&http_host)
-        .context("Looking for Gerrit entry for '{&http_host}' in netrc file.")?;
+        .context(format!("Looking for Gerrit entry for '{http_host}' in netrc file."))?;
     let username = authenticator.login.clone();
 
     let host = git_gr_lib::gerrit_project::GerritProject {
         host: git_gr_lib::gerrit_host::GerritHost {
             username: Some(username),
-            host: ssh_host,
-            http_host: Some(http_host),
+            host: ssh_host.clone().host().unwrap().to_owned(),
+            http_host: Some(http_host.to_owned()),
             port: port as u16,
         },
-        project: git_review.project,
+        // TODO: The project should not be relevant in a toprepo context.
+        // project: git_review.project,
+        project: "TODO-KalleAnka.git".to_owned(),
     };
 
     let gerrit = Gerrit::new(

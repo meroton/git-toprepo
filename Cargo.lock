@@ -425,6 +425,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "command-error"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b6ac3abfcf15b4536b079bcee923683fe3dc1173b70be5e05ccf28ca112862e"
+dependencies = [
+ "dyn-clone",
+ "process-wrap",
+ "shell-words",
+ "utf8-command",
+]
+
+[[package]]
 name = "console"
 version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -998,7 +1010,7 @@ dependencies = [
 
 [[package]]
 name = "git-gr"
-version = "1.4.3"
+version = "1.4.5"
 dependencies = [
  "cached",
  "calm_io",
@@ -1007,7 +1019,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "comfy-table",
- "command-error",
+ "command-error 0.4.1",
  "derive_more",
  "fs-err",
  "itertools 0.12.1",
@@ -1043,6 +1055,7 @@ dependencies = [
  "chrono",
  "clap",
  "colored",
+ "command-error 0.8.0",
  "encoding_rs",
  "git-gr",
  "git-toprepo-testtools",
