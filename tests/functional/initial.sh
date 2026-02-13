@@ -64,10 +64,18 @@ token=$(echo "$tokenresponse" \
     | jq '.token' | tr -d '"'
 )
 
-echo
-echo machine "$host"
-echo login "$user"
-echo password "$token"
+netrc="$workspace"/netrc
+cat > "$netrc" << EOF
+machine $host
+login $user
+password $token
+EOF
+
+trap '{
+    echo "wrote $netrc for the token and copied content to clipboard."
+    cat "$netrc" | xclip -i -selection primary
+    xclip -o -selection primary
+}' EXIT
 
 # TODO: Add the username to ssh config for this.
 ssh-keygen -f "/home/nwirekli/.ssh/known_hosts" -R "[$host]:$port"
@@ -80,8 +88,9 @@ for project in "${projects[@]}"; do
         -d '  {
             "description": "This is a demo project.",
             "submit_type": "INHERIT",
+            "create_empty_commit": true,
             "owners": [
-            "MyProject-Owners"
+              "MyProject-Owners"
             ]
         }' \
             http://localhost:8080/a/projects/"$project".git
@@ -114,31 +123,80 @@ commit() {
 
 for project in "${projects[@]}"; do
     clone "$user" "$host" "$port" "$project" >/dev/null 2>&1
-    commit "$project" a.txt "" "$project: initial commit" >/dev/null 2>&1
+    commit "$project" a.txt "" "$project initial commit" >/dev/null 2>&1
 done
 
 (
     project=albin;
-    commit "$project" a.txt "2" "$project: 2" >/dev/null 2>&1
-    commit "$project" a.txt "3" "$project: 3" >/dev/null
-    commit "$project" a.txt "4" "$project: 4" >/dev/null
+    commit "$project" a.txt "2" "$project 2" >/dev/null 2>&1
+    commit "$project" a.txt "3" "$project 3" >/dev/null 2>&1
+    commit "$project" a.txt "4" "$project 4" >/dev/null 2>&1
 )
 
-(project=gustav; commit "$project" a.txt "2" "$project: 2") 2>/dev/null
+(project=gustav; commit "$project" a.txt "2" "$project 2") >/dev/null 2>&1
 
-(project=fredrik; commit "$project" a.txt "2" "$project: 2") 2>/dev/null
+(project=fredrik; commit "$project" a.txt "2" "$project 2") >/dev/null 2>&1
 
 (
     project=nils;
-    commit "$project" a.txt "2" "$project: 2" >/dev/null 2>&1
-    commit "$project" a.txt "3" "$project: 3" >/dev/null 2>&1
-    commit "$project" a.txt "4" "$project: 4" >/dev/null 2>&1
-    commit "$project" a.txt "5" "$project: 5" >/dev/null 2>&1
-    commit "$project" a.txt "6" "$project: 6" >/dev/null 2>&1
-    commit "$project" a.txt "7" "$project: 7" >/dev/null 2>&1
+    commit "$project" a.txt "2" "$project 2" >/dev/null 2>&1
+    commit "$project" a.txt "3" "$project 3" >/dev/null 2>&1
+    commit "$project" a.txt "4" "$project 4" >/dev/null 2>&1
+    commit "$project" a.txt "5" "$project 5" >/dev/null 2>&1
+    commit "$project" a.txt "6" "$project 6" >/dev/null 2>&1
+    commit "$project" a.txt "7" "$project 7" >/dev/null 2>&1
 )
 
 for project in "${projects[@]}"; do
     # NB: Allow pushing deterministic commits again.
     git -C "$project" push origin HEAD:refs/for/master || true
 done
+
+# # Set topics to bind the stacks together.
+
+set_topic() {
+    topic=$1; shift
+    message=$1; shift
+    gerrit query "subject:\"$message\"" | choose 0 | xargs gerrit topic --topic "$topic"
+}
+
+export NETRC="$netrc"
+export GERRIT_CLI_DEFAULT_GERRIT_HTTP_HOST=http://localhost:8080
+export GERRIT_CLI_DEFAULT_GERRIT_SSH_HOST=ssh://localhost:29418
+
+#        oskar zalan nils albin isak benjamin fredrik sassan chris gustav
+#        ----- ----- ---- ----- ---- -------- ------- ------ ----- ------
+#                    1
+#                    2
+# topic  1           3     1                   1
+# TOPIC        1     4
+# tema               5     2
+# TEMA               6     3                   2                    1
+# group              7     4     1    1                1      1     2
+#
+
+set_topic topic "oskar initial commit"
+set_topic topic "albin initial commit"
+set_topic topic "fredrik initial commit"
+set_topic topic "nils 3"
+
+set_topic TOPIC "zalan initial commit"
+set_topic TOPIC "nils 4"
+
+set_topic tema "nils 5"
+set_topic tema "albin 2"
+
+set_topic TEMA "nils 6"
+set_topic TEMA "albin 3"
+set_topic TEMA "fredrik 2"
+set_topic TEMA "gustav initial commit"
+
+set_topic group "nils 7"
+set_topic group "albin 4"
+set_topic group "isak initial commit"
+set_topic group "benjamin initial commit"
+set_topic group "sassan initial commit"
+set_topic group "chris initial commit"
+set_topic group "gustav 2"
+
+gerrit query status:open
