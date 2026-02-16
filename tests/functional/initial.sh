@@ -84,7 +84,8 @@ trap '{
 # TODO: Add the username to ssh config for this.
 ssh-keygen -f "/home/nwirekli/.ssh/known_hosts" -R "[$host]:$port"
 
-projects=(nils albin fredrik zalan oskar isak benjamin sassan chris gustav)
+subprojects=(nils albin fredrik zalan oskar isak benjamin sassan chris gustav)
+projects=(super "${subprojects[@]}")
 
 for project in "${projects[@]}"; do
     # NB: `create_empty_commit` does not seem to work entirely.
@@ -148,7 +149,7 @@ gerrit query 'status:open initial commit' --output changeid \
         curl -u admin:secret -X POST http://localhost:8080/a/changes/"$change"/submit
     ' _ || true
 
-for project in "${projects[@]}"; do
+for project in "${subprojects[@]}"; do
     commit "$project" a.txt "1" "$project 1" >/dev/null 2>&1
 done
 
@@ -197,12 +198,12 @@ set_topic() {
 # group              7     4     1    1                1      1     2
 #
 
-set_topic topic "oskar initial commit"
-set_topic topic "albin initial commit"
-set_topic topic "fredrik initial commit"
+set_topic topic "oskar 1"
+set_topic topic "albin 1"
+set_topic topic "fredrik 1"
 set_topic topic "nils 3"
 
-set_topic TOPIC "zalan initial commit"
+set_topic TOPIC "zalan 1"
 set_topic TOPIC "nils 4"
 
 set_topic tema "nils 5"
@@ -211,14 +212,29 @@ set_topic tema "albin 2"
 set_topic TEMA "nils 6"
 set_topic TEMA "albin 3"
 set_topic TEMA "fredrik 2"
-set_topic TEMA "gustav initial commit"
+set_topic TEMA "gustav 1"
 
 set_topic group "nils 7"
 set_topic group "albin 4"
-set_topic group "isak initial commit"
-set_topic group "benjamin initial commit"
-set_topic group "sassan initial commit"
-set_topic group "chris initial commit"
+set_topic group "isak 1"
+set_topic group "benjamin 1"
+set_topic group "sassan 1"
+set_topic group "chris 1"
 set_topic group "gustav 2"
 
 gerrit query status:open
+
+# # Setup a super toprepo
+for project in "${subprojects[@]}"; do
+    git -C super submodule add ssh://admin@localhost:29418/"$project".git
+done
+{
+    project=super;
+    submodule_commit_message="$project add submodules"
+    gerrit query "status:merged $submodule_commit_message" >/dev/null || {
+        commit "$project" a.txt "" "$submodule_commit_message" >/dev/null 2>&1
+        git -C "$project" push origin HEAD:refs/for/master || true
+    }
+}
+
+Now bootstrap the config here!
