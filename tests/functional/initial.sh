@@ -71,6 +71,10 @@ login $user
 password $token
 EOF
 
+export NETRC="$netrc"
+export GERRIT_CLI_DEFAULT_GERRIT_HTTP_HOST=http://localhost:8080
+export GERRIT_CLI_DEFAULT_GERRIT_SSH_HOST=ssh://localhost:29418
+
 trap '{
     echo "wrote $netrc for the token and copied content to clipboard."
     cat "$netrc" | xclip -i -selection primary
@@ -83,6 +87,7 @@ ssh-keygen -f "/home/nwirekli/.ssh/known_hosts" -R "[$host]:$port"
 projects=(nils albin fredrik zalan oskar isak benjamin sassan chris gustav)
 
 for project in "${projects[@]}"; do
+    # NB: `create_empty_commit` does not seem to work entirely.
     curl -s -u "$user":"$password" \
         -X POST \
         -d '  {
@@ -123,7 +128,28 @@ commit() {
 
 for project in "${projects[@]}"; do
     clone "$user" "$host" "$port" "$project" >/dev/null 2>&1
-    commit "$project" a.txt "" "$project initial commit" >/dev/null 2>&1
+
+    # Create a first commit if it is needed.
+    # TODO: do this through the REST API if possible.
+    initial_commit_message="$project initial commit"
+    gerrit query "status:merged $initial_commit_message" >/dev/null || {
+        commit "$project" a.txt "" "$initial_commit_message" >/dev/null 2>&1
+        git -C "$project" push origin HEAD:refs/for/master || true
+    }
+done
+
+# # NB: Submit an initial commit for each repository.
+
+# shellcheck disable=SC2086
+gerrit query 'status:open initial commit' --output changeid \
+    | ifne xargs -n1 sh -c '
+        change="$1"; shift;
+        gerrit vote --change "$change" --vote Code-Review=2
+        curl -u admin:secret -X POST http://localhost:8080/a/changes/"$change"/submit
+    ' _ || true
+
+for project in "${projects[@]}"; do
+    commit "$project" a.txt "1" "$project 1" >/dev/null 2>&1
 done
 
 (
@@ -159,10 +185,6 @@ set_topic() {
     message=$1; shift
     gerrit query "subject:\"$message\"" | choose 0 | xargs gerrit topic --topic "$topic"
 }
-
-export NETRC="$netrc"
-export GERRIT_CLI_DEFAULT_GERRIT_HTTP_HOST=http://localhost:8080
-export GERRIT_CLI_DEFAULT_GERRIT_SSH_HOST=ssh://localhost:29418
 
 #        oskar zalan nils albin isak benjamin fredrik sassan chris gustav
 #        ----- ----- ---- ----- ---- -------- ------- ------ ----- ------
