@@ -520,7 +520,7 @@ fn topic_is_required_for_multi_repo_push() {
         .code(1);
     insta::assert_snapshot!(
         cmd.get_output().stderr.to_str().unwrap(),
-                @r#"ERROR: Multiple submodules are modified in commit 8c3fd7e5913e5d729a14a678a737eafa06b00735 "Add files", but no topic was provided. Please amend the commit message to add a 'Topic: something-descriptive' footer line."#
+                @r#"ERROR: Multiple submodules are modified in commit 068408a74b19b6d4c260af0cc109d2c0c475f7d5 "Add files", but no topic was provided. Please amend the commit message to add a 'Topic: something-descriptive' footer line."#
     );
 }
 
@@ -553,10 +553,10 @@ fn override_url_in_config() {
         monorepo.join(".gittoprepo.user.toml"),
         r#"
 [repo.namex]
-historic_urls = ["../repox/"]
+url = "../repox/"
 push.url = "../repoy/"
 [repo.namey]
-historic_urls = ["../repoy/"]
+url = "../repoy/"
 push.url = "../non-existing/"
 "#,
     )

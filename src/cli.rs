@@ -618,8 +618,7 @@ impl<'a> FetchParamsResolver<'a> {
         for (submod_path, submod_url) in &self.gitmod_infos.submodules {
             let Ok(submod_url) = submod_url else { continue };
             if submod_config
-                .historic_urls
-                .iter()
+                .urls()
                 .any(|url| url == submod_url)
             {
                 matching_submod_path.insert(submod_path);

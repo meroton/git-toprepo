@@ -682,13 +682,13 @@ fn config_missing_commits() {
         &format!(
             r#"
 [repo.namex]
-historic_urls = ["../repox/"]
+url = "../repox/"
 missing_commits = [
     # Non-existing commit.
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 ]
 [repo.namey]
-historic_urls = ["../repoy/"]
+url = "../repoy/"
 missing_commits = [
     # Commit that exists.
     "{suby_missing_rev}",
@@ -797,7 +797,7 @@ fn print_updates() {
     let top_head_rev = git_rev_parse(&toprepo, "HEAD");
     insta::assert_snapshot!(
         top_head_rev,
-        @"d9ee45fc3b332c780ed7a081cdc497d0abd0338f",
+        @"b3cdd9c5fa8213503b11d6ce5a42404db46f77e6",
     );
     let top_head_rev = &top_head_rev[..7];
 
@@ -816,7 +816,7 @@ fn print_updates() {
     // All commit hashes will differ if mono_head_rev is wrong.
     insta::assert_snapshot!(
         mono_head_rev,
-        @"393bbb07a32609a97bcdb8b367edb5ed852b6627",
+        @"58da643c7099441e7223e24b1f4d3bd1d6f1994a",
     );
     let mono_head_rev = &mono_head_rev[..7];
     assert_eq!(
@@ -952,12 +952,12 @@ fn print_updates() {
     insta::assert_snapshot!(
         fetch_stdout,
         @r"
-    * [new] 0474df2                     -> origin/main
-    * [new tag] de0b6d0                 -> v1.0-nested
-    + [forced update] 393bbb0...0474df2 -> origin/HEAD
-      393bbb0..99f7044                  -> origin/other
-    t [updated tag] 393bbb0..ea1fe07    -> v1.0
-    - [deleted tag] 393bbb0             -> v2.0
+    * [new] c306659                     -> origin/main
+    * [new tag] 2bbe384                 -> v1.0-nested
+    + [forced update] 58da643...c306659 -> origin/HEAD
+      58da643..3f55e3f                  -> origin/other
+    t [updated tag] 58da643..d4558de    -> v1.0
+    - [deleted tag] 58da643             -> v2.0
     ",
     );
     assert!(

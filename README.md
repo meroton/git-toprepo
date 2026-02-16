@@ -204,9 +204,7 @@ suggested `[repo.*]` additions to the `.gittoprepo.toml` configuration.
 
 ```
 [repo.something]
-historic_urls = [
-    "server.example/git-toprepo.git",
-]
+url = "server.example/git-toprepo.git"
 # Keep as a regular submodule when set to false.
 enabled = true
 

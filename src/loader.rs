@@ -139,10 +139,10 @@ impl SubRepoLedger {
     }
 
     /// Gets a `SubRepoConfig` based on a URL using exact matching. If an URL is
-    /// missing, the user should add it to the `SubRepoConfig::urls` list.
+    /// missing, the user should add it to the `SubRepoConfig::historic_urls` list.
     pub fn get_name_from_url(&self, url: &gix::Url) -> Result<Option<SubRepoName>> {
         let mut matches = self.subrepos.iter().filter(|(_name, subrepo_config)| {
-            subrepo_config.historic_urls.iter().any(|u| u == url)
+            subrepo_config.urls().any(|u| u == url)
         });
         let Some(first_match) = matches.next() else {
             return Ok(None);
@@ -200,7 +200,7 @@ impl SubRepoLedger {
             matching_names.push(RepoName::Top);
         }
         for (submod_name, submod_config) in self.subrepos.iter() {
-            if submod_config.historic_urls.iter().any(|submod_url| {
+            if submod_config.urls().any(|submod_url| {
                 let full_submod_url = base_url.join(submod_url).trim_url_path();
                 full_submod_url.approx_equal(&trimmed_wanted_full_url)
             }) {
@@ -263,11 +263,12 @@ impl SubRepoLedger {
                     repo_name = existing_name.clone();
                 }
             }
-            let urls = &mut self
+            let urls: &mut Vec<gix::Url> = &mut self
                 .subrepos
                 .entry(repo_name.clone())
                 .or_default()
-                .historic_urls;
+                .into_urls()
+                .collect();
             if !urls.contains(repo_url) {
                 urls.push(repo_url.clone());
             }

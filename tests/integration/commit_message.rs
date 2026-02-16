@@ -33,28 +33,28 @@ fn assemble_golden() {
     insta::assert_snapshot!(
         log_graph,
         @r"
-    * commit 73fc75848cbc7539b55f6e2c32f94f756094c10c
+    * commit 5489abde0df9abbeec9463200e27186ece885721
     | Author: author <author@example.com>
     | Date:   Sat Jan 1 00:00:00 2000 +0000
     |
     |     Update git submodules
     |
-    |     Git-Toprepo-Ref: <top> 69f5b28d0da04513627f0bec4fb211f2186db524
+    |     Git-Toprepo-Ref: <top> 50572eb02cb746d39cf8036dd704e44da95b00f2
     |
-    *   commit 17cd8b3949eb6e59316c3d8242a00d1a227bc8ce
-    |\  Merge: 69c6112 6a59b87
+    *   commit d72aa1805ed42d3e7b32be4db378391321f4b40e
+    |\  Merge: 5dde586 74a00e9
     | | Author: author <author@example.com>
     | | Date:   Sat Jan 1 00:00:00 2000 +0000
     | |
     | |     all-3
     | |
-    | |     Git-Toprepo-Ref: <top> 55b1b955fb494f0426c9794e61ae010326e2fce7
+    | |     Git-Toprepo-Ref: <top> 16e3f569c05d19b710202f528b3368b54e9c5b6c
     | |     Git-Toprepo-Ref: subpathy 0123456789012345678901234567890123456789 unknown submodule
     | |     Git-Toprepo-Ref: subpathz removed
     | |     Footer: X
     | |     Git-Toprepo-Ref: subpathx 3f148600685ecec54c88517c72213e8be62fa7d2
     | |
-    | * commit 6a59b874eed79e98b4864bcdbae09012e6ac679b
+    | * commit 74a00e9422b1977225914d814764edcb9454b418
     |/  Author: author <author@example.com>
     |   Date:   Sat Jan 1 00:00:00 2000 +0000
     |
@@ -64,16 +64,16 @@ fn assemble_golden() {
     |
     |   A subpathx/sub-2.txt
     |
-    * commit 69c6112db157fe3e5a401179ba3b08d1d186e70e
+    * commit 5dde586b0103a02cf3bf490f12dd56c5a94ae34f
     | Author: author <author@example.com>
     | Date:   Sat Jan 1 00:00:00 2000 +0000
     |
     |     Bad � encoding
     |
-    |     Git-Toprepo-Ref: <top> 0cb0d29dd8ac585044c5cfcd2d4edf8107bef63d
+    |     Git-Toprepo-Ref: <top> 1ba8724e57e43687cd5a383fca2c4c08ccd38b12
     |
-    *   commit b9b7628815d3dfe05b1bd6283fab648c530b8fdb
-    |\  Merge: c43aaa3 e1bab0d
+    *   commit 9612669e28f2c20b11bc6293392e06c5d2dce09f
+    |\  Merge: a0b9774 b471376
     | | Author: author <author@example.com>
     | | Date:   Sat Jan 1 00:00:00 2000 +0000
     | |
@@ -81,7 +81,7 @@ fn assemble_golden() {
     | |
     | |     End with some extra empty lines that are trimmed.
     | |
-    | |     Git-Toprepo-Ref: <top> df20da558988b36b3df51b8ea5716e26d0d32278
+    | |     Git-Toprepo-Ref: <top> f3f4b91c81c46610a1bdf1b705ea139bd837978d
     | |
     | |     x-1
     | |
@@ -89,7 +89,7 @@ fn assemble_golden() {
     | |
     | |     Git-Toprepo-Ref: subpathy 0123456789012345678901234567890123456789 not found
     | |
-    | * commit e1bab0d43a86eafeaa1ebf8a625d5b65707cea7f
+    | * commit b471376ee18da212f30bb75cf451fba357642ee2
     |/  Author: author <author@example.com>
     |   Date:   Sat Jan 1 00:00:00 2000 +0000
     |
@@ -105,13 +105,13 @@ fn assemble_golden() {
     |   D subpathx/all-3.txt
     |   D subpathx/sub-2.txt
     |
-    * commit c43aaa3ac27fdb43b0a181a50e633e3c33d65c07
+    * commit a0b9774a5fe45e9db446d35589beb5deea8cc39c
     | Author: author <author@example.com>
     | Date:   Sat Jan 1 00:00:00 2000 +0000
     |
     |     all-3
     |
-    |     Git-Toprepo-Ref: <top> 48f8569319cc2d4afa2e092b73311f570a8c2c53
+    |     Git-Toprepo-Ref: <top> 20ef94b36774d51630deefc4c2d662e535336d7b
     |     Footer: X
     |     Git-Toprepo-Ref: subpathx 3f148600685ecec54c88517c72213e8be62fa7d2
     |     Footer: Y
@@ -121,13 +121,13 @@ fn assemble_golden() {
     | A subpathx/all-3.txt
     | A subpathy/all-3.txt
     |
-    * commit cc2d5fd95190356eb13756542285683be06737a1
+    * commit 634e3d2c6c050ed2902a985cf9fe1cf6abab94f4
     | Author: author <author@example.com>
     | Date:   Sat Jan 1 00:00:00 2000 +0000
     |
     |     top-and-y-2
     |
-    |     Git-Toprepo-Ref: <top> de35c8ba38132eb15e3d7d231657e94518315a36
+    |     Git-Toprepo-Ref: <top> c022a84d3cc28ac5d405d6c57a5dddaa1a45c17f
     |     Git-Toprepo-Ref: subpathy 6b312c7ae87753d4d2ba7fed69831e373b30021e
     |
     |     sub-2
@@ -138,7 +138,7 @@ fn assemble_golden() {
     | A subpathy/top-and-y-2.txt
     | A top-and-y-2.txt
     |
-    *-.   commit 087c58f43f18a44bebeb471686759bb9f9644de4
+    *-.   commit d111ad7e7d27cde1012ba6562e6ffe38a451b73b
     |\ \  Merge: 6f66116 55653d7 a789a5c
     | | | Author: author <author@example.com>
     | | | Date:   Sat Jan 1 00:00:00 2000 +0000
@@ -146,7 +146,7 @@ fn assemble_golden() {
     | | |     top-1
     | | |
     | | |     With: a footer
-    | | |     Git-Toprepo-Ref: <top> ec6d2c11332af03fbfaab5b39a6a2c71e8744556
+    | | |     Git-Toprepo-Ref: <top> 6696378009c36dbcc4b9f6cfcaf4217649710f05
     | | |
     | | |     x-1
     | | |

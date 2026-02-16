@@ -296,11 +296,11 @@ fn bootstrap_on_existing() {
         cmd.get_output().stdout.to_str().unwrap(),
                 @r#"
     [repo.repox]
-    historic_urls = ["../repox/"]
+    url = "../repox/"
     missing_commits = []
 
     [repo.repoy]
-    historic_urls = ["../repoy/"]
+    url = "../repoy/"
     missing_commits = []
     "#
     );
@@ -350,16 +350,15 @@ fn bootstrap_multiple_urls_in_history() {
 
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
-    // subx has an URL in HEAD:.gitmodules, suby does not and therefore becomes
-    // disabled.
     let expected_boostrap_config = &r#"
 [repo.repox]
-url = "https://other.example/repox"
-historic_urls = ["../repox/", "https://other.example/repox"]
+url = "../repox/"
+historic_urls = ["https://other.example/repox"]
 missing_commits = []
 
 [repo.repoy]
-historic_urls = ["../repoy/", "https://other.example/repoy.git"]
+url = "../repoy/"
+historic_urls = ["https://other.example/repoy.git"]
 enabled = false
 missing_commits = []
 "#[1..];

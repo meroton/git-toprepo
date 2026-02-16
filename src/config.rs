@@ -480,7 +480,7 @@ impl GitTopRepoConfig {
     pub fn validate(&self) -> Result<()> {
         let mut found = HashMap::<String, SubRepoName>::new();
         for (repo_name, v) in self.subrepos.iter() {
-            for url in v.historic_urls.iter().chain(vec!(&v.url).into_iter()) {
+           for url in v.urls() {
                 match found.entry(url.to_string()) {
                     std::collections::hash_map::Entry::Vacant(entry) => {
                         entry.insert(repo_name.clone());
@@ -627,6 +627,15 @@ impl SubRepoConfig {
             push.url = Some(self.resolve_push_url().to_owned());
         }
         push
+    }
+
+    pub fn urls(&self) -> impl Iterator<Item = &gix::Url> {
+         self.historic_urls.iter().chain(vec!(&self.url).into_iter())
+    }
+
+    // TODO: remove
+    pub fn into_urls(&self) -> impl Iterator<Item = gix::Url> {
+         self.historic_urls.clone().into_iter().chain(vec!(self.url.clone()).into_iter())
     }
 }
 

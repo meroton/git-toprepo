@@ -280,7 +280,7 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
                         subrepo.historic_urls = Vec::new();
                     }
                 }
-                Ok(None) => unreachable!("Submodule {submod_path} should be in the config"),
+                Ok(None) => unreachable!("Submodule {submod_path}:{submod_url} should be in the config"),
                 Err(err) => {
                     log::warn!("Failed to load submodule {submod_path}: {err}");
                     continue;
