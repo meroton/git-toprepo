@@ -44,15 +44,15 @@ workspace="${1:-$(mktemp -d --suffix -git-toprepo-functional-test)}"
 # token_name="$(shuf /etc/dictionaries-common/words | head -1 | tr -dc 'a-zA-Z' || true)"
 token_name=token
 
-curl -u admin:secret -X DELETE http://localhost:8080/a/accounts/admin/tokens/"$token_name"
+curl -u "$user":"$password" -X DELETE http://"$host":8080/a/accounts/"$user"/tokens/"$token_name"
 
 tokenresponse=$(
-    curl -s -u admin:secret \
+    curl -s -u "$user":"$password" \
        -X POST \
        -d '{
        "lifetime": "1d",
      }' \
-       http://localhost:8080/a/accounts/admin/tokens/"$token_name" \
+       http://"$host":8080/a/accounts/"$user"/tokens/"$token_name" \
     | tail -1
 )
 test "$tokenresponse" = "Not found: /" && {
@@ -72,8 +72,8 @@ password $token
 EOF
 
 export NETRC="$netrc"
-export GERRIT_CLI_DEFAULT_GERRIT_HTTP_HOST=http://localhost:8080
-export GERRIT_CLI_DEFAULT_GERRIT_SSH_HOST=ssh://localhost:29418
+export GERRIT_CLI_DEFAULT_GERRIT_HTTP_HOST=http://"$host":8080
+export GERRIT_CLI_DEFAULT_GERRIT_SSH_HOST=ssh://"$host":29418
 
 trap '{
     echo "wrote $netrc for the token and copied content to clipboard."
@@ -99,7 +99,7 @@ for project in "${projects[@]}"; do
               "MyProject-Owners"
             ]
         }' \
-            http://localhost:8080/a/projects/"$project".git
+            http://"$host":8080/a/projects/"$project".git
         done
 
 
@@ -146,7 +146,7 @@ gerrit query 'status:open initial commit' --output changeid \
     | ifne xargs -n1 sh -c '
         change="$1"; shift;
         gerrit vote --change "$change" --vote Code-Review=2
-        curl -u admin:secret -X POST http://localhost:8080/a/changes/"$change"/submit
+        curl -u "$user":"$password" -X POST http://"$host":8080/a/changes/"$change"/submit
     ' _ || true
 
 for project in "${subprojects[@]}"; do
@@ -226,7 +226,7 @@ gerrit query status:open
 
 # # Setup a super toprepo
 for project in "${subprojects[@]}"; do
-    git -C super submodule add ssh://admin@localhost:29418/"$project".git
+    git -C super submodule add ssh://"$user"@"$host":29418/"$project".git
 done
 {
     project=super;
