@@ -216,10 +216,7 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
         .gix_repo
         .remote_default_name(gix::remote::Direction::Fetch)
         .with_context(|| "Failed to get the default remote name")?;
-    let bootstrap_ref = FullName::try_from(format!(
-        "{}refs/remotes/{default_remote_name}/HEAD",
-        RepoName::Top.to_ref_prefix()
-    ))?;
+    let bootstrap_ref = "HEAD".to_owned();
     let head_commit = repo
         .gix_repo
         .find_reference(&bootstrap_ref)?

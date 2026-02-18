@@ -1176,13 +1176,13 @@ impl<'a> CommitLoader<'a> {
             RepoName::Top => (true, crate::util::EMPTY_GIX_URL.clone()),
             RepoName::SubRepo(submod_repo_name) => {
                 // Check if the submodule is configured.
-                let submod_contig = self
+                let submod_config = self
                     .ledger
                     .subrepos
                     .get(submod_repo_name)
                     .with_context(|| format!("Repo {repo_name} not found in config"))?;
-                let fetch_url = submod_contig.resolve_fetch_url();
-                (submod_contig.enabled, fetch_url.clone())
+                let fetch_url = submod_config.resolve_fetch_url();
+                (submod_config.enabled, fetch_url.clone())
             }
         };
         let repo_fetcher = RepoFetcher::new(enabled, url);
