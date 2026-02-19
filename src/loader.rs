@@ -439,8 +439,7 @@ impl<'a> CommitLoader<'a> {
         })
     }
 
-    /// Enqueue fetching of a repo with specific refspecs. Using `None` as
-    /// refspec will fetch all heads and tags.
+    /// Enqueue fetching all refs (heads and tags) for a repo.
     pub fn fetch_repo(&mut self, repo_name: RepoName) -> Result<()> {
         let result = self.fetch_repo_impl(repo_name);
         self.error_observer.maybe_consume(result)
@@ -460,6 +459,8 @@ impl<'a> CommitLoader<'a> {
     }
 
     /// Enqueue loading commits from a repo.
+    /// NB: The HEAD commit is not a ref unless a ref has been created to refer
+    /// to it, like origin/HEAD.
     pub fn load_repo(&mut self, repo_name: &RepoName) -> Result<()> {
         let repo_fetcher = self.get_or_create_repo_fetcher(repo_name)?;
         if !repo_fetcher.enabled {

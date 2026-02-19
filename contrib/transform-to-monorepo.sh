@@ -71,3 +71,9 @@ git show-ref \
         echo git update-ref "$namespace"/"$key" "$val";
         echo git update-ref -d "$key"
     ' _ "${toprepo_ref_prefix}"
+
+# # NB: Drop a temporary ref for HEAD.
+# otherwise it won't be loaded by the loader code.
+# TODO: Refactor the loader code for config-bootstrap to operate on the repo
+# HEAD instead of toprepo refs.
+git update-ref refs/namespaces/top/refs/integration-test/HEAD HEAD

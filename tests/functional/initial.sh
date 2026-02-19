@@ -2,9 +2,45 @@
 
 set -eu -o pipefail
 
+prog="$(basename "$(realpath "$0")")"
+
+usage () {
+    cat <<-EOF
+		Usage: $prog
+
+		$prog Checks if the current branch has a merge commit with masters HEAD
+        as parent. If not, it means that the current branch is behind master.
+	EOF
+}
+
+repo_root() {
+    local -;
+    set +e
+    # Must check submodules first, this will give the root if we are in a
+    # submodule or an empty string if we are in the root, after that we can use
+    # --show-toplevel.
+    root=.
+    while true; do
+        newroot="$(git -C "$root" rev-parse --show-superproject-working-tree 2>/dev/null)"
+        test -n "$newroot" || {
+            root="$(git -C "$root" rev-parse --show-toplevel)"
+            break
+        }
+        root="$newroot"
+    done
+    test $? = 0 || {
+        echo >&2 "$prog: ERROR: this script must be run from within the super repo."
+        exit 3
+    }
+    echo "$root"
+}
+
+REPO_ROOT="$(repo_root)"
+transform_to_monorepo="$REPO_ROOT"/contrib/transform-to-monorepo.sh
+
 # docker-compose up
 # sleep 10
-project=nils
+
 user="admin"
 password=secret
 host=localhost
@@ -84,7 +120,7 @@ trap '{
 # TODO: Add the username to ssh config for this.
 ssh-keygen -f "/home/nwirekli/.ssh/known_hosts" -R "[$host]:$port"
 
-subprojects=(nils albin fredrik zalan oskar isak benjamin sassan chris gustav)
+subprojects=(nils albin fredrik zalan oskar isak benjamin sasan chris gustav)
 projects=(super "${subprojects[@]}")
 
 for project in "${projects[@]}"; do
@@ -144,10 +180,14 @@ done
 # shellcheck disable=SC2086
 gerrit query 'status:open initial commit' --output changeid \
     | ifne xargs -n1 sh -c '
+        set -eu
+        cred_pair=$1; shift
+        host=$1; shift
         change="$1"; shift;
+
         gerrit vote --change "$change" --vote Code-Review=2
-        curl -u "$user":"$password" -X POST http://"$host":8080/a/changes/"$change"/submit
-    ' _ || true
+        curl -u "$cred_pair" -X POST http://"$host":8080/a/changes/"$change"/submit
+    ' _ "$user":"$password" "$host" || true
 
 for project in "${subprojects[@]}"; do
     commit "$project" a.txt "1" "$project 1" >/dev/null 2>&1
@@ -187,7 +227,7 @@ set_topic() {
     gerrit query "subject:\"$message\"" | choose 0 | xargs gerrit topic --topic "$topic"
 }
 
-#        oskar zalan nils albin isak benjamin fredrik sassan chris gustav
+#        oskar zalan nils albin isak benjamin fredrik sasan chris gustav
 #        ----- ----- ---- ----- ---- -------- ------- ------ ----- ------
 #                    1
 #                    2
@@ -218,23 +258,31 @@ set_topic group "nils 7"
 set_topic group "albin 4"
 set_topic group "isak 1"
 set_topic group "benjamin 1"
-set_topic group "sassan 1"
+set_topic group "sasan 1"
 set_topic group "chris 1"
 set_topic group "gustav 2"
 
 gerrit query status:open
 
 # # Setup a super toprepo
-for project in "${subprojects[@]}"; do
-    git -C super submodule add ssh://"$user"@"$host":29418/"$project".git
-done
 {
-    project=super;
-    submodule_commit_message="$project add submodules"
-    gerrit query "status:merged $submodule_commit_message" >/dev/null || {
-        commit "$project" a.txt "" "$submodule_commit_message" >/dev/null 2>&1
-        git -C "$project" push origin HEAD:refs/for/master || true
-    }
+    super=super;
+    for project in "${subprojects[@]}"; do
+        git -C "$super" submodule add ssh://"$user"@"$host":29418/"$project".git
+    done
+    set -x
+    submodule_commit_message="$super add submodules"
+    git -C "$super" commit -m "$submodule_commit_message" >/dev/null
+    # gerrit query "status:merged $submodule_commit_message" >/dev/null || {
+    #     git -C "$super" push origin HEAD:refs/for/master || true
+    # }
 }
 
-Now bootstrap the config here!
+(
+    toprepo_config_file=gittoprepo.toml
+    cd super || exit 1
+    GIT_TOPREPO_DESTRUCTIVE_COMMANDS=1 $transform_to_monorepo
+    git config --local --replace-all toprepo.config must:worktree:"$toprepo_config_file"
+    git toprepo config bootstrap > "$toprepo_config_file"
+    git toprepo recombine
+)
