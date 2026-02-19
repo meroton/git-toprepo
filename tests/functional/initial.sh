@@ -179,7 +179,7 @@ done
 
 # shellcheck disable=SC2086
 gerrit query 'status:open initial commit' --output changeid \
-    | ifne xargs -n1 sh -c '
+    | xargs --no-run-if-empty -n1 sh -c '
         set -eu
         cred_pair=$1; shift
         host=$1; shift
@@ -262,8 +262,6 @@ set_topic group "sasan 1"
 set_topic group "chris 1"
 set_topic group "gustav 2"
 
-gerrit query status:open
-
 # # Setup a super toprepo
 {
     super=super;
@@ -281,11 +279,13 @@ gerrit query status:open
 (
     toprepo_config_file=gittoprepo.toml
     cd super || exit 1
-    GIT_TOPREPO_DESTRUCTIVE_COMMANDS=1 $transform_to_monorepo
+    GIT_TOPREPO_ENABLE_DESTRUCTIVE_COMMANDS=1 $transform_to_monorepo
     git config --local --replace-all toprepo.config must:worktree:"$toprepo_config_file"
     git toprepo config bootstrap > "$toprepo_config_file"
     git toprepo recombine
 
     # shellcheck disable=SC2046
-    git-toprepo checkout --strategy force-squash --dry-run $(gerrit query 'status:open subject:"nils 7"' --output fetch)
+    env GIT_TOPREPO_ENABLE_EXPERIMENTAL_COMMANDS=1 \
+        git toprepo checkout --strategy force-squash --dry-run \
+        $(gerrit query 'status:open subject:"nils 7"' --output fetch)
 )
