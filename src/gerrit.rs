@@ -5,6 +5,14 @@ use command_error::CommandExt;
 
 pub fn http_host(ssh_host: &gix::Url) -> String {
     let host = ssh_host.host().unwrap();
+    let host = &match ssh_host.user() {
+        Some(user) => format!("{user}@{host}"),
+        None => host.to_string(),
+    };
+    let host = &match ssh_host.port {
+        Some(port) => format!("ssh://{host}:{port}"),
+        None => host.to_string(),
+    };
     let cmd = Command::new("ssh")
         .args([
               host,
