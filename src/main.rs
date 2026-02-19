@@ -353,9 +353,13 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
 
     // TODO rely only on git-gr to do the netrc lookup if possible
     // TODO Do not load username from here, instead use USER variable or something if it really is needed...
+    let sans_port = match http_host.split_once(":") {
+        Some((host, _)) => host.to_string(),
+        None => http_host.clone(),
+    };
     let authenticator = netrc
         .hosts
-        .get(&http_host)
+        .get(&sans_port)
         .context(format!("Looking for Gerrit entry for '{http_host}' in netrc file."))?;
     let username = authenticator.login.clone();
 
