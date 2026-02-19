@@ -330,8 +330,6 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     // TODO: git-gr: Why do we need to know the port? It is sufficient for ssh to know
     // it right? Refactor git-gr to omit ports.
 
-    let port = 22;
-
     /* TODO: Override semantics, or initial seed. to avoid the http call?
     if git_review_file.exists() {
         let mut content: String = "".to_owned();
@@ -368,7 +366,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
             username: Some(username),
             host: ssh_host.clone().host().unwrap().to_owned(),
             http_host: Some(http_host.to_owned()),
-            port: port as u16,
+            port: ssh_host.port.unwrap_or(22) as u16,
         },
         // TODO: The project should not be relevant in a toprepo context.
         // project: git_review.project,
@@ -414,11 +412,14 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
         }
     };
     let triplet_id = res.changes[0].triplet_id();
+    // TODO: If the commit is alone the submitted_together vector will be empty.
+    // Just use the commit it self in that case.
     let res = gerrit.get_submitted_together(&triplet_id);
     let res = res
         .map_err(|e| anyhow::Error::from_boxed(e.into()))
         .context("Could not query Gerrit's REST API for changes submitted together")?;
 
+    assert!(res.len() > 0, "TODO: Use the commit itself now.");
     let res = order_submitted_together(res)?.chronological_order();
     let res = split_by_supercommits(res, &checkout.strategy)?;
 

@@ -228,14 +228,14 @@ set_topic() {
 }
 
 #        oskar zalan nils albin isak benjamin fredrik sasan chris gustav
-#        ----- ----- ---- ----- ---- -------- ------- ------ ----- ------
+#        ----- ----- ---- ----- ---- -------- ------- ----- ----- ------
 #                    1
 #                    2
-# topic  1           3     1                   1
+# topic  1           3    1                   1
 # TOPIC        1     4
-# tema               5     2
-# TEMA               6     3                   2                    1
-# group              7     4     1    1                1      1     2
+# tema               5    2
+# TEMA               6    3                   2                   1
+# group              7    4     1    1                1     1     2
 #
 
 set_topic topic "oskar 1"
@@ -285,4 +285,7 @@ gerrit query status:open
     git config --local --replace-all toprepo.config must:worktree:"$toprepo_config_file"
     git toprepo config bootstrap > "$toprepo_config_file"
     git toprepo recombine
+
+    # shellcheck disable=SC2046
+    git-toprepo checkout --strategy force-squash --dry-run $(gerrit query 'status:open subject:"nils 7"' --output fetch)
 )
