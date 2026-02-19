@@ -38,8 +38,12 @@ repo_root() {
 REPO_ROOT="$(repo_root)"
 transform_to_monorepo="$REPO_ROOT"/contrib/transform-to-monorepo.sh
 
-# docker-compose up
-# sleep 10
+test "$(docker-compose ps gerrit | wc -l)" -gt 1 || {
+    set -x
+    docker-compose up --wait gerrit
+    sleep 30
+    set +x
+}
 
 user="admin"
 password=secret
@@ -70,8 +74,19 @@ export GIT_CONFIG_COUNT="0";
 
 workspace="${1:-$(mktemp -d --suffix -git-toprepo-functional-test)}"
 
-./curl.sh >/dev/null 2>&1
-./curl.sh >/dev/null 2>&1
+# NB: It seems the first authenticated call creates the user.
+# So we must run it twice.
+# Technically we could run anything first,
+# then the real SSH key registration just once.
+for _ in 1 2; do
+    curl \
+      -u "$user":"$password" \
+      -X POST \
+      -H "Content-Type: text/plain" \
+      -d "$(cat ~/.ssh/id_ed25519.pub)" \
+      --silent \
+      http://"$host":8080/a/accounts/"$user"/sshkeys >/dev/null
+done
 
 # Generate a new token each time as it is only printed once.
 # This allows us to rerun the script without restarting the server.
@@ -86,8 +101,8 @@ tokenresponse=$(
     curl -s -u "$user":"$password" \
        -X POST \
        -d '{
-       "lifetime": "1d",
-     }' \
+           "lifetime": "1d",
+       }' \
        http://"$host":8080/a/accounts/"$user"/tokens/"$token_name" \
     | tail -1
 )
@@ -112,15 +127,19 @@ export GERRIT_CLI_DEFAULT_GERRIT_HTTP_HOST=http://"$host":8080
 export GERRIT_CLI_DEFAULT_GERRIT_SSH_HOST=ssh://"$host":29418
 
 trap '{
-    echo "wrote $netrc for the token and copied content to clipboard."
-    cat "$netrc" | xclip -i -selection primary
-    xclip -o -selection primary
+    echo "Ran integration tests in $workspace/super."
+    echo "wrote netrc for Gerrit and git-toprepo:"
+    cat "$netrc"
+    command -v xclip >/dev/null && {
+        echo "copied netrc content to clipboard."
+        cat "$netrc" | xclip -i -selection primary
+    }
 }' EXIT
 
 # TODO: Add the username to ssh config for this.
 ssh-keygen -f "/home/nwirekli/.ssh/known_hosts" -R "[$host]:$port"
 
-subprojects=(nils albin fredrik zalan oskar isak benjamin sasan chris gustav)
+subprojects=(lorem ipsum dolor sit amet consectetur adipiscing elit sed "do")
 projects=(super "${subprojects[@]}")
 
 for project in "${projects[@]}"; do
@@ -194,18 +213,18 @@ for project in "${subprojects[@]}"; do
 done
 
 (
-    project=albin;
+    project=ipsum;
     commit "$project" a.txt "2" "$project 2" >/dev/null 2>&1
     commit "$project" a.txt "3" "$project 3" >/dev/null 2>&1
     commit "$project" a.txt "4" "$project 4" >/dev/null 2>&1
 )
 
-(project=gustav; commit "$project" a.txt "2" "$project 2") >/dev/null 2>&1
+(project="do"; commit "$project" a.txt "2" "$project 2") >/dev/null 2>&1
 
-(project=fredrik; commit "$project" a.txt "2" "$project 2") >/dev/null 2>&1
+(project=dolor; commit "$project" a.txt "2" "$project 2") >/dev/null 2>&1
 
 (
-    project=nils;
+    project=lorem;
     commit "$project" a.txt "2" "$project 2" >/dev/null 2>&1
     commit "$project" a.txt "3" "$project 3" >/dev/null 2>&1
     commit "$project" a.txt "4" "$project 4" >/dev/null 2>&1
@@ -227,40 +246,40 @@ set_topic() {
     gerrit query "subject:\"$message\"" | choose 0 | xargs gerrit topic --topic "$topic"
 }
 
-#        oskar zalan nils albin isak benjamin fredrik sasan chris gustav
-#        ----- ----- ---- ----- ---- -------- ------- ----- ----- ------
-#                    1
-#                    2
-# topic  1           3    1                   1
-# TOPIC        1     4
-# tema               5    2
-# TEMA               6    3                   2                   1
-# group              7    4     1    1                1     1     2
+#        amet sit lorem ipsum consectetur adipiscing dolor elit sed do
+#        ---- --- ----- ----- ----------- ---------- ----- ---- --- --
+#                 1
+#                 2
+# topic  1        3     1                            1
+# TOPIC       1   4
+# tema            5     2
+# TEMA            6     3                            2              1
+# group           7     4     1           1                1    1   2
 #
 
-set_topic topic "oskar 1"
-set_topic topic "albin 1"
-set_topic topic "fredrik 1"
-set_topic topic "nils 3"
+set_topic topic "amet 1"
+set_topic topic "ipsum 1"
+set_topic topic "dolor 1"
+set_topic topic "lorem 3"
 
-set_topic TOPIC "zalan 1"
-set_topic TOPIC "nils 4"
+set_topic TOPIC "sit 1"
+set_topic TOPIC "lorem 4"
 
-set_topic tema "nils 5"
-set_topic tema "albin 2"
+set_topic tema "lorem 5"
+set_topic tema "ipsum 2"
 
-set_topic TEMA "nils 6"
-set_topic TEMA "albin 3"
-set_topic TEMA "fredrik 2"
-set_topic TEMA "gustav 1"
+set_topic TEMA "lorem 6"
+set_topic TEMA "ipsum 3"
+set_topic TEMA "dolor 2"
+set_topic TEMA "do 1"
 
-set_topic group "nils 7"
-set_topic group "albin 4"
-set_topic group "isak 1"
-set_topic group "benjamin 1"
-set_topic group "sasan 1"
-set_topic group "chris 1"
-set_topic group "gustav 2"
+set_topic group "lorem 7"
+set_topic group "ipsum 4"
+set_topic group "consectetur 1"
+set_topic group "adipiscing 1"
+set_topic group "elit 1"
+set_topic group "sed 1"
+set_topic group "do 2"
 
 # # Setup a super toprepo
 {
@@ -277,6 +296,7 @@ set_topic group "gustav 2"
 }
 
 (
+    set -x
     toprepo_config_file=gittoprepo.toml
     cd super || exit 1
     GIT_TOPREPO_ENABLE_DESTRUCTIVE_COMMANDS=1 $transform_to_monorepo
@@ -287,5 +307,5 @@ set_topic group "gustav 2"
     # shellcheck disable=SC2046
     env GIT_TOPREPO_ENABLE_EXPERIMENTAL_COMMANDS=1 \
         git toprepo checkout --strategy force-squash --dry-run \
-        $(gerrit query 'status:open subject:"nils 7"' --output fetch)
+        $(gerrit query 'status:open subject:"lorem 7"' --output fetch)
 )
