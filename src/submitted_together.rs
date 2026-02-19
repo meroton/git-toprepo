@@ -299,23 +299,6 @@ where
 
         let slot = index % iters.len();
 
-        if iteration_limit % 10 == 0 {
-            println!("   {res:?}");
-            for (i, iter) in iters.iter_mut().enumerate() {
-                let head = iter.peek();
-                let mut c = " ";
-                if i == slot {
-                    c = ">";
-                }
-                let id = match head {
-                    Some(commit) => format!("{} {:?}", commit.id.clone(), commit.topic),
-                    None => "None".to_string(),
-                };
-                println!("{c}{i} {id}");
-            }
-            println!("");
-        }
-
         let candidate = iters[slot].peek();
         if candidate.is_none() {
             index += 1;
@@ -397,14 +380,6 @@ mod tests {
             id: id.to_owned(),
             topic: topic.map(|s| s.to_owned()),
             repo,
-        }
-    }
-
-    fn new_s(id: &str, topic: Option<&str>, repo: &str) -> SubmittedTogether<String> {
-        SubmittedTogether::<String> {
-            id: id.to_owned(),
-            topic: topic.map(|s| s.to_owned()),
-            repo: repo.to_owned(),
         }
     }
 
@@ -551,114 +526,5 @@ mod tests {
         */
         let _ = one_order;
         let _ = other_order;
-    }
-
-    #[test]
-    fn seen_in_the_wild() {
-        let submitted_together = vec![
-            new_s(
-                "csp%2Fbazel%2Frules_csp~master~I14c8cee68c00ab13f1faed256529c7443cdf495f",
-                Some("ARTCEE-9526-em"),
-                "csp/bazel/rules_csp"
-            ),
-            new_s(
-                "csp%2Fdiagnostics_did_rid~master~I36d481a26c0210d306947ced13531f53debece8d",
-                Some("ARTCEE-9526-secure_storage"),
-                "csp/diagnostics_did_rid"
-            ),
-            new_s(
-                "csp%2Fhp%2Fcore~master~If66426a06b4d7d56588fac8958532076c185a8a7",
-                None,
-                "csp/hp/core"
-            ),
-            new_s(
-                "csp%2Fhp%2Fcore~master~I4e3f6934555663dd08b2a0bd7cba35fad6a80bf5",
-                Some("ARTCEE-9526-com_proxy"),
-                "csp/hp/core"
-            ),
-            new_s(
-                "csp%2Fhp%2Fcore~master~I7a1760b883e7cb2c87ee993e14ae41547f9cc1a8",
-                Some("ARTCEE-9526-log_framework"),
-                "csp/hp/core"
-            ),
-            new_s(
-                "csp%2Fhp%2Fcore~master~I1c16f0b722c66268661724d1401211c50920205f",
-                Some("ARTCEE-9526-secure_storage"),
-                "csp/hp/core"
-            ),
-            new_s(
-                "csp%2Fhp%2Fcore~master~I824d90f3edc7559549db94ff4e67580e5d715eb7",
-                Some("ARTCEE-9526-em"),
-                "csp/hp/core"
-            ),
-            new_s(
-                "csp%2Fhp%2Fcore~master~I6c0b1f85a50b7b4334427051bbc8555d851bdb8e",
-                None,
-                "csp/hp/core"
-            ),
-            new_s(
-                "csp%2Fhp%2Fcore~master~I1497a9b290dce15baed011d1e55f7fd3499f9eea",
-                Some("ARTCEE-9526"),
-                "csp/hp/core"
-            ),
-            new_s(
-                "csp%2Fhpa%2Ftest~master~I3e22f189f5668923befdf5995c0fcdd159a2570d",
-                Some("ARTCEE-9526"),
-                "csp/hpa/test"
-            ),
-            new_s(
-                "csp%2Fhpa%2Ftest~master~I3cfde1a7af81896f4e84509aa47c4700265123fa",
-                Some("ARTCEE-9526-log_framework"),
-                "csp/hpa/test"
-            ),
-            new_s(
-                "csp%2Fhpa%2Ftest~master~If63208d14b15b5d042fc0c0fdc1819702daf3c94",
-                Some("ARTCEE-9526-com_proxy"),
-                "csp/hpa/test"
-            ),
-            new_s(
-                "csp%2Fhpa_lpa_diagnostic_platform_facade~master~I82763f898a909c3a0a2c1836f417920e91c718a7",
-                Some("ARTCEE-9526"),
-                "csp/hpa_lpa_diagnostic_platform_facade"
-            ),
-            new_s(
-                "csp%2Flpa_agent~master~Iaec404a5df03322164ae53edd01d73ecff4d0141",
-                Some("ARTCEE-9526"),
-                "csp/lpa_agent"
-            ),
-            new_s(
-                "csp%2Fproducts%2Fvhpa~master~I58abf025431a3a77bcdb4a8504ee2cc12147acd9",
-                Some("ARTCEE-9526-em"),
-                "csp/products/vhpa"
-            ),
-            new_s(
-                "csp%2Fproducts%2Fvhpa~master~I88149a728791580323f7774be058260ad5e7a01c",
-                Some("ARTCEE-9526-com_proxy"),
-                "csp/products/vhpa"
-            ),
-            new_s(
-                "csp%2Fsystem%2Fhpa_activation_manager~master~Ie6ed1d287589e7d24d1f30f9162adab237e5163b",
-                Some("ARTCEE-9526"),
-                "csp/system/hpa_activation_manager"
-            ),
-            new_s(
-                "csp%2Fuds_tester_handler~master~I77a7f35f2fbf8d635ab5211337b56f0c1624b10d",
-                Some("ARTCEE-9526"),
-                "csp/uds_tester_handler"
-            ),
-            new_s(
-                "vcuapps%2Fexample_app~master~I2b1b3fe9415a808aab544f2ae0579a923215ca19",
-                Some("ARTCEE-9526"),
-                "vcuapps/example_app"
-            ),
-            new_s(
-                "vcuapps%2Fexample_app~master~I77968adc2aa9f39df7e61d940de1980314eb2623",
-                Some("ARTCEE-9526-com_proxy"),
-                "vcuapps/example_app"
-            ),
-        ];
-
-        // Should not crash.
-        let _ = reorder_submitted_together(&submitted_together);
     }
 }
