@@ -36,7 +36,6 @@ use gix::refs::FullName;
 use gix::refs::FullNameRef;
 use itertools::Itertools as _;
 use std::env;
-use std::fs::File;
 use std::io::Read;
 use std::num::NonZeroUsize;
 use std::panic;
@@ -47,6 +46,9 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::str::FromStr;
+
+const ENABLE_EXPERIMENTAL_ENVVAR: &str  = "GIT_TOPREPO_ENABLE_EXPERIMENTAL_COMMANDS";
+const ENABLE_EXPERIMENTAL_ENVVAR_TRUTHY: &str = "1";
 
 fn gix_discover_current_dir() -> Result<gix::Repository> {
     // Using working directory instead of "." to get better error messages.
@@ -308,6 +310,17 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
 
 /// Checkout topics from Gerrit.
 fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
+    let enable_experimental = std::env::var_os(ENABLE_EXPERIMENTAL_ENVVAR);
+    let envvar_truthy: std::ffi::OsString  = "1".to_owned().into();
+    let summary = format!("`checkout` is an experimental scaffolding subcommand. Enable it with {ENABLE_EXPERIMENTAL_ENVVAR}={ENABLE_EXPERIMENTAL_ENVVAR_TRUTHY}.");
+    match enable_experimental {
+        Some(should_enable) => {
+            if should_enable != envvar_truthy {
+                panic!("{summary}. The variable is set to invalid value: {should_enable:?}.");
+            }
+        }
+        None => {panic!("{}", summary)},
+    }
     if !checkout.dry_run {
         panic!("Only --dry-run is supported.");
     }

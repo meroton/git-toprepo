@@ -2,10 +2,10 @@
 
 set -eu -o pipefail
 
-test "${GIT_TOPREPO_DESTRUCTIVE_COMMANDS:-0}" = 1 || {
+test "${GIT_TOPREPO_ENABLE_DESTRUCTIVE_COMMANDS:-0}" = 1 || {
     echo >&2 "Warning: $(basename "$0") destroys the previous repository state and transforms it into a monorepo."
     echo >&2 "This is mostly meant for testing and when creating a completely new repository."
-    echo >&2 "To proceed set 'GIT_TOPREPO_DESTRUCTIVE_COMMANDS=1'."
+    echo >&2 "To proceed set 'GIT_TOPREPO_ENABLE_DESTRUCTIVE_COMMANDS=1'."
     echo >&2 "Exiting"
     exit 2
 }
@@ -64,12 +64,13 @@ git config --local \
 # # Move the remote refs under the toprepo namespace
 git show-ref \
     | grep ' refs/remotes/origin' \
-    | ifne xargs -n2 sh -c '
+    | xargs --no-run-if-empty -n2 sh -c '
         namespace="$1"; shift
         val="$1"; shift;
         key="$1"; shift;
-        echo git update-ref "$namespace"/"$key" "$val";
-        echo git update-ref -d "$key"
+        # NB: Key has a leading slash.
+        git update-ref "$namespace""$key" "$val";
+        git update-ref -d "$key"
     ' _ "${toprepo_ref_prefix}"
 
 # # NB: Drop a temporary ref for HEAD.
