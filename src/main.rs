@@ -364,13 +364,10 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
 
     // TODO rely only on git-gr to do the netrc lookup if possible
     // TODO Do not load username from here, instead use USER variable or something if it really is needed...
-    let sans_port = match http_host.split_once(":") {
-        Some((host, _)) => host.to_string(),
-        None => http_host.clone(),
-    };
+    let http_host_name = http_host.host().unwrap();
     let authenticator = netrc
         .hosts
-        .get(&sans_port)
+        .get(http_host_name)
         .context(format!("Looking for Gerrit entry for '{http_host}' in netrc file."))?;
     let username = authenticator.login.clone();
 
@@ -378,7 +375,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
         host: git_gr_lib::gerrit_host::GerritHost {
             username: Some(username),
             host: ssh_host.clone().host().unwrap().to_owned(),
-            http_host: Some(http_host.to_owned()),
+            http_host: Some(http_host.to_string()),
             port: ssh_host.port.unwrap_or(22) as u16,
         },
         // TODO: The project should not be relevant in a toprepo context.

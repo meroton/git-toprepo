@@ -3,7 +3,7 @@ use command_error::CommandExt;
 
 /// Gerrit code review.
 
-pub fn http_host(ssh_host: &gix::Url) -> String {
+pub fn http_host(ssh_host: &gix::Url) -> gix::Url {
     let host = ssh_host.host().unwrap();
     let host = &match ssh_host.user() {
         Some(user) => format!("{user}@{host}"),
@@ -25,5 +25,6 @@ pub fn http_host(ssh_host: &gix::Url) -> String {
     let url = cmd.stdout.lines().into_iter()
         .map(|s| s.strip_prefix("  url: "))
         .find(|o| o.is_some()).flatten();
-    url.unwrap().split('/').collect::<Vec<&str>>()[2].to_owned()
+    let url = url.unwrap();
+    gix::Url::from_bytes(url.into()).unwrap()
 }
