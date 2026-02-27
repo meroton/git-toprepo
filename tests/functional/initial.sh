@@ -137,7 +137,7 @@ trap '{
 }' EXIT
 
 # TODO: Add the username to ssh config for this.
-ssh-keygen -f "/home/nwirekli/.ssh/known_hosts" -R "[$host]:$port"
+ssh-keygen -f "$HOME/.ssh/known_hosts" -R "[$host]:$port"
 
 subprojects=(lorem ipsum dolor sit amet consectetur adipiscing elit sed "do")
 projects=(super "${subprojects[@]}")
@@ -243,7 +243,7 @@ done
 set_topic() {
     topic=$1; shift
     message=$1; shift
-    gerrit query "subject:\"$message\"" | choose 0 | xargs gerrit topic --topic "$topic"
+    gerrit query "subject:\"$message\"" | awk '{print $1}' | xargs gerrit topic --topic "$topic"
 }
 
 #        amet sit lorem ipsum consectetur adipiscing dolor elit sed do
