@@ -49,8 +49,11 @@ pub const TOPREPO_CONFIG_FILE_KEY: &str = "config";
 pub struct GitTopRepoConfig {
     #[serde(skip)]
     pub checksum: String,
+    /// Customized fetch behaviour.
     #[serde(skip_serializing_if = "is_default")]
     pub fetch: GlobalFetchConfig,
+    /// Configuration for the submodules, including all submodule that have ever
+    /// existed in the repository history.
     #[serde(rename = "repo")]
     pub subrepos: BTreeMap<SubRepoName, SubRepoConfig>,
 }
@@ -195,7 +198,7 @@ const DEFAULT_REPO_LOCATION_PATH_SPEC: &str =
 pub struct ConfigLocation {
     /// Level of enforcing the configuration.
     pub enforcement: ConfigEnforcement,
-    /// The location
+    /// The location.
     pub path: ConfigPath,
 }
 
@@ -508,18 +511,6 @@ pub enum GetOrInsertOk<'a> {
     MissingAgain(SubRepoName),
 }
 
-/// `TopRepoConfig` holds the configuration for the toprepo itself. The content is
-/// taken from the default git remote configuration.
-#[serde_as]
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct TopRepoConfig {
-    #[serde_as(as = "crate::util::SerdeGixUrl")]
-    pub url: gix::Url,
-    #[serde_as(as = "crate::util::SerdeGixUrl")]
-    pub push_url: gix::Url,
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GlobalFetchConfig {
@@ -575,13 +566,20 @@ impl GlobalFetchConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SubRepoConfig {
+    /// The URL the repository should be fetched from and pushed to, unless
+    /// the push destination is overridden by `push.url`.
     #[serde_as(as = "crate::util::SerdeGixUrl")]
     pub url: gix::Url,
+    /// Alternative URLs that means the same repository, i.e. it belong to the
+    /// same graph of git commits. These are URLs seen in `.gitmodules` files
+    /// but are not used for fetching.
     #[serde_as(as = "Vec<crate::util::SerdeGixUrl>")]
     #[serde(default, skip_serializing_if = "is_default")]
     pub historic_urls: Vec<gix::Url>,
+    /// Customized fetch behaviour.
     #[serde(default, skip_serializing_if = "is_default")]
     pub fetch: FetchConfig,
+    /// Customized push behaviour.
     #[serde(default, skip_serializing_if = "is_default")]
     pub push: PushConfig,
 
@@ -621,14 +619,6 @@ impl SubRepoConfig {
         self.push.url.as_ref().unwrap_or(&self.url).clone()
     }
 
-    pub fn get_fetch_options_with_url(&self) -> FetchOptions {
-        FetchOptions {
-            prune: self.fetch.prune,
-            depth: self.fetch.depth,
-            url: Some(self.url.clone()),
-        }
-    }
-
     pub fn get_push_config_with_url(&self) -> PushConfig {
         let mut push = self.push.clone();
         if push.url.is_none() {
@@ -648,18 +638,13 @@ impl SubRepoConfig {
 #[serde(default)]
 #[serde(deny_unknown_fields)]
 pub struct FetchConfig {
+    /// Adds the `--prune` flag to `git fetch`. Defaults to `true`.
     #[serde(default = "fetch_prune_default")]
     #[serde(skip_serializing_if = "eq_fetch_prune_default")]
     pub prune: bool,
+    /// Adds the `--depth=<N>` to `git fetch`. Defaults to `0`.
     #[serde(skip_serializing_if = "is_default")]
     pub depth: i32,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-pub struct FetchOptions {
-    pub prune: bool,
-    pub depth: i32,
-    pub url: Option<gix::Url>,
 }
 
 impl Default for FetchConfig {
@@ -685,8 +670,11 @@ fn eq_fetch_prune_default(value: &bool) -> bool {
 #[serde(default)]
 #[serde(deny_unknown_fields)]
 pub struct PushConfig {
+    /// Extra arguments to be passed to `git push`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
+    /// The URL to push instead of the repository fetch location. If `None`, the
+    /// fetch URL is used.
     #[serde_as(as = "crate::util::SerdeGixUrl")]
     pub url: Option<gix::Url>,
 }
@@ -762,10 +750,8 @@ mod tests {
 
         let res: Result<SubRepoConfig, _> = serde_path_to_error::deserialize(table);
         assert!(res.is_ok(), "{res:?}");
-        let fetch = res.unwrap().get_fetch_options_with_url();
-        assert!(fetch.url.is_some(), "{fetch:?}");
         assert_eq!(
-            fetch.url.unwrap(),
+            res.unwrap().url,
             gix::Url::from_bytes(BAR_BAZ_FETCH_URL.into()).unwrap()
         );
     }

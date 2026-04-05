@@ -65,12 +65,11 @@ impl RemoteFetcher {
         repo_name: &RepoName,
         subrepo_config: &SubRepoConfig,
     ) -> Result<()> {
-        let fetch_config = subrepo_config.get_fetch_options_with_url();
-        let subrepo_url = fetch_config.url.expect("with fetch url");
+        let fetch_config = &subrepo_config.fetch;
         let super_url = crate::git::get_default_remote_url(gix_repo)?;
         self.remote = Some(
             super_url
-                .join(&subrepo_url)
+                .join(&subrepo_config.url)
                 .to_bstring()
                 .to_str()
                 .context("Bad UTF-8 defualt remote URL")?
