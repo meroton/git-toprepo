@@ -133,12 +133,10 @@ fn clone_and_bootstrap() {
     [repo.repox]
     url = "../repox/"
     missing_commits = []
-    prune = false
 
     [repo.repoy]
     url = "../repoy/"
     missing_commits = []
-    prune = false
     "#);
     std::fs::write(config_path, bootstrap_config).unwrap();
 
@@ -151,8 +149,8 @@ fn clone_and_bootstrap() {
     insta::assert_snapshot!(
         cmd.get_output().stdout.to_str().unwrap(),
         @r"
-    * [new] 82d2051      -> origin/HEAD
-    * [new] 82d2051      -> origin/main
+    * [new] e0369c8      -> origin/HEAD
+    * [new] e0369c8      -> origin/main
     "
     );
 }

@@ -141,9 +141,10 @@ impl SubRepoLedger {
     /// Gets a `SubRepoConfig` based on a URL using exact matching. If an URL is
     /// missing, the user should add it to the `SubRepoConfig::historic_urls` list.
     pub fn get_name_from_url(&self, url: &gix::Url) -> Result<Option<SubRepoName>> {
-        let mut matches = self.subrepos.iter().filter(|(_name, subrepo_config)| {
-            subrepo_config.urls().any(|u| u == url)
-        });
+        let mut matches = self
+            .subrepos
+            .iter()
+            .filter(|(_name, subrepo_config)| subrepo_config.urls().any(|u| u == url));
         let Some(first_match) = matches.next() else {
             return Ok(None);
         };
@@ -263,15 +264,19 @@ impl SubRepoLedger {
                     repo_name = existing_name.clone();
                 }
             }
-            let urls: &mut Vec<gix::Url> = &mut self
-                .subrepos
-                .entry(repo_name.clone())
-                .or_default()
-                .into_urls()
-                .collect();
-            if !urls.contains(repo_url) {
-                urls.push(repo_url.clone());
-            }
+            match self.subrepos.entry(repo_name.clone()) {
+                std::collections::btree_map::Entry::Occupied(mut sub_repo_config) => {
+                    if !sub_repo_config.get().urls().contains(repo_url) {
+                        sub_repo_config
+                            .get_mut()
+                            .historic_urls
+                            .push(repo_url.clone());
+                    }
+                }
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(SubRepoConfig::new_disabled(repo_url.clone()));
+                }
+            };
             return Ok(if self.missing_subrepos.insert(repo_name.clone()) {
                 GetOrInsertOk::Missing(repo_name.clone())
             } else {

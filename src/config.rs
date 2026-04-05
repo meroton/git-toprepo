@@ -480,7 +480,7 @@ impl GitTopRepoConfig {
     pub fn validate(&self) -> Result<()> {
         let mut found = HashMap::<String, SubRepoName>::new();
         for (repo_name, v) in self.subrepos.iter() {
-           for url in v.urls() {
+            for url in v.urls() {
                 match found.entry(url.to_string()) {
                     std::collections::hash_map::Entry::Vacant(entry) => {
                         entry.insert(repo_name.clone());
@@ -572,7 +572,7 @@ impl GlobalFetchConfig {
 /// which can also change.
 /// It is possible to change the push url.
 #[serde_as]
-#[derive(Default, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SubRepoConfig {
     #[serde_as(as = "crate::util::SerdeGixUrl")]
@@ -606,11 +606,19 @@ fn is_true(value: &bool) -> bool {
 }
 
 impl SubRepoConfig {
-    pub fn resolve_push_url(&self) -> gix::Url {
-        match &self.push.url {
-            Some(url) => url.clone(),
-            None => self.url.clone(),
+    pub fn new_disabled(url: gix::Url) -> Self {
+        Self {
+            url,
+            historic_urls: Vec::new(),
+            fetch: FetchConfig::default(),
+            push: PushConfig::default(),
+            enabled: false,
+            missing_commits: HashSet::new(),
         }
+    }
+
+    pub fn resolve_push_url(&self) -> gix::Url {
+        self.push.url.as_ref().unwrap_or(&self.url).clone()
     }
 
     pub fn get_fetch_options_with_url(&self) -> FetchOptions {
@@ -630,12 +638,7 @@ impl SubRepoConfig {
     }
 
     pub fn urls(&self) -> impl Iterator<Item = &gix::Url> {
-         self.historic_urls.iter().chain(vec!(&self.url).into_iter())
-    }
-
-    // TODO: remove
-    pub fn into_urls(&self) -> impl Iterator<Item = gix::Url> {
-         self.historic_urls.clone().into_iter().chain(vec!(self.url.clone()).into_iter())
+        [&self.url].into_iter().chain(self.historic_urls.iter())
     }
 }
 
@@ -737,12 +740,7 @@ mod tests {
         let foo_name = SubRepoName::new("foo".to_owned());
         assert!(config.subrepos.contains_key(&foo_name));
         assert_eq!(
-            config
-                .subrepos
-                .get(&foo_name)
-                .unwrap()
-                .url
-                .to_bstring(),
+            config.subrepos.get(&foo_name).unwrap().url.to_bstring(),
             b"ssh://bar/baz.git".as_bstr()
         );
         assert_eq!(
@@ -841,12 +839,7 @@ mod tests {
         let foo_name = SubRepoName::new("foo".to_owned());
         assert!(config.subrepos.contains_key(&foo_name));
         assert_eq!(
-            config
-                .subrepos
-                .get(&foo_name)
-                .unwrap()
-                .url
-                .to_bstring(),
+            config.subrepos.get(&foo_name).unwrap().url.to_bstring(),
             b"ssh://bar/baz.git".as_bstr()
         );
         assert_eq!(

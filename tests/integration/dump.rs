@@ -7,7 +7,12 @@ use predicates::prelude::*;
 use rstest::rstest;
 use std::path::PathBuf;
 
-const EXPECTED_IMPORT_CACHE_VERSION: &str = "#cache-format-vNNN - PLEASE UPDATE THIS NUMBER";
+/// This should include the actual version string. The test
+/// `cache_version_change_detection` might update this to include
+/// `Change detected, please update this number`, in which case a configuration
+/// schema change has been detected and you should update the line with a new
+/// real version number.
+const EXPECTED_IMPORT_CACHE_VERSION: &str = "#cache-format-v4";
 
 #[test]
 fn dump_git_modules() {
@@ -242,10 +247,9 @@ fn cache_version_change_detection() {
             EXPECTED_IMPORT_CACHE_VERSION,
             // The line below should not be changed. Format it so that grep
             // doesn't find these lines.
-            "#cache-format\
-             -vNNN - \
-             PLEASE UPDATE \
-             THIS NUMBER",
+            &format!(
+                "{EXPECTED_IMPORT_CACHE_VERSION} - Change detected, please update this number"
+            ),
         );
         assert_ne!(
             old_code,
