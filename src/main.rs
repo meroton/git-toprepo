@@ -344,33 +344,33 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     // it right? Refactor git-gr to omit ports.
 
     /* TODO: Override semantics, or initial seed. to avoid the http call?
-    if git_review_file.exists() {
-        let mut content: String = "".to_owned();
-        File::open(git_review_file)
-            .context("Open gitreview file")?
-            .read_to_string(&mut content)
-            .context("Read gitreview file")?;
-        let git_review = parse_git_review(&content)?;
-        let port = git_review.port.unwrap_or(22);
-    }
+                    * if git_review_file.exists() {
+                    *     let mut content: String = "".to_owned();
+                    *     File::open(git_review_file)
+                    *         .context("Open gitreview file")?
+                    *         .read_to_string(&mut content)
+                    *         .context("Read gitreview file")?;
+                    *     let git_review = parse_git_review(&content)?;
+                    *     let port = git_review.port.unwrap_or(22);
+                    * }
     */
 
     /*
-    // let parsed_remote = git_gr_lib::gerrit_project::parse_remote_url(&checkout.remote).unwrap();
-    // TODO: How should we ask for the username, or autodetect it?
-    // It is often missing from the remote! We could rely on `.gitreview`.
-    // let username_override = parsed_remote.username;
+                    * // let parsed_remote = git_gr_lib::gerrit_project::parse_remote_url(&checkout.remote).unwrap();
+                    * // TODO: How should we ask for the username, or autodetect it?
+                    * // It is often missing from the remote! We could rely on `.gitreview`.
+                    * // let username_override = parsed_remote.username;
 
-    let netrc = netrc::Netrc::new()?;
+                    * let netrc = netrc::Netrc::new()?;
 
-    // TODO rely only on git-gr to do the netrc lookup if possible
-    // TODO Do not load username from here, instead use USER variable or something if it really is needed...
-    let http_host_name = http_host.host().unwrap();
-    let authenticator = netrc
-        .hosts
-        .get(http_host_name)
-        .context(format!("Looking for Gerrit entry for '{http_host}' in netrc file."))?;
-    let username = authenticator.login.clone();
+                    * // TODO rely only on git-gr to do the netrc lookup if possible
+                    * // TODO Do not load username from here, instead use USER variable or something if it really is needed...
+                    * let http_host_name = http_host.host().unwrap();
+                    * let authenticator = netrc
+                    *     .hosts
+                    *     .get(http_host_name)
+                    *     .context(format!("Looking for Gerrit entry for '{http_host}' in netrc file."))?;
+                    * let username = authenticator.login.clone();
     */
 
     let ssh_endpoint = gerrit::server(&ssh_host).to_string();
