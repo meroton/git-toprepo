@@ -355,6 +355,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
     }
     */
 
+    /*
     // let parsed_remote = git_gr_lib::gerrit_project::parse_remote_url(&checkout.remote).unwrap();
     // TODO: How should we ask for the username, or autodetect it?
     // It is often missing from the remote! We could rely on `.gitreview`.
@@ -370,12 +371,27 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
         .get(http_host_name)
         .context(format!("Looking for Gerrit entry for '{http_host}' in netrc file."))?;
     let username = authenticator.login.clone();
+    */
 
+    let ssh_endpoint = gerrit::server(&ssh_host).to_string();
+    let ssh_endpoint = match ssh_endpoint.strip_prefix("ssh://") {
+        Some(s) => s.to_owned(),
+        None => ssh_endpoint
+    };
+    let ssh_endpoint = match ssh_endpoint.strip_suffix("/") {
+        Some(s) => s.to_owned(),
+        None => ssh_endpoint
+    };
+    let http_host = http_host.to_string();
+
+    println!("{ssh_endpoint} should not start with ssh and not have the path");
+    println!("{http_host} should start with http and not have the path");
     let host = git_gr_lib::gerrit_project::GerritProject {
         host: git_gr_lib::gerrit_host::GerritHost {
-            username: Some(username),
-            host: ssh_host.clone().host().unwrap().to_owned(),
-            http_host: Some(http_host.to_string()),
+            username: Some("nwirekli".to_string()), // DEBUG
+            // TODO: Do we need the project here?
+            host: ssh_endpoint,
+            http_host: http_host,
             port: ssh_host.port.unwrap_or(22) as u16,
         },
         // TODO: The project should not be relevant in a toprepo context.
@@ -388,7 +404,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
         // TODO: Now that we do parse the netrc ourselves we might as well pick
         // out the password and pass it on? To bypass even more setup code in
         // git-gr.
-        HTTPPasswordPolicy::Netrc,
+        HTTPPasswordPolicy::Generate,
         /* cache: */ true,
         /* persist SSH: */ false, // No SSH calls are expected.
     );
