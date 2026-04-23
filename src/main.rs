@@ -339,7 +339,6 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
         .join(".gitreview");
 
     let ssh_host = get_default_remote_url(&toprepo)?;
-    let http_host = gerrit::http_host(&ssh_host);
     // TODO: git-gr: Why do we need to know the port? It is sufficient for ssh to know
     // it right? Refactor git-gr to omit ports.
 
@@ -382,18 +381,14 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
         Some(s) => s.to_owned(),
         None => ssh_endpoint
     };
-    let http_host = http_host.to_string();
 
     println!("{ssh_endpoint} should not start with ssh and not have the path");
-    println!("{http_host} should start with http and not have the path");
     let host = git_gr_lib::gerrit_project::GerritProject {
-        host: git_gr_lib::gerrit_host::GerritHost {
-            username: Some("nwirekli".to_string()), // DEBUG
-            // TODO: Do we need the project here?
-            host: ssh_endpoint,
-            http_host: http_host,
-            port: ssh_host.port.unwrap_or(22) as u16,
-        },
+        host: git_gr_lib::gerrit_host::GerritHost::new(
+            Some("nwirekli".to_string()), // DEBUG
+            ssh_endpoint,
+            ssh_host.port.unwrap_or(22),
+        ),
         // TODO: The project should not be relevant in a toprepo context.
         // project: git_review.project,
         project: "TODO-KalleAnka.git".to_owned(),
