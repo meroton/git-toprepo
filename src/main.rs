@@ -404,7 +404,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
         // TODO: Now that we do parse the netrc ourselves we might as well pick
         // out the password and pass it on? To bypass even more setup code in
         // git-gr.
-        HTTPPasswordPolicy::Generate,
+        HTTPPasswordPolicy::Auto,
         /* cache: */ true,
         /* persist SSH: */ false, // No SSH calls are expected.
     );
