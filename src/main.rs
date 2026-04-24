@@ -372,20 +372,12 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
                     * let username = authenticator.login.clone();
     */
 
-    let ssh_endpoint = gerrit::server(&ssh_host).to_string();
-    let ssh_endpoint = match ssh_endpoint.strip_prefix("ssh://") {
-        Some(s) => s.to_owned(),
-        None => ssh_endpoint
-    };
-    let ssh_endpoint = match ssh_endpoint.strip_suffix("/") {
-        Some(s) => s.to_owned(),
-        None => ssh_endpoint
-    };
+    let ssh_endpoint = gerrit::server(&ssh_host);
 
     let host = git_gr_lib::gerrit_project::GerritProject {
         host: git_gr_lib::gerrit_host::GerritHost::new(
-            Some("nwirekli".to_string()), // DEBUG
-            ssh_endpoint,
+            None, // Some("admin".to_string()), // DEBUG
+            ssh_endpoint.host().unwrap().to_owned(),
             ssh_host.port.unwrap_or(22),
         ),
         // TODO: The project should not be relevant in a toprepo context.
