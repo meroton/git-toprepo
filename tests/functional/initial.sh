@@ -4,15 +4,6 @@ set -eu -o pipefail
 
 prog="$(basename "$(realpath "$0")")"
 
-usage () {
-    cat <<-EOF
-		Usage: $prog
-
-		$prog Checks if the current branch has a merge commit with masters HEAD
-        as parent. If not, it means that the current branch is behind master.
-	EOF
-}
-
 repo_root() {
     local -;
     set +e
@@ -37,6 +28,7 @@ repo_root() {
 
 REPO_ROOT="$(repo_root)"
 transform_to_monorepo="$REPO_ROOT"/contrib/transform-to-monorepo.sh
+git_toprepo="$REPO_ROOT"/target/debug/git-toprepo
 
 test "$(docker-compose ps gerrit | wc -l)" -gt 1 || {
     set -x
@@ -127,7 +119,7 @@ export GERRIT_CLI_DEFAULT_GERRIT_HTTP_HOST=http://"$host":8080
 export GERRIT_CLI_DEFAULT_GERRIT_SSH_HOST=ssh://"$host":29418
 
 trap '{
-    echo "Ran integration tests in $workspace/super."
+    echo "Ran integration tests in $workspace/super ."
     echo "wrote netrc for Gerrit and git-toprepo:"
     cat "$netrc"
     command -v xclip >/dev/null && {
@@ -301,11 +293,11 @@ set_topic group "do 2"
     cd super || exit 1
     GIT_TOPREPO_ENABLE_DESTRUCTIVE_COMMANDS=1 $transform_to_monorepo
     git config --local --replace-all toprepo.config must:worktree:"$toprepo_config_file"
-    git toprepo config bootstrap > "$toprepo_config_file"
-    git toprepo recombine
+    "$git_toprepo" config bootstrap > "$toprepo_config_file"
+    "$git_toprepo" recombine
 
     # shellcheck disable=SC2046
     env GIT_TOPREPO_ENABLE_EXPERIMENTAL_COMMANDS=1 \
-        git toprepo checkout --strategy force-squash --dry-run \
+        "$git_toprepo" checkout --strategy force-squash --dry-run \
         $(gerrit query 'status:open subject:"lorem 7"' --output fetch)
 )
