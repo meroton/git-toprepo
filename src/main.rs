@@ -382,7 +382,6 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
         None => ssh_endpoint
     };
 
-    println!("{ssh_endpoint} should not start with ssh and not have the path");
     let host = git_gr_lib::gerrit_project::GerritProject {
         host: git_gr_lib::gerrit_host::GerritHost::new(
             Some("nwirekli".to_string()), // DEBUG
