@@ -376,7 +376,7 @@ fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
 
     let host = git_gr_lib::gerrit_project::GerritProject {
         host: git_gr_lib::gerrit_host::GerritHost::new(
-            None, // Some("admin".to_string()), // DEBUG
+            ssh_host.user().map(|s| s.to_owned()), // Some("admin".to_string()), // DEBUG
             ssh_endpoint.host().unwrap().to_owned(),
             ssh_host.port.unwrap_or(22),
         ),
