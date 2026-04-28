@@ -111,8 +111,7 @@ pub enum ConfigPath {
 }
 
 impl ConfigPath {
-    /// Check if the config file exists in the repository.
-    pub fn validate_existence(&self, repo: &gix::Repository) -> Result<()> {
+    pub fn path_on_disk(&self, repo: &gix::Repository) -> Result<Option<PathBuf>> {
         match self {
             ConfigPath::RepoBlob { gitref, path } => {
                 let location = format!("{gitref}:{}", path.display());
@@ -125,27 +124,34 @@ impl ConfigPath {
                     .with_context(|| {
                         format!("Config file {} does not exist in {gitref}", path.display())
                     })?;
+                Ok(None)
             }
             ConfigPath::Local { path } => {
                 // Check if the file exists in the main worktree.
                 let main_worktree = find_main_worktree_path(repo)?;
-                if !main_worktree.join(path).exists() {
+                let _path = main_worktree.join(path);
+                if !_path.exists() {
                     bail!("Config file {path:?} does not exist in the main worktree")
                 }
+                Ok(Some(_path))
             }
             ConfigPath::Worktree { path } => {
                 // Check if the file exists in the current worktree.
-                if !repo
+                let _path = repo
                     .workdir()
                     .context("No worktree config exists in a bare repository")?
-                    .join(path)
-                    .exists()
-                {
+                    .join(path);
+                if !_path.exists() {
                     bail!("Config file {path:?} does not exist in the worktree")
                 }
+                Ok(Some(_path))
             }
-        };
-        Ok(())
+        }
+    }
+
+    /// Check if the config file exists in the repository.
+    pub fn validate_existence(&self, repo: &gix::Repository) -> Result<()> {
+        self.path_on_disk(repo).map(|_| ())
     }
 }
 
