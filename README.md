@@ -15,7 +15,10 @@ a _git-toprepo emulated monorepo_. See also [terminology].
 
 ## Installation
 
-Download a prebuilt binary from the [release page].
+Download a prebuilt binary from the [release page] and add it to $PATH.
+The main git program contains a "plugin-dispatcher" of sorts,
+so it can then be used as either "git-toprepo" (the program itself)
+or as "git toprepo", it is now a transparent subcommand to git.
 
 [release page]: https://github.com/meroton/git-toprepo/releases
 
