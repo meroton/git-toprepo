@@ -665,8 +665,9 @@ pub struct Push {
     #[arg(value_name = "TOP-REMOTE")]
     pub top_remote: String,
 
-    /// A reference to push from the top repository. Refspec wildcards are not
-    /// supported.
+    /// A reference to push from the top repository. The refspec is propagated
+    /// as-is, so topic names like `refs/for/main/topic-name` are supported.
+    /// Refspec wildcards are not supported.
     #[arg(value_name = "REFSPEC", required=true, num_args=1.., value_parser = clap::builder::ValueParser::new(parse_refspec))]
     pub refspecs: Vec<(String, String)>,
 }

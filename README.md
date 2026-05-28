@@ -76,9 +76,18 @@ default.
 
 #### git toprepo push
 `git toprepo push` splits the commits and runs `git push` towards each needed
-remote repository. If the monocommit spans multiple repositories, git-toprepo
-adds the push option `topic=` according to the `Topic:` written in the commit
-message footer.
+remote repository. When the monocommit spans multiple repositories, a topic is
+required so that Gerrit can submit the changes atomically.
+
+The topic can be provided in two ways:
+
+* **Refspec** (Gerrit/AGit workflow): push to a refspec that encodes the topic,
+  such as `HEAD:refs/for/branch/my-topic` or `HEAD:refs/for/branch%topic=my-topic`.
+  Gerrit reads the topic directly from the refspec, so no additional push option
+  is needed.
+* **Commit message footer**: add a `Topic: <name>` footer line to the commit
+  message. git-toprepo strips the footer before pushing and communicates the
+  topic via the `topic=` push option.
 
 When amending a commit, the committer date changes, but the content to be pushed
 might stay the same for some target repositories. To avoid pushing commits where
@@ -465,10 +474,12 @@ On the client side, a few commit message footers are used. They are removed when
 splitting mono commits, before pushing to any remote.
 
 * `Topic: \<global-name\>` can be used to create a topic for one or multiple monocommits.
-  This will not be pushed in the commit to the Gerrit backend.
-  Other review system backends,
-  when they are implemented,
-  may need to keep this footer.
+  The footer is stripped before pushing and the topic is communicated via the
+  `topic=` push option. Alternatively, the topic can be encoded in the refspec
+  (e.g. `refs/for/branch/my-topic` or `refs/for/branch%topic=my-topic`),
+  in which case no push option is emitted since Gerrit reads the topic from the
+  refspec itself. Other review system backends, when they are implemented, may
+  need to keep this footer.
 
   The topic footer is also be written back during when combining the git
   histories.

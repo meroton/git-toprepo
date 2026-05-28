@@ -46,6 +46,7 @@ pub fn split_for_push(
     progress: &indicatif::MultiProgress,
     top_push_url: &gix::Url,
     local_rev_or_ref: &String,
+    refspec_topic: Option<String>,
 ) -> Result<Vec<PushData>> {
     if configured_repo.import_cache.monorepo_commits.is_empty() {
         anyhow::bail!("No filtered mono commits exists, please run `git toprepo recombine` first");
@@ -86,6 +87,7 @@ pub fn split_for_push(
         &mut fast_importer,
         top_push_url,
         export_refs_args,
+        refspec_topic,
     );
     // Make sure to gracefully shutdown the fast-importer before returning.
     fast_importer.wait()?;
@@ -193,6 +195,7 @@ fn split_for_push_impl(
     fast_importer: &mut crate::git_fast_export_import_dedup::FastImportRepoDedup<'_>,
     top_push_url: &gix::Url,
     export_refs_args: Vec<std::ffi::OsString>,
+    refspec_topic: Option<String>,
 ) -> Result<Vec<PushData>> {
     enum SplitParent {
         Mono(Rc<MonoRepoCommit>),
@@ -347,9 +350,9 @@ fn split_for_push_impl(
                     );
                 }
             };
-            if !single_push && subrepo_message.topic.is_none() {
+            if !single_push && subrepo_message.topic.is_none() && refspec_topic.is_none() {
                 anyhow::bail!(
-                    r#"Multiple submodules are modified in commit {mono_commit_id} "{0}", but no topic was provided. Please amend the commit message to add a 'Topic: something-descriptive' footer line."#,
+                    r#"Multiple submodules are modified in commit {mono_commit_id} "{0}", but no topic was provided. Please push to a Gerrit refspec like refs/for/branch/topic-name or amend the commit message to add a 'Topic: something-descriptive' footer line."#,
                     subrepo_message
                         .subject_and_body
                         .lines()
@@ -771,5 +774,79 @@ impl Drop for PushTask {
             .push_progress
             .inc_queue_size(-(self.reversed_push_metadata.len() as isize));
         drop(self.current_push_item.take());
+    }
+}
+
+/// Extracts the topic from a Gerrit-style refspec.
+///
+/// Handles two topic sources:
+/// - URL-encoded: `refs/for/master%topic=my-topic` or `refs/for/master%t=short`
+/// - Path-based: `refs/for/master/my-topic`
+///
+/// The extracted topic is used for validation only (checking that a topic exists
+/// for multi-submodule commits). The `-o topic=` push option is emitted only when
+/// the topic comes from the commit message `Topic:` footer, not from the refspec.
+///
+/// `%topic=` takes precedence over path-based `/TOPIC`.
+pub fn extract_push_topic(remote_ref: &str) -> Option<String> {
+    // Check URL-encoded push options (e.g. %topic=foo,hashtag=bar).
+    if let Some((_ref_part, options)) = remote_ref.split_once('%') {
+        let topic = options.split(',').find_map(|opt| {
+            opt.strip_prefix("topic=")
+                .or_else(|| opt.strip_prefix("t="))
+        });
+        if let Some(topic) = topic {
+            return Some(topic.to_owned());
+        }
+    }
+    // Extract path-based topic from refs/for/<branch>/<topic>.
+    extract_topic_from_path(remote_ref)
+}
+
+fn extract_topic_from_path(ref_str: &str) -> Option<String> {
+    let stripped = ref_str.strip_prefix("refs/for/")?;
+    let mut segments = stripped.split('/');
+    segments.next()?;
+    let topic = segments.collect::<Vec<_>>().join("/");
+    if topic.is_empty() { None } else { Some(topic) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_gerrit_style_topic_from_url() {
+        assert_eq!(
+            extract_push_topic("refs/for/master%topic=my-topic"),
+            Some("my-topic".to_owned())
+        );
+        assert_eq!(
+            extract_push_topic("refs/for/master%topic=driver/i42,hashtag=fix"),
+            Some("driver/i42".to_owned())
+        );
+        assert_eq!(
+            extract_push_topic("refs/for/master%t=short"),
+            Some("short".to_owned())
+        );
+        assert_eq!(extract_push_topic("refs/for/master%hashtag=fix"), None);
+    }
+
+    #[test]
+    fn extract_gerrit_style_topic_from_path() {
+        assert_eq!(
+            extract_push_topic("refs/for/master/TOPIC"),
+            Some("TOPIC".to_owned())
+        );
+        assert_eq!(
+            extract_push_topic("refs/for/release/1.0/TOPIC"),
+            Some("1.0/TOPIC".to_owned())
+        );
+    }
+
+    #[test]
+    fn extract_gerrit_style_topic_none() {
+        assert_eq!(extract_push_topic("refs/for/master"), None);
+        assert_eq!(extract_push_topic("refs/heads/master"), None);
     }
 }

@@ -706,13 +706,21 @@ fn push(push_args: &cli::Push, configured_repo: &mut ConfiguredTopRepo) -> Resul
         unimplemented!("Handle multiple refspecs");
     };
     // TODO: 2025-09-22 This assumes a single ref in the refspec. What about patterns?
+    // Extract Gerrit topic from the refspec (e.g. %topic=my-topic or /my-topic).
+    // Used for validation only; the refspec already communicates the topic to Gerrit.
+    let refspec_topic = git_toprepo::push::extract_push_topic(remote_ref);
     let remote_ref = FullName::try_from(remote_ref.as_bytes().as_bstr())
         .with_context(|| format!("Bad remote ref {remote_ref}"))?;
     let local_rev = local_ref;
 
     git_toprepo::log::get_global_logger().with_progress(|progress| {
-        let commits =
-            git_toprepo::push::split_for_push(configured_repo, &progress, &base_url, local_rev)?;
+        let commits = git_toprepo::push::split_for_push(
+            configured_repo,
+            &progress,
+            &base_url,
+            local_rev,
+            refspec_topic,
+        )?;
         ErrorObserver::run_keep_going(!push_args.fail_fast, |error_observer| {
             let commit_pusher = git_toprepo::push::CommitPusher::new(
                 configured_repo.gix_repo.clone(),

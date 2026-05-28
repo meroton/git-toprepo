@@ -520,7 +520,235 @@ fn topic_is_required_for_multi_repo_push() {
         .code(1);
     insta::assert_snapshot!(
         cmd.get_output().stderr.to_str().unwrap(),
-                @r#"ERROR: Multiple submodules are modified in commit 068408a74b19b6d4c260af0cc109d2c0c475f7d5 "Add files", but no topic was provided. Please amend the commit message to add a 'Topic: something-descriptive' footer line."#
+                @r#"ERROR: Multiple submodules are modified in commit 068408a74b19b6d4c260af0cc109d2c0c475f7d5 "Add files", but no topic was provided. Please push to a Gerrit refspec like refs/for/branch/topic-name or amend the commit message to add a 'Topic: something-descriptive' footer line."#
+    );
+}
+
+/// When pushing to a Gerrit-style refspec like `refs/for/master/TOPIC`, the topic
+/// is extracted from the refspec path for validation. No `-o topic=` is emitted
+/// since Gerrit already reads the topic from the refspec.
+#[test]
+fn topic_extracted_from_gerrit_refspec() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let monorepo = temp_dir.join("mono");
+    let toprepo = temp_dir.join("top");
+
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    std::fs::write(monorepo.join("top.txt"), "top\n").unwrap();
+    std::fs::write(monorepo.join("subpathx/file.txt"), "subx\n").unwrap();
+    std::fs::write(monorepo.join("subpathy/file.txt"), "suby\n").unwrap();
+    git_command_for_testing(&monorepo)
+        .args(["add", "top.txt", "subpathx/file.txt", "subpathy/file.txt"])
+        .assert()
+        .success();
+    // No Topic: footer — the topic comes from the refspec, no -o needed.
+    git_command_for_testing(&monorepo)
+        .args(["commit", "-m", "Add files"])
+        .assert()
+        .success();
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&monorepo)
+        .args([
+            "push",
+            "--jobs=1",
+            "--dry-run",
+            "origin",
+            "HEAD:refs/for/master/my-topic",
+        ])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr(
+            predicate::str::is_match(
+                "INFO: Would run git push .*repox/ [0-9a-f]+:refs/for/master/my-topic\n",
+            )
+            .unwrap(),
+        )
+        .stderr(
+            predicate::str::is_match(
+                "INFO: Would run git push .*repoy/ [0-9a-f]+:refs/for/master/my-topic\n",
+            )
+            .unwrap(),
+        )
+        .stderr(
+            predicate::str::is_match(
+                "INFO: Would run git push .*top [0-9a-f]+:refs/for/master/my-topic\n",
+            )
+            .unwrap(),
+        )
+        .stderr(predicate::str::contains("-o topic=").not());
+}
+
+/// When pushing with Gerrit `%topic=` syntax, the topic is extracted for validation
+/// and the `%topic=...` suffix is preserved in the refspec. No `-o topic=` is emitted
+/// since Gerrit reads the topic from the `%topic=` in the refspec.
+#[test]
+fn topic_extracted_from_gerrit_push_option_in_refspec() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let monorepo = temp_dir.join("mono");
+    let toprepo = temp_dir.join("top");
+
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    std::fs::write(monorepo.join("top.txt"), "top\n").unwrap();
+    std::fs::write(monorepo.join("subpathx/file.txt"), "subx\n").unwrap();
+    std::fs::write(monorepo.join("subpathy/file.txt"), "suby\n").unwrap();
+    git_command_for_testing(&monorepo)
+        .args(["add", "top.txt", "subpathx/file.txt", "subpathy/file.txt"])
+        .assert()
+        .success();
+    // No Topic: footer — the topic comes from %topic= in the refspec, no -o needed.
+    git_command_for_testing(&monorepo)
+        .args(["commit", "-m", "Add files"])
+        .assert()
+        .success();
+
+    // The %topic= suffix is preserved in the refspec; Gerrit reads the topic from it.
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&monorepo)
+        .args([
+            "push",
+            "--jobs=1",
+            "--dry-run",
+            "origin",
+            "HEAD:refs/for/master%topic=pct-topic",
+        ])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr(
+            predicate::str::is_match(
+                "INFO: Would run git push .*repox/ [0-9a-f]+:refs/for/master%topic=pct-topic\n",
+            )
+            .unwrap(),
+        )
+        .stderr(
+            predicate::str::is_match(
+                "INFO: Would run git push .*repoy/ [0-9a-f]+:refs/for/master%topic=pct-topic\n",
+            )
+            .unwrap(),
+        )
+        .stderr(
+            predicate::str::is_match(
+                "INFO: Would run git push .*top [0-9a-f]+:refs/for/master%topic=pct-topic\n",
+            )
+            .unwrap(),
+        )
+        .stderr(predicate::str::contains("-o topic=").not());
+}
+
+#[test]
+fn topic_priority_across_commits() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let monorepo = temp_dir.join("mono");
+    let toprepo = temp_dir.join("top");
+
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+
+    // Commit A: no Topic footer -> uses refspec %topic=messaging
+    std::fs::write(monorepo.join("top.txt"), "A\n").unwrap();
+    std::fs::write(monorepo.join("subpathx/file.txt"), "A\n").unwrap();
+    std::fs::write(monorepo.join("subpathy/file.txt"), "A\n").unwrap();
+    git_command_for_testing(&monorepo)
+        .args(["add", "top.txt", "subpathx/file.txt", "subpathy/file.txt"])
+        .assert()
+        .success();
+    git_command_for_testing(&monorepo)
+        .args(["commit", "-m", "Commit A"])
+        .assert()
+        .success();
+
+    // Commit B: Topic: web -> footer wins over refspec %topic=messaging
+    std::fs::write(monorepo.join("top.txt"), "B\n").unwrap();
+    std::fs::write(monorepo.join("subpathx/file.txt"), "B\n").unwrap();
+    std::fs::write(monorepo.join("subpathy/file.txt"), "B\n").unwrap();
+    git_command_for_testing(&monorepo)
+        .args(["add", "top.txt", "subpathx/file.txt", "subpathy/file.txt"])
+        .assert()
+        .success();
+    git_command_for_testing(&monorepo)
+        .args(["commit", "-m", "Commit B\n\nTopic: web"])
+        .assert()
+        .success();
+
+    // Commit C: Topic: rpc -> footer wins over refspec %topic=messaging
+    std::fs::write(monorepo.join("top.txt"), "C\n").unwrap();
+    std::fs::write(monorepo.join("subpathx/file.txt"), "C\n").unwrap();
+    std::fs::write(monorepo.join("subpathy/file.txt"), "C\n").unwrap();
+    git_command_for_testing(&monorepo)
+        .args(["add", "top.txt", "subpathx/file.txt", "subpathy/file.txt"])
+        .assert()
+        .success();
+    git_command_for_testing(&monorepo)
+        .args(["commit", "-m", "Commit C\n\nTopic: rpc"])
+        .assert()
+        .success();
+
+    // Commit D: no Topic footer -> uses refspec %topic=messaging
+    std::fs::write(monorepo.join("top.txt"), "D\n").unwrap();
+    std::fs::write(monorepo.join("subpathx/file.txt"), "D\n").unwrap();
+    std::fs::write(monorepo.join("subpathy/file.txt"), "D\n").unwrap();
+    git_command_for_testing(&monorepo)
+        .args(["add", "top.txt", "subpathx/file.txt", "subpathy/file.txt"])
+        .assert()
+        .success();
+    git_command_for_testing(&monorepo)
+        .args(["commit", "-m", "Commit D"])
+        .assert()
+        .success();
+
+    let result = cargo_bin_git_toprepo_for_testing()
+        .current_dir(&monorepo)
+        .args([
+            "push",
+            "--jobs=1",
+            "--dry-run",
+            "origin",
+            "HEAD:refs/for/master%topic=messaging",
+        ])
+        .assert()
+        .success();
+
+    let stderr = &result.get_output().stderr;
+    let stderr_str = String::from_utf8_lossy(stderr);
+
+    // 4 commits × 3 repos = 12 pushes total.
+    // A and D have no Topic footer -> no -o topic= (topic from refspec %topic=messaging).
+    // B has Topic: web -> -o topic=web (3 pushes).
+    // C has Topic: rpc -> -o topic=rpc (3 pushes).
+    let count_topic = |output: &str, topic: &str| {
+        let pattern = format!("-o topic={topic}");
+        output.matches(&pattern).count()
+    };
+    assert_eq!(
+        count_topic(&stderr_str, "messaging"),
+        0,
+        "expected 0 pushes with -o topic=messaging (refspec topic not repeated as -o):\n{stderr_str}"
+    );
+    assert_eq!(
+        count_topic(&stderr_str, "web"),
+        3,
+        "expected 3 pushes with topic=web (commit B, 3 repos):\n{stderr_str}"
+    );
+    assert_eq!(
+        count_topic(&stderr_str, "rpc"),
+        3,
+        "expected 3 pushes with topic=rpc (commit C, 3 repos):\n{stderr_str}"
     );
 }
 
