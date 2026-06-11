@@ -193,6 +193,78 @@ pub enum Commands {
     /// Print the version of the Git Toprepo tool.
     #[command(aliases = ["-V", "--version"])]
     Version,
+    /// Git LFS helpers for emulated monorepos.
+    #[command(subcommand)]
+    Lfs(Lfs),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Lfs {
+    /// Fetch LFS objects for monorepo paths.
+    Fetch(LfsFetch),
+}
+
+#[derive(Args, Debug)]
+pub struct LfsFetch {
+    /// Print what Git LFS would fetch, without downloading objects.
+    #[arg(long, short = 'd')]
+    pub dry_run: bool,
+
+    /// Prune old and unreferenced LFS objects after fetching.
+    #[arg(long, short = 'p')]
+    pub prune: bool,
+
+    /// Also fetch recent LFS objects according to Git LFS recent settings.
+    #[arg(long)]
+    pub recent: bool,
+
+    /// Fetch objects even if they already exist locally.
+    #[arg(long)]
+    pub refetch: bool,
+
+    /// Exclude paths for this invocation.
+    #[arg(long = "exclude", short = 'X', value_name = "PATHS")]
+    pub exclude: Vec<String>,
+
+    /// Unsupported in git-toprepo's LFS wrapper.
+    #[arg(long, hide = true)]
+    pub all: bool,
+
+    /// Unsupported in git-toprepo's LFS wrapper.
+    #[arg(long, hide = true)]
+    pub stdin: bool,
+
+    /// Unsupported in git-toprepo's LFS wrapper.
+    #[arg(long, short = 'I', hide = true, value_name = "PATHS")]
+    pub include: Vec<String>,
+
+    /// Unsupported in git-toprepo's LFS wrapper.
+    #[arg(long, hide = true)]
+    pub json: bool,
+
+    /// Monorepo path(s) whose LFS objects should be fetched.
+    #[arg(value_name = "PATH", required = true)]
+    pub paths: Vec<PathBuf>,
+}
+
+impl LfsFetch {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if self.all {
+            anyhow::bail!("`--all` is unsupported for `git toprepo lfs fetch`");
+        }
+        if self.stdin {
+            anyhow::bail!("`--stdin` is unsupported for `git toprepo lfs fetch`");
+        }
+        if !self.include.is_empty() {
+            anyhow::bail!(
+                "`--include`/`-I` is unsupported for `git toprepo lfs fetch`; git-toprepo supplies `-I` internally"
+            );
+        }
+        if self.json {
+            anyhow::bail!("`--json` is unsupported for `git toprepo lfs fetch`");
+        }
+        Ok(())
+    }
 }
 
 #[derive(Args, Debug)]
