@@ -7,7 +7,7 @@ use predicates::prelude::*;
 use rstest::rstest;
 use std::path::Path;
 
-struct RepoWithTwoSubmodules {
+pub(crate) struct RepoWithTwoSubmodules {
     pub toprepo: std::path::PathBuf,
     pub monorepo: std::path::PathBuf,
     pub subx_repo: std::path::PathBuf,
@@ -18,7 +18,7 @@ struct RepoWithTwoSubmodules {
 }
 
 impl RepoWithTwoSubmodules {
-    pub fn new_minimal_with_two_submodules() -> Self {
+    pub(crate) fn new_minimal_with_two_submodules() -> Self {
         let temp_dir_guard = git_toprepo_testtools::test_util::maybe_keep_tempdir(
             gix_testtools::scripted_fixture_writable(
                 "../integration/fixtures/make_minimal_with_two_submodules.sh",
@@ -811,4 +811,88 @@ fn unaffected_by_dot_gitmodules_recurse_true() {
             )
             .unwrap(),
         );
+}
+
+#[test]
+fn warns_when_lfs_smudge_bypasses_toprepo() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    git_command_for_testing(&repo.monorepo)
+        .args(["config", "filter.lfs.smudge", "git-lfs smudge -- %f"])
+        .assert()
+        .success();
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&repo.monorepo)
+        .args(["fetch", "--skip-combine"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("filter.lfs.smudge"))
+        .stderr(predicate::str::contains("bypasses git-toprepo"));
+}
+
+#[test]
+fn does_not_warn_when_lfs_smudge_uses_toprepo() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    git_command_for_testing(&repo.monorepo)
+        .args([
+            "config",
+            "filter.lfs.smudge",
+            "git-toprepo lfs smudge -- %f",
+        ])
+        .assert()
+        .success();
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&repo.monorepo)
+        .args(["fetch", "--skip-combine"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("filter.lfs.smudge").not());
+}
+
+#[test]
+fn does_not_warn_when_lfs_smudge_uses_git_toprepo_subcommand_form() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    git_command_for_testing(&repo.monorepo)
+        .args([
+            "config",
+            "filter.lfs.smudge",
+            "git toprepo lfs smudge -- %f",
+        ])
+        .assert()
+        .success();
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&repo.monorepo)
+        .args(["fetch", "--skip-combine"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("filter.lfs.smudge").not());
+}
+
+#[test]
+fn warns_when_lfs_process_bypasses_toprepo() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    git_command_for_testing(&repo.monorepo)
+        .args([
+            "config",
+            "filter.lfs.smudge",
+            "git-toprepo lfs smudge -- %f",
+        ])
+        .assert()
+        .success();
+    git_command_for_testing(&repo.monorepo)
+        .args(["config", "filter.lfs.process", "git-lfs filter-process"])
+        .assert()
+        .success();
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&repo.monorepo)
+        .args(["fetch", "--skip-combine"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("filter.lfs.process"))
+        .stderr(predicate::str::contains(
+            "bypass git-toprepo-aware LFS handling",
+        ));
 }
