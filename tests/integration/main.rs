@@ -16,6 +16,8 @@ mod hooks;
 mod info;
 #[cfg(test)]
 mod init;
+#[cfg(all(test, unix))]
+mod lfs;
 #[cfg(test)]
 mod log;
 #[cfg(test)]
