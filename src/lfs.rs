@@ -79,16 +79,22 @@ pub fn ensure_git_lfs_available(repo_worktree: &Path) -> Result<()> {
         .safe_status();
     match status {
         Ok(status) if status.success() => Ok(()),
-        Ok(status) => bail!(
-            "Git LFS is required for `git toprepo lfs fetch`, but `git lfs version` failed.\n\
+        Ok(status) => {
+            log::info!("Use: `sudo apt install git-lfs`");
+            bail!(
+                "Git LFS is required for `git toprepo lfs fetch`, but `git lfs version` failed.\n\
 Install Git LFS and ensure `git lfs version` works.\n\
 Status: {status}"
-        ),
-        Err(err) => bail!(
-            "Git LFS is required for `git toprepo lfs fetch`, but `git lfs version` failed.\n\
+            )
+        },
+        Err(err) => {
+            log::info!("Use: `sudo apt install git-lfs`");
+            bail!(
+                "Git LFS is required for `git toprepo lfs fetch`, but `git lfs version` failed.\n\
 Install Git LFS and ensure `git lfs version` works.\n\
 Error: {err}"
-        ),
+            )
+        },
     }
 }
 
