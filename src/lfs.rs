@@ -187,6 +187,8 @@ Git's long-running filter process can take precedence over filter.lfs.smudge, so
 }
 
 fn default_fetch_url(repo: &gix::Repository) -> Result<gix::Url> {
+    // NB: find_default_remote() returns Option<Result<Remote, Error>>;
+    // the first context handles None, the second handles Err.
     Ok(repo
         .find_default_remote(gix::remote::Direction::Fetch)
         .context("Default git-remote not found")?
