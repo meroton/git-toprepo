@@ -229,6 +229,10 @@ pub struct LfsFetch {
     #[arg(long = "exclude", short = 'X', value_name = "PATHS")]
     pub exclude: Vec<String>,
 
+    /// Monorepo path(s) whose LFS objects should be fetched.
+    #[arg(value_name = "PATH", required = true)]
+    pub paths: Vec<PathBuf>,
+
     /// Unsupported in git-toprepo's LFS wrapper.
     #[arg(long, hide = true)]
     pub all: bool,
@@ -245,9 +249,6 @@ pub struct LfsFetch {
     #[arg(long, hide = true)]
     pub json: bool,
 
-    /// Monorepo path(s) whose LFS objects should be fetched.
-    #[arg(value_name = "PATH", required = true)]
-    pub paths: Vec<PathBuf>,
 }
 
 impl LfsFetch {

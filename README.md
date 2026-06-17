@@ -33,8 +33,6 @@ use `git toprepo config bootstrap` afterwards to create one.
 
 `git toprepo lfs fetch [OPTIONS] <PATH>...` routes each monorepo path to the
 correct repository remote and runs `git lfs fetch` with path includes.
-This avoids fetching LFS objects from the wrong remote when working in an
-emulated monorepo.
 
 `git toprepo push [-n/--dry-run] <remote> <rev>:<ref> ...` does a submodule split
 so that each submodule is pushed to its respective upstream repository.
@@ -100,7 +98,7 @@ Notes and constraints:
 * Relative paths are accepted, including from subdirectories.
 * Nested submodules use the deepest matching submodule path.
 * If a submodule URL from `.gitmodules` is not configured in `.gittoprepo.toml`,
-  the command fails instead of falling back to a wrong remote.
+  the command fails.
 * Unsupported flags are rejected: `--all`, `--stdin`, `--include/-I`, `--json`.
   (`-I` is managed internally by git-toprepo.)
 
