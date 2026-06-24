@@ -1025,33 +1025,34 @@ where
                     .workdir()
                     .context("Worktree missing in git repository")?;
                 lfs::ensure_git_lfs_available(worktree)?;
-                let targets = lfs::resolve_lfs_fetch_targets(configured, &fetch_args.paths)?;
+                let shared = &fetch_args.shared;
+                let targets = lfs::resolve_lfs_fetch_targets(configured, &shared.paths)?;
                 let options = lfs::LfsFetchOptions {
-                    dry_run: fetch_args.dry_run,
-                    prune: fetch_args.prune,
-                    recent: fetch_args.recent,
-                    refetch: fetch_args.refetch,
-                    exclude: fetch_args.exclude.clone(),
+                    dry_run: shared.dry_run,
+                    prune: shared.prune,
+                    recent: shared.recent,
+                    refetch: shared.refetch,
+                    exclude: shared.exclude.clone(),
                 };
                 lfs::run_lfs_fetch(worktree, &targets, &options)
             })
             .map(|()| ExitCode::SUCCESS)
         }
         Commands::Lfs(cli::Lfs::Pull(pull_args)) => {
-            pull_args.validate()?;
             run_session(logger, |configured| {
                 let worktree = configured
                     .gix_repo
                     .workdir()
                     .context("Worktree missing in git repository")?;
                 lfs::ensure_git_lfs_available(worktree)?;
-                let targets = lfs::resolve_lfs_fetch_targets(configured, &pull_args.paths)?;
+                let shared = &pull_args.shared;
+                let targets = lfs::resolve_lfs_fetch_targets(configured, &shared.paths)?;
                 let options = lfs::LfsFetchOptions {
-                    dry_run: pull_args.dry_run,
-                    prune: pull_args.prune,
-                    recent: pull_args.recent,
-                    refetch: pull_args.refetch,
-                    exclude: pull_args.exclude.clone(),
+                    dry_run: shared.dry_run,
+                    prune: shared.prune,
+                    recent: shared.recent,
+                    refetch: shared.refetch,
+                    exclude: shared.exclude.clone(),
                 };
                 lfs::run_lfs_pull(worktree, &targets, &options)
             })

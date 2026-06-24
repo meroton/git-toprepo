@@ -202,18 +202,18 @@ pub enum Commands {
 pub enum Lfs {
     /// Fetch LFS objects for monorepo paths.
     Fetch(LfsFetch),
-    /// Fetch and checkout LFS objects for monorepo paths
+    /// Pull LFS objects
     Pull(LfsPull),
 }
 
 #[derive(Args, Debug)]
-pub struct LfsFetch {
+pub struct LfsSharedArgs {
     /// Print what Git LFS would fetch, without downloading objects.
-    #[arg(long, short = 'd')]
+    // #[arg(long, short = 'd')]
     pub dry_run: bool,
 
     /// Prune old and unreferenced LFS objects after fetching.
-    #[arg(long, short = 'p')]
+    // #[arg(long, short = 'p')]
     pub prune: bool,
 
     /// Also fetch recent LFS objects according to Git LFS recent settings.
@@ -227,6 +227,16 @@ pub struct LfsFetch {
     /// Exclude paths for this invocation.
     #[arg(long = "exclude", short = 'X', value_name = "PATHS")]
     pub exclude: Vec<String>,
+
+    /// Monorepo path(s) whose LFS objects should be fetched.
+    #[arg(value_name = "PATH", required = true)]
+    pub paths: Vec<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct LfsFetch {
+    #[command(flatten)]
+    pub shared: LfsSharedArgs,
 
     /// Unsupported in git-toprepo's LFS wrapper.
     #[arg(long, hide = true)]
@@ -243,10 +253,6 @@ pub struct LfsFetch {
     /// Unsupported in git-toprepo's LFS wrapper.
     #[arg(long, hide = true)]
     pub json: bool,
-
-    /// Monorepo path(s) whose LFS objects should be fetched.
-    #[arg(value_name = "PATH", required = true)]
-    pub paths: Vec<PathBuf>,
 }
 
 impl LfsFetch {
@@ -271,65 +277,8 @@ impl LfsFetch {
 
 #[derive(Args, Debug)]
 pub struct LfsPull {
-    /// Print what would be pulled without checking out files.
-    #[arg(long, short = 'd')]
-    pub dry_run: bool,
-
-    /// Prune old and unreferenced LFS objects after fetching.
-    #[arg(long, short = 'p')]
-    pub prune: bool,
-
-    /// Also fetch recent LFS objects according to Git LFS recent settings.
-    #[arg(long)]
-    pub recent: bool,
-
-    /// Fetch objects even if they already exist locally.
-    #[arg(long)]
-    pub refetch: bool,
-
-    /// Exclude paths for this invocation.
-    #[arg(long = "exclude", short = 'X', value_name = "PATHS")]
-    pub exclude: Vec<String>,
-
-    /// Unsupported in git-toprepo's LFS wrapper.
-    #[arg(long, hide = true)]
-    pub all: bool,
-
-    /// Unsupported in git-toprepo's LFS wrapper.
-    #[arg(long, hide = true)]
-    pub stdin: bool,
-
-    /// Unsupported in git-toprepo's LFS wrapper.
-    #[arg(long, short = 'I', hide = true, value_name = "PATHS")]
-    pub include: Vec<String>,
-
-    /// Unsupported in git-toprepo's LFS wrapper.
-    #[arg(long, hide = true)]
-    pub json: bool,
-
-    /// Monorepo path(s) whose LFS objects should be pulled and checked out.
-    #[arg(value_name = "PATH", required = true)]
-    pub paths: Vec<PathBuf>,
-}
-
-impl LfsPull {
-    pub fn validate(&self) -> anyhow::Result<()> {
-        if self.all {
-            anyhow::bail!("`--all` is unsupported for `git toprepo lfs pull`");
-        }
-        if self.stdin {
-            anyhow::bail!("`--stdin` is unsupported for `git toprepo lfs pull`");
-        }
-        if !self.include.is_empty() {
-            anyhow::bail!(
-                "`--include`/`-I` is unsupported for `git toprepo lfs pull`; git-toprepo supplies `-I` internally"
-            );
-        }
-        if self.json {
-            anyhow::bail!("`--json` is unsupported for `git toprepo lfs pull`");
-        }
-        Ok(())
-    }
+    #[command(flatten)]
+    pub shared: LfsSharedArgs,
 }
 
 #[derive(Args, Debug)]
