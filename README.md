@@ -109,6 +109,55 @@ subrepo routing, relative path handling, deepest-match routing, unsupported
 flag rejection, and clear failures when `git lfs` is missing or config is
 incomplete.
 
+#### git toprepo lfs pull
+`git toprepo lfs pull` does the same path-aware remote routing as
+`git toprepo lfs fetch`, then runs `git lfs checkout` for each path so files
+are materialized in the worktree.
+
+End-to-end flow (including common pitfalls):
+
+1. In the top repository, add and push submodule updates first.
+2. Ensure shared git-toprepo config exists (`.gittoprepo.toml`) and is pushed.
+  If it is temporarily missing, users can bootstrap a local fallback using
+  `.gittoprepo.user.toml`.
+3. Clone with smudge disabled to avoid fetching LFS objects from the wrong
+  remote during initial checkout:
+
+  ```sh
+  GIT_LFS_SKIP_SMUDGE=1 git toprepo clone <top-remote> <workspace>
+  ```
+
+4. In the workspace, check out a real local branch that tracks the expanded
+  remote branch before running LFS commands (required so `HEAD` resolves):
+
+  ```sh
+  cd <workspace>
+  GIT_LFS_SKIP_SMUDGE=1 git checkout -B main origin/main
+  ```
+
+5. Recombine and then pull path-routed LFS objects:
+
+  ```sh
+  git toprepo recombine
+  git toprepo lfs pull subrepo
+  ```
+
+6. Verify that files are real content (not pointers):
+
+  ```sh
+  ls -la subrepo/data.bin
+  file subrepo/data.bin
+  ```
+
+If `git toprepo lfs pull` reports `Object does not exist on the server` (404),
+the LFS object has not been uploaded for that repository. Push it from a clone
+of the owning repository:
+
+```sh
+cd <clone-of-owning-repository>
+git lfs push origin --all
+```
+
 #### git toprepo push
 `git toprepo push` splits the commits and runs `git push` towards each needed
 remote repository. When the monocommit spans multiple repositories, a topic is

@@ -153,6 +153,31 @@ pub fn run_lfs_fetch(
     }
     Ok(())
 }
+pub fn run_lfs_pull(
+    worktree: &Path,
+    targets: &[LfsFetchTarget],
+    options: &LfsFetchOptions,
+) -> Result<()> {
+    // First, fetch the LFS objects.
+    run_lfs_fetch(worktree, targets, options)?;
+
+    // Then, checkout the files in the working tree.
+    if !options.dry_run {
+        for target in targets {
+            let mut cmd = Command::new("git");
+            cmd.arg("lfs")
+                .arg("checkout")
+                .arg(target.include_path.to_string());
+            cmd.current_dir(worktree)
+                .trace_command(crate::command_span!("git lfs checkout"))
+                .safe_status()?
+                .check_success()
+                .with_context(|| format!("`git lfs checkout` failed for `{}`", target.include_path))?;
+        }
+    }
+
+    Ok(())
+}
 
 fn warn_if_lfs_filter_bypass_toprepo(repo: &Path, key: &str, subcommand: &str) -> Result<()> {
     for value in crate::git::git_config_get_all(repo, key)? {

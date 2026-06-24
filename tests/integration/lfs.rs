@@ -50,6 +50,14 @@ if [ "$1" = "fetch" ]; then
   done
   exit "${{GIT_TOPREPO_TEST_LFS_EXIT:-0}}"
 fi
+if [ "$1" = "checkout" ]; then
+  shift
+  printf 'checkout_cwd=%s\n' "$(pwd)" >> "$GIT_TOPREPO_TEST_LFS_LOG"
+  for arg in "$@"; do
+    printf 'checkout_arg=%s\n' "$arg" >> "$GIT_TOPREPO_TEST_LFS_LOG"
+  done
+  exit "${{GIT_TOPREPO_TEST_LFS_EXIT:-0}}"
+fi
 echo "unexpected git-lfs command: $*" >&2
 exit 64
 "#
@@ -358,5 +366,148 @@ fn preserves_spaces_in_include_path() {
     assert!(
         log.lines()
             .any(|line| line == "arg=subpathx/assets/big file.bin")
+    );
+}
+
+#[test]
+fn pull_fetches_and_checks_out() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
+    let bin_dir = temp_dir.path();
+    let log_path = bin_dir.join("lfs.log");
+    make_fake_git_lfs(bin_dir, 0);
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&repo.monorepo)
+        .args(["lfs", "pull", "video.mov"])
+        .env("GIT_TOPREPO_TEST_LFS_LOG", &log_path)
+        .env("PATH", prepend_path(bin_dir))
+        .assert()
+        .success();
+
+    let log = log_contents(&log_path);
+    // Should have called fetch
+    assert!(log.contains("arg=video.mov"));
+    // Should have called checkout
+    assert!(log.contains("checkout_arg=video.mov"));
+}
+
+#[test]
+fn pull_dry_run_fetches_but_skips_checkout() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
+    let bin_dir = temp_dir.path();
+    let log_path = bin_dir.join("lfs.log");
+    make_fake_git_lfs(bin_dir, 0);
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&repo.monorepo)
+        .args(["lfs", "pull", "--dry-run", "video.mov"])
+        .env("GIT_TOPREPO_TEST_LFS_LOG", &log_path)
+        .env("PATH", prepend_path(bin_dir))
+        .assert()
+        .success();
+
+    let log = log_contents(&log_path);
+    // Should have called fetch with --dry-run
+    assert!(log.contains("arg=--dry-run"));
+    assert!(log.contains("arg=video.mov"));
+    // Should NOT have called checkout
+    assert!(!log.contains("checkout_arg="));
+}
+
+#[test]
+fn pull_subrepo_path_routes_correctly() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
+    let bin_dir = temp_dir.path();
+    let log_path = bin_dir.join("lfs.log");
+    make_fake_git_lfs(bin_dir, 0);
+
+    let top_url = git_command_for_testing(&repo.monorepo)
+        .args(["config", "--get", "remote.origin.url"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .to_str()
+        .unwrap()
+        .trim()
+        .to_owned();
+    let submodule_url = git_command_for_testing(&repo.monorepo)
+        .args([
+            "config",
+            "--file",
+            ".gitmodules",
+            "--get",
+            "submodule.subpathx.url",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .to_str()
+        .unwrap()
+        .trim()
+        .to_owned();
+    let expected_remote = gix::Url::from_bytes(top_url.as_bytes().as_bstr())
+        .unwrap()
+        .join(&gix::Url::from_bytes(submodule_url.as_bytes().as_bstr()).unwrap())
+        .to_string();
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&repo.monorepo)
+        .args(["lfs", "pull", "subpathx/assets/model.bin"])
+        .env("GIT_TOPREPO_TEST_LFS_LOG", &log_path)
+        .env("PATH", prepend_path(bin_dir))
+        .assert()
+        .success();
+
+    let log = log_contents(&log_path);
+    // Fetch should route to subrepo
+    assert!(log.contains(&format!("remote={expected_remote}")));
+    assert!(log.contains("arg=subpathx/assets/model.bin"));
+    // Checkout should be invoked
+    assert!(log.contains("checkout_arg=subpathx/assets/model.bin"));
+}
+
+#[test]
+fn pull_multiple_paths() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
+    let bin_dir = temp_dir.path();
+    let log_path = bin_dir.join("lfs.log");
+    make_fake_git_lfs(bin_dir, 0);
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&repo.monorepo)
+        .args(["lfs", "pull", "subpathx/a.bin", "subpathy/b.bin"])
+        .env("GIT_TOPREPO_TEST_LFS_LOG", &log_path)
+        .env("PATH", prepend_path(bin_dir))
+        .assert()
+        .success();
+
+    let log = log_contents(&log_path);
+    // Each path should be fetched once.
+    assert_eq!(
+        log.lines().filter(|line| *line == "arg=subpathx/a.bin").count(),
+        1
+    );
+    assert_eq!(
+        log.lines().filter(|line| *line == "arg=subpathy/b.bin").count(),
+        1
+    );
+    // Each path should be checked out once.
+    assert_eq!(
+        log.lines()
+            .filter(|line| *line == "checkout_arg=subpathx/a.bin")
+            .count(),
+        1
+    );
+    assert_eq!(
+        log.lines()
+            .filter(|line| *line == "checkout_arg=subpathy/b.bin")
+            .count(),
+        1
     );
 }
