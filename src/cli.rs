@@ -207,7 +207,7 @@ pub enum Lfs {
 }
 
 #[derive(Args, Debug)]
-pub struct LfsFetchArgs {
+pub struct LfsFetch {
     /// Print what Git LFS would fetch, without downloading objects.
     #[arg(long, short = 'd')]
     pub dry_run: bool,
@@ -231,23 +231,6 @@ pub struct LfsFetchArgs {
     /// Monorepo path(s) whose LFS objects should be fetched.
     #[arg(value_name = "PATH", required = true)]
     pub paths: Vec<PathBuf>,
-}
-
-#[derive(Args, Debug)]
-pub struct LfsPullArgs {
-    /// Exclude paths for this invocation.
-    #[arg(long = "exclude", short = 'X', value_name = "PATHS")]
-    pub exclude: Vec<String>,
-
-    /// Monorepo path(s) whose LFS objects should be fetched.
-    #[arg(value_name = "PATH", required = true)]
-    pub paths: Vec<PathBuf>,
-}
-
-#[derive(Args, Debug)]
-pub struct LfsFetch {
-    #[command(flatten)]
-    pub args: LfsFetchArgs,
 
     /// Unsupported in git-toprepo's LFS wrapper.
     #[arg(long, hide = true)]
@@ -260,6 +243,21 @@ pub struct LfsFetch {
     /// Unsupported in git-toprepo's LFS wrapper.
     #[arg(long, short = 'I', hide = true, value_name = "PATHS")]
     pub include: Vec<String>,
+
+    /// Unsupported in git-toprepo's LFS wrapper.
+    #[arg(long, hide = true)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct LfsPullArgs {
+    /// Exclude paths for this invocation.
+    #[arg(long = "exclude", short = 'X', value_name = "PATHS")]
+    pub exclude: Vec<String>,
+
+    /// Monorepo path(s) whose LFS objects should be fetched.
+    #[arg(value_name = "PATH", required = true)]
+    pub paths: Vec<PathBuf>,
 
     /// Unsupported in git-toprepo's LFS wrapper.
     #[arg(long, hide = true)]
@@ -288,8 +286,13 @@ impl LfsFetch {
 
 #[derive(Args, Debug)]
 pub struct LfsPull {
-    #[command(flatten)]
-    pub args: LfsPullArgs,
+    /// Exclude paths for this invocation.
+    #[arg(long = "exclude", short = 'X', value_name = "PATHS")]
+    pub exclude: Vec<String>,
+
+    /// Monorepo path(s) whose LFS objects should be fetched.
+    #[arg(value_name = "PATH", required = true)]
+    pub paths: Vec<PathBuf>,
 }
 
 #[derive(Args, Debug)]

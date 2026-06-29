@@ -1025,14 +1025,13 @@ where
                     .workdir()
                     .context("Worktree missing in git repository")?;
                 lfs::ensure_git_lfs_available(worktree)?;
-                let fetch = &fetch_args.args;
-                let targets = lfs::resolve_lfs_fetch_targets(configured, &fetch.paths)?;
+                let targets = lfs::resolve_lfs_fetch_targets(configured, &fetch_args.paths)?;
                 let options = lfs::LfsFetchOptions {
-                    dry_run: fetch.dry_run,
-                    prune: fetch.prune,
-                    recent: fetch.recent,
-                    refetch: fetch.refetch,
-                    exclude: fetch.exclude.clone(),
+                    dry_run: fetch_args.dry_run,
+                    prune: fetch_args.prune,
+                    recent: fetch_args.recent,
+                    refetch: fetch_args.refetch,
+                    exclude: fetch_args.exclude.clone(),
                 };
                 lfs::run_lfs_fetch(worktree, &targets, &options)
             })
@@ -1045,10 +1044,9 @@ where
                     .workdir()
                     .context("Worktree missing in git repository")?;
                 lfs::ensure_git_lfs_available(worktree)?;
-                let pull = &pull_args.args;
-                let targets = lfs::resolve_lfs_fetch_targets(configured, &pull.paths)?;
+                let targets = lfs::resolve_lfs_fetch_targets(configured, &pull_args.paths)?;
                 let options = lfs::LfsFetchOptions {
-                    exclude: pull.exclude.clone(),
+                    exclude: pull_args.exclude.clone(),
                     ..Default::default()
                 };
                 lfs::run_lfs_pull(worktree, &targets, &options)
