@@ -393,7 +393,7 @@ fn pull_fetches_and_checks_out() {
 }
 
 #[test]
-fn pull_dry_run_fetches_but_skips_checkout() {
+fn pull_rejects_fetch_only_flags() {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
     let bin_dir = temp_dir.path();
@@ -406,14 +406,8 @@ fn pull_dry_run_fetches_but_skips_checkout() {
         .env("GIT_TOPREPO_TEST_LFS_LOG", &log_path)
         .env("PATH", prepend_path(bin_dir))
         .assert()
-        .success();
-
-    let log = log_contents(&log_path);
-    // Should have called fetch with --dry-run
-    assert!(log.contains("arg=--dry-run"));
-    assert!(log.contains("arg=video.mov"));
-    // Should NOT have called checkout
-    assert!(!log.contains("checkout_arg="));
+        .failure()
+        .stderr(predicates::str::contains("unexpected argument '--dry-run'"));
 }
 
 #[test]

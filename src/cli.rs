@@ -207,13 +207,13 @@ pub enum Lfs {
 }
 
 #[derive(Args, Debug)]
-pub struct LfsSharedArgs {
+pub struct LfsFetchArgs {
     /// Print what Git LFS would fetch, without downloading objects.
-    // #[arg(long, short = 'd')]
+    #[arg(long, short = 'd')]
     pub dry_run: bool,
 
     /// Prune old and unreferenced LFS objects after fetching.
-    // #[arg(long, short = 'p')]
+    #[arg(long, short = 'p')]
     pub prune: bool,
 
     /// Also fetch recent LFS objects according to Git LFS recent settings.
@@ -234,9 +234,20 @@ pub struct LfsSharedArgs {
 }
 
 #[derive(Args, Debug)]
+pub struct LfsPullArgs {
+    /// Exclude paths for this invocation.
+    #[arg(long = "exclude", short = 'X', value_name = "PATHS")]
+    pub exclude: Vec<String>,
+
+    /// Monorepo path(s) whose LFS objects should be fetched.
+    #[arg(value_name = "PATH", required = true)]
+    pub paths: Vec<PathBuf>,
+}
+
+#[derive(Args, Debug)]
 pub struct LfsFetch {
     #[command(flatten)]
-    pub shared: LfsSharedArgs,
+    pub args: LfsFetchArgs,
 
     /// Unsupported in git-toprepo's LFS wrapper.
     #[arg(long, hide = true)]
@@ -278,7 +289,7 @@ impl LfsFetch {
 #[derive(Args, Debug)]
 pub struct LfsPull {
     #[command(flatten)]
-    pub shared: LfsSharedArgs,
+    pub args: LfsPullArgs,
 }
 
 #[derive(Args, Debug)]

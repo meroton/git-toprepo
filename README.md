@@ -150,9 +150,9 @@ End-to-end flow (including common pitfalls):
   ```
 
 If `git toprepo lfs pull` reports `Object does not exist on the server` (404),
-the LFS object has not been uploaded for that repository. Push it from a clone
-of the owning repository:
+the LFS object has not been uploaded for that repository or you ran checkout without "GIT_LFS_SKIP_SMUDGE=1". Push it from a clone of the owning repository, or if smudge was not skipped - delete the files you got "rm <file-name>"(use -rf flag if you need to remove populated folder/directory) or alternatively remove the cloned toprepo repo and start over with "GIT_LFS_SKIP_SMUDGE=1".
 
+push it from clone of the woning repo:
 ```sh
 cd <clone-of-owning-repository>
 git lfs push origin --all
