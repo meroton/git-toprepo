@@ -50,15 +50,13 @@ jobs:
     steps:
       - name: Set up MacOS Cross Compiler
         if: ${{ endsWith(matrix.platform.rust_target, '-apple-darwin') }}
-        uses: Timmmm/setup-osxcross@v2
-        env:
-          BUILD_FLAVOR: stable
+        uses: mbround18/setup-osxcross@v3
         with:
           # Using the version for macos-latest.
           # https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
           osx-version: "15.5"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Collect build metadata
         id: build_metadata
         shell: bash
