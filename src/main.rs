@@ -162,9 +162,6 @@ fn load_config_from_file(file: &Path) -> Result<GitTopRepoConfig> {
 fn config(config_args: &cli::Config) -> Result<()> {
     match &config_args {
         cli::Config::Location => {
-            // TODO: 2025-09-24 Print something that can easily be selected and
-            // opened in a terminal or VsCode or so. The "local:" prefix makes
-            // it harder.
             let repo = gix_discover_current_dir()?;
             let location_strs = GitTopRepoConfig::find_configuration_location_strs(&repo)?;
             let Some(location) =
@@ -172,7 +169,15 @@ fn config(config_args: &cli::Config) -> Result<()> {
             else {
                 anyhow::bail!("None of the configured git-toprepo locations did exist");
             };
-            println!("{location}");
+            let maybe_on_disk = match location
+                .path
+                .path_on_disk(&repo)
+                .expect("should not fail here")
+            {
+                None => "".to_owned(),
+                Some(bind) => format!(" ({})", bind.to_str().unwrap().to_owned()),
+            };
+            println!("{location}{maybe_on_disk}");
         }
         cli::Config::Show => {
             let repo = discover_configured_repo_current_dir()?;
@@ -826,7 +831,7 @@ fn dump_import_cache(args: &cli::DumpImportCache) -> Result<()> {
         )?
     } else {
         let repo = gix_discover_current_dir()?;
-        // Demand a configured repository to ensure we not just fall back to empty
+        // Demand a configured repository to ensure we do not just fall back to empty
         // cache content when not even inside a git-toprepo emulated monorepo.
         let _ = GitTopRepoConfig::find_configuration_locations(&repo)?;
         git_toprepo::import_cache_serde::SerdeImportCache::load_from_git_dir(&repo, None)?
