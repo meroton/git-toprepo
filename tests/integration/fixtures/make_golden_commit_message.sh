@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -eux -o pipefail
 
+function doit {
+
 function commit {
     local repo="$1"
     local file="$2"
@@ -90,3 +92,8 @@ git -C top commit -m "Update git submodules
 With boring body"
 # No interesting commit messages at all.
 git -C top commit -m "Update git submodules" --allow-empty
+
+}
+
+mkdir -p /home/runner/work/_temp
+doit > /home/runner/work/_temp/output.txt 2>&1

@@ -3,14 +3,21 @@ use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
 use itertools::Itertools as _;
 use predicates::prelude::*;
+use std::io::Read;
 use std::path::Path;
 
 #[test]
 fn assemble_golden() {
+    let x = gix_testtools::scripted_fixture_writable(
+        "../integration/fixtures/make_golden_commit_message.sh",
+    );
+    let mut file = std::fs::File::open("/home/runner/work/_temp/output.txt").unwrap();
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).unwrap();
+    let y= buf.to_str_lossy();
+    println!("FRME fixture output: {y}");
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
-        gix_testtools::scripted_fixture_writable(
-            "../integration/fixtures/make_golden_commit_message.sh",
-        )
+        x
         .unwrap(),
     );
     let toprepo = temp_dir.join("top");
