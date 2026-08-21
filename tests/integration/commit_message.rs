@@ -18,6 +18,9 @@ fn assemble_golden() {
         file.read_to_end(&mut buf).map_err(|_| ())?;
         let y = buf.to_str_lossy();
         println!("FRME fixture output: {y}");
+        if std::env::consts::OS == "macos" {
+            panic!("macos");
+        }
         x.is_ok()
     };
 
