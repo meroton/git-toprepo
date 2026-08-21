@@ -93,6 +93,8 @@ With boring body"
 # No interesting commit messages at all.
 git config --list --show-origin
 git -C top commit -m "Update git submodules" --allow-empty
+echo $?
+find top/.git
 }
 
 mkdir -p /Users/runner/work/_temp
