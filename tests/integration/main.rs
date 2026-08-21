@@ -1,4 +1,3 @@
-#![feature(try_blocks)]
 mod fixtures;
 
 #[cfg(test)]
