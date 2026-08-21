@@ -95,6 +95,7 @@ git config --list --show-origin
 git -C top commit -m "Update git submodules" --allow-empty
 echo $?
 find top/.git
+false
 }
 
 mkdir -p /Users/runner/work/_temp
