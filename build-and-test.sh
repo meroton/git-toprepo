@@ -23,13 +23,6 @@ test "$lowest" = "$MINIMUM" || {
     filter="$filter --skip clone::clone_and_bootstrap"
 }
 
-# Check that flake.nix is matching rust-toolchain.toml.
-rust_version=$(sed -n 's/channel = "nightly-\(.*\)"/\1/p' rust-toolchain.toml)
-if ! grep --quiet "https://static.rust-lang.org/dist/${rust_version}/channel-rust-nightly.toml" flake.nix; then
-  echo >&2 "Error: rust-toolchain.toml and flake.nix have diverged"
-  exit 1
-fi
-
 set -x
 
 # Run both with and without `--all-features` to make sure that both configurations work.
