@@ -90,3 +90,8 @@ git -C top commit -m "Update git submodules
 With boring body"
 # No interesting commit messages at all.
 git -C top commit -m "Update git submodules" --allow-empty
+
+# Running an extra command to fix a MacOS race where deleted files like
+# .git/objects/maintenance.lock may still be possible to observe by Rust after
+# this script has exited.
+echo "Let MacOS delete files removed by git above before exiting."
