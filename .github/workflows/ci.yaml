@@ -13,8 +13,8 @@ jobs:
       matrix:
         os:
           # TODO: windows-latest
-          - ubuntu-24.04
-          - macos-26
+          - ubuntu-latest
+          - macos-latest
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     env:
@@ -51,6 +51,8 @@ jobs:
       - name: Set up MacOS Cross Compiler
         if: ${{ endsWith(matrix.platform.rust_target, '-apple-darwin') }}
         uses: Timmmm/setup-osxcross@v2
+        env:
+          BUILD_FLAVOR: stable
         with:
           # Using the version for macos-latest.
           # https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
