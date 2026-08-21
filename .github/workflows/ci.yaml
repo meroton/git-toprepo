@@ -20,7 +20,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Upgrade tools before rust-cache.
       # Use nightly instead of 'stable' to get improved rustfmt features.
       - shell: bash

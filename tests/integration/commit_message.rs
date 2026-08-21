@@ -8,7 +8,7 @@ use std::path::Path;
 
 #[test]
 fn assemble_golden() {
-    let _x2 = try {
+    let _x2: Result<bool, ()> = try {
         let x = gix_testtools::scripted_fixture_writable(
             "../integration/fixtures/make_golden_commit_message2.sh",
         );
@@ -18,7 +18,7 @@ fn assemble_golden() {
         file.read_to_end(&mut buf).map_err(|_| ())?;
         let y = buf.to_str_lossy();
         println!("FRME fixture output: {y}");
-        x
+        x.is_ok()
     };
 
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
