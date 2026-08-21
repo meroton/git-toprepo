@@ -20,7 +20,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Upgrade tools before rust-cache.
       # Use nightly instead of 'stable' to get improved rustfmt features.
       - shell: bash
@@ -50,13 +50,13 @@ jobs:
     steps:
       - name: Set up MacOS Cross Compiler
         if: ${{ endsWith(matrix.platform.rust_target, '-apple-darwin') }}
-        uses: Timmmm/setup-osxcross@v2
+        uses: mbround18/setup-osxcross@v3
         with:
           # Using the version for macos-latest.
           # https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
           osx-version: "15.5"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Collect build metadata
         id: build_metadata
         shell: bash
@@ -65,6 +65,11 @@ jobs:
           sed -n 's/channel = "\(.*\)"/rust_toolchain=\1/p' < rust-toolchain.toml >> $GITHUB_OUTPUT
       - name: Build ${{ matrix.platform.rust_target }}
         uses: houseabsolute/actions-rust-cross@v1
+        env:
+          # Force Cargo to use the standard Clang wrapper, bypassing cmake-clang.
+          # The output from mbround18/setup-osxcross@v3 shows
+          # linker=x86_64-apple-darwin24.5-cmake-clang
+          CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER: x86_64-apple-darwin24.5-clang
         with:
           command: build
           toolchain: ${{ steps.build_metadata.outputs.rust_toolchain }}
