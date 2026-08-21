@@ -13,8 +13,8 @@ jobs:
       matrix:
         os:
           # TODO: windows-latest
-          - ubuntu-latest
-          - macos-latest
+          - ubuntu-24.04
+          - macos-26
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     env:
@@ -54,7 +54,7 @@ jobs:
         with:
           # Using the version for macos-latest.
           # https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
-          osx-version: "26.5.2"
+          osx-version: "15.5"
 
       - uses: actions/checkout@v4
       - name: Collect build metadata
