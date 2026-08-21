@@ -8,15 +8,25 @@ use std::path::Path;
 
 #[test]
 fn assemble_golden() {
-    let x = gix_testtools::scripted_fixture_writable(
-        "../integration/fixtures/make_golden_commit_message.sh",
+    let _x2 = try {
+        let x = gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_golden_commit_message2.sh",
+        );
+        let mut file =
+            std::fs::File::open("/Users/runner/work/_temp/output.txt").map_err(|_| ())?;
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).map_err(|_| ())?;
+        let y = buf.to_str_lossy();
+        println!("FRME fixture output: {y}");
+        x
+    };
+
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_golden_commit_message.sh",
+        )
+        .unwrap(),
     );
-    let mut file = std::fs::File::open("/Users/runner/work/_temp/output.txt").unwrap();
-    let mut buf = Vec::new();
-    file.read_to_end(&mut buf).unwrap();
-    let y = buf.to_str_lossy();
-    println!("FRME fixture output: {y}");
-    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(x.unwrap());
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
 
