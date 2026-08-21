@@ -91,9 +91,8 @@ git -C top commit -m "Update git submodules
 
 With boring body"
 # No interesting commit messages at all.
-git -C top commit -m "Update git submodules" --allow-empty
-
 git config --list --show-origin
+git -C top commit -m "Update git submodules" --allow-empty
 }
 
 mkdir -p /Users/runner/work/_temp
