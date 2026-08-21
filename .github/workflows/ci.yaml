@@ -57,21 +57,11 @@ jobs:
           osx-version: "15.5"
 
       - uses: actions/checkout@v7
-      - name: Collect build metadata
-        id: build_metadata
-        shell: bash
-        run: |
-          set -eux
-          sed -n 's/channel = "\(.*\)"/rust_toolchain=\1/p' < rust-toolchain.toml >> $GITHUB_OUTPUT
+      - name: Install rust target ${{ matrix.platform.rust_target }}
+        run: rustup target add ${{ matrix.platform.rust_target }}
       - name: Build ${{ matrix.platform.rust_target }}
-        uses: houseabsolute/actions-rust-cross@v1
-        with:
-          command: build
-          toolchain: ${{ steps.build_metadata.outputs.rust_toolchain }}
-          target: ${{ matrix.platform.rust_target }}
-          args: "--locked --release"
-          # Keep stack traces, 12 MiB instead of 9 MiB.
-          strip: false
+        # Avoid stripping the binary, keep stack traces, 12 MiB instead of 9 MiB.
+        run: cargo build --locked --release --target ${{ matrix.platform.rust_target }}
       - name: Upload ${{ matrix.platform.rust_target }}
         if: ${{ github.event_name == 'push' }}
         uses: actions/upload-artifact@v4
