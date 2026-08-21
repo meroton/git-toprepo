@@ -25,7 +25,7 @@ test "$lowest" = "$MINIMUM" || {
 
 # Check that flake.nix is matching rust-toolchain.toml.
 rust_version=$(sed -n 's/channel = "nightly-\(.*\)"/\1/p' rust-toolchain.toml)
-if ! grep --quiet "https://static.rust-lang.org/dist/${rust_version}/channel-rust-nightly.toml" flake.nix; do
+if ! grep --quiet "https://static.rust-lang.org/dist/${rust_version}/channel-rust-nightly.toml" flake.nix; then
   echo >&2 "Error: rust-toolchain.toml and flake.nix have diverged"
   exit 1
 fi
