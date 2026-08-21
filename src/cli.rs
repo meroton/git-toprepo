@@ -207,7 +207,9 @@ pub enum Lfs {
 #[derive(Args, Debug)]
 pub struct LfsFetch {
     /// Print what Git LFS would fetch, without downloading objects.
-    #[arg(long, short = 'd')]
+    // git-lfs has `-d`, the rest of git-toprepo `-n`. Skipping short flag here
+    // to avoid confusion.
+    #[arg(long)]
     pub dry_run: bool,
 
     /// Prune old and unreferenced LFS objects after fetching.
