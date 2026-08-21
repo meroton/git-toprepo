@@ -84,7 +84,7 @@ pub fn resolve_subprojects(
             Some(r) => r.to_owned(),
         };
 
-        let project = normalize(&format!("{}/{}", &main_project, relative));
+        let project = normalize(&format!("{}/{}", main_project, relative));
         resolved.insert(path.clone(), project);
     }
 

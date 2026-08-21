@@ -86,7 +86,7 @@ impl SerdeImportCache {
         .with_context(|| {
             format!(
                 "Failed to deserialize import cache from {}",
-                &cache_path.display()
+                cache_path.display()
             )
         })
     }
@@ -118,7 +118,7 @@ impl SerdeImportCache {
         }
         log::debug!(
             "Deserialized import cache from {} in {:.2?}",
-            &cache_path.display(),
+            cache_path.display(),
             now.elapsed()
         );
         // If the checksum has changed, the imported and exported commits might be totally different.
@@ -358,7 +358,7 @@ impl SerdeRepoData {
             if let Some(existing_commit) = thin_commits.insert(thin_commit.commit_id, thin_commit) {
                 anyhow::bail!(
                     "Duplicate commit id in cache: {}",
-                    &existing_commit.commit_id
+                    existing_commit.commit_id
                 );
             }
         }

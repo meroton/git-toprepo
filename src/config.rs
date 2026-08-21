@@ -461,7 +461,7 @@ impl GitTopRepoConfig {
 
     fn load_config_from_path(repo: &gix::Repository, path: &ConfigPath) -> Result<Self> {
         let config_toml = Self::load_config_toml(repo, path)?;
-        Self::parse_config_toml_string(&config_toml).with_context(|| format!("Parsing {}", &path))
+        Self::parse_config_toml_string(&config_toml).with_context(|| format!("Parsing {}", path))
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
