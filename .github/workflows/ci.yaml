@@ -65,6 +65,11 @@ jobs:
           sed -n 's/channel = "\(.*\)"/rust_toolchain=\1/p' < rust-toolchain.toml >> $GITHUB_OUTPUT
       - name: Build ${{ matrix.platform.rust_target }}
         uses: houseabsolute/actions-rust-cross@v1
+        env:
+          # Force Cargo to use the standard Clang wrapper, bypassing cmake-clang.
+          # The output from mbround18/setup-osxcross@v3 shows
+          # linker=x86_64-apple-darwin24.5-cmake-clang
+          CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER: x86_64-apple-darwin24.5-clang
         with:
           command: build
           toolchain: ${{ steps.build_metadata.outputs.rust_toolchain }}
