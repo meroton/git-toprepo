@@ -54,7 +54,7 @@ jobs:
         with:
           # Using the version for macos-latest.
           # https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
-          osx-version: "15.5"
+          osx-version: "26.5.2"
 
       - uses: actions/checkout@v4
       - name: Collect build metadata
