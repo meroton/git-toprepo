@@ -14,12 +14,9 @@ fn assemble_golden() {
     let mut file = std::fs::File::open("/home/runner/work/_temp/output.txt").unwrap();
     let mut buf = Vec::new();
     file.read_to_end(&mut buf).unwrap();
-    let y= buf.to_str_lossy();
+    let y = buf.to_str_lossy();
     println!("FRME fixture output: {y}");
-    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
-        x
-        .unwrap(),
-    );
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(x.unwrap());
     let toprepo = temp_dir.join("top");
     let monorepo = temp_dir.join("mono");
 
