@@ -11,7 +11,7 @@ fn assemble_golden() {
     let x = gix_testtools::scripted_fixture_writable(
         "../integration/fixtures/make_golden_commit_message.sh",
     );
-    let mut file = std::fs::File::open("/home/runner/work/_temp/output.txt").unwrap();
+    let mut file = std::fs::File::open("/Users/runner/work/_temp/output.txt").unwrap();
     let mut buf = Vec::new();
     file.read_to_end(&mut buf).unwrap();
     let y = buf.to_str_lossy();

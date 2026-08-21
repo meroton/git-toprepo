@@ -95,5 +95,5 @@ git -C top commit -m "Update git submodules" --allow-empty
 
 }
 
-mkdir -p /home/runner/work/_temp
-doit > /home/runner/work/_temp/output.txt 2>&1
+mkdir -p /Users/runner/work/_temp
+doit > /Users/runner/work/_temp/output.txt 2>&1
