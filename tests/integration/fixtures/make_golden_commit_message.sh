@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eu -o pipefail
+set -eux -o pipefail
 
 function commit {
     local repo="$1"
