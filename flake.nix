@@ -25,9 +25,9 @@
           };
           # Need to manually update the hash to get the correct toolchain. It
           # does not re-evaluate just on changed rust-toolchain.toml.
-          # curl https://static.rust-lang.org/dist/2025-09-20/channel-rust-nightly.toml |
+          # curl https://static.rust-lang.org/dist/2026-08-20/channel-rust-nightly.toml |
           #   sha256sum | cut -f1 -d' ' | xxd -r -p | base64
-          sha256 = "sha256-qvgL9thRqOhiZX1xdkm4TlOm7TTEglHT6NumEJJWzdc=";
+          sha256 = "sha256-jMrO0J8gm+zJxzL/huXsM3PMS0XjzNgMHPsGu6vYiAc=";
         };
         rustPlatform = pkgs.makeRustPlatform {
             cargo = toolchain;
