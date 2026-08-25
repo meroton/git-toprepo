@@ -304,12 +304,12 @@ mod tests {
     #[test]
     fn accepts_git_toprepo_wrapper() {
         assert!(is_lfs_filter_through_toprepo(
-            "git-toprepo lfs smudge -- %f",
-            "smudge"
-        ));
-        assert!(is_lfs_filter_through_toprepo(
             "git toprepo lfs filter-process",
             "filter-process"
+        ));
+        assert!(is_lfs_filter_through_toprepo(
+            "git-toprepo lfs smudge -- %f",
+            "smudge"
         ));
         assert!(is_lfs_filter_through_toprepo(
             "/some/path/git-toprepo lfs smudge -- %f",
@@ -320,12 +320,12 @@ mod tests {
     #[test]
     fn rejects_plain_git_lfs() {
         assert!(!is_lfs_filter_through_toprepo(
-            "git-lfs smudge -- %f",
-            "smudge"
-        ));
-        assert!(!is_lfs_filter_through_toprepo(
             "git lfs filter-process",
             "filter-process"
+        ));
+        assert!(!is_lfs_filter_through_toprepo(
+            "git-lfs smudge -- %f",
+            "smudge"
         ));
     }
 
