@@ -35,35 +35,21 @@ pub struct LfsFetchOptions {
 }
 
 pub fn is_lfs_filter_through_toprepo(command: &str, subcommand: &str) -> bool {
-    let tokens: Vec<&str> = command.split_whitespace().collect();
-    if tokens.is_empty() {
-        return false;
-    }
-    let subcommand = subcommand.to_ascii_lowercase();
-    let command_name = Path::new(tokens[0])
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(tokens[0]);
-    let matches_git_toprepo = |tokens: &[&str]| {
-        tokens.len() >= 2
-            && command_name.eq_ignore_ascii_case("git-toprepo")
-            && tokens[1].eq_ignore_ascii_case("lfs")
-            && tokens
-                .get(2)
-                .is_some_and(|cmd| cmd.eq_ignore_ascii_case(&subcommand))
-    };
-    if matches_git_toprepo(&tokens) {
-        return true;
-    }
-    if tokens.len() >= 3
-        && tokens[0].eq_ignore_ascii_case("git")
-        && tokens[1].eq_ignore_ascii_case("toprepo")
-        && tokens[2].eq_ignore_ascii_case("lfs")
-        && tokens
-            .get(3)
-            .is_some_and(|cmd| cmd.eq_ignore_ascii_case(&subcommand))
-    {
-        return true;
+    let mut tokens: Vec<&str> = command.split_whitespace().collect();
+    if let Some(first_token) = tokens.first() {
+        let command_name = Path::new(first_token)
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or(first_token)
+            .to_owned();
+        // Replace a full path with the command name.
+        tokens[0] = &command_name;
+        if tokens.starts_with(&["git-toprepo", "lfs", subcommand]) {
+            return true;
+        }
+        if tokens.starts_with(&["git", "toprepo", "lfs", subcommand]) {
+            return true;
+        }
     }
     false
 }
