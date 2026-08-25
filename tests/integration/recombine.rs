@@ -442,6 +442,55 @@ fn moved_submodule() {
     );
 }
 
+/// The same submodule repository is checked out at two paths in the
+/// toprepo, one following its "main" branch and the other its "feature"
+/// branch, so both paths get their own, independently diverging bump
+/// history even though they import from the very same repository.
+#[test]
+fn same_submodule_two_paths_different_branches() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_same_submodule_two_paths.sh",
+        )
+        .unwrap(),
+    );
+    let toprepo = temp_dir.join("top");
+    let monorepo = temp_dir.join("mono");
+
+    crate::fixtures::toprepo::clone(&toprepo, &monorepo);
+    let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
+    insta::assert_snapshot!(
+        log_graph,
+        @r"
+    * E-feature-3
+    |
+    | A E-feature-3.txt
+    | A subpathy/x-feature-3.txt
+    * D-main-3
+    |
+    | A D-main-3.txt
+    | A subpathx/x-main-3.txt
+    * C-feature-2
+    |
+    | A C-feature-2.txt
+    | A subpathy/x-feature-2.txt
+    * B-main-2
+    |
+    | A B-main-2.txt
+    | A subpathx/x-main-2.txt
+    *-. A
+    |\ \
+    | * x-1
+    |
+    |   A x-1.txt
+    * init
+
+      A .gittoprepo.toml
+      A init.txt
+    "
+    );
+}
+
 #[test]
 fn inner_submodule() {
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(

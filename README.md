@@ -236,6 +236,23 @@ url = "ssh://git@github.com/meroton/git-toprepo.git"
 args = []
 ```
 
+#### Compared to the data in .gitmodules
+
+Configuring submodules in the toml file has some overlap with the data in `.gitmodules`
+and the latter is a good source of information when writing the former.
+But they are both important and have different perspectives.
+
+The toprepo toml does not have path or branch information, just the source of the repo.
+So multiple branches of the same repo can be checked out in different parts of the monorepo.
+If there were different servers for the different branches we could not express that.
+
+The toml contains information about all submodules that have ever been part of the superrepo
+not just for this branch but for all branches,
+whereas the .gitmodules file just describes what a given commit wants.
+This is why the recommended configuration is fetched from the super repo's remote HEAD commit
+and not the locally checked out commit.
+To make time travel easier in the emulated monorepo.
+
 ## Git configuration
 
 A strong recommendation is to use the same branch name in all involved
