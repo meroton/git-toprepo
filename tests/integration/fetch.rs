@@ -817,7 +817,7 @@ fn unaffected_by_dot_gitmodules_recurse_true() {
 fn warns_when_lfs_smudge_bypasses_toprepo() {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     git_command_for_testing(&repo.monorepo)
-        .args(["config", "filter.lfs.smudge", "git-lfs smudge -- %f"])
+        .args(["config", "filter.lfs.smudge", "git lfs smudge -- %f"])
         .assert()
         .success();
 
@@ -882,7 +882,7 @@ fn warns_when_lfs_process_bypasses_toprepo() {
         .assert()
         .success();
     git_command_for_testing(&repo.monorepo)
-        .args(["config", "filter.lfs.process", "git-lfs filter-process"])
+        .args(["config", "filter.lfs.process", "git lfs filter-process"])
         .assert()
         .success();
 

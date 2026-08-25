@@ -3,6 +3,7 @@ use bstr::ByteSlice as _;
 use git_toprepo::gitmodules::SubmoduleUrlExt as _;
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
+use itertools::Itertools;
 use predicates::prelude::*;
 use std::ffi::OsString;
 use std::path::Path;
@@ -72,10 +73,6 @@ fn prepend_path(bin_dir: &Path) -> OsString {
     std::env::join_paths(paths).unwrap()
 }
 
-fn log_contents(path: &Path) -> String {
-    std::fs::read_to_string(path).unwrap_or_default()
-}
-
 #[test]
 fn missing_git_lfs_fails_clearly() {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
@@ -123,11 +120,13 @@ fn fetches_top_level_path_from_top_repo_url() {
         .assert()
         .success();
 
-    let log = log_contents(&log_path);
-    assert!(log.contains(&format!("cwd={}\n", repo.monorepo.display())));
-    assert!(log.contains(&format!("remote={top_url}")));
-    assert!(log.contains("arg=-I"));
-    assert!(log.contains("arg=video.mov"));
+    let log = std::fs::read_to_string(&log_path).unwrap();
+    assert!(
+        log.contains(&format!("cwd={}\n", repo.monorepo.display())),
+        "{log}"
+    );
+    assert!(log.contains(&format!("remote={top_url}")), "{log}");
+    assert!(log.contains("arg=--include=video.mov"), "{log}");
 }
 
 #[test]
@@ -177,10 +176,13 @@ fn fetches_subrepo_path_from_subrepo_url() {
         .assert()
         .success();
 
-    let log = log_contents(&log_path);
-    assert!(log.contains(&format!("remote={expected_remote}")));
-    assert!(log.contains("arg=-I"));
-    assert!(log.contains("arg=subpathx/assets/model.bin"));
+    let log = std::fs::read_to_string(&log_path).unwrap();
+    assert!(log.contains(&format!("remote={expected_remote}")), "{log}");
+    assert!(log.contains("arg=--include"), "{log}");
+    assert!(
+        log.contains("arg=--include=subpathx/assets/model.bin"),
+        "{log}"
+    );
 }
 
 #[test]
@@ -200,9 +202,12 @@ fn fetches_relative_path_from_subdirectory() {
         .assert()
         .success();
 
-    let log = log_contents(&log_path);
-    assert!(log.contains("cwd="));
-    assert!(log.contains("arg=subpathx/assets/model.bin"));
+    let log = std::fs::read_to_string(&log_path).unwrap();
+    assert!(log.contains("cwd="), "{log}");
+    assert!(
+        log.contains("arg=--include=subpathx/assets/model.bin"),
+        "{log}"
+    );
 }
 
 #[test]
@@ -221,14 +226,14 @@ fn fetches_multiple_paths_one_by_one() {
         .assert()
         .success();
 
-    let log = log_contents(&log_path);
-    assert!(log.matches("cwd=").count() == 2);
-    assert!(log.contains("arg=subpathx/a.bin"));
-    assert!(log.contains("arg=subpathy/b.bin"));
+    let log = std::fs::read_to_string(&log_path).unwrap();
+    assert_eq!(log.matches("cwd=").count(), 2, "{log}");
+    assert!(log.contains("arg=--include=subpathx/a.bin"), "{log}");
+    assert!(log.contains("arg=--include=subpathy/b.bin"), "{log}");
 }
 
 #[test]
-fn rejects_all_option() {
+fn rejects_unsupported_options() {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
     let bin_dir = temp_dir.path();
@@ -241,7 +246,37 @@ fn rejects_all_option() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "`--all` is unsupported for `git toprepo lfs fetch`",
+            " for '--all': unsupported for 'git toprepo lfs fetch'",
+        ));
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&repo.monorepo)
+        .args(["lfs", "fetch", "--stdin", "subpathx/file.bin"])
+        .env("PATH", prepend_path(bin_dir))
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            " for '--stdin': unsupported for 'git toprepo lfs fetch'",
+        ));
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&repo.monorepo)
+        .args(["lfs", "fetch", "-I", "ipath", "subpathx/file.bin"])
+        .env("PATH", prepend_path(bin_dir))
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "error: invalid value 'ipath' for '--include <PATHS>': unsupported, 'git toprepo lfs fetch' supplies '--include' internally",
+        ));
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&repo.monorepo)
+        .args(["lfs", "fetch", "--json", "subpathx/file.bin"])
+        .env("PATH", prepend_path(bin_dir))
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            " for '--json': unsupported for 'git toprepo lfs fetch'",
         ));
 }
 
@@ -283,7 +318,7 @@ fn errors_on_unconfigured_subrepo() {
             "not configured in .gittoprepo.toml",
         ));
 
-    assert!(log_contents(&log_path).is_empty());
+    assert!(!std::fs::exists(&log_path).unwrap());
 }
 
 #[test]
@@ -333,9 +368,12 @@ fn uses_deepest_matching_submodule_path() {
         .assert()
         .success();
 
-    let log = log_contents(&log_path);
-    assert!(log.contains(&format!("remote={expected_remote}")));
-    assert!(log.contains("arg=subpathx/subpathy/model.bin"));
+    let log = std::fs::read_to_string(&log_path).unwrap();
+    assert!(log.contains(&format!("remote={expected_remote}")), "{log}");
+    assert!(
+        log.contains("arg=--include=subpathx/subpathy/model.bin"),
+        "{log}"
+    );
 }
 
 #[test]
@@ -354,9 +392,10 @@ fn preserves_spaces_in_include_path() {
         .assert()
         .success();
 
-    let log = log_contents(&log_path);
+    let log = std::fs::read_to_string(&log_path).unwrap();
     assert!(
         log.lines()
-            .any(|line| line == "arg=subpathx/assets/big file.bin")
+            .contains("arg=--include=subpathx/assets/big file.bin"),
+        "{log}"
     );
 }
