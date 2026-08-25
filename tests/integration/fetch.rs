@@ -945,7 +945,7 @@ fn does_not_warn_when_lfs_smudge_uses_toprepo() {
         .args([
             "config",
             "filter.lfs.smudge",
-            "git-toprepo lfs smudge -- %f",
+            "git toprepo lfs smudge -- %f",
         ])
         .assert()
         .success();
@@ -959,13 +959,13 @@ fn does_not_warn_when_lfs_smudge_uses_toprepo() {
 }
 
 #[test]
-fn does_not_warn_when_lfs_smudge_uses_git_toprepo_subcommand_form() {
+fn does_not_warn_when_lfs_smudge_uses_git_toprepo_executable_form() {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     git_command_for_testing(&repo.monorepo)
         .args([
             "config",
             "filter.lfs.smudge",
-            "git toprepo lfs smudge -- %f",
+            "git-toprepo lfs smudge -- %f",
         ])
         .assert()
         .success();
@@ -985,7 +985,7 @@ fn warns_when_lfs_process_bypasses_toprepo() {
         .args([
             "config",
             "filter.lfs.smudge",
-            "git-toprepo lfs smudge -- %f",
+            "git toprepo lfs smudge -- %f",
         ])
         .assert()
         .success();

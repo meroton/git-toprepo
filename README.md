@@ -100,7 +100,7 @@ Notes and constraints:
 * If a submodule URL from `.gitmodules` is not configured in `.gittoprepo.toml`,
   the command fails.
 * Unsupported flags are rejected: `--all`, `--stdin`, `--include/-I`, `--json`.
-  (`-I` is managed internally by git-toprepo.)
+  (`-I` is managed internally by Git Toprepo.)
 
 The integration tests cover these behaviors, including top-level routing,
 subrepo routing, relative path handling, deepest-match routing, unsupported
