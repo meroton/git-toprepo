@@ -132,8 +132,8 @@ fn verify_config_existence_after_clone(repo_dir: &Path) -> Result<()> {
         }
         log::error!("Config file .gittoprepo.toml does not exist in {first_location}",);
         log::info!(
-            "Please run 'git-toprepo config bootstrap > .gittoprepo.user.toml' to generate an initial config \
-            and 'git-toprepo recombine' to use it."
+            "Please run `git toprepo config bootstrap > .gittoprepo.user.toml` to generate an initial config \
+            and `git toprepo recombine` to use it."
         );
         anyhow::bail!("Clone failed due to missing config file");
     }
@@ -993,7 +993,7 @@ where
     match args.command.actual() {
         Commands::Init(init_args) => {
             init(init_args).map(|_path| ())?;
-            log::info!("The next step is to run 'git-toprepo fetch'.");
+            log::info!("The next step is to run `git toprepo fetch`.");
             Ok(ExitCode::SUCCESS)
         }
         Commands::Config(config_args) => config(config_args).map(|()| ExitCode::SUCCESS),

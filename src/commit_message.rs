@@ -40,9 +40,9 @@ use std::collections::HashMap;
 /// `Git-Toprepo-Ref: path commit-id`.
 ///
 /// This footer is useful for users to find which the original commit ids were
-/// by simply using `git-log`.
+/// by simply using git-log.
 ///
-/// The footer is also used by `git-toprepo` to split a commit message into
+/// The footer is also used by git-toprepo to split a commit message into
 /// multiple commit messages for different submodules, when pushing a
 /// cherry-picked monocommit into multiple repositories.
 const GIT_TOPREPO_FOOTER_PREFIX: &str = "Git-Toprepo-Ref:";

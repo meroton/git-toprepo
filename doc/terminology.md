@@ -1,6 +1,6 @@
 # Terminology overview
 
-This describes the terms involved in using the `git-toprepo` tool
+This describes the terms involved in using the _git-toprepo_ tool
 to _expand_ the _submodules_ of a _toprepo_ into _git-toprepo emulated monorepo_.
 This _combines_ the history of all the _repositories_.
 
@@ -15,7 +15,7 @@ a _submodule_ is a _repository_ with a child-parent relationship to another _rep
 **regular submodule**: A core `git` concept,
 a regular _submodule_ that is entirely managed through `git-submodule` etc.
 
-**expanded submodule**: A `git-toprepo` concept,
+**expanded submodule**: A git-toprepo concept,
 a _submodule_ that has been _expanded_ into the _combined_ history in the _toprepo_.
 
 **superrepo**: Emergent from core git concepts,
@@ -23,7 +23,7 @@ the parent _repository_ to a _submodule_.
 It may be a _submodule_ to another _superrepo_.
 
 **toprepo**: A regular _repository_ with special configuration and purpose.
-It is meant to be used together with `git-toprepo` to _expand_ its _submodules_
+It is meant to be used together with git-toprepo to _expand_ its _submodules_
 to a _git-toprepo emulated monorepo_.
 This is generally configured by the organization
 but the user may have her own configuration for personal preferences.
@@ -36,7 +36,7 @@ There is generally only one such _repository_
 so it is often described in definite form: "the _toprepo_".
 
 **git-toprepo**: The tool itself.
-`git-toprepo` _expands_ (a choice of) _submodules_ of a _toprepo_
+git-toprepo _expands_ (a choice of) _submodules_ of a _toprepo_
 into a _git-toprepo emulated monorepo_,
 the git histories are _combined_.
 It takes care of pushing _expanded submodules_ to their respective remote server.
@@ -59,10 +59,10 @@ but has no clear _access control_.
 **git-toprepo emulated monorepo**: A client-side construct,
 that _emulates_ a _monorepo_ for a _toprepo_.
 The developer sees a joint history of all _submodules_ and can create _mono commits_
-that span multiple _submodules_ and push/fetch them with `git-toprepo`.
+that span multiple _submodules_ and push/fetch them with git-toprepo.
 The tool keeps track of the _assimilated submodules_ with their own remote git _repositories_.
 
-As a performance optimization, an _emulated monorepo_ created by `git-toprepo`
+As a performance optimization, an _emulated monorepo_ created by git-toprepo
 may still have _regular submodules_ though,
 if the user does not want to _expand_ all _submodules_.
 
@@ -72,10 +72,10 @@ Such access control is not possible for different directories in a _pure git mon
 
 **commit**: A core `git` concept.
 
-**combined commit**: A `git-toprepo` concept,
+**combined commit**: A git-toprepo concept,
 a commit in the _git-toprepo emulated monorepo_.
 
-`git-toprepo` shines when a developer wants to make one change across two _submodules_
+git-toprepo shines when a developer wants to make one change across two _submodules_
 and can track that as one _combined commit_,
 i.e. one _commit_ in the _emulated monorepo_ that consists of one _commit_ in each of the two _assimilated submodules_.
 Those are meant to be merged together
@@ -98,7 +98,7 @@ can be _recombined_ to the same _combined history_ graph that was pushed.
 
 ### Verbs
 
-**combine**: `git-toprepo` _combines_ the history of one _toprepo_ and (a choice of) its _submodules_
+**combine**: git-toprepo _combines_ the history of one _toprepo_ and (a choice of) its _submodules_
 into an _emulated monorepo_ with a _combined_ history for code in the _toprepo_ itself and its _expanded submodules_.
 
 **expand**: The content of the _submodules_ is expanded into an _emulated monorepo_.
@@ -111,7 +111,7 @@ when the history is _combined_ and the content is (optionally) _expanded_.
 For power users and _repository_ maintainers there are a few overlapping concepts.
 <!-- TODO: link to our documentation of these. In the implementation documents or something. -->
 
-**git-config**: The `toprepo` namespace is used for the `git-toprepo` settings
+**git-config**: The `toprepo` namespace is used for the git-toprepo settings
 that are configured through `git`.
 
 **git toprepo**: Git looks for external executables to run subcommands.
@@ -142,8 +142,8 @@ brevity is placed over preciseness of the term within the code.
 ### Initialization: Expand the toprepo into an emulated monorepo
 
 The _toprepo_ can be initialized to a _git-toprepo emulated monorepo_
-with `git-toprepo`.
-The configuration for `git-toprepo`
+with git-toprepo.
+The configuration for git-toprepo
 is often managed in the _toprepo_ itself and is already checked in.
 
 Short-form initialization of a _git-toprepo emulated monorepo_.
@@ -190,7 +190,7 @@ toprepo $ git submodule status
 
 ### Pushing: git-toprepo pushes combined repositories to their respective servers
 
-`git-toprepo` shines when a developer wants to make one change across two _submodules_
+git-toprepo shines when a developer wants to make one change across two _submodules_
 in one _top commit_.
 
 ```
@@ -232,7 +232,7 @@ toprepo $ git push HEAD:refs/heads/main
 
 ### Rebasing: git-toprepo gives a combined history that is easy to work with
 
-With `git-toprepo`, rebasing _commits_ in any of the _expanded submodules_
+With git-toprepo, rebasing _commits_ in any of the _expanded submodules_
 is as easy as working in a single _repository_.
 
 ```
@@ -302,3 +302,19 @@ and start processing from the initial orphan _commits_.
 that points out the _commit id_, with the corresponding tree content.
 1. Transfer of parents of each _submodule commits_ into the _combined commit_,
 by checking which _combined commits_ the parents were _expanded_ in.
+
+## Coding guidelines
+
+This software is called _git-toprepo_. This is different from other tools like
+Git LFS which separates the tool name _Git LFS_ from the package name _git-lfs_.
+Software names like Git and Git LFS are written without quoting. This includes
+subcommand tool names like git-clone, git-submodule and git-toprepo.
+
+The standard way of calling git tools is through subcommands. Therefore, the
+form `git toprepo`, `git clone`, `git lfs` etc. is used when documenting command
+lines.
+
+[Rust use backticks](https://github.com/rust-lang/rust/issues/60532) to enclose
+code blocks, git-toprepo does as well. Some exceptions exist, e.g. when using
+the [clap argument parser](https://docs.rs/clap/) which is using single quotes
+in error messages.

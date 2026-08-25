@@ -252,7 +252,7 @@ fn bootstrap_after_clone() {
         .arg(&monorepo)
         .assert()
         .code(1)
-        .stderr(predicate::str::contains("git-toprepo config bootstrap"));
+        .stderr(predicate::str::contains("git toprepo config bootstrap"));
 
     let cmd = cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)

@@ -213,11 +213,11 @@ impl ConfiguredTopRepo {
         .join("pre-push");
         let pre_push_hook_content = &r#"
 #!/bin/sh
-# This is an optional hook to improve the error message when running 'git push' instead of 'git-toprepo push'.
+# This is an optional hook to improve the error message when running `git push` instead of `git toprepo push`.
 if test "${GIT_TOPREPO_ALLOW_PUSH:-0}" != "1"; then
-    echo "ERROR: Please use 'git-toprepo push' instead of 'git push'.
+    echo 'ERROR: Please use `git toprepo push` instead of `git push`.
 
-If you really want to push without git-toprepo, use 'git push --no-verify' or 'export GIT_TOPREPO_ALLOW_PUSH=1'." >&2
+If you really want to push without git-toprepo, use `git push --no-verify` or `export GIT_TOPREPO_ALLOW_PUSH=1`.' >&2
     exit 1
 fi
 exit 0

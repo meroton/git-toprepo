@@ -280,7 +280,7 @@ pub struct Info {
 }
 
 impl Info {
-    /// The exit code for `git-toprepo info --<flag>` when the answer is "false".
+    /// The exit code for `git toprepo info --<flag>` when the answer is "false".
     pub const EXIT_CODE_FALSE: u8 = info_exit_code_false!();
 }
 
