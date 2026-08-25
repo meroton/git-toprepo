@@ -36,6 +36,18 @@ while keeping the original submodule structure on the remote server.\
 /// a separate heading.
 const GLOBAL_HELP_HEADING: &str = "Global options";
 
+fn argument_error_unless<T: std::string::ToString>(
+    s: &str,
+    expected: T,
+    err: &str,
+) -> Result<T, String> {
+    if s == expected.to_string() {
+        Ok(expected)
+    } else {
+        Err(err.to_owned())
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(about = ABOUT)]
 pub struct Cli {
@@ -233,41 +245,32 @@ pub struct LfsFetch {
     pub paths: Vec<PathBuf>,
 
     /// Unsupported in git-toprepo's LFS wrapper.
-    #[arg(long, hide = true)]
+    #[arg(
+        long, hide = true,
+        value_parser = |s: &str| argument_error_unless(s, false, "unsupported for 'git toprepo lfs fetch'"),
+    )]
     pub all: bool,
 
     /// Unsupported in git-toprepo's LFS wrapper.
-    #[arg(long, hide = true)]
+    #[arg(
+        long, hide = true,
+        value_parser = |s: &str| argument_error_unless(s, false, "unsupported for 'git toprepo lfs fetch'"),
+    )]
     pub stdin: bool,
 
     /// Unsupported in git-toprepo's LFS wrapper.
-    #[arg(long, short = 'I', hide = true, value_name = "PATHS")]
+    #[arg(
+        long, short = 'I', hide = true, value_name = "PATHS",
+        value_parser = |_s: &str| Result::<String, _>::Err("unsupported, 'git toprepo lfs fetch' supplies '--include' internally"),
+    )]
     pub include: Vec<String>,
 
     /// Unsupported in git-toprepo's LFS wrapper.
-    #[arg(long, hide = true)]
+    #[arg(
+        long, hide = true,
+        value_parser = |s: &str| argument_error_unless(s, false, "unsupported for 'git toprepo lfs fetch'"),
+    )]
     pub json: bool,
-
-}
-
-impl LfsFetch {
-    pub fn validate(&self) -> anyhow::Result<()> {
-        if self.all {
-            anyhow::bail!("`--all` is unsupported for `git toprepo lfs fetch`");
-        }
-        if self.stdin {
-            anyhow::bail!("`--stdin` is unsupported for `git toprepo lfs fetch`");
-        }
-        if !self.include.is_empty() {
-            anyhow::bail!(
-                "`--include`/`-I` is unsupported for `git toprepo lfs fetch`; git-toprepo supplies `-I` internally"
-            );
-        }
-        if self.json {
-            anyhow::bail!("`--json` is unsupported for `git toprepo lfs fetch`");
-        }
-        Ok(())
-    }
 }
 
 #[derive(Args, Debug)]
