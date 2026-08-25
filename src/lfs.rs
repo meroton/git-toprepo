@@ -69,22 +69,22 @@ pub fn is_lfs_filter_through_toprepo(command: &str, subcommand: &str) -> bool {
 }
 
 const GIT_LFS_REQUIRED: &str = "\
-Git LFS is required for `git toprepo lfs fetch`.
-Install Git LFS and ensure `git-lfs version` works.
-Underlying error";
+Git LFS is required for 'git toprepo lfs fetch'.
+Install Git LFS and ensure 'git lfs version' works.";
 
 pub fn ensure_git_lfs_available(repo_worktree: &Path) -> Result<()> {
-    Command::new("git-lfs")
+    Command::new("git")
+        .arg("lfs")
         .arg("version")
         .current_dir(repo_worktree)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .trace_command(crate::command_span!("git-lfs version"))
+        .trace_command(crate::command_span!("git lfs version"))
         .safe_status()
-        .context(GIT_LFS_REQUIRED)?
+        .map_err(|err| anyhow::anyhow!("{GIT_LFS_REQUIRED}\nUnderlying error: {err}"))?
         .check_success()
-        .context(GIT_LFS_REQUIRED)?;
+        .map_err(|err| anyhow::anyhow!("{GIT_LFS_REQUIRED}\nUnderlying error: {err}"))?;
 
     Ok(())
 }
@@ -125,8 +125,8 @@ pub fn run_lfs_fetch(
     for target in targets {
         let remote_url = target.remote_url.to_bstring().to_str()?.to_owned();
 
-        let mut cmd = Command::new("git-lfs");
-        cmd.arg("fetch").arg(&remote_url);
+        let mut cmd = Command::new("git");
+        cmd.arg("lfs").arg("fetch").arg(&remote_url);
 
         if options.dry_run {
             cmd.arg("--dry-run");
@@ -145,21 +145,21 @@ pub fn run_lfs_fetch(
             cmd.arg(format!("--exclude={exclude}"));
         }
 
-        cmd.arg(format!("--include={}", target.include_path));
+        cmd.arg(format!("--include={:#}", target.include_path));
 
         cmd.current_dir(worktree)
-            .trace_command(crate::command_span!("git-lfs fetch"))
+            .trace_command(crate::command_span!("git lfs fetch"))
             .safe_status()?
             .check_success()
             .with_context(|| {
                 if options.dry_run {
                     format!(
-                        "`git-lfs fetch --dry-run` failed for `{}`. \
-Your installed Git LFS version may not support `--dry-run`.",
+                        "'git lfs fetch --dry-run' failed for '{:#}'. \
+Your installed Git LFS version may not support '--dry-run'.",
                         target.include_path
                     )
                 } else {
-                    format!("`git-lfs fetch` failed for `{}`", target.include_path)
+                    format!("'git lfs fetch' failed for '{:#}'", target.include_path)
                 }
             })?;
     }
@@ -216,17 +216,19 @@ fn resolve_lfs_target_for_path(
 
     let submodule_url = submodule_url
         .as_ref()
-        .map_err(|err| anyhow::anyhow!("Bad URL for {submodule_path} in .gitmodules: {err}"))?
+        .map_err(|err| anyhow::anyhow!("Bad URL for {submodule_path:#} in .gitmodules: {err}"))?
         .clone();
     let resolved_url = top_url.join(&submodule_url);
     let repo_name = top_repo
         .config
         .subrepos
         .get_name_from_similar_full_url(resolved_url.clone(), top_url)
-        .with_context(|| format!(
-            "Cannot resolve LFS remote for `{include_path}`.\n\
-The path belongs to submodule `{submodule_path}`, but its .gitmodules URL is not configured in .gittoprepo.toml."
-    ))?;
+        .with_context(|| {
+            format!("\
+Cannot resolve LFS remote for `{include_path:#}`.\n\
+The path belongs to submodule `{submodule_path:#}`, but its .gitmodules URL is not configured in .gittoprepo.toml."
+            )
+        })?;
     Ok(LfsFetchTarget {
         include_path,
         repo_name,

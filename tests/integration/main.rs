@@ -141,6 +141,7 @@ mod main {
           hooks      Manage git-hooks used by Git Toprepo
           dump       Experimental feature: dump internal states to stdout. Do not script against these
           version    Print the version of the Git Toprepo tool
+          lfs        Git LFS helpers for emulated monorepos
           help       Print this message or the help of the given subcommand(s)
 
         Options:
