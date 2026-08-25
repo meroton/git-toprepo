@@ -1113,26 +1113,22 @@ where
             result.map(|()| ExitCode::SUCCESS)
         }),
 
-        Commands::Lfs(cli::Lfs::Fetch(fetch_args)) => {
-            fetch_args.validate()?;
-            run_session(logger, |configured| {
-                let worktree = configured
-                    .gix_repo
-                    .workdir()
-                    .context("Worktree missing in git repository")?;
-                lfs::ensure_git_lfs_available(worktree)?;
-                let targets = lfs::resolve_lfs_fetch_targets(configured, &fetch_args.paths)?;
-                let options = lfs::LfsFetchOptions {
-                    dry_run: fetch_args.dry_run,
-                    prune: fetch_args.prune,
-                    recent: fetch_args.recent,
-                    refetch: fetch_args.refetch,
-                    exclude: fetch_args.exclude.clone(),
-                };
-                lfs::run_lfs_fetch(worktree, &targets, &options)
-            })
-            .map(|()| ExitCode::SUCCESS)
-        }
+        Commands::Lfs(cli::Lfs::Fetch(fetch_args)) => run_session(logger, |configured| {
+            let worktree = configured
+                .gix_repo
+                .workdir()
+                .context("Worktree missing in git repository")?;
+            lfs::ensure_git_lfs_available(worktree)?;
+            let targets = lfs::resolve_lfs_fetch_targets(configured, &fetch_args.paths)?;
+            let options = lfs::LfsFetchOptions {
+                dry_run: fetch_args.dry_run,
+                prune: fetch_args.prune,
+                recent: fetch_args.recent,
+                refetch: fetch_args.refetch,
+                exclude: fetch_args.exclude.clone(),
+            };
+            lfs::run_lfs_fetch(worktree, &targets, &options).map(|()| ExitCode::SUCCESS)
+        }),
 
         Commands::Info(info_args) => print_info(info_args),
         Commands::Version => {
