@@ -3,9 +3,9 @@ use bstr::ByteSlice as _;
 use git_toprepo::gitmodules::SubmoduleUrlExt as _;
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
+use git_toprepo_testtools::test_util::prepend_path_env;
 use itertools::Itertools;
 use predicates::prelude::*;
-use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -55,22 +55,8 @@ echo "unexpected git-lfs command: $*" >&2
 exit 64
 "#
     );
-    std::fs::write(&path, script).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        let mut perms = std::fs::metadata(&path).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&path, perms).unwrap();
-    }
+    git_toprepo::util::create_executable(&path, script).unwrap();
     path
-}
-
-fn prepend_path(bin_dir: &Path) -> OsString {
-    let old_path = std::env::var_os("PATH").unwrap_or_default();
-    let mut paths = vec![bin_dir.to_path_buf()];
-    paths.extend(std::env::split_paths(&old_path));
-    std::env::join_paths(paths).unwrap()
 }
 
 #[test]
@@ -83,7 +69,7 @@ fn missing_git_lfs_fails_clearly() {
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
         .args(["lfs", "fetch", "subpathx/assets/model.bin"])
-        .env("PATH", prepend_path(bin_dir))
+        .env("PATH", prepend_path_env(bin_dir))
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -116,7 +102,7 @@ fn fetches_top_level_path_from_top_repo_url() {
         .current_dir(&repo.monorepo)
         .args(["lfs", "fetch", "video.mov"])
         .env("GIT_TOPREPO_TEST_LFS_LOG", &log_path)
-        .env("PATH", prepend_path(bin_dir))
+        .env("PATH", prepend_path_env(bin_dir))
         .assert()
         .success();
 
@@ -172,7 +158,7 @@ fn fetches_subrepo_path_from_subrepo_url() {
         .current_dir(&repo.monorepo)
         .args(["lfs", "fetch", "subpathx/assets/model.bin"])
         .env("GIT_TOPREPO_TEST_LFS_LOG", &log_path)
-        .env("PATH", prepend_path(bin_dir))
+        .env("PATH", prepend_path_env(bin_dir))
         .assert()
         .success();
 
@@ -198,7 +184,7 @@ fn fetches_relative_path_from_subdirectory() {
         .current_dir(repo.monorepo.join("subpathx"))
         .args(["lfs", "fetch", "assets/model.bin"])
         .env("GIT_TOPREPO_TEST_LFS_LOG", &log_path)
-        .env("PATH", prepend_path(bin_dir))
+        .env("PATH", prepend_path_env(bin_dir))
         .assert()
         .success();
 
@@ -222,7 +208,7 @@ fn fetches_multiple_paths_one_by_one() {
         .current_dir(&repo.monorepo)
         .args(["lfs", "fetch", "subpathx/a.bin", "subpathy/b.bin"])
         .env("GIT_TOPREPO_TEST_LFS_LOG", &log_path)
-        .env("PATH", prepend_path(bin_dir))
+        .env("PATH", prepend_path_env(bin_dir))
         .assert()
         .success();
 
@@ -242,7 +228,7 @@ fn rejects_unsupported_options() {
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
         .args(["lfs", "fetch", "--all", "subpathx/file.bin"])
-        .env("PATH", prepend_path(bin_dir))
+        .env("PATH", prepend_path_env(bin_dir))
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -252,7 +238,7 @@ fn rejects_unsupported_options() {
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
         .args(["lfs", "fetch", "--stdin", "subpathx/file.bin"])
-        .env("PATH", prepend_path(bin_dir))
+        .env("PATH", prepend_path_env(bin_dir))
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -262,7 +248,7 @@ fn rejects_unsupported_options() {
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
         .args(["lfs", "fetch", "-I", "ipath", "subpathx/file.bin"])
-        .env("PATH", prepend_path(bin_dir))
+        .env("PATH", prepend_path_env(bin_dir))
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -272,7 +258,7 @@ fn rejects_unsupported_options() {
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo.monorepo)
         .args(["lfs", "fetch", "--json", "subpathx/file.bin"])
-        .env("PATH", prepend_path(bin_dir))
+        .env("PATH", prepend_path_env(bin_dir))
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -307,7 +293,7 @@ fn errors_on_unconfigured_subrepo() {
         .current_dir(&repo.monorepo)
         .args(["lfs", "fetch", "subpathx/file.bin"])
         .env("GIT_TOPREPO_TEST_LFS_LOG", &log_path)
-        .env("PATH", prepend_path(bin_dir))
+        .env("PATH", prepend_path_env(bin_dir))
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -364,7 +350,7 @@ fn uses_deepest_matching_submodule_path() {
         .current_dir(&repo.monorepo)
         .args(["lfs", "fetch", "subpathx/subpathy/model.bin"])
         .env("GIT_TOPREPO_TEST_LFS_LOG", &log_path)
-        .env("PATH", prepend_path(bin_dir))
+        .env("PATH", prepend_path_env(bin_dir))
         .assert()
         .success();
 
@@ -388,7 +374,7 @@ fn preserves_spaces_in_include_path() {
         .current_dir(&repo.monorepo)
         .args(["lfs", "fetch", "subpathx/assets/big file.bin"])
         .env("GIT_TOPREPO_TEST_LFS_LOG", &log_path)
-        .env("PATH", prepend_path(bin_dir))
+        .env("PATH", prepend_path_env(bin_dir))
         .assert()
         .success();
 

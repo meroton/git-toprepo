@@ -6,6 +6,7 @@ pub mod git;
 pub mod git_fast_export_import;
 pub mod git_fast_export_import_dedup;
 pub mod gitmodules;
+pub mod hooks;
 pub mod import_cache_serde;
 pub mod lfs;
 pub mod loader;

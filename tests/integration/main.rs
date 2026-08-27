@@ -11,6 +11,8 @@ mod dump;
 #[cfg(test)]
 mod fetch;
 #[cfg(test)]
+mod hooks;
+#[cfg(test)]
 mod info;
 #[cfg(test)]
 mod init;

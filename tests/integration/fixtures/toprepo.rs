@@ -36,6 +36,7 @@ pub fn readme_example_tempdir() -> git_toprepo_testtools::test_util::MaybePerman
 pub fn clone(toprepo: &Path, monorepo: &Path) {
     cargo_bin_git_toprepo_for_testing()
         .arg("clone")
+        .arg("--git-lfs=no")
         .arg(toprepo)
         .arg(monorepo)
         .assert()

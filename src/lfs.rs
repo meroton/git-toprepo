@@ -158,12 +158,14 @@ fn warn_if_lfs_filter_bypass_toprepo(repo: &Path, key: &str, subcommand: &str) -
         if !is_lfs_filter_through_toprepo(&value, subcommand) {
             match subcommand {
                 "smudge" => log::warn!(
-                    "warning: {key} is configured as `{value}`, which bypasses git-toprepo.\n\
-In an emulated monorepo this may fetch LFS objects from the wrong remote. Configure the LFS smudge filter to go through git-toprepo when using git-toprepo LFS support."
+                    "warning: {key} is configured as '{value}', which bypasses git-toprepo.\n\
+In an emulated monorepo this may fetch LFS objects from the wrong remote.\n\
+Use 'git toprepo lfs install --local' to properly add Git LFS support."
                 ),
                 "filter-process" => log::warn!(
-                    "warning: {key} is configured as `{value}`, which bypasses git-toprepo.\n\
-Git's long-running filter process can take precedence over filter.lfs.smudge, so this may bypass git-toprepo-aware LFS handling."
+                    "warning: {key} is configured as '{value}', which bypasses git-toprepo.\n\
+Git's long-running filter process can take precedence over filter.lfs.smudge, so this may bypass git-toprepo-aware LFS handling.\n\
+Use 'git toprepo lfs install --local' to properly add Git LFS support."
                 ),
                 _ => unreachable!(),
             }

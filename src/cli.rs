@@ -199,6 +199,9 @@ pub enum Commands {
 
     /// Show information about Git Toprepo in the current repository.
     Info(Info),
+    /// Manage git-toprepo git-hooks.
+    #[command(subcommand)]
+    GitHooks(GitHooks),
     #[command(subcommand)]
     Dump(Dump),
 
@@ -285,6 +288,10 @@ pub struct Init {
     /// Initialize even if the target directory is not empty.
     #[arg(long)]
     pub force: bool,
+
+    /// Install Git LFS hooks.
+    #[arg(long, default_value = "auto")]
+    pub git_lfs: GitLfsHooks,
 }
 
 #[derive(Args, Debug)]
@@ -401,6 +408,46 @@ impl std::fmt::Display for InfoValue {
             InfoValue::Version => "version",
         };
         write!(f, "{s}")
+    }
+}
+
+/// Experimental feature: dump internal states to stdout.
+/// Do not script against these.
+// If you want to use these in your own tools and pipeline please file a feature
+// request issue so we can guarantee a stable API for your use-case.
+#[derive(Subcommand, Debug)]
+pub enum GitHooks {
+    /// Install the git-hooks for git-toprepo.
+    Install(GitHooksInstall),
+}
+
+#[derive(Args, Debug)]
+pub struct GitHooksInstall {
+    /// Overwrite existing files.
+    #[arg(long, short)]
+    pub force: bool,
+
+    /// Install Git LFS hooks as well.
+    #[arg(long, default_value = "auto")]
+    pub git_lfs: GitLfsHooks,
+}
+
+#[derive(clap::ValueEnum, Debug, Clone, Copy)]
+#[value(rename_all = "kebab-case")]
+pub enum GitLfsHooks {
+    /// Auto detect if Git LFS is installed.
+    Auto,
+    Yes,
+    No,
+}
+
+impl GitLfsHooks {
+    pub fn resolve(&self, repo: &Path) -> bool {
+        match self {
+            GitLfsHooks::Auto => crate::lfs::ensure_git_lfs_available(repo).is_ok(),
+            GitLfsHooks::Yes => true,
+            GitLfsHooks::No => false,
+        }
     }
 }
 
