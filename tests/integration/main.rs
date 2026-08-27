@@ -11,6 +11,8 @@ mod dump;
 #[cfg(test)]
 mod fetch;
 #[cfg(test)]
+mod hooks;
+#[cfg(test)]
 mod info;
 #[cfg(test)]
 mod init;
@@ -134,6 +136,7 @@ mod main {
           fetch      Fetch commits from the top repository and expand submodules
           push       Push commits to the respective remotes of each filtered submodule
           info       Show information about Git Toprepo in the current repository
+          hooks      Manage git-hooks used by Git Toprepo
           dump       Experimental feature: dump internal states to stdout. Do not script against these
           version    Print the version of the Git Toprepo tool
           help       Print this message or the help of the given subcommand(s)

@@ -187,6 +187,9 @@ pub enum Commands {
 
     /// Show information about Git Toprepo in the current repository.
     Info(Info),
+    /// Manage git-hooks used by Git Toprepo.
+    #[command(subcommand)]
+    Hooks(GitHooks),
     #[command(subcommand)]
     Dump(Dump),
 
@@ -324,6 +327,23 @@ impl std::fmt::Display for InfoValue {
         };
         write!(f, "{s}")
     }
+}
+
+/// Experimental feature: dump internal states to stdout.
+/// Do not script against these.
+// If you want to use these in your own tools and pipeline please file a feature
+// request issue so we can guarantee a stable API for your use-case.
+#[derive(Subcommand, Debug)]
+pub enum GitHooks {
+    /// Install the git-hooks for Git Toprepo.
+    Install(GitHooksInstall),
+}
+
+#[derive(Args, Debug)]
+pub struct GitHooksInstall {
+    /// Overwrite existing files.
+    #[arg(long, short)]
+    pub force: bool,
 }
 
 /// Experimental feature: dump internal states to stdout.
