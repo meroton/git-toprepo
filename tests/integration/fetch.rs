@@ -827,7 +827,7 @@ fn warns_when_lfs_smudge_bypasses_toprepo() {
         .assert()
         .success()
         .stderr(predicate::str::contains("filter.lfs.smudge"))
-        .stderr(predicate::str::contains("bypasses git-toprepo"));
+        .stderr(predicate::str::contains("bypasses Git Toprepo"));
 }
 
 #[test]
@@ -893,6 +893,8 @@ fn warns_when_lfs_process_bypasses_toprepo() {
         .success()
         .stderr(predicate::str::contains("filter.lfs.process"))
         .stderr(predicate::str::contains(
-            "bypass git-toprepo-aware LFS handling",
-        ));
+            "take precedence over filter.lfs.smudge",
+        ))
+        // filter.lfs.smudge is correct, so that message should not be shown.
+        .stderr(predicate::str::contains("fetch Git LFS objects from the wrong remote").not());
 }

@@ -199,7 +199,8 @@ impl ConfiguredTopRepo {
             "may:worktree:.gittoprepo.user.toml",
         )?;
 
-        let hooks_result = crate::hooks::install(directory, false);
+        let hooks_result = crate::hooks::install_without_git_lfs(directory, false);
+        crate::hooks::maybe_show_lfs_installation_instruction(directory);
         if let Err(err) = &hooks_result {
             log::error!("Failed to install git-hooks: {err:#}");
         }

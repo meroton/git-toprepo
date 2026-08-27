@@ -217,6 +217,9 @@ pub enum Commands {
 pub enum Lfs {
     /// Fetch LFS objects for monorepo paths.
     Fetch(LfsFetch),
+
+    /// Unavailable; use `git toprepo hooks install --git-lfs` to install hooks and filters.
+    Install,
 }
 
 #[derive(Args, Debug)]
@@ -422,6 +425,16 @@ pub struct GitHooksInstall {
     /// Overwrite existing files.
     #[arg(long, short)]
     pub force: bool,
+
+    /// Install Git LFS hooks as well, the same as `git toprepo lfs install`.
+    #[arg(long)]
+    pub git_lfs: bool,
+
+    /// Skips automatic downloading of objects on clone or pull. This requires a
+    /// manual "git lfs pull" every time a new commit is checked out on your
+    /// repository.
+    #[arg(long, requires = "git_lfs")]
+    pub git_lfs_skip_smudge: bool,
 }
 
 /// Experimental feature: dump internal states to stdout.

@@ -11,6 +11,7 @@ use colored::Colorize;
 use git_toprepo::config::ConfigLocation;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::GitModulesInfo;
+use git_toprepo::hooks;
 use git_toprepo::lfs;
 use git_toprepo::log::CommandSpanExt as _;
 use git_toprepo::log::ErrorMode;
@@ -328,7 +329,7 @@ fn recombine(
 
 #[tracing::instrument(skip(configured_repo))]
 fn fetch(fetch_args: &cli::Fetch, configured_repo: &mut ConfiguredTopRepo) -> Result<()> {
-    lfs::warn_if_lfs_filters_bypass_toprepo(&configured_repo.gix_repo)?;
+    hooks::warn_if_lfs_filters_bypass_toprepo(&configured_repo.gix_repo, true)?;
     if let Some(refspecs) = &fetch_args.refspecs {
         let resolved_args = cli::resolve_remote_and_path(
             fetch_args,
@@ -740,6 +741,37 @@ fn push(push_args: &cli::Push, configured_repo: &mut ConfiguredTopRepo) -> Resul
     })
 }
 
+#[tracing::instrument(skip(logger))]
+fn lfs_main(
+    lfs_args: &cli::Lfs,
+    logger: Option<&git_toprepo::log::GlobalLogger>,
+) -> Result<ExitCode> {
+    match lfs_args {
+        cli::Lfs::Install => {
+            anyhow::bail!(
+                "The `lfs install` command is unavailable; use `git toprepo hooks install --git-lfs` instead."
+            );
+        }
+        cli::Lfs::Fetch(fetch_args) => run_session(logger, |configured| {
+            let worktree = configured
+                .gix_repo
+                .workdir()
+                .context("Worktree missing in git repository")?;
+            lfs::ensure_git_lfs_available(worktree)?;
+            let targets = lfs::resolve_lfs_fetch_targets(configured, &fetch_args.paths)?;
+            let options = lfs::LfsFetchOptions {
+                dry_run: fetch_args.dry_run,
+                prune: fetch_args.prune,
+                recent: fetch_args.recent,
+                refetch: fetch_args.refetch,
+                exclude: fetch_args.exclude.clone(),
+            };
+            lfs::run_lfs_fetch(worktree, &targets, &options)?;
+            Ok(ExitCode::SUCCESS)
+        }),
+    }
+}
+
 #[tracing::instrument]
 fn print_info(info_args: &cli::Info) -> Result<ExitCode> {
     let repo = gix_discover_current_dir()?;
@@ -814,8 +846,18 @@ fn git_hooks(git_hooks_args: &cli::GitHooks) -> Result<ExitCode> {
     match git_hooks_args {
         cli::GitHooks::Install(args) => {
             let repo = std::env::current_dir()?;
-            let success = git_toprepo::hooks::install(&repo, args.force)?;
-            if success {
+            let success = if args.git_lfs {
+                git_toprepo::hooks::install_with_git_lfs(
+                    &repo,
+                    args.force,
+                    args.git_lfs_skip_smudge,
+                )
+            } else {
+                let success = git_toprepo::hooks::install_without_git_lfs(&repo, args.force);
+                git_toprepo::hooks::maybe_show_lfs_installation_instruction(&repo);
+                success
+            };
+            if success? {
                 Ok(ExitCode::SUCCESS)
             } else {
                 Ok(ExitCode::FAILURE)
@@ -1038,23 +1080,7 @@ where
             run_session(logger, |configured| fetch(fetch_args, configured))
                 .map(|()| ExitCode::SUCCESS)
         }
-        Commands::Lfs(cli::Lfs::Fetch(fetch_args)) => run_session(logger, |configured| {
-            let worktree = configured
-                .gix_repo
-                .workdir()
-                .context("Worktree missing in git repository")?;
-            lfs::ensure_git_lfs_available(worktree)?;
-            let targets = lfs::resolve_lfs_fetch_targets(configured, &fetch_args.paths)?;
-            let options = lfs::LfsFetchOptions {
-                dry_run: fetch_args.dry_run,
-                prune: fetch_args.prune,
-                recent: fetch_args.recent,
-                refetch: fetch_args.refetch,
-                exclude: fetch_args.exclude.clone(),
-            };
-            lfs::run_lfs_fetch(worktree, &targets, &options)
-        })
-        .map(|()| ExitCode::SUCCESS),
+        Commands::Lfs(lfs_args) => lfs_main(lfs_args, logger),
         Commands::Push(push_args) => run_session(logger, |configured| push(push_args, configured))
             .map(|()| ExitCode::SUCCESS),
 
