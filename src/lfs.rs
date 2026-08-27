@@ -17,6 +17,10 @@ use std::process::Stdio;
 
 const LFS_SMUDGE_KEY: &str = "filter.lfs.smudge";
 const LFS_PROCESS_KEY: &str = "filter.lfs.process";
+const GIT_LFS_REQUIRED: &str = "\
+Git LFS is required for `git toprepo lfs fetch`.
+Install Git LFS and ensure `git-lfs version` works.
+Underlying error";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LfsFetchTarget {
@@ -69,27 +73,19 @@ pub fn is_lfs_filter_through_toprepo(command: &str, subcommand: &str) -> bool {
 }
 
 pub fn ensure_git_lfs_available(repo_worktree: &Path) -> Result<()> {
-    let status = Command::new("git")
-        .args(["lfs", "version"])
+    Command::new("git-lfs")
+        .arg("version")
         .current_dir(repo_worktree)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .trace_command(crate::command_span!("git lfs version"))
-        .safe_status();
-    match status {
-        Ok(status) if status.success() => Ok(()),
-        Ok(status) => bail!(
-            "Git LFS is required for `git toprepo lfs fetch`, but `git lfs version` failed.\n\
-Install Git LFS and ensure `git lfs version` works.\n\
-Status: {status}"
-        ),
-        Err(err) => bail!(
-            "Git LFS is required for `git toprepo lfs fetch`, but `git lfs version` failed.\n\
-Install Git LFS and ensure `git lfs version` works.\n\
-Error: {err}"
-        ),
-    }
+        .trace_command(crate::command_span!("git-lfs version"))
+        .safe_status()
+        .context(GIT_LFS_REQUIRED)?
+        .check_success()
+        .context(GIT_LFS_REQUIRED)?;
+
+    Ok(())
 }
 
 pub fn warn_if_lfs_filters_bypass_toprepo(repo: &gix::Repository) -> Result<()> {
@@ -127,8 +123,8 @@ pub fn run_lfs_fetch(
 ) -> Result<()> {
     for target in targets {
         let remote_url = target.remote_url.to_bstring().to_str()?.to_owned();
-        let mut cmd = Command::new("git");
-        cmd.arg("lfs").arg("fetch").arg(remote_url);
+        let mut cmd = Command::new("git-lfs");
+        cmd.arg("fetch").arg(&remote_url);
         if options.dry_run {
             cmd.arg("--dry-run");
         }
@@ -142,14 +138,24 @@ pub fn run_lfs_fetch(
             cmd.arg("--refetch");
         }
         for exclude in &options.exclude {
-            cmd.arg("-X").arg(exclude);
+            cmd.arg(format!("--exclude={exclude}"));
         }
-        cmd.arg("-I").arg(target.include_path.to_string());
+        cmd.arg(format!("--include={}", target.include_path));
         cmd.current_dir(worktree)
-            .trace_command(crate::command_span!("git lfs fetch"))
+            .trace_command(crate::command_span!("git-lfs fetch"))
             .safe_status()?
             .check_success()
-            .with_context(|| format!("`git lfs fetch` failed for `{}`", target.include_path))?;
+            .with_context(|| {
+                if options.dry_run {
+                    format!(
+                        "`git-lfs fetch --dry-run` failed for `{}`. \
+Your installed Git LFS version may not support `--dry-run`.",
+                        target.include_path
+                    )
+                } else {
+                    format!("`git-lfs fetch` failed for `{}`", target.include_path)
+                }
+            })?;
     }
     Ok(())
 }
