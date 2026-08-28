@@ -49,7 +49,7 @@ pub fn split_for_push(
     refspec_topic: Option<String>,
 ) -> Result<Vec<PushData>> {
     if configured_repo.import_cache.monorepo_commits.is_empty() {
-        anyhow::bail!("No filtered mono commits exists, please run `git toprepo recombine` first");
+        anyhow::bail!("No filtered mono commits exists, please run 'git toprepo recombine' first");
     }
 
     let local_rev = configured_repo
@@ -105,7 +105,7 @@ pub fn split_for_push(
             .with_context(|| {
                 format!(
                     "All commits to push exist upstream, yet the mono commit {local_rev_or_ref} \
-                    has not been assembled from upstream data. Please rerun `git toprepo recombine`"
+                    has not been assembled from upstream data. Please rerun 'git toprepo recombine'"
                 )
             })?;
 

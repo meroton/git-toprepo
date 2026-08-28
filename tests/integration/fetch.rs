@@ -289,7 +289,7 @@ fn refspec_arg_without_remote_fails() {
         .code(1)
         .stderr(predicate::str::contains(
             "ERROR: Failed to fetch: The git-remote \"refs/heads/foo\" was not found among \"origin\".\n\
-            When no refspecs are provided, a name among `git remote -v` must be specified.\n",
+            When no refspecs are provided, a name among 'git remote -v' must be specified.\n",
         ));
 }
 
@@ -535,8 +535,8 @@ fn submod_commit_merged_before_monorepo() {
         .code(1)
         .stderr(predicates::str::contains(format!(
             "\nERROR: Commit {commit_merged_before_monorepo} cannot be expanded onto any monocommit in the history of HEAD. \
-            Running `git toprepo recombine` may help unless the commit is older than the submodule in the super repository. \
-            You may still be able to `git cherry-pick -Xsubtree=subpath {commit_merged_before_monorepo}`.\n"
+            Running 'git toprepo recombine' may help unless the commit is older than the submodule in the super repository. \
+            You may still be able to 'git cherry-pick -Xsubtree=subpath {commit_merged_before_monorepo}'.\n"
         )));
     // Because expansion failed, refs/namespaces/name/refs/fetch-heads/0 will be available.
     git_command_for_testing(&monorepo)

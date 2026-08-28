@@ -114,8 +114,8 @@ fn clone_and_bootstrap() {
             "WARN: Config file .gittoprepo.toml does not exist in refs/namespaces/top/refs/remotes/origin/HEAD: \
             exit status: 128: fatal: path `.gittoprepo.toml' does not exist in 'refs/namespaces/top/refs/remotes/origin/HEAD'\n\
             ERROR: Config file .gittoprepo.toml does not exist in should:repo:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml\n\
-            INFO: Please run `git toprepo config bootstrap > .gittoprepo.user.toml` to generate an initial config and \
-            `git toprepo recombine` to use it.\n\
+            INFO: Please run 'git toprepo config bootstrap > .gittoprepo.user.toml' to generate an initial config and \
+            'git toprepo recombine' to use it.\n\
             ERROR: Clone failed due to missing config file\n"
         ));
     let config_path = monorepo.join(".gittoprepo.user.toml");
