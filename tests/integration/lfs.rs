@@ -87,7 +87,7 @@ fn missing_git_lfs_fails_clearly() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "Git LFS is required for `git toprepo lfs fetch`",
+            "Git LFS is required for 'git toprepo lfs fetch'",
         ))
         .stderr(predicate::str::contains("git lfs version"))
         .stderr(predicate::str::contains("Install Git LFS"));
@@ -311,9 +311,9 @@ fn errors_on_unconfigured_subrepo() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "Cannot resolve LFS remote for `subpathx/file.bin`",
+            "Cannot resolve LFS remote for 'subpathx/file.bin'",
         ))
-        .stderr(predicate::str::contains("belongs to submodule `subpathx`"))
+        .stderr(predicate::str::contains("belongs to submodule 'subpathx'"))
         .stderr(predicate::str::contains(
             "not configured in .gittoprepo.toml",
         ));
