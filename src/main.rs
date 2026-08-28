@@ -67,7 +67,7 @@ fn init(init_args: &cli::Init) -> Result<PathBuf> {
         anyhow::bail!("Target directory {directory:?} is not empty");
     }
     ConfiguredTopRepo::create(&directory, url)?;
-    log::info!("Initialized git-toprepo in {}", directory.display());
+    log::info!("Initialized a Git Toprepo in {}", directory.display());
     Ok(directory)
 }
 
@@ -132,8 +132,8 @@ fn verify_config_existence_after_clone(repo_dir: &Path) -> Result<()> {
         }
         log::error!("Config file .gittoprepo.toml does not exist in {first_location}",);
         log::info!(
-            "Please run 'git-toprepo config bootstrap > .gittoprepo.user.toml' to generate an initial config \
-            and 'git-toprepo recombine' to use it."
+            "Please run 'git toprepo config bootstrap > .gittoprepo.user.toml' to generate an initial config \
+            and 'git toprepo recombine' to use it."
         );
         anyhow::bail!("Clone failed due to missing config file");
     }
@@ -167,7 +167,7 @@ fn config(config_args: &cli::Config) -> Result<()> {
             let Some(location) =
                 GitTopRepoConfig::find_existing_location_from_strs(&repo, &location_strs)
             else {
-                anyhow::bail!("None of the configured git-toprepo locations did exist");
+                anyhow::bail!("None of the configured Git Toprepo locations did exist");
             };
             let maybe_on_disk = match location
                 .path
@@ -409,7 +409,7 @@ fn fetch_with_default_refspecs(
         anyhow::bail!(
             "Failed to fetch: \
             The git-remote {remote:?} was not found among {remote_names_str}.\n\
-            When no refspecs are provided, a name among `git remote -v` must be specified."
+            When no refspecs are provided, a name among 'git remote -v' must be specified."
         );
     }
     fetcher.remote = fetch_args.remote.clone();
@@ -832,7 +832,7 @@ fn dump_import_cache(args: &cli::DumpImportCache) -> Result<()> {
     } else {
         let repo = gix_discover_current_dir()?;
         // Demand a configured repository to ensure we do not just fall back to empty
-        // cache content when not even inside a git-toprepo emulated monorepo.
+        // cache content when not even inside a Git Toprepo emulated monorepo.
         let _ = GitTopRepoConfig::find_configuration_locations(&repo)?;
         git_toprepo::import_cache_serde::SerdeImportCache::load_from_git_dir(&repo, None)?
     };
@@ -873,7 +873,7 @@ fn dump_git_modules() -> Result<()> {
 }
 
 #[tracing::instrument]
-/// Creates a human readable version string for git-toprepo.
+/// Creates a human readable version string for Git Toprepo.
 fn get_version() -> String {
     format!(
         "{}~{}-{}",
@@ -993,7 +993,7 @@ where
     match args.command.actual() {
         Commands::Init(init_args) => {
             init(init_args).map(|_path| ())?;
-            log::info!("The next step is to run 'git-toprepo fetch'.");
+            log::info!("The next step is to run 'git toprepo fetch'.");
             Ok(ExitCode::SUCCESS)
         }
         Commands::Config(config_args) => config(config_args).map(|()| ExitCode::SUCCESS),

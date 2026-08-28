@@ -32,7 +32,7 @@ fi
 
 set -x
 
-# Run both with and without `--all-features` to make sure that both configurations work.
+# Run both with and without '--all-features' to make sure that both configurations work.
 if $ci_mode; then
   cargo fmt --all --check
 else

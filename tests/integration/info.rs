@@ -133,7 +133,7 @@ version "#,
         .success()
         .stdout(predicate::str::starts_with(&expected_info[1..]))
         .stderr(
-            "WARN: git-config 'toprepo.config' is missing. Is this an initialized git-toprepo?\n",
+            "WARN: git-config 'toprepo.config' is missing. Is this an initialized Git Toprepo?\n",
         );
 
     cargo_bin_git_toprepo_for_testing()
@@ -185,10 +185,10 @@ fn flag_is_emulated_monorepo() {
         .code(3)
         .stdout("")
         .stderr(
-            "WARN: git-config \'toprepo.config\' is missing. Is this an initialized git-toprepo?\n",
+            "WARN: git-config \'toprepo.config\' is missing. Is this an initialized Git Toprepo?\n",
         );
 
-    // In a git-toprepo emulated monorepo.
+    // In a Git Toprepo emulated monorepo.
     let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
         gix_testtools::scripted_fixture_writable(
             "../integration/fixtures/make_minimal_with_worktree.sh",

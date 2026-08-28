@@ -22,9 +22,9 @@ use std::path::Path;
 use std::path::PathBuf;
 
 const ABOUT: &str = "\
-git-toprepo - git-submodules made easy with a client-side monorepo
+Git Toprepo - git-submodules made easy with a client-side monorepo
 
-git-toprepo combines submodules into a common history, similar to git-subtree, \
+Git Toprepo combines submodules into a common history, similar to Git Subtree, \
 and lets you work with an emulated monorepo locally \
 while keeping the original submodule structure on the remote server.\
 ";
@@ -152,7 +152,7 @@ impl LogLevelArg {
 #[derive(Subcommand, Debug)]
 pub enum GitAndCommands {
     /// Ignored word to simplify pasting copied commands into e.g.
-    /// `git-toprepo git fetch ...`.
+    /// `git toprepo git fetch ...`.
     #[command(subcommand)]
     Git(Commands),
     #[command(flatten)]
@@ -175,7 +175,7 @@ pub enum Commands {
     Init(Init),
     /// Initialize a repository and fetch from the remote.
     Clone(Clone),
-    /// Manage the git-toprepo configuration.
+    /// Manage the Git Toprepo configuration.
     #[command(subcommand)]
     Config(Config),
     /// Rerun the history combination and submodule content expansion.
@@ -185,12 +185,12 @@ pub enum Commands {
     /// Push commits to the respective remotes of each filtered submodule.
     Push(Push),
 
-    /// Show information about git-toprepo in the current repository.
+    /// Show information about Git Toprepo in the current repository.
     Info(Info),
     #[command(subcommand)]
     Dump(Dump),
 
-    /// Print the version of the git-toprepo tool.
+    /// Print the version of the Git Toprepo tool.
     #[command(aliases = ["-V", "--version"])]
     Version,
 }
@@ -262,7 +262,7 @@ macro_rules! info_is_emulated_monorepo_doc {
         concat!(
             "Exit with code ",
             info_exit_code_false!(),
-            " if the repository is not initialized by git-toprepo."
+            " if the repository is not initialized by Git Toprepo."
         )
     };
 }
@@ -280,7 +280,7 @@ pub struct Info {
 }
 
 impl Info {
-    /// The exit code for `git-toprepo info --<flag>` when the answer is "false".
+    /// The exit code for `git toprepo info --<flag>` when the answer is "false".
     pub const EXIT_CODE_FALSE: u8 = info_exit_code_false!();
 }
 
@@ -297,7 +297,7 @@ pub enum InfoValue {
     ImportCache,
     /// The main worktree path, which might be the current worktree.
     MainWorktree,
-    /// The version of git-toprepo.
+    /// The version of Git Toprepo.
     Version,
 }
 
@@ -481,9 +481,10 @@ impl<'a> FetchParamsResolver<'a> {
             && let Some(cwd_str) = cwd.to_str()
             && let Ok(cwd_url) = gix::Url::from_bytes(cwd_str.into())
         {
-            // If the remote is a local directory, the matching from url to the
-            // git-toprepo configured submodule need the path to be resolved to
-            // an absolute path. Matching ../../../path/to/repo doesn't work.
+            // If the remote is a local directory, the matching algorithm, from
+            // url to the Git Toprepo configured submodule, need the path to be
+            // resolved to an absolute path. Matching ../../../path/to/repo
+            // doesn't work.
             url = cwd_url.join(&url);
         }
         // TODO: 2025-09-22 If we refactor the repo view to contain a list of all
@@ -514,7 +515,7 @@ impl<'a> FetchParamsResolver<'a> {
         let (name, _config) = self
             .ledger
             .get_existing_config_from_url(&submod_url)?
-            .with_context(|| format!("Missing git-toprepo configuration for URL {submod_url}"))?;
+            .with_context(|| format!("Missing Git Toprepo configuration for URL {submod_url}"))?;
         Ok((name, submod_url))
     }
 

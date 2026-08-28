@@ -344,7 +344,7 @@ impl GitTopRepoConfig {
     /// The location of the configuration file is set in the git-config of the
     /// super repository using `git config --local toprepo.config
     ///    <ref>:<git-repo-relative-path>` . This is initialized with
-    /// `git-toprepo init` to
+    /// `git toprepo init` to
     /// `may:worktree:.gittoprepo.user.toml` with fallback to
     /// `should:repo:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml`,
     /// which is managed for the entire project by the maintainers.
@@ -373,7 +373,7 @@ impl GitTopRepoConfig {
         let key = &toprepo_git_config(TOPREPO_CONFIG_FILE_KEY);
         let mut values = git_config_get_all(repo.git_dir(), key)?;
         if values.is_empty() {
-            anyhow::bail!("git-config '{key}' is missing. Is this an initialized git-toprepo?");
+            anyhow::bail!("git-config '{key}' is missing. Is this an initialized Git Toprepo?");
         }
         values.reverse();
         Ok(values)
@@ -531,7 +531,7 @@ pub struct GlobalFetchConfig {
     /// killed after 10 seconds of no progress output to stderr. The second
     /// attempt is killed after 30 seconds. The third attempt has no timeout, so
     /// either git-fetch will fail after some time or the user has to abort
-    /// git-toprepo with e.g. Ctrl+C.
+    /// Git Toprepo with e.g. Ctrl+C.
     ///
     /// Default: `[]` means `[0]` (no timeout).
     #[serde(skip_serializing_if = "is_default")]

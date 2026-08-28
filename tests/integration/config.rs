@@ -104,7 +104,7 @@ fn missing_config() {
             "WARN: Config file \"nonexisting.toml\" does not exist in the worktree\n\
             ERROR: Config file .gittoprepo.toml does not exist in HEAD: exit status: 128: \
             fatal: path '.gittoprepo.toml' does not exist in 'HEAD'\n\
-            ERROR: None of the configured git-toprepo locations did exist\n",
+            ERROR: None of the configured Git Toprepo locations did exist\n",
         );
 }
 
@@ -252,7 +252,7 @@ fn bootstrap_after_clone() {
         .arg(&monorepo)
         .assert()
         .code(1)
-        .stderr(predicate::str::contains("git-toprepo config bootstrap"));
+        .stderr(predicate::str::contains("git toprepo config bootstrap"));
 
     let cmd = cargo_bin_git_toprepo_for_testing()
         .current_dir(&monorepo)

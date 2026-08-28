@@ -109,7 +109,7 @@ impl SubRepoLedger {
     ///
     /// It should really be an error, but pushing a missing commit to a
     /// repository is done out of sync with the update of the configuration.
-    /// git-toprepo should not suddenly start to fail due to no apparent reason.
+    /// Git Toprepo should not suddenly start to fail due to no apparent reason.
     pub(crate) fn validate_missing_commits_lists(&self, repo_states: &crate::repo::RepoStates) {
         let empty_hash_set = HashSet::new();
         for (sub_repo_name, repo_config) in &self.subrepos {
@@ -1135,7 +1135,7 @@ impl<'a> CommitLoader<'a> {
             log::log!(
                 commit_log_level.level,
                 "With git-submodule, this empty commit results in a directory that is empty, \
-                but with git-toprepo it will disappear. To avoid this problem, commit a file.",
+                but with Git Toprepo it will disappear. To avoid this problem, commit a file.",
             );
         }
         for path in commit.submodule_paths.iter() {
@@ -1284,7 +1284,7 @@ impl<'a> CommitLoader<'a> {
             log::log!(
                 commit_log_level.level,
                 "With git-submodule, this empty commit results in a directory that is empty, \
-                but with git-toprepo it will disappear. To avoid this problem, commit a file.",
+                but with Git Toprepo it will disappear. To avoid this problem, commit a file.",
             );
         }
 
@@ -1529,7 +1529,7 @@ impl<'a> CommitLoader<'a> {
             crate::config::GetOrInsertOk::Found((name, _)) => name,
             crate::config::GetOrInsertOk::Missing(_) => {
                 if commit_log_level.log_missing_repo_configs && do_log() {
-                    log::warn!("URL {full_url} is missing in the git-toprepo configuration");
+                    log::warn!("URL {full_url} is missing in the Git Toprepo configuration");
                 }
                 return None;
             }

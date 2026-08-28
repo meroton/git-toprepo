@@ -29,7 +29,7 @@ lazy_static::lazy_static! {
 }
 
 /// Find the main git worktree of a repository. The returned path might not be
-/// managed by git-toprepo.
+/// managed by Git Toprepo.
 pub fn find_main_worktree_path(repo: &gix::Repository) -> Result<PathBuf> {
     // Get the common .git directory for a linked worktree or the .git directory
     // for a normal repository.

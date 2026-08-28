@@ -1,3 +1,4 @@
-The gix-testtools fixture caching assumes fixtures placed in this directory. For
-git-toprepo, ../ is used in the path and to resolve that this directory must
-exist.
+The gix-testtools fixture caching assumes fixtures are placed in this directory.
+For the Git Toprepo tests, where paths are prefixed with
+../integration/fixtures/, this directory must exist to get the path resolution
+to work.

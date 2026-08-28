@@ -15,7 +15,7 @@ fn into_non_existing_dir() {
         .assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            "Initialized git-toprepo in {clone_name}",
+            "Initialized a Git Toprepo in {clone_name}",
         )));
 }
 
@@ -34,7 +34,7 @@ fn into_empty_dir() {
         .assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            "Initialized git-toprepo in {clone_name}",
+            "Initialized a Git Toprepo in {clone_name}",
         )));
 }
 
@@ -68,6 +68,6 @@ fn force_into_non_empty_dir() {
         .assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            "Initialized git-toprepo in {clone_name}",
+            "Initialized a Git Toprepo in {clone_name}",
         )));
 }

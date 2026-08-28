@@ -36,7 +36,7 @@ use tracing::instrument;
 #[serde_as]
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct SerdeImportCache {
-    /// The checksum of the git-toprepo configuration used when writing.
+    /// The checksum of the Git Toprepo configuration used when writing.
     config_checksum: String,
     #[serde_as(
         as = "serde_with::IfIsHumanReadable<OrderedHashMap<serde_with::DisplayFromStr, _>>"
@@ -125,7 +125,7 @@ impl SerdeImportCache {
         if let Some(config_checksum) = config_checksum
             && loaded_cache.config_checksum != config_checksum
         {
-            log::warn!("The git-toprepo configuration has changed, discarding the import cache");
+            log::warn!("The Git Toprepo configuration has changed, discarding the import cache");
             log::debug!(
                 "Configuration checksum {config_checksum} does not match cached checksum {}",
                 loaded_cache.config_checksum

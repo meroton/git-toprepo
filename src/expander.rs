@@ -2167,7 +2167,7 @@ fn update_refs(
                         log: gix::refs::transaction::LogChange {
                             mode: gix::refs::transaction::RefLog::AndReference,
                             force_create_reflog: false,
-                            message: b"git-toprepo filter".into(),
+                            message: b"git toprepo recombine".into(),
                         },
                         expected: gix::refs::transaction::PreviousValue::Any,
                         new: new_target.clone(),
