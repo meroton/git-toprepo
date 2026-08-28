@@ -210,9 +210,9 @@ fn resolve_lfs_target_for_path(
         .subrepos
         .get_name_from_similar_full_url(resolved_url.clone(), top_url)
         .with_context(|| {
-            format!("\
-Cannot resolve LFS remote for `{include_path:#}`.\n\
-The path belongs to submodule `{submodule_path:#}`, but its .gitmodules URL is not configured in .gittoprepo.toml."
+            format!(
+                "Cannot resolve LFS remote for '{include_path:#}'.\n\
+The path belongs to submodule '{submodule_path:#}', but its .gitmodules URL is not configured in .gittoprepo.toml.",
             )
         })?;
     Ok(LfsFetchTarget {
@@ -241,7 +241,7 @@ fn ensure_literal_path(path: &Path) -> Result<()> {
     let path = path.to_string_lossy();
     if path.contains('*') || path.contains('?') || path.contains('[') || path.contains(']') {
         bail!(
-            "`git toprepo lfs fetch` currently expects literal paths, not glob patterns: `{path}`"
+            "'git toprepo lfs fetch' currently expects literal paths, not glob patterns: '{path}'"
         );
     }
     Ok(())
@@ -257,7 +257,7 @@ fn repo_relative_git_path(worktree: &Path, path: &Path) -> Result<GitPath> {
     };
     let rel = requested
         .strip_prefix(worktree)
-        .with_context(|| format!("Path `{}` is outside the worktree", path.display()))?;
+        .with_context(|| format!("Path '{}' is outside the worktree", path.display()))?;
     Ok(path_to_git_path(rel))
 }
 

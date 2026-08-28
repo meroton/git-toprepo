@@ -311,9 +311,9 @@ fn errors_on_unconfigured_subrepo() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "Cannot resolve LFS remote for `subpathx/file.bin`",
+            "Cannot resolve LFS remote for 'subpathx/file.bin'",
         ))
-        .stderr(predicate::str::contains("belongs to submodule `subpathx`"))
+        .stderr(predicate::str::contains("belongs to submodule 'subpathx'"))
         .stderr(predicate::str::contains(
             "not configured in .gittoprepo.toml",
         ));
