@@ -42,7 +42,7 @@ use std::collections::HashMap;
 /// This footer is useful for users to find which the original commit ids were
 /// by simply using git-log.
 ///
-/// The footer is also used by git-toprepo to split a commit message into
+/// The footer is also used by Git Toprepo to split a commit message into
 /// multiple commit messages for different submodules, when pushing a
 /// cherry-picked monocommit into multiple repositories.
 const GIT_TOPREPO_FOOTER_PREFIX: &str = "Git-Toprepo-Ref:";
@@ -185,7 +185,7 @@ impl CommitMessage {
             Body { message: String },
             /// So far conforming to be a footer of a commit message. Continue
             /// with the commit message to find the first section with a
-            /// git-toprepo footer key.
+            /// Git Toprepo footer key.
             MaybeFooter {
                 /// The subject and body of the commit message, usually with
                 /// multiple trailing newlines.
@@ -680,7 +680,7 @@ pub fn split_commit_message(
         Body { message: String },
         /// So far conforming to be a footer section of a commit message.
         /// Continue with the commit message to find the first footer section
-        /// with a git-toprepo footer key.
+        /// with a Git Toprepo footer key.
         MaybeFooter {
             /// The subject and body of the commit message, usually with multiple trailing newlines.
             subject_and_body: String,

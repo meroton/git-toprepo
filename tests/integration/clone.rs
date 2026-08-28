@@ -44,7 +44,7 @@ fn toprepo_clone() {
         .assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            "Initialized git-toprepo in {}",
+            "Initialized a Git Toprepo in {}",
             to_path.display()
         )))
         .stderr(predicate::str::contains(

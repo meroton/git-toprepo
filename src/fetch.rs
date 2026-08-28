@@ -103,9 +103,9 @@ impl RemoteFetcher {
             "fetch",
             "--progress",
             "--no-tags",
-            // --prune-tags will remove refs/tags/* which git-toprepo has
-            // written after expansion. Let the expander prune them instead and
-            // keep to pruning refs/namespaces/* during fetch.
+            // --prune-tags would remove refs/tags/* which Git Toprepo has
+            // written after expansion. Let the expander prune them instead.
+            // Though, keep to pruning refs/namespaces/* during fetch.
             "--no-prune-tags",
             "--no-recurse-submodules",
             "--no-auto-maintenance",

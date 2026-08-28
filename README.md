@@ -1,24 +1,24 @@
-# git-toprepo - Monorepo when your company won't let you
+# Git Toprepo - Monorepo when your company won't let you
 
-The `git-toprepo` tool acts like an automatic client side [`git-subtree`]
+The Git Toprepo tool acts as an automatic client side [Git Subtree]
 based on the submodules in a top repository.
 It will combine the history of all the repositories
 and expand the content of the submodules
 to create an emulated [monorepo].
 
 Below, the term _monorepo_ is used as an abbreviation of
-a _git-toprepo emulated monorepo_. See also [terminology].
+a _Git Toprepo emulated monorepo_. See also [terminology].
 
-[`git-subtree`]: https://www.atlassian.com/git/tutorials/git-subtree
+[Git Subtree]: https://www.atlassian.com/git/tutorials/git-subtree
 [monorepo]: https://monorepo.tools/
 [terminology]: doc/terminology.md
 
 ## Installation
 
 Download a prebuilt binary from the [release page] and add it to $PATH.
-The main git program contains a "plugin-dispatcher" of sorts,
-so it can then be used as either "git-toprepo" (the program itself)
-or as "git toprepo", it is now a transparent subcommand to git.
+The main Git program contains a "plugin-dispatcher" of sorts,
+so it can then be used as either `git-toprepo` (the program itself)
+or as `git toprepo`, it is now a transparent subcommand to Git.
 
 [release page]: https://github.com/meroton/git-toprepo/releases
 
@@ -38,10 +38,10 @@ will be printed but not executed.
 
 ### Replaced Git commands
 
-When using git-toprepo, commands interacting with a remote server are wrapped,
+When using Git Toprepo, commands interacting with a remote server are wrapped,
 operations acting on the local git repository stay the same.
 
-| Regular git                    | git-toprepo                                                     |
+| Regular Git                    | Git Toprepo                                                     |
 | ------------------------------ | --------------------------------------------------------------- |
 | `git init`                     | `git toprepo init`                                              |
 | `git clone`                    | `git toprepo clone`                                             |
@@ -86,28 +86,28 @@ The topic can be provided in two ways:
   Gerrit reads the topic directly from the refspec, so no additional push option
   is needed.
 * **Commit message footer**: add a `Topic: <name>` footer line to the commit
-  message. git-toprepo strips the footer before pushing and communicates the
+  message. Git Toprepo strips the footer before pushing and communicates the
   topic via the `topic=` push option.
 
 When amending a commit, the committer date changes, but the content to be pushed
 might stay the same for some target repositories. To avoid pushing commits where
-only the committer date has changed, git-toprepo tries to reuse previously
+only the committer date has changed, Git Toprepo tries to reuse previously
 pushed commits that contain the same content. Unfortunately, this also means
 that Gerrit complains when pushing an old patch-set again.
 
 #### Branch tracking
-Because git-toprepo needs to expand the commits after the fetch into
+Because Git Toprepo needs to expand the commits after the fetch into
 monocommits, `git pull` does not work. Plese use `git toprepo fetch` followed by
 `git rebase` or `git merge` instead.
 
-git-toprepo sets the git config `checkout.guess=false` to avoid accidental
+Git Toprepo sets the git config `checkout.guess=false` to avoid accidental
 branch tracking `git checkout <branch>`, use
 `git checkout -b <branch> origin/<branch>` instead. All other `git checkout`
 usage works as for a normal git repository. (Git's guess is that you want to
 track the non-expanded topcommits, not having a monorepo anymore.)
 
 #### git submodule
-The git-toprepo configuration might state that some submodules should not be
+The Git Toprepo configuration might state that some submodules should not be
 expanded. In those cases, use `git submodule` as you would normally do.
 
 ## Documentation and presentations
@@ -169,7 +169,7 @@ The algorithm steps are:
 
 ## Configuration
 
-By default, during init or clone, the git-toprepo configuration is set to read
+By default, during init or clone, the Git Toprepo configuration is set to read
 from the committed `HEAD` in the remote toprepo, i.e.
 `should:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml`, but
 prioritizes `may:worktree:.gittoprepo.user.toml` if it exists. This is written
@@ -241,13 +241,13 @@ args = []
 A strong recommendation is to use the same branch name in all involved
 repositories. The fetch code will work with any branch names,
 but it quickly becomes very confusing which branch is which,
-and `git-toprepo push` currently assumes that the same branch name
+and `git toprepo push` currently assumes that the same branch name
 is used in all repositories. If you do have a mix of branch names,
-use `git-toprepo push --dry-run` and push manually to the correct branches.
+use `git toprepo push --dry-run` and push manually to the correct branches.
 
 ### Gerrit Code Review
 
-The following steps are required to operate a git-toprepo emulated monorepo.
+The following steps are required to operate a Git Toprepo emulated monorepo.
 
 * Create a toprepo, in the example called "my-only-toprepo".
 * Enable [`config.submitWholeTopic`] to allow [submitting changes across
@@ -282,7 +282,7 @@ Support for review in GitLab is not implemented.
 ## Concepts
 
 The following section describes the data model and the concepts involved in
-working with git-toprepo. This has primarily been developed from available
+working with Git Toprepo. This has primarily been developed from available
 server side features in the [Gerrit Code Review] system but is not restricted to
 it. (Gerrit happens to be the authors' preferred review tool.)
 
@@ -300,7 +300,7 @@ Let's define a _topic_ as changes to be merged together in multiple
 repositories, like Gerrit does. A topic may be cover multiple monocommits where
 a monocommit contains commits within projects
 those projects are combined into a monorepo
-through git-toprepo's history combination.
+through Git Toprepo's history combination.
 
 A picture is worth a thousand words:
 
@@ -309,7 +309,7 @@ A picture is worth a thousand words:
 This shows a purple topic that contains two monocommits: `A` and `B`.
 The `A` monocommit spans two projects
 and the internal model keeps track of them individually.
-Git-toprepo then pushes the _four_ commits to Gerrit
+Git Toprepo then pushes the _four_ commits to Gerrit
 and tracks `A1`, `A2` and `B` as one topic.
 Because Gerrit only tracks dependencies (git's parent relationship)
 within a project `C` is now shown to have `A2` as its parent,
@@ -317,12 +317,12 @@ within a project `C` is now shown to have `A2` as its parent,
 instead the `C -> B` dependency is handled through the topic.
 We will dig deeper into this later
 and cover how to go from right-to-left
-to download open changes from Gerrit with git-toprepo.
+to download open changes from Gerrit with Git Toprepo.
 
 #### Backend support
 
 Gerrit is currently the only backend that supports submitting multiple changes
-together. Therefore, git-toprepo only has support for querying Gerrit about
+together. Therefore, Git Toprepo only has support for querying Gerrit about
 topic information. PRs for extending to other backends like GitHub and GitLab
 are welcome.
 
@@ -342,7 +342,7 @@ if they are very large and not actively developed, for instance.
 Commits are the bedrock of working with git.
 These are created in the individual _subprojects_ or _submodules_
 but multiple commits across different subprojects can form one coherent _monocommit_.
-To form these is git-toprepo's core purpose,
+To form these is Git Toprepo's core purpose,
 to make cross-cutting changes across subprojects handled as individual commits
 during development and in the combined history.
 
@@ -401,9 +401,9 @@ meant to form a topic in Gerrit:
 
 * Use the same commit message and change-id
 
-When a developer fetches the topic with git-toprepo,
+When a developer fetches the topic with Git Toprepo,
 the [`recreate`] strategy can be used to recreate the original working state.
-If the individual commits in the topic were not created with git-toprepo,
+If the individual commits in the topic were not created with Git Toprepo,
 it is unlikely that they
 would have the same change-id.
 In that case, the choice of [fetch strategy] is
@@ -430,7 +430,7 @@ there are two other options:
 #### Topic
 
 We use the [topic concept] from [Gerrit],
-the only platform that has custom integration in `git-toprepo`.
+the only platform that has custom integration in Git Toprepo.
 The topic is a way to indicate that many commits should be _merged_ together.
 That means that all of the commits in a topic should be submitted as one atomic unit
 to the history.
@@ -468,7 +468,7 @@ https://github.com/meroton/git-toprepo/issues/122
 [`Depends-On` footers]:
     https://zuul-ci.org/docs/zuul/latest/gating.html#cross-project-dependencies
 
-#### Git-toprepo footers
+#### Git Toprepo footers
 
 On the client side, a few commit message footers are used. They are removed when
 splitting mono commits, before pushing to any remote.

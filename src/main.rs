@@ -67,7 +67,7 @@ fn init(init_args: &cli::Init) -> Result<PathBuf> {
         anyhow::bail!("Target directory {directory:?} is not empty");
     }
     ConfiguredTopRepo::create(&directory, url)?;
-    log::info!("Initialized git-toprepo in {}", directory.display());
+    log::info!("Initialized a Git Toprepo in {}", directory.display());
     Ok(directory)
 }
 
@@ -167,7 +167,7 @@ fn config(config_args: &cli::Config) -> Result<()> {
             let Some(location) =
                 GitTopRepoConfig::find_existing_location_from_strs(&repo, &location_strs)
             else {
-                anyhow::bail!("None of the configured git-toprepo locations did exist");
+                anyhow::bail!("None of the configured Git Toprepo locations did exist");
             };
             let maybe_on_disk = match location
                 .path
@@ -832,7 +832,7 @@ fn dump_import_cache(args: &cli::DumpImportCache) -> Result<()> {
     } else {
         let repo = gix_discover_current_dir()?;
         // Demand a configured repository to ensure we do not just fall back to empty
-        // cache content when not even inside a git-toprepo emulated monorepo.
+        // cache content when not even inside a Git Toprepo emulated monorepo.
         let _ = GitTopRepoConfig::find_configuration_locations(&repo)?;
         git_toprepo::import_cache_serde::SerdeImportCache::load_from_git_dir(&repo, None)?
     };
@@ -873,7 +873,7 @@ fn dump_git_modules() -> Result<()> {
 }
 
 #[tracing::instrument]
-/// Creates a human readable version string for git-toprepo.
+/// Creates a human readable version string for Git Toprepo.
 fn get_version() -> String {
     format!(
         "{}~{}-{}",

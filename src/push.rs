@@ -121,7 +121,7 @@ pub fn split_for_push(
 }
 
 /// Resolves which repository to push to. Note that the push URL might not be
-/// part of the git-toprepo configuration, so `push_url` is used as base when
+/// part of the Git Toprepo configuration, so `push_url` is used as base when
 /// resolving the destinations.
 fn resolve_push_repo(
     mono_commit: &gix::Commit,
@@ -176,7 +176,7 @@ fn resolve_push_repo(
             crate::config::GetOrInsertOk::Found((name, _)) => name,
             crate::config::GetOrInsertOk::Missing(_)
             | crate::config::GetOrInsertOk::MissingAgain(_) => {
-                anyhow::bail!("Missing URL {generic_url} in the git-toprepo configuration");
+                anyhow::bail!("Missing URL {generic_url} in the Git Toprepo configuration");
             }
         };
         let push_sub_url = ledger

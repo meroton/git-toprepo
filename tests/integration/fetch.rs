@@ -666,7 +666,7 @@ fn idle_progress_with_successful_retry_checker(cmd: assert_cmd::assert::Assert) 
     );
 }
 
-/// Test `git-toprepo fetch` fails if there are too many timeouts.
+/// Check that `git toprepo fetch` fails if there are too many timeouts.
 fn too_many_timeouts_checker(cmd: assert_cmd::assert::Assert) {
     cmd.code(1)
         .stderr(

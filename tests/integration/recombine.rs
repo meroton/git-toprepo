@@ -575,11 +575,11 @@ fn copes_with_bad_dot_gitmodules_content(
 }
 
 /// git-submodule creates an empty directory for each submodule. In case a
-/// submodule is substituted for an empty tree with git-toprepo, that directory
+/// submodule is substituted for an empty tree with Git Toprepo, that directory
 /// will disappear. User tooling might depend on the existance of that empty
 /// directory, e.g. for each submodule mentioned in .gitmodules.
 ///
-/// Verify that git-toprepo prints a warning to make the user aware of the
+/// Verify that Git Toprepo prints a warning to make the user aware of the
 /// problem, so that a dummy file can be added to the submodule as a fix.
 #[test]
 fn warn_for_empty_submodule() {
@@ -612,7 +612,7 @@ fn warn_for_empty_submodule() {
         format!(
             "\\nWARN: Top commit [0-9a-f]+ \\({gitref}\\): \
             Submodule commit [0-9a-f]+ at subpathx \\(namex\\): \
-            With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\\. \
+            With git-submodule, this empty commit results in a directory that is empty, but with Git Toprepo it will disappear\\. \
             To avoid this problem, commit a file\\.\\n"
         )
     };
@@ -654,7 +654,7 @@ fn warn_for_empty_submodule() {
         // Note that the trace message does not include any branch name.
         .stderr(predicate::str::is_match(
             "\\nTRACE: Commit [0-9a-f]+ in namex: \
-             With git-submodule, this empty commit results in a directory that is empty, but with git-toprepo it will disappear\\. \
+             With git-submodule, this empty commit results in a directory that is empty, but with Git Toprepo it will disappear\\. \
              To avoid this problem, commit a file\\.\\n"
         ).unwrap())
         .stderr(predicate::str::contains("WARN:").not());

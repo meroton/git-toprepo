@@ -53,7 +53,7 @@ mod main {
 
         let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
         std::fs::create_dir(temp_dir.join("repo")).unwrap();
-        let expected_stderr = "ERROR: git-config \'toprepo.config\' is missing. Is this an initialized git-toprepo?\n";
+        let expected_stderr = "ERROR: git-config \'toprepo.config\' is missing. Is this an initialized Git Toprepo?\n";
 
         git_command_for_testing(&temp_dir)
             .args(["init", "--quiet"])
@@ -140,7 +140,7 @@ Global options:
             .stdout(predicate::str::contains(
                 r#"
 Options:
-      --is-emulated-monorepo  Exit with code 3 if the repository is not initialized by git-toprepo
+      --is-emulated-monorepo  Exit with code 3 if the repository is not initialized by Git Toprepo
   -h, --help                  Print help (see more with '--help')
 
 Global options:

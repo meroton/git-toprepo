@@ -76,7 +76,7 @@ fn dump_git_modules() {
         .stderr(contains("Loading the main repo Gerrit project"));
 }
 
-// The code should not attempt to read git-toprepo's cache if the directory is
+// The code should not attempt to read Git Toprepo's cache if the directory is
 // not a monorepo.
 #[test]
 fn cache_from_basic_repo_should_fail() {
@@ -104,7 +104,7 @@ fn cache_from_basic_repo_should_fail() {
         .arg("import-cache")
         .assert()
         .code(1)
-        .stderr("ERROR: git-config \'toprepo.config\' is missing. Is this an initialized git-toprepo?\n");
+        .stderr("ERROR: git-config \'toprepo.config\' is missing. Is this an initialized Git Toprepo?\n");
 }
 
 const EMPTY_CACHE_JSON: &str = r#"{
