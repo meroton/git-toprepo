@@ -31,6 +31,9 @@ use `git toprepo config bootstrap` afterwards to create one.
 
 `git toprepo fetch [<remote>]` fetches from a `remote` and performs the submodule expansion.
 
+`git toprepo lfs fetch [OPTIONS] <PATH>...` routes each monorepo path to the
+correct repository remote and runs `git lfs fetch` with path includes.
+
 `git toprepo push [-n/--dry-run] <remote> <rev>:<ref> ...` does a submodule split
 so that each submodule is pushed to its respective upstream repository.
 If running with `-n` or `--dry-run`, the resulting `git push` command lines
@@ -46,6 +49,7 @@ operations acting on the local git repository stay the same.
 | `git init`                     | `git toprepo init`                                              |
 | `git clone`                    | `git toprepo clone`                                             |
 | `git fetch`                    | `git toprepo fetch`[*](#git-toprepo-fetch)                      |
+| `git lfs fetch`                | `git toprepo lfs fetch`[*](#git-toprepo-lfs-fetch)              |
 | `git push`                     | `git toprepo push`[*](#git-toprepo-push)                        |
 | `git pull`                     | `git toprepo fetch && git rebase/merge`[*](#branch-tracking)    |
 | `git checkout origin/<branch>` | `git checkout origin/<branch>`                                  |
@@ -73,6 +77,35 @@ there is no ancestor that have been expanded into a monocommit.
 
 Note that `--tags` is not supported. All tags are fetched and expanded by
 default.
+
+#### git toprepo lfs fetch
+`git toprepo lfs fetch` is a path-aware wrapper around `git lfs fetch`.
+For each input path, git-toprepo resolves the owning repository using
+`.gitmodules` + `.gittoprepo.toml`, then runs `git lfs fetch <remote> -I <path>`.
+
+Basic usage:
+
+* `git toprepo lfs fetch path/to/file.bin`
+* `git toprepo lfs fetch subrepo/a.bin subrepo/b.bin`
+* `git toprepo lfs fetch --dry-run path/to/file.bin`
+* `git toprepo lfs fetch --prune --recent --refetch path/to/file.bin`
+* `git toprepo lfs fetch -X "*.tmp" path/to/file.bin`
+
+Notes and constraints:
+
+* `git lfs` must be installed and working (`git lfs version`).
+* Paths are treated as literal paths (glob-like path arguments are rejected).
+* Relative paths are accepted, including from subdirectories.
+* Nested submodules use the deepest matching submodule path.
+* If a submodule URL from `.gitmodules` is not configured in `.gittoprepo.toml`,
+  the command fails.
+* Unsupported flags are rejected: `--all`, `--stdin`, `--include/-I`, `--json`.
+  (`-I` is managed internally by git-toprepo.)
+
+The integration tests cover these behaviors, including top-level routing,
+subrepo routing, relative path handling, deepest-match routing, unsupported
+flag rejection, and clear failures when `git lfs` is missing or config is
+incomplete.
 
 #### git toprepo push
 `git toprepo push` splits the commits and runs `git push` towards each needed
