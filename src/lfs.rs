@@ -15,9 +15,6 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
 
-const LFS_SMUDGE_KEY: &str = "filter.lfs.smudge";
-const LFS_PROCESS_KEY: &str = "filter.lfs.process";
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LfsFetchTarget {
     pub include_path: GitPath,
@@ -32,26 +29,6 @@ pub struct LfsFetchOptions {
     pub recent: bool,
     pub refetch: bool,
     pub exclude: Vec<String>,
-}
-
-pub fn is_lfs_filter_through_toprepo(command: &str, subcommand: &str) -> bool {
-    let mut tokens: Vec<&str> = command.split_whitespace().collect();
-    if let Some(first_token) = tokens.first() {
-        let command_name = Path::new(first_token)
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .unwrap_or(first_token)
-            .to_owned();
-        // Replace a full path with the command name.
-        tokens[0] = &command_name;
-        if tokens.starts_with(&["git-toprepo", "lfs", subcommand]) {
-            return true;
-        }
-        if tokens.starts_with(&["git", "toprepo", "lfs", subcommand]) {
-            return true;
-        }
-    }
-    false
 }
 
 const GIT_LFS_REQUIRED: &str = "\
@@ -72,12 +49,6 @@ pub fn ensure_git_lfs_available(repo_worktree: &Path) -> Result<()> {
         .check_success()
         .map_err(|err| anyhow::anyhow!("{GIT_LFS_REQUIRED}\nUnderlying error: {err}"))?;
 
-    Ok(())
-}
-
-pub fn warn_if_lfs_filters_bypass_toprepo(repo: &gix::Repository) -> Result<()> {
-    warn_if_lfs_filter_bypass_toprepo(repo.git_dir(), LFS_SMUDGE_KEY, "smudge")?;
-    warn_if_lfs_filter_bypass_toprepo(repo.git_dir(), LFS_PROCESS_KEY, "filter-process")?;
     Ok(())
 }
 
@@ -150,27 +121,6 @@ Your installed Git LFS version may not support '--dry-run'.",
             })?;
     }
 
-    Ok(())
-}
-
-fn warn_if_lfs_filter_bypass_toprepo(repo: &Path, key: &str, subcommand: &str) -> Result<()> {
-    for value in crate::git::git_config_get_all(repo, key)? {
-        if !is_lfs_filter_through_toprepo(&value, subcommand) {
-            match subcommand {
-                "smudge" => log::warn!(
-                    "warning: {key} is configured as '{value}', which bypasses git-toprepo.\n\
-In an emulated monorepo this may fetch LFS objects from the wrong remote.\n\
-Use 'git toprepo lfs install --local' to properly add Git LFS support."
-                ),
-                "filter-process" => log::warn!(
-                    "warning: {key} is configured as '{value}', which bypasses git-toprepo.\n\
-Git's long-running filter process can take precedence over filter.lfs.smudge, so this may bypass git-toprepo-aware LFS handling.\n\
-Use 'git toprepo lfs install --local' to properly add Git LFS support."
-                ),
-                _ => unreachable!(),
-            }
-        }
-    }
     Ok(())
 }
 
@@ -302,34 +252,6 @@ mod tests {
     use crate::config::SubRepoConfig;
     use crate::repo_name::SubRepoName;
     use bstr::BStr;
-
-    #[test]
-    fn accepts_git_toprepo_wrapper() {
-        assert!(is_lfs_filter_through_toprepo(
-            "git toprepo lfs filter-process",
-            "filter-process"
-        ));
-        assert!(is_lfs_filter_through_toprepo(
-            "git-toprepo lfs smudge -- %f",
-            "smudge"
-        ));
-        assert!(is_lfs_filter_through_toprepo(
-            "/some/path/git-toprepo lfs smudge -- %f",
-            "smudge"
-        ));
-    }
-
-    #[test]
-    fn rejects_plain_git_lfs() {
-        assert!(!is_lfs_filter_through_toprepo(
-            "git lfs filter-process",
-            "filter-process"
-        ));
-        assert!(!is_lfs_filter_through_toprepo(
-            "git-lfs smudge -- %f",
-            "smudge"
-        ));
-    }
 
     #[test]
     fn deepest_prefix_wins() {

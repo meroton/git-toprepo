@@ -5,6 +5,8 @@ use predicates::prelude::*;
 use std::path::Path;
 
 const GIT_LFS_HOOKS: [&str; 4] = ["pre-push", "post-checkout", "post-commit", "post-merge"];
+const FILTER_LFS_SMUDGE: &str = "filter.lfs.smudge";
+const FILTER_LFS_PROCESS: &str = "filter.lfs.process";
 
 fn assert_hooks_without_git_lfs(repo: &Path) {
     assert!(repo.join(".git/hooks/pre-push").try_exists().unwrap());
@@ -27,6 +29,19 @@ fn assert_hooks_without_git_lfs(repo: &Path) {
             "Unexpected hook exists {name} hook"
         );
     }
+
+    git_command_for_testing(repo)
+        .args(["config", FILTER_LFS_SMUDGE])
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr("");
+    git_command_for_testing(repo)
+        .args(["config", FILTER_LFS_PROCESS])
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr("");
 }
 
 fn assert_hooks_with_git_lfs(repo: &Path) {
@@ -49,6 +64,19 @@ fn assert_hooks_with_git_lfs(repo: &Path) {
             "Git LFS not called in {name} hook"
         );
     }
+
+    git_command_for_testing(repo)
+        .args(["config", FILTER_LFS_SMUDGE])
+        .assert()
+        .success()
+        .stdout("git toprepo lfs smudge\n")
+        .stderr("");
+    git_command_for_testing(repo)
+        .args(["config", FILTER_LFS_PROCESS])
+        .assert()
+        .success()
+        .stdout("git toprepo lfs filter-process\n")
+        .stderr("");
 }
 
 /// Check that the auto detection of Git LFS works and installs the Git LFS hooks.
@@ -70,7 +98,7 @@ fn write_hooks_with_git_lfs_installed() {
 
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .arg("git-hooks")
+        .arg("hooks")
         .arg("install")
         .env("PATH", prepend_path_env(&bin_dir))
         .assert()
@@ -97,7 +125,7 @@ fn write_hooks_without_git_lfs_installed() {
 
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .arg("git-hooks")
+        .arg("hooks")
         .arg("install")
         .env("PATH", prepend_path_env(&bin_dir))
         .assert()
@@ -119,7 +147,7 @@ fn overwrite_hooks_alternating_git_lfs() {
 
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["git-hooks", "install", "--git-lfs=no"])
+        .args(["hooks", "install", "--git-lfs=no"])
         .assert()
         .success()
         .stdout("")
@@ -136,7 +164,7 @@ $",
 
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["git-hooks", "install", "--git-lfs=yes"])
+        .args(["hooks", "install", "--git-lfs=yes"])
         .assert()
         .success()
         .stdout("")
@@ -148,6 +176,8 @@ INFO: Written .*pre-push
 INFO: Written .*post-checkout
 INFO: Written .*post-commit
 INFO: Written .*post-merge
+INFO: Written git-config filter.lfs.smudge
+INFO: Written git-config filter.lfs.process
 $",
             )
             .unwrap(),
@@ -157,7 +187,7 @@ $",
     // Try installing twice.
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["git-hooks", "install", "--git-lfs=no"])
+        .args(["hooks", "install", "--git-lfs=no"])
         .assert()
         .success()
         .stdout("")
@@ -169,6 +199,8 @@ INFO: Written .*pre-push
 INFO: Removed .*post-checkout
 INFO: Removed .*post-commit
 INFO: Removed .*post-merge
+INFO: Unset git-config filter.lfs.smudge
+INFO: Unset git-config filter.lfs.process
 $",
             )
             .unwrap(),
@@ -176,7 +208,7 @@ $",
     assert_hooks_without_git_lfs(&repo);
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["git-hooks", "install", "--git-lfs=no"])
+        .args(["hooks", "install", "--git-lfs=no"])
         .assert()
         .success()
         .stdout("")
@@ -194,13 +226,13 @@ $",
     // Try installing twice.
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["git-hooks", "install", "--git-lfs=yes"])
+        .args(["hooks", "install", "--git-lfs=yes"])
         .assert()
         .success();
     assert_hooks_with_git_lfs(&repo);
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["git-hooks", "install", "--git-lfs=yes"])
+        .args(["hooks", "install", "--git-lfs=yes"])
         .assert()
         .stdout("")
         .stderr(
@@ -211,6 +243,8 @@ INFO: Verified .*pre-push
 INFO: Verified .*post-checkout
 INFO: Verified .*post-commit
 INFO: Verified .*post-merge
+INFO: Verified the git-config filter.lfs.smudge for Git LFS
+INFO: Verified the git-config filter.lfs.process for Git LFS
 $",
             )
             .unwrap(),
@@ -232,7 +266,7 @@ fn overwrite_unexpected_content() {
 
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["git-hooks", "install", "--git-lfs=no"])
+        .args(["hooks", "install", "--git-lfs=no"])
         .assert()
         .success()
         .stdout("")
@@ -252,7 +286,7 @@ $",
     std::fs::write(repo.join(".git/hooks/post-commit"), "World").unwrap();
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["git-hooks", "install", "--git-lfs=no"])
+        .args(["hooks", "install", "--git-lfs=no"])
         .assert()
         .code(1)
         .stdout("")
@@ -277,7 +311,7 @@ $",
 
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["git-hooks", "install", "--git-lfs=no", "--force"])
+        .args(["hooks", "install", "--git-lfs=no", "--force"])
         .assert()
         .success()
         .stdout("")

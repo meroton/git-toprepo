@@ -11,6 +11,7 @@ use colored::Colorize;
 use git_toprepo::config::ConfigLocation;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::GitModulesInfo;
+use git_toprepo::hooks;
 use git_toprepo::lfs;
 use git_toprepo::log::CommandSpanExt as _;
 use git_toprepo::log::ErrorMode;
@@ -328,7 +329,7 @@ fn recombine(
 
 #[tracing::instrument(skip(configured_repo))]
 fn fetch(fetch_args: &cli::Fetch, configured_repo: &mut ConfiguredTopRepo) -> Result<()> {
-    lfs::warn_if_lfs_filters_bypass_toprepo(&configured_repo.gix_repo)?;
+    hooks::warn_if_lfs_filters_bypass_toprepo(&configured_repo.gix_repo, true)?;
     if let Some(refspecs) = &fetch_args.refspecs {
         let resolved_args = cli::resolve_remote_and_path(
             fetch_args,
@@ -1015,7 +1016,7 @@ where
             Ok(ExitCode::SUCCESS)
         }
         Commands::Config(config_args) => config(config_args).map(|()| ExitCode::SUCCESS),
-        Commands::GitHooks(git_hooks_args) => git_hooks(git_hooks_args),
+        Commands::Hooks(git_hooks_args) => git_hooks(git_hooks_args),
         Commands::Dump(dump_args) => dump(dump_args).map(|()| ExitCode::SUCCESS),
         Commands::Clone(clone_args) => {
             // Two-stage initialization: init + clone_after_init

@@ -208,7 +208,7 @@ impl ConfiguredTopRepo {
             log::error!("Failed to install git-hooks: {err:#}");
         }
         if matches!(hooks_result, Ok(true)) {
-            log::info!("Retry writing git-hooks with `git toprepo hooks install`");
+            log::info!("Retry installing git-hooks with `git toprepo hooks install`");
         }
 
         let result = {

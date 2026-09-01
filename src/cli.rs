@@ -199,9 +199,9 @@ pub enum Commands {
 
     /// Show information about Git Toprepo in the current repository.
     Info(Info),
-    /// Manage git-toprepo git-hooks.
+    /// Manage git-hooks used by Git Toprepo.
     #[command(subcommand)]
-    GitHooks(GitHooks),
+    Hooks(GitHooks),
     #[command(subcommand)]
     Dump(Dump),
 
@@ -417,7 +417,7 @@ impl std::fmt::Display for InfoValue {
 // request issue so we can guarantee a stable API for your use-case.
 #[derive(Subcommand, Debug)]
 pub enum GitHooks {
-    /// Install the git-hooks for git-toprepo.
+    /// Install the git-hooks for Git Toprepo.
     Install(GitHooksInstall),
 }
 
