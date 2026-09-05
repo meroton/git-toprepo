@@ -68,7 +68,7 @@ fn init(init_args: &cli::Init) -> Result<PathBuf> {
     if !init_args.force && directory.is_dir() && directory.read_dir()?.next().is_some() {
         anyhow::bail!("Target directory {directory:?} is not empty");
     }
-    ConfiguredTopRepo::create(&directory, url, init_args.git_lfs.resolve(&directory))?;
+    ConfiguredTopRepo::create(&directory, url)?;
     log::info!("Initialized a Git Toprepo in {}", directory.display());
     Ok(directory)
 }
@@ -741,6 +741,38 @@ fn push(push_args: &cli::Push, configured_repo: &mut ConfiguredTopRepo) -> Resul
     })
 }
 
+#[tracing::instrument(skip(logger))]
+fn lfs_main(
+    lfs_args: &cli::Lfs,
+    logger: Option<&git_toprepo::log::GlobalLogger>,
+) -> Result<ExitCode> {
+    match lfs_args {
+        cli::Lfs::Install(install_args) => {
+            git_hooks(&crate::cli::GitHooks::Install(cli::GitHooksInstall {
+                force: install_args.force,
+                git_lfs: true,
+            }))
+        }
+        cli::Lfs::Fetch(fetch_args) => run_session(logger, |configured| {
+            let worktree = configured
+                .gix_repo
+                .workdir()
+                .context("Worktree missing in git repository")?;
+            lfs::ensure_git_lfs_available(worktree)?;
+            let targets = lfs::resolve_lfs_fetch_targets(configured, &fetch_args.paths)?;
+            let options = lfs::LfsFetchOptions {
+                dry_run: fetch_args.dry_run,
+                prune: fetch_args.prune,
+                recent: fetch_args.recent,
+                refetch: fetch_args.refetch,
+                exclude: fetch_args.exclude.clone(),
+            };
+            lfs::run_lfs_fetch(worktree, &targets, &options)?;
+            Ok(ExitCode::SUCCESS)
+        }),
+    }
+}
+
 #[tracing::instrument]
 fn print_info(info_args: &cli::Info) -> Result<ExitCode> {
     let repo = gix_discover_current_dir()?;
@@ -815,9 +847,14 @@ fn git_hooks(git_hooks_args: &cli::GitHooks) -> Result<ExitCode> {
     match git_hooks_args {
         cli::GitHooks::Install(args) => {
             let repo = std::env::current_dir()?;
-            let success =
-                git_toprepo::hooks::install(&repo, args.force, args.git_lfs.resolve(&repo))?;
-            if success {
+            let success = if args.git_lfs {
+                git_toprepo::hooks::install_with_git_lfs(&repo, args.force)
+            } else {
+                let success = git_toprepo::hooks::install_without_git_lfs(&repo, args.force);
+                git_toprepo::hooks::maybe_show_lfs_installation_instruction(&repo);
+                success
+            };
+            if success? {
                 Ok(ExitCode::SUCCESS)
             } else {
                 Ok(ExitCode::FAILURE)
@@ -1040,23 +1077,7 @@ where
             run_session(logger, |configured| fetch(fetch_args, configured))
                 .map(|()| ExitCode::SUCCESS)
         }
-        Commands::Lfs(cli::Lfs::Fetch(fetch_args)) => run_session(logger, |configured| {
-            let worktree = configured
-                .gix_repo
-                .workdir()
-                .context("Worktree missing in git repository")?;
-            lfs::ensure_git_lfs_available(worktree)?;
-            let targets = lfs::resolve_lfs_fetch_targets(configured, &fetch_args.paths)?;
-            let options = lfs::LfsFetchOptions {
-                dry_run: fetch_args.dry_run,
-                prune: fetch_args.prune,
-                recent: fetch_args.recent,
-                refetch: fetch_args.refetch,
-                exclude: fetch_args.exclude.clone(),
-            };
-            lfs::run_lfs_fetch(worktree, &targets, &options)
-        })
-        .map(|()| ExitCode::SUCCESS),
+        Commands::Lfs(lfs_args) => lfs_main(lfs_args, logger),
         Commands::Push(push_args) => run_session(logger, |configured| push(push_args, configured))
             .map(|()| ExitCode::SUCCESS),
 

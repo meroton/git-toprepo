@@ -44,7 +44,7 @@ fn assert_hooks_without_git_lfs(repo: &Path) {
         .stderr("");
 }
 
-fn assert_hooks_with_git_lfs(repo: &Path) {
+pub(crate) fn assert_hooks_with_git_lfs(repo: &Path) {
     assert!(repo.join(".git/hooks/pre-push").try_exists().unwrap());
     assert!(
         repo.join(".git/hooks/pre-push.toprepo")
@@ -79,9 +79,40 @@ fn assert_hooks_with_git_lfs(repo: &Path) {
         .stderr("");
 }
 
-/// Check that the auto detection of Git LFS works and installs the Git LFS hooks.
+/// Check the installation of hooks with Git LFS.
 #[test]
-fn write_hooks_with_git_lfs_installed() {
+fn install_with_git_lfs() {
+    let temp_dir =
+        git_toprepo_testtools::test_util::maybe_keep_tempdir(tempfile::TempDir::new().unwrap());
+
+    let repo = temp_dir.join("repo");
+    git_command_for_testing(&temp_dir)
+        .args(["init", "--quiet"])
+        .arg(&repo)
+        .assert()
+        .success();
+
+    let bin_dir = temp_dir.join("bin");
+    std::fs::create_dir(&bin_dir).unwrap();
+    git_toprepo::util::create_executable(bin_dir.join("git-lfs"), "#!/bin/sh\nexit 1").unwrap();
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&repo)
+        .arg("hooks")
+        .arg("install")
+        .arg("--git-lfs")
+        .env("PATH", prepend_path_env(&bin_dir))
+        .assert()
+        .success()
+        .stdout("")
+        .stderr(predicate::str::contains("Git LFS").not());
+    assert_hooks_with_git_lfs(&repo);
+}
+
+/// If Git LFS exists but the hooks are not being installed, an informative
+/// message should be printed.
+#[test]
+fn install_without_git_lfs() {
     let temp_dir =
         git_toprepo_testtools::test_util::maybe_keep_tempdir(tempfile::TempDir::new().unwrap());
 
@@ -102,34 +133,24 @@ fn write_hooks_with_git_lfs_installed() {
         .arg("install")
         .env("PATH", prepend_path_env(&bin_dir))
         .assert()
-        .success();
-    assert_hooks_with_git_lfs(&repo);
-}
+        .success()
+        .stdout("")
+        .stderr(
+            predicate::str::contains("\nINFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo lfs install'.\n")
+        );
+    assert_hooks_without_git_lfs(&repo);
 
-/// Check that the auto detection of Git LFS works and skips the Git LFS hooks.
-#[test]
-fn write_hooks_without_git_lfs_installed() {
-    let temp_dir =
-        git_toprepo_testtools::test_util::maybe_keep_tempdir(tempfile::TempDir::new().unwrap());
-
-    let repo = temp_dir.join("repo");
-    git_command_for_testing(&temp_dir)
-        .args(["init", "--quiet"])
-        .arg(&repo)
-        .assert()
-        .success();
-
-    let bin_dir = temp_dir.join("bin");
-    std::fs::create_dir(&bin_dir).unwrap();
-    git_toprepo::util::create_executable(bin_dir.join("git-lfs"), "#!/bin/sh\nexit 1").unwrap();
-
+    // Git LFS not available.
+    git_toprepo::util::write_executable(bin_dir.join("git-lfs"), "#!/bin/sh\nexit 1").unwrap();
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
         .arg("hooks")
         .arg("install")
         .env("PATH", prepend_path_env(&bin_dir))
         .assert()
-        .success();
+        .success()
+        .stdout("")
+        .stderr(predicate::str::contains("Git LFS").not());
     assert_hooks_without_git_lfs(&repo);
 }
 
@@ -147,7 +168,7 @@ fn overwrite_hooks_alternating_git_lfs() {
 
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["hooks", "install", "--git-lfs=no"])
+        .args(["hooks", "install"])
         .assert()
         .success()
         .stdout("")
@@ -156,6 +177,7 @@ fn overwrite_hooks_alternating_git_lfs() {
                 "^\
 INFO: Written .*pre-push\\.toprepo
 INFO: Written .*pre-push
+INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo lfs install'.
 $",
             )
             .unwrap(),
@@ -164,7 +186,7 @@ $",
 
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["hooks", "install", "--git-lfs=yes"])
+        .args(["hooks", "install", "--git-lfs"])
         .assert()
         .success()
         .stdout("")
@@ -187,7 +209,7 @@ $",
     // Try installing twice.
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["hooks", "install", "--git-lfs=no"])
+        .args(["hooks", "install"])
         .assert()
         .success()
         .stdout("")
@@ -201,6 +223,7 @@ INFO: Removed .*post-commit
 INFO: Removed .*post-merge
 INFO: Unset git-config filter.lfs.smudge
 INFO: Unset git-config filter.lfs.process
+INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo lfs install'.
 $",
             )
             .unwrap(),
@@ -208,7 +231,7 @@ $",
     assert_hooks_without_git_lfs(&repo);
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["hooks", "install", "--git-lfs=no"])
+        .args(["hooks", "install"])
         .assert()
         .success()
         .stdout("")
@@ -217,6 +240,7 @@ $",
                 "^\
 INFO: Verified .*pre-push\\.toprepo
 INFO: Verified .*pre-push
+INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo lfs install'.
 $",
             )
             .unwrap(),
@@ -226,13 +250,13 @@ $",
     // Try installing twice.
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["hooks", "install", "--git-lfs=yes"])
+        .args(["hooks", "install", "--git-lfs"])
         .assert()
         .success();
     assert_hooks_with_git_lfs(&repo);
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["hooks", "install", "--git-lfs=yes"])
+        .args(["hooks", "install", "--git-lfs"])
         .assert()
         .stdout("")
         .stderr(
@@ -266,7 +290,7 @@ fn overwrite_unexpected_content() {
 
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["hooks", "install", "--git-lfs=no"])
+        .args(["hooks", "install"])
         .assert()
         .success()
         .stdout("")
@@ -275,6 +299,7 @@ fn overwrite_unexpected_content() {
                 "^\
 INFO: Written .*pre-push\\.toprepo
 INFO: Written .*pre-push
+INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo lfs install'.
 $",
             )
             .unwrap(),
@@ -286,7 +311,7 @@ $",
     std::fs::write(repo.join(".git/hooks/post-commit"), "World").unwrap();
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["hooks", "install", "--git-lfs=no"])
+        .args(["hooks", "install"])
         .assert()
         .code(1)
         .stdout("")
@@ -296,6 +321,7 @@ $",
 INFO: Verified .*pre-push\\.toprepo
 ERROR: Failed to create .*pre-push: File exists.*
 ERROR: Unexpected content, won\'t delete .*post-commit
+INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo lfs install'.
 $",
             )
             .unwrap(),
@@ -311,7 +337,7 @@ $",
 
     cargo_bin_git_toprepo_for_testing()
         .current_dir(&repo)
-        .args(["hooks", "install", "--git-lfs=no", "--force"])
+        .args(["hooks", "install", "--force"])
         .assert()
         .success()
         .stdout("")
@@ -321,6 +347,7 @@ $",
 INFO: Verified .*pre-push\\.toprepo
 INFO: Written .*pre-push
 INFO: Removed .*post-commit
+INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo lfs install'.
 $",
             )
             .unwrap(),

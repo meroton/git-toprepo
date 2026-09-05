@@ -130,11 +130,7 @@ pub struct ConfiguredTopRepo {
 }
 
 impl ConfiguredTopRepo {
-    pub fn create(
-        directory: &Path,
-        url: gix::url::Url,
-        with_git_lfs: bool,
-    ) -> Result<ConfiguredTopRepo> {
+    pub fn create(directory: &Path, url: gix::url::Url) -> Result<ConfiguredTopRepo> {
         std::process::Command::new("git")
             .arg("init")
             .arg("--quiet")
@@ -203,7 +199,8 @@ impl ConfiguredTopRepo {
             "may:worktree:.gittoprepo.user.toml",
         )?;
 
-        let hooks_result = crate::hooks::install(directory, false, with_git_lfs);
+        let hooks_result = crate::hooks::install_without_git_lfs(directory, false);
+        crate::hooks::maybe_show_lfs_installation_instruction(directory);
         if let Err(err) = &hooks_result {
             log::error!("Failed to install git-hooks: {err:#}");
         }

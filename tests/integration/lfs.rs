@@ -60,6 +60,23 @@ exit 64
 }
 
 #[test]
+fn install() {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
+    let bin_dir = temp_dir.path();
+    make_fake_git_lfs(bin_dir, 0);
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&repo.monorepo)
+        .args(["lfs", "install"])
+        .env("PATH", prepend_path_env(bin_dir))
+        .assert()
+        .success();
+
+    crate::hooks::assert_hooks_with_git_lfs(&repo.monorepo);
+}
+
+#[test]
 fn missing_git_lfs_fails_clearly() {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();

@@ -216,7 +216,16 @@ pub enum Commands {
 #[derive(Subcommand, Debug)]
 pub enum Lfs {
     /// Fetch LFS objects for monorepo paths.
+    Install(LfsInstall),
+    /// Fetch LFS objects for monorepo paths.
     Fetch(LfsFetch),
+}
+
+#[derive(Args, Debug)]
+pub struct LfsInstall {
+    /// Override existing git-config entries and git-hooks.
+    #[arg(long, short = 'f')]
+    pub force: bool,
 }
 
 #[derive(Args, Debug)]
@@ -288,10 +297,6 @@ pub struct Init {
     /// Initialize even if the target directory is not empty.
     #[arg(long)]
     pub force: bool,
-
-    /// Install Git LFS hooks.
-    #[arg(long, default_value = "auto")]
-    pub git_lfs: GitLfsHooks,
 }
 
 #[derive(Args, Debug)]
@@ -427,28 +432,9 @@ pub struct GitHooksInstall {
     #[arg(long, short)]
     pub force: bool,
 
-    /// Install Git LFS hooks as well.
-    #[arg(long, default_value = "auto")]
-    pub git_lfs: GitLfsHooks,
-}
-
-#[derive(clap::ValueEnum, Debug, Clone, Copy)]
-#[value(rename_all = "kebab-case")]
-pub enum GitLfsHooks {
-    /// Auto detect if Git LFS is installed.
-    Auto,
-    Yes,
-    No,
-}
-
-impl GitLfsHooks {
-    pub fn resolve(&self, repo: &Path) -> bool {
-        match self {
-            GitLfsHooks::Auto => crate::lfs::ensure_git_lfs_available(repo).is_ok(),
-            GitLfsHooks::Yes => true,
-            GitLfsHooks::No => false,
-        }
-    }
+    /// Install Git LFS hooks as well, the same as `git toprepo lfs install`.
+    #[arg(long)]
+    pub git_lfs: bool,
 }
 
 /// Experimental feature: dump internal states to stdout.

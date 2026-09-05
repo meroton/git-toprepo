@@ -65,17 +65,6 @@ git lfs {name} "$@"
 /// Writes `.git/hooks/*` scripts. Returns `Ok(true)` if successful and
 /// `Ok(false)` if partially successful. The progress is logged, both what files
 /// are written and potential errors.
-pub fn install(repo: &Path, force: bool, with_git_lfs: bool) -> Result<bool> {
-    if with_git_lfs {
-        install_with_git_lfs(repo, force)
-    } else {
-        install_without_git_lfs(repo, force)
-    }
-}
-
-/// Writes `.git/hooks/*` scripts. Returns `Ok(true)` if successful and
-/// `Ok(false)` if partially successful. The progress is logged, both what files
-/// are written and potential errors.
 pub fn install_with_git_lfs(repo: &Path, force: bool) -> Result<bool> {
     let hooks_root_path = get_hooks_root_path(repo)?;
 
@@ -204,6 +193,14 @@ pub fn install_without_git_lfs(repo: &Path, force: bool) -> Result<bool> {
         }
     }
     Ok(success)
+}
+
+/// If Git LFS is available, information about how to install the Git LFS hooks
+/// is shown.
+pub fn maybe_show_lfs_installation_instruction(repo: &Path) {
+    if crate::lfs::ensure_git_lfs_available(repo).is_ok() {
+        log::info!("Git LFS is available. Add the Git LFS hooks using 'git toprepo lfs install'.");
+    }
 }
 
 fn write_hook(
