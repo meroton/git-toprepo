@@ -14,6 +14,7 @@ use std::hash::Hash;
 use std::io::Write;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -328,21 +329,65 @@ where
     }
 }
 
-/// Same as `std::fs::write` but sets the executable bit of the output file.
-pub(crate) fn write_executable<P, C>(path: P, contents: C) -> std::io::Result<()>
+/// Creates a new file, writes the content and sets the executable bit of the
+/// output file. Errors out in case the file already exists.
+pub fn create_executable<P, C>(path: P, contents: C) -> Result<()>
 where
     P: AsRef<Path>,
     C: AsRef<[u8]>,
 {
-    if cfg!(windows) {
-        std::fs::write(path, contents)
+    write_executable_impl(path, contents, false)
+}
+
+/// Creates a new file, writes the content and sets the executable bit of the
+/// output file. Overwrites any existing file.
+pub fn write_executable<P, C>(path: P, contents: C) -> Result<()>
+where
+    P: AsRef<Path>,
+    C: AsRef<[u8]>,
+{
+    write_executable_impl(path, contents, true)
+}
+
+fn write_executable_impl<P, C>(path: P, contents: C, overwrite: bool) -> Result<()>
+where
+    P: AsRef<Path>,
+    C: AsRef<[u8]>,
+{
+    let mut file = if cfg!(windows) {
+        if overwrite {
+            std::fs::File::create(path.as_ref())?
+        } else {
+            std::fs::File::create_new(path.as_ref())?
+        }
     } else {
         let mut options = std::fs::OpenOptions::new();
-        options.create(true);
+        if overwrite {
+            options.create(true);
+            options.truncate(true);
+        } else {
+            options.create_new(true);
+        }
         options.write(true);
         std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o755);
-        let mut file = options.open(path)?;
-        file.write_all(contents.as_ref())
+        options.open(path.as_ref())?
+    };
+    file.write_all(contents.as_ref())?;
+    Ok(())
+}
+
+/// Checks if a file is executable.
+pub(crate) fn is_executable<P>(path: P) -> bool
+where
+    P: AsRef<Path>,
+{
+    if cfg!(windows) {
+        true
+    } else {
+        let Ok(metadata) = std::fs::metadata(path) else {
+            return false;
+        };
+        metadata.is_file() && (metadata.permissions().mode() & 0o111) != 0
     }
 }
 

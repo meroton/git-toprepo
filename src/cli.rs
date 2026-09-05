@@ -36,6 +36,18 @@ while keeping the original submodule structure on the remote server.\
 /// a separate heading.
 const GLOBAL_HELP_HEADING: &str = "Global options";
 
+fn argument_error_unless<T: std::string::ToString>(
+    s: &str,
+    expected: T,
+    err: &str,
+) -> Result<T, String> {
+    if s == expected.to_string() {
+        Ok(expected)
+    } else {
+        Err(err.to_owned())
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(about = ABOUT)]
 pub struct Cli {
@@ -187,12 +199,90 @@ pub enum Commands {
 
     /// Show information about Git Toprepo in the current repository.
     Info(Info),
+    /// Manage git-hooks used by Git Toprepo.
+    #[command(subcommand)]
+    Hooks(GitHooks),
     #[command(subcommand)]
     Dump(Dump),
 
     /// Print the version of the Git Toprepo tool.
     #[command(aliases = ["-V", "--version"])]
     Version,
+    /// Git LFS helpers for emulated monorepos.
+    #[command(subcommand)]
+    Lfs(Lfs),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Lfs {
+    /// Fetch LFS objects for monorepo paths.
+    Install(LfsInstall),
+    /// Fetch LFS objects for monorepo paths.
+    Fetch(LfsFetch),
+}
+
+#[derive(Args, Debug)]
+pub struct LfsInstall {
+    /// Override existing git-config entries and git-hooks.
+    #[arg(long, short = 'f')]
+    pub force: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct LfsFetch {
+    /// Print what Git LFS would fetch, without downloading objects.
+    // git-lfs has `-d`, the rest of git-toprepo `-n`. Skipping short flag here
+    // to avoid confusion.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Prune old and unreferenced LFS objects after fetching.
+    #[arg(long, short = 'p')]
+    pub prune: bool,
+
+    /// Also fetch recent LFS objects according to Git LFS recent settings.
+    #[arg(long)]
+    pub recent: bool,
+
+    /// Fetch objects even if they already exist locally.
+    #[arg(long)]
+    pub refetch: bool,
+
+    /// Exclude paths for this invocation.
+    #[arg(long = "exclude", short = 'X', value_name = "PATHS")]
+    pub exclude: Vec<String>,
+
+    /// Monorepo path(s) whose LFS objects should be fetched.
+    #[arg(value_name = "PATH", required = true)]
+    pub paths: Vec<PathBuf>,
+
+    /// Unsupported in git-toprepo's LFS wrapper.
+    #[arg(
+        long, hide = true,
+        value_parser = |s: &str| argument_error_unless(s, false, "unsupported for 'git toprepo lfs fetch'"),
+    )]
+    pub all: bool,
+
+    /// Unsupported in git-toprepo's LFS wrapper.
+    #[arg(
+        long, hide = true,
+        value_parser = |s: &str| argument_error_unless(s, false, "unsupported for 'git toprepo lfs fetch'"),
+    )]
+    pub stdin: bool,
+
+    /// Unsupported in git-toprepo's LFS wrapper.
+    #[arg(
+        long, short = 'I', hide = true, value_name = "PATHS",
+        value_parser = |_s: &str| Result::<String, _>::Err("unsupported, 'git toprepo lfs fetch' supplies '--include' internally"),
+    )]
+    pub include: Vec<String>,
+
+    /// Unsupported in git-toprepo's LFS wrapper.
+    #[arg(
+        long, hide = true,
+        value_parser = |s: &str| argument_error_unless(s, false, "unsupported for 'git toprepo lfs fetch'"),
+    )]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -324,6 +414,27 @@ impl std::fmt::Display for InfoValue {
         };
         write!(f, "{s}")
     }
+}
+
+/// Experimental feature: dump internal states to stdout.
+/// Do not script against these.
+// If you want to use these in your own tools and pipeline please file a feature
+// request issue so we can guarantee a stable API for your use-case.
+#[derive(Subcommand, Debug)]
+pub enum GitHooks {
+    /// Install the git-hooks for Git Toprepo.
+    Install(GitHooksInstall),
+}
+
+#[derive(Args, Debug)]
+pub struct GitHooksInstall {
+    /// Overwrite existing files.
+    #[arg(long, short)]
+    pub force: bool,
+
+    /// Install Git LFS hooks as well, the same as `git toprepo lfs install`.
+    #[arg(long)]
+    pub git_lfs: bool,
 }
 
 /// Experimental feature: dump internal states to stdout.

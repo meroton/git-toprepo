@@ -2,6 +2,7 @@ use bstr::ByteSlice as _;
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::ops::Deref;
+use std::path::Path;
 
 #[cfg(windows)]
 const NULL_DEVICE: &str = "NUL";
@@ -88,6 +89,15 @@ pub fn git_update_submodule_in_index(repo: impl AsRef<std::ffi::OsStr>, path: &s
         ])
         .assert()
         .success();
+}
+
+/// Prepends a path to the `PATH` environment variable and returns that string.
+/// Use in combination with `command.env("PATH", prepend_path_env(some_dir))`.
+pub fn prepend_path_env(bin_dir: &Path) -> OsString {
+    let old_path = std::env::var_os("PATH").unwrap_or_default();
+    let mut paths = vec![bin_dir.to_path_buf()];
+    paths.extend(std::env::split_paths(&old_path));
+    std::env::join_paths(paths).unwrap()
 }
 
 pub enum MaybePermanentTempDir {

@@ -11,9 +11,13 @@ mod dump;
 #[cfg(test)]
 mod fetch;
 #[cfg(test)]
+mod hooks;
+#[cfg(test)]
 mod info;
 #[cfg(test)]
 mod init;
+#[cfg(all(test, unix))]
+mod lfs;
 #[cfg(test)]
 mod log;
 #[cfg(test)]
