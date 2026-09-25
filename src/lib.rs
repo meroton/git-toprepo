@@ -1,3 +1,6 @@
+#![feature(trim_prefix_suffix)]
+#![feature(try_blocks)]
+
 pub mod commit_message;
 pub mod config;
 pub mod expander;

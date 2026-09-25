@@ -116,7 +116,7 @@ pub fn get_submodules(gix_repo: &gix::Repository) -> Result<HashMap<GitPath, Str
 }
 
 pub fn resolve_gerrit_project(gix_repo: &gix::Repository) -> Result<String> {
-    let url = crate::git::get_default_remote_url(gix_repo)?;
+    let url = crate::git::get_default_remote_url(gix_repo, gix::remote::Direction::Fetch)?;
     parse_gerrit_project(&url).with_context(|| format!("Parse gerrit project from {url}"))
 }
 

@@ -2,33 +2,30 @@ use crate::git::GitModulesInfo;
 use crate::git::GitPath;
 use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::log::CommandSpanExt as _;
+use crate::log::ErrorObserver;
 use crate::repo::ConfiguredTopRepo;
 use crate::repo_name::RepoName;
+use crate::ui::ProgressStatus;
 use crate::util::CommandExtension as _;
+use crate::util::EMPTY_GIX_URL;
+use crate::util::argument_error_unless;
 use anyhow::Context as _;
 use anyhow::Result;
 use anyhow::bail;
 use bstr::ByteSlice as _;
-use std::path::Component;
+use clap::Args;
+use itertools::Itertools;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LfsFetchTarget {
     pub include_path: GitPath,
     pub repo_name: RepoName,
     pub remote_url: gix::Url,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct LfsFetchOptions {
-    pub dry_run: bool,
-    pub prune: bool,
-    pub recent: bool,
-    pub refetch: bool,
-    pub exclude: Vec<String>,
 }
 
 const GIT_LFS_REQUIRED: &str = "\
@@ -52,301 +49,506 @@ pub fn ensure_git_lfs_available(repo_worktree: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn resolve_lfs_fetch_targets(
-    top_repo: &ConfiguredTopRepo,
-    paths: &[PathBuf],
-) -> Result<Vec<LfsFetchTarget>> {
-    let worktree = top_repo
-        .gix_repo
-        .workdir()
-        .context("Worktree missing in git repository")?;
-    let worktree = normalize_path(worktree);
-    let top_url = default_fetch_url(&top_repo.gix_repo)?;
-    let gitmodules = GitModulesInfo::parse_dot_gitmodules_in_repo(&top_repo.gix_repo)?;
+/// Returns a list of equivialent patterns that only affects the given directory.
+///
+/// # Empirical observations
+///
+/// Running `GIT_CURL_VERBOSE=1 git lfs fetch -I <pattern>` gives the following observations:
+///
+/// 1. Git LFS doesn't support negation, i.e. `!pattern`.
+/// 2. Paths are always relative to the repository root.
+/// 3. `GIT_CURL_VERBOSE=1 git -c lfs.fetchinclude=/tests lfs fetch -I ''` shows that an empty pattern includes all files but
+///    `GIT_CURL_VERBOSE=1 git -c lfs.fetchinclude=/tests lfs fetch -X ''` shows that an empty pattern does not exclude any files.
+///    This function is only concerned with include patterns, not exclude patterns.
+/// 4. The following patterns accept the path `sub/dir/file`.
+///    * `dir`
+///    * `f*e`
+///    * `fi*e`
+///    * `dir/`
+///    * `sub`
+///    * `/sub`
+///    * `/**/file`
+///    * `/**/dir/**/file`
+/// 5. The following patterns reject the path `sub/dir/file`.
+///    * `/`
+///    * `/dir`
+///    * `dir/file` -
+///
+/// # Examples
+///
+/// ```
+/// # use git_toprepo::lfs::filter_include_pattern;
+///
+/// // Passthrough of the pattern for an empty subdir.
+/// let subdir = "";
+/// let examples: Vec<(&str, &[&str])> = vec![
+///     ("pattern", &["pattern"]),
+///     ("pat/tern", &["pat/tern"]),
+///     ("pattern", &["pattern"]),
+///     ("pattern/", &["pattern/"]),
+/// ];
+/// for (pattern, expected) in examples {
+///     assert_eq!(
+///         filter_include_pattern(pattern, subdir),
+///         Vec::from(expected),
+///         "actual != expected for pattern={pattern} subdir={subdir}",
+///     );
+/// }
+///
+/// // Try sub patterns.
+/// let subdir = "sub";
+/// let examples: Vec<(&str, &[&str])> = vec![
+///     ("", &["/sub/"]),
+///     ("/", &[]),
+///     ("sub/", &["/sub/"]),
+///     ("dir", &["/sub/**/dir"]),
+///     ("dir/", &["/sub/**/dir/"]),
+///     ("/dir", &[]),
+///     ("sub/dir", &["/sub/dir"]),
+///     ("/sub/dir/inner", &["/sub/dir/inner"]),
+///     ("inner*", &["/sub/**/inner*"]),
+///     ("*/dir/inner", &["/sub/dir/inner"]),
+///     ("sub/*/inner", &["/sub/*/inner"]),
+///     ("**/dir/inner", &["/sub/**/dir/inner"]),
+///     ("**/*/inner", &["/sub/**/*/inner", "/sub/inner"]),
+///     ("sub/**/inner", &["/sub/**/inner"]),
+///     ("sub/**/dir/inner", &["/sub/**/dir/inner"]),
+///     ("**/other/**/inner", &["/sub/**/other/**/inner"]),
+///     ("**", &["/sub/"]),
+///     ("sub/**", &["/sub/**"]),
+///     ("sub/inner/**", &["/sub/inner/**"]),
+///     ("other/**/inner", &[]),
+/// ];
+/// for (pattern, expected) in examples {
+///     assert_eq!(
+///         filter_include_pattern(pattern, subdir),
+///         Vec::from(expected),
+///         "actual != expected for pattern={pattern} subdir={subdir}",
+///     );
+/// }
+///
+/// // Try sub/dir patterns.
+/// let subdir = "sub/dir";
+/// let examples: Vec<(&str, &[&str])> = vec![
+///     ("", &["/sub/dir/"]),
+///     ("/", &[]),
+///     ("sub/", &["/sub/dir/"]),
+///     ("dir", &["/sub/dir/"]),
+///     ("dir/", &["/sub/dir/"]),
+///     ("/dir", &[]),
+///     ("sub/dir", &["/sub/dir/"]),
+///     ("/sub/dir/inner", &["/sub/dir/inner"]),
+///     ("inner*", &["/sub/dir/**/inner*"]),
+///     ("*/dir/inner", &["/sub/dir/inner"]),
+///     ("sub/*/inner", &["/sub/dir/inner"]),
+///     ("**/dir/inner", &["/sub/dir/**/dir/inner", "/sub/dir/inner"]),
+///     ("**/*/inner", &["/sub/dir/**/*/inner", "/sub/dir/inner"]),
+///     ("sub/**/inner", &["/sub/dir/**/inner"]),
+///     (
+///         "sub/**/dir/inner",
+///         &["/sub/dir/**/dir/inner", "/sub/dir/inner"],
+///     ),
+///     ("**/other/**/inner", &["/sub/dir/**/other/**/inner"]),
+///     ("**", &["/sub/dir/"]),
+///     ("sub/**", &["/sub/dir/"]),
+///     ("sub/dir/**", &["/sub/dir/**"]),
+///     ("sub/dir/inner/**", &["/sub/dir/inner/**"]),
+///     ("sub/other/**/inner", &[]),
+/// ];
+/// for (pattern, expected) in examples {
+///     assert_eq!(
+///         filter_include_pattern(pattern, subdir),
+///         Vec::from(expected),
+///         "actual != expected for pattern={pattern} subdir={subdir}",
+///     );
+/// }
+/// ```
+pub fn filter_include_pattern(pattern: &str, subdir: &str) -> Vec<String> {
+    if pattern == "/" {
+        return vec![];
+    }
+    let subdir = subdir.trim_suffix('/');
+    if subdir.is_empty() {
+        return vec![pattern.to_owned()];
+    }
+    let subdir_with_slashes = format!("/{}/", subdir);
+    if pattern.is_empty() {
+        return vec![subdir_with_slashes];
+    }
+    // gix-glob doesn't handle single entry patterns correctly.
+    let pattern = if pattern.trim_suffix('/').contains('/') {
+        &format!("/{}", pattern.trim_prefix('/'))
+    } else {
+        &format!("/**/{pattern}")
+    };
 
-    paths
-        .iter()
-        .map(|path| {
-            ensure_literal_path(path)?;
-            let include_path = repo_relative_git_path(&worktree, path)?;
-            resolve_lfs_target_for_path(top_repo, &gitmodules, &top_url, include_path)
-        })
-        .collect()
+    // Check if the pattern matches the subdir directly, allowing everything under it to be included.
+    if gix::glob::Pattern::from_bytes_without_negation(pattern.trim_suffix('/').as_bytes())
+        .expect("non-empty pattern")
+        .matches(
+            subdir.into(),
+            gix::glob::wildmatch::Mode::NO_MATCH_SLASH_LITERAL,
+        )
+    {
+        return vec![subdir_with_slashes];
+    }
+    if gix::glob::Pattern::from_bytes_without_negation(
+        format!("{}/**", pattern.trim_suffix('/')).as_bytes(),
+    )
+    .expect("non-empty pattern")
+    .matches(
+        subdir.into(),
+        gix::glob::wildmatch::Mode::NO_MATCH_SLASH_LITERAL,
+    ) {
+        return vec![subdir_with_slashes];
+    }
+
+    let mut result = Vec::new();
+    let mut component_count_left = subdir_with_slashes.matches('/').count() - 1; // "/ab/cde/fg/" => 3 components
+    debug_assert_eq!(pattern.match_indices('/').next(), Some((0, "/")));
+    for (i, _) in pattern.match_indices('/').skip(1) {
+        let partial_pattern = &pattern[..i];
+        let partial_pattern_ends_with_double_star = partial_pattern.ends_with("/**");
+        if gix::glob::Pattern::from_bytes_without_negation(partial_pattern.as_bytes())
+            .expect("non-empty pattern")
+            .matches(
+                subdir.into(),
+                gix::glob::wildmatch::Mode::NO_MATCH_SLASH_LITERAL,
+            )
+        {
+            if partial_pattern_ends_with_double_star {
+                // The ** might match both part of the subdir and part of the rest of the path.
+                result.push(format!("{subdir_with_slashes}**/{}", &pattern[i + 1..]));
+            } else {
+                result.push(format!("{subdir_with_slashes}{}", &pattern[i + 1..]));
+            }
+        }
+        // Worth continuing? `**` can match zero components but otherwise one
+        // component of subdir must have been consumed by the partial pattern.
+        if !partial_pattern_ends_with_double_star {
+            component_count_left -= 1;
+        }
+        if component_count_left == 0 {
+            break;
+        }
+    }
+    result
 }
 
-pub fn run_lfs_fetch(
-    worktree: &Path,
-    targets: &[LfsFetchTarget],
-    options: &LfsFetchOptions,
-) -> Result<()> {
-    for target in targets {
-        let remote_url = target.remote_url.to_bstring().to_str()?.to_owned();
+pub struct FetchArgs {
+    pub include_patterns: Vec<String>,
+    pub exclude_patterns: Vec<String>,
+    pub options: FetchOptions,
+    pub remote: gix::Url,
+    pub refs: Vec<String>,
+}
 
+#[derive(Args, Debug, Clone)]
+pub struct FetchOptions {
+    /// Download objects referenced by recent branches & commits in addition to
+    /// those that would otherwise be downloaded.
+    #[arg(long)]
+    pub recent: bool,
+
+    /// Unsupported in git-toprepo's LFS wrapper.
+    #[arg(
+        long, hide = true,
+        value_parser = |s: &str| argument_error_unless(s, false, "unsupported for 'git toprepo lfs fetch'"),
+    )]
+    pub all: bool,
+
+    /// Prune old and unreferenced LFS objects after fetching.
+    #[arg(long, short = 'p')]
+    pub prune: bool,
+
+    /// Fetch objects even if they already exist locally.
+    #[arg(long)]
+    pub refetch: bool,
+
+    /// Print what Git LFS would fetch, without downloading objects.
+    // git-lfs has `-d`, the rest of git-toprepo `-n`. Skipping short flag here
+    // to avoid confusion.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Unsupported in git-toprepo's LFS wrapper.
+    #[arg(
+        long, hide = true,
+        value_parser = |s: &str| argument_error_unless(s, false, "unsupported for 'git toprepo lfs fetch'"),
+    )]
+    pub json: bool,
+
+    /// Unsupported in git-toprepo's LFS wrapper.
+    #[arg(
+        long, hide = true,
+        value_parser = |s: &str| argument_error_unless(s, false, "unsupported for 'git toprepo lfs fetch'"),
+    )]
+    pub stdin: bool,
+}
+
+struct FetchCommand {
+    pub repo_name: RepoName,
+    pub fetch_url: gix::Url,
+    pub include_patterns: Vec<String>,
+    pub exclude_patterns: Vec<String>,
+}
+
+impl FetchCommand {
+    pub fn create_command(&self, options: &FetchOptions, refs: &[String]) -> Command {
         let mut cmd = Command::new("git");
-        cmd.arg("lfs").arg("fetch").arg(&remote_url);
+        cmd.arg("lfs").arg("fetch");
 
-        if options.dry_run {
-            cmd.arg("--dry-run");
+        if options.recent {
+            cmd.arg("--recent");
+        }
+        if options.all {
+            cmd.arg("--all");
         }
         if options.prune {
             cmd.arg("--prune");
         }
-        if options.recent {
-            cmd.arg("--recent");
-        }
         if options.refetch {
             cmd.arg("--refetch");
         }
-
-        for exclude in &options.exclude {
-            cmd.arg(format!("--exclude={exclude}"));
+        if options.dry_run {
+            cmd.arg("--dry-run");
         }
-
-        cmd.arg(format!("--include={}", target.include_path));
-
-        cmd.current_dir(worktree)
-            .trace_command(crate::command_span!("git lfs fetch"))
-            .safe_status()?
-            .check_success()
-            .with_context(|| {
-                if options.dry_run {
-                    format!(
-                        "'git lfs fetch --dry-run' failed for '{}'. \
-Your installed Git LFS version may not support '--dry-run'.",
-                        target.include_path
-                    )
-                } else {
-                    format!("'git lfs fetch' failed for '{}'", target.include_path)
-                }
-            })?;
+        if options.json {
+            unimplemented!("git lfs fetch --json'");
+        }
+        if options.stdin {
+            unimplemented!("git lfs fetch --stdin'");
+        }
+        cmd.arg("--include");
+        cmd.arg(self.include_patterns.join(","));
+        cmd.arg("--exclude");
+        cmd.arg(self.exclude_patterns.join(","));
+        cmd.arg(self.fetch_url.to_string());
+        cmd.args(refs);
+        cmd
     }
-
-    Ok(())
 }
 
-fn default_fetch_url(repo: &gix::Repository) -> Result<gix::Url> {
-    // NB: find_default_remote() returns Option<Result<Remote, Error>>;
-    // the first context handles None, the second handles Err.
-    Ok(repo
-        .find_default_remote(gix::remote::Direction::Fetch)
-        .context("Default git-remote not found")?
-        .context("Bad default git-remote")?
-        .url(gix::remote::Direction::Fetch)
-        .context("Missing fetch URL for the default git-remote")?
-        .clone())
+fn revolve_lfs_fetches(
+    worktree: &Path,
+    ledger: &mut crate::loader::SubRepoLedger,
+    remote: &gix::Url,
+    global_include_patterns: &[String],
+    global_exclude_patterns: &[String],
+    error_observer: &ErrorObserver,
+) -> Result<Vec<FetchCommand>> {
+    let mut lfs_fetches = Vec::new();
+    // TODO: Is utf-8 a too harsh requirement for submodule paths?
+    let mut submodules_todo = vec![("".to_owned(), Ok(EMPTY_GIX_URL.clone()))];
+    while let Some((submodule_dir, generic_url)) = submodules_todo.pop() {
+        let submod_result = try {
+            // Does any of the include filters apply to this submodule?
+            let mut submodule_include_patterns = Vec::new();
+            for global_pattern in global_include_patterns {
+                submodule_include_patterns
+                    .extend(filter_include_pattern(global_pattern, &submodule_dir));
+            }
+            if submodule_include_patterns.is_empty() {
+                continue;
+            }
+
+            // Some include filter matched, process this submodule.
+            let generic_url =
+                generic_url.with_context(|| format!("URL for submodule in {submodule_dir}"))?;
+            let (repo_name, fetch_url) = if generic_url.to_bstring().is_empty() {
+                (RepoName::Top, remote.clone())
+            } else {
+                let sub_repo_name = match ledger.get_or_insert_from_url(&generic_url)? {
+                    crate::config::GetOrInsertOk::Found((name, _)) => name,
+                    crate::config::GetOrInsertOk::Missing(_)
+                    | crate::config::GetOrInsertOk::MissingAgain(_) => {
+                        anyhow::bail!("Missing URL {generic_url} in the Git Toprepo configuration");
+                    }
+                };
+                let fetch_url = remote.join(
+                    &ledger
+                        .subrepos
+                        .get(&sub_repo_name)
+                        .expect("just inserted")
+                        .url,
+                );
+                (RepoName::SubRepo(sub_repo_name), fetch_url)
+            };
+            // Use all the global exclude patterns as well, some might be unused
+            // but no harm is done passing them all on.
+            let mut submodule_exclude_patterns = Vec::from(global_exclude_patterns);
+
+            // Traverse inner submodules, they might need `git lfs fetch` too.
+            // Also add the inner submodules to the exclude patterns.
+            let git_modules_info =
+                GitModulesInfo::parse_dot_gitmodules_file_in_dir(&worktree.join(&submodule_dir))?;
+            for (rel_dir, rel_url) in git_modules_info.submodules {
+                let rel_dir = rel_dir.to_str().with_context(|| {
+                    format!(
+                        "Submodule path {} inside {submodule_dir}",
+                        rel_dir.to_str_lossy()
+                    )
+                })?;
+                let inner_dir = Path::new(&submodule_dir)
+                    .join(rel_dir)
+                    .into_string()
+                    .expect("only utf-8 components");
+                let inner_generic_url = rel_url.map(|u| generic_url.join(&u));
+                submodule_exclude_patterns.push(inner_dir.to_owned());
+                submodules_todo.push((inner_dir, inner_generic_url));
+            }
+
+            lfs_fetches.push(FetchCommand {
+                repo_name,
+                fetch_url,
+                include_patterns: submodule_include_patterns,
+                exclude_patterns: submodule_exclude_patterns,
+            });
+        }
+        .with_context(|| format!("In {submodule_dir}"));
+        error_observer.maybe_consume(submod_result)?;
+    }
+    Ok(lfs_fetches)
 }
 
-fn resolve_lfs_target_for_path(
-    top_repo: &ConfiguredTopRepo,
-    gitmodules: &GitModulesInfo,
-    top_url: &gix::Url,
-    include_path: GitPath,
-) -> Result<LfsFetchTarget> {
-    let Some((submodule_path, submodule_url)) =
-        deepest_containing_submodule(gitmodules, &include_path)
-    else {
-        return Ok(LfsFetchTarget {
-            include_path,
-            repo_name: RepoName::Top,
-            remote_url: top_url.clone(),
-        });
-    };
+pub fn run_lfs_fetch(
+    configured_repo: &mut ConfiguredTopRepo,
+    args: FetchArgs,
+    threadpool: &threadpool::ThreadPool,
+    error_observer: &ErrorObserver,
+    progress: &indicatif::MultiProgress,
+) -> Result<()> {
+    let worktree = configured_repo
+        .gix_repo
+        .workdir()
+        .context("Worktree missing in git repository")?;
 
-    let submodule_url = submodule_url
-        .as_ref()
-        .map_err(|err| anyhow::anyhow!("Bad URL for {submodule_path} in .gitmodules: {err}"))?
-        .clone();
-    let resolved_url = top_url.join(&submodule_url);
-    let repo_name = match top_repo
-        .ledger
-        .get_name_from_similar_full_url(resolved_url.clone(), top_url)
-    {
-        Ok(RepoName::SubRepo(repo_name))
-            if !top_repo.ledger.missing_subrepos.contains(&repo_name) =>
-        {
-            repo_name
-        }
-        Ok(_) | Err(_) => {
-            bail!(
-                "Cannot resolve LFS remote for '{include_path}'.\n\
-The path belongs to submodule '{submodule_path}', but its .gitmodules URL is not configured in .gittoprepo.toml."
-            )
-        }
-    };
+    // Resolve all `git lfs fetch` commands before starting to execute some of
+    // them. It would be annoying to fail when resolving the second command and
+    // then have the first command already running.
+    let lfs_fetches = revolve_lfs_fetches(
+        worktree,
+        &mut configured_repo.ledger,
+        &args.remote,
+        &args.include_patterns,
+        &args.exclude_patterns,
+        error_observer,
+    )?;
 
-    Ok(LfsFetchTarget {
-        include_path,
-        repo_name: RepoName::from(repo_name),
-        remote_url: resolved_url,
+    let style = indicatif::ProgressStyle::with_template(
+        "     {prefix:.cyan} [{bar:24}] {pos}/{len}{wide_msg}",
+    )
+    .unwrap()
+    .progress_chars("=> ");
+    let lfs_fetch_progress = ProgressStatus::new(
+        progress.clone(),
+        progress.add(
+            indicatif::ProgressBar::no_length()
+                .with_style(style.clone())
+                .with_prefix("Fetching "),
+        ),
+    );
+    lfs_fetch_progress.set_queue_size(lfs_fetches.len());
+
+    let global_refs = Arc::new(args.refs.iter().cloned().collect_vec());
+    let worktree = Arc::new(worktree.to_owned());
+    for fetch_command in lfs_fetches {
+        run_single_lfs_fetch_in_threadpool(
+            fetch_command,
+            error_observer.clone(),
+            worktree.clone(),
+            args.options.clone(),
+            global_refs.clone(),
+            threadpool,
+            lfs_fetch_progress.clone(),
+        );
+    }
+    threadpool.join();
+    error_observer.get_result(())
+}
+
+fn run_single_lfs_fetch_in_threadpool(
+    fetch_command: FetchCommand,
+    error_observer: ErrorObserver,
+    worktree: Arc<PathBuf>,
+    options: FetchOptions,
+    global_refs: Arc<Vec<String>>,
+    threadpool: &threadpool::ThreadPool,
+    lfs_fetch_progress: ProgressStatus,
+) {
+    threadpool.execute(move || {
+        if error_observer.should_interrupt() {
+            return;
+        }
+        error_observer.consume(run_single_lfs_fetch(
+            fetch_command,
+            &worktree,
+            options,
+            &global_refs,
+            lfs_fetch_progress,
+        ));
     })
 }
 
-fn deepest_containing_submodule<'a>(
-    gitmodules: &'a GitModulesInfo,
-    path: &GitPath,
-) -> Option<(&'a GitPath, &'a Result<gix::Url>)> {
-    let mut best = None;
-    let mut best_len = 0usize;
-    for (submodule_path, url) in &gitmodules.submodules {
-        if path.relative_to(submodule_path).is_some() && submodule_path.len() >= best_len {
-            best = Some((submodule_path, url));
-            best_len = submodule_path.len();
-        }
-    }
-    best
-}
+fn run_single_lfs_fetch(
+    fetch_command: FetchCommand,
+    worktree: &Path,
+    options: FetchOptions,
+    global_refs: &[String],
+    lfs_fetch_progress: ProgressStatus,
+) -> Result<()> {
+    let pb_url = indicatif::ProgressBar::hidden()
+        .with_style(
+            indicatif::ProgressStyle::with_template("{elapsed:>4} {prefix:.cyan} {msg}").unwrap(),
+        )
+        .with_prefix("git lfs fetch")
+        .with_message(fetch_command.fetch_url.to_string());
+    let pb_status = indicatif::ProgressBar::hidden()
+        .with_style(indicatif::ProgressStyle::with_template("     {msg}").unwrap());
+    // Make sure that the elapsed time is updated continuously.
+    pb_url.enable_steady_tick(std::time::Duration::from_millis(1000));
 
-fn ensure_literal_path(path: &Path) -> Result<()> {
-    let path = path.to_string_lossy();
-    if path.contains('*') || path.contains('?') || path.contains('[') || path.contains(']') {
+    let _progress_task = lfs_fetch_progress.start(
+        fetch_command.repo_name.to_string(),
+        vec![pb_url, pb_status.clone()],
+    );
+    lfs_fetch_progress.inc_queue_size(-1);
+
+    let mut cmd = fetch_command.create_command(&options, global_refs);
+    let (mut proc, _span_guard) = cmd
+        .current_dir(worktree)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .trace_command(crate::command_span!("git lfs fetch"))
+        .spawn()
+        .context("Failed to spawn git lfs fetch")?;
+    let stderr_pipe = proc.stderr.take().expect("piping stderr");
+    let permanent_stderr = crate::util::read_stderr_progress_status(stderr_pipe, |line| {
+        tracing::trace!(name: "stderr", line = ?line);
+        pb_status.set_message(line);
+    });
+    let exit_status = crate::util::SafeExitStatus::new(proc.wait().with_context(|| {
+        format!(
+            "Failed to wait for git-lfs-fetch {}",
+            fetch_command.fetch_url
+        )
+    })?);
+    if let Err(err) = exit_status.check_success() {
         bail!(
-            "'git toprepo lfs fetch' currently expects literal paths, not glob patterns: '{path}'"
+            "'git fetch{} {} failed: {err:#}{}{permanent_stderr}{}",
+            if options.dry_run { "--dry-run" } else { "" },
+            fetch_command.fetch_url,
+            if permanent_stderr.is_empty() {
+                ""
+            } else {
+                "\n"
+            },
+            if options.dry_run {
+                "\nYour installed Git LFS version may not support '--dry-run'."
+            } else {
+                ""
+            },
         );
     }
     Ok(())
-}
-
-fn repo_relative_git_path(worktree: &Path, path: &Path) -> Result<GitPath> {
-    let cwd = std::env::current_dir().context("Failed to get current directory")?;
-    let cwd = normalize_path(&cwd);
-    let requested = if path.is_absolute() {
-        normalize_path(path)
-    } else {
-        normalize_path(&cwd.join(path))
-    };
-    let rel = requested
-        .strip_prefix(worktree)
-        .with_context(|| format!("Path '{}' is outside the worktree", path.display()))?;
-    Ok(path_to_git_path(rel))
-}
-
-fn normalize_path(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                normalized.pop();
-            }
-            Component::RootDir | Component::Prefix(_) | Component::Normal(_) => {
-                normalized.push(component.as_os_str());
-            }
-        }
-    }
-    normalized
-}
-
-#[cfg(unix)]
-fn path_to_git_path(path: &Path) -> GitPath {
-    GitPath::from(path.as_os_str().as_encoded_bytes())
-}
-
-#[cfg(windows)]
-fn path_to_git_path(path: &Path) -> GitPath {
-    GitPath::from(path.to_string_lossy().replace('\\', "/"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::SubRepoConfig;
-    use crate::repo_name::SubRepoName;
-    use bstr::BStr;
-
-    #[test]
-    fn deepest_prefix_wins() {
-        let mut gitmodules = GitModulesInfo::default();
-        gitmodules.submodules.insert(
-            GitPath::from("libs/a"),
-            Ok(gix::Url::from_bytes(b"../a.git".as_bstr()).unwrap()),
-        );
-        gitmodules.submodules.insert(
-            GitPath::from("libs/a/vendor/b"),
-            Ok(gix::Url::from_bytes(b"../b.git".as_bstr()).unwrap()),
-        );
-        let hit =
-            deepest_containing_submodule(&gitmodules, &GitPath::from("libs/a/vendor/b/model.bin"))
-                .map(|(path, _)| path.clone())
-                .unwrap();
-        assert_eq!(hit, GitPath::from("libs/a/vendor/b"));
-    }
-
-    #[test]
-    fn repo_relative_path_rejects_outside_worktree() {
-        let worktree = normalize_path(Path::new("/tmp/worktree"));
-        let err = repo_relative_git_path(&worktree, Path::new("../outside"))
-            .expect_err("path should be rejected");
-        assert!(err.to_string().contains("outside the worktree"));
-    }
-
-    #[test]
-    fn resolves_top_level_path_to_top_repo() {
-        let repo = init_repo();
-        let target =
-            resolve_lfs_fetch_targets(&repo, &[repo.gix_repo.workdir().unwrap().join("video.mov")])
-                .unwrap();
-        assert_eq!(target[0].repo_name, RepoName::Top);
-        assert_eq!(target[0].include_path, GitPath::from("video.mov"));
-    }
-
-    fn init_repo() -> ConfiguredTopRepo {
-        let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
-        git_toprepo_testtools::test_util::git_command_for_testing(&temp_dir)
-            .args(["init"])
-            .assert()
-            .success();
-        git_toprepo_testtools::test_util::git_command_for_testing(&temp_dir)
-            .args([
-                "config",
-                "remote.origin.url",
-                "ssh://example.com/toprepo.git",
-            ])
-            .assert()
-            .success();
-        std::fs::write(
-            temp_dir.join(".gitmodules"),
-            "[submodule \"service-a\"]\n\tpath = service-a\n\turl = ../service-a.git\n",
-        )
-        .unwrap();
-        let mut repo = ConfiguredTopRepo::new_empty(gix::open(temp_dir.path()).unwrap());
-        let subrepo_url =
-            gix::Url::from_bytes(BStr::new("ssh://example.com/service-a.git".as_bytes())).unwrap();
-        repo.config.subrepos.insert(
-            SubRepoName::new("service-a".to_owned()),
-            SubRepoConfig::new_disabled(subrepo_url.clone()),
-        );
-        repo.ledger.subrepos = repo.config.subrepos.clone();
-        repo
-    }
-
-    #[test]
-    fn resolves_submodule_path_to_subrepo_url() {
-        let repo = init_repo();
-        let mut gitmodules = GitModulesInfo::default();
-        gitmodules.submodules.insert(
-            GitPath::from("service-a"),
-            Ok(gix::Url::from_bytes(b"../service-a.git".as_bstr()).unwrap()),
-        );
-        assert_eq!(
-            deepest_containing_submodule(
-                &gitmodules,
-                &GitPath::from("service-a/assets/model.bin"),
-            )
-            .map(|(path, _)| path.clone()),
-            Some(GitPath::from("service-a"))
-        );
-        let top_url = default_fetch_url(&repo.gix_repo).unwrap();
-        let target = resolve_lfs_target_for_path(
-            &repo,
-            &gitmodules,
-            &top_url,
-            GitPath::from("service-a/assets/model.bin"),
-        )
-        .unwrap();
-        assert_eq!(target.repo_name.to_string(), "service-a");
-        assert_eq!(
-            target.include_path,
-            GitPath::from("service-a/assets/model.bin")
-        );
-    }
 }

@@ -29,7 +29,17 @@ pub struct GitPath(
 );
 
 impl GitPath {
-    pub const fn new(path: BString) -> Self {
+    pub fn new(path: BString) -> Self {
+        debug_assert!(
+            *path.first().unwrap_or(&b'A') != b'/',
+            "Not a relative path: {}",
+            path.to_str_lossy()
+        );
+        debug_assert!(
+            *path.last().unwrap_or(&b'A') != b'/',
+            "Path must not end with a slash: {}",
+            path.to_str_lossy()
+        );
         Self(path)
     }
 
@@ -125,13 +135,35 @@ where
 }
 
 /// Returns the default ("origin") remote URL for a repository.
-pub fn get_default_remote_url(repo: &gix::Repository) -> Result<gix::Url> {
+///
+/// Getting the remote from the currently tracked branch doesn't work because
+/// branch tracking uses the remote `.` so that our expanded branches are
+/// tracked, not the original ones. Therefore, only the default remote is
+/// resolved.
+pub fn get_default_remote_url(
+    repo: &gix::Repository,
+    direction: gix::remote::Direction,
+) -> Result<gix::Url> {
     Ok(repo
-        .find_default_remote(gix::remote::Direction::Fetch)
+        .find_default_remote(direction)
         .context("Missing default git-remote")?
         .context("Error getting default git-remote")?
-        .url(gix::remote::Direction::Fetch)
-        .context("Missing default git-remote fetch url")?
+        .url(direction)
+        .with_context(|| format!("Missing default git-remote {} url", direction.as_str()))?
+        .to_owned())
+}
+
+pub fn resolve_remote_url(
+    repo: &gix::Repository,
+    remote: &str,
+    direction: gix::remote::Direction,
+) -> Result<gix::Url> {
+    Ok(repo
+        .try_find_remote(remote)
+        .with_context(|| format!("Missing git-remote {remote}"))?
+        .with_context(|| format!("Error getting git-remote {remote}"))?
+        .url(direction)
+        .with_context(|| format!("Missing git-remote {remote} {} url", direction.as_str()))?
         .to_owned())
 }
 
@@ -146,6 +178,11 @@ impl GitModulesInfo {
         let Some(workdir) = repo.workdir() else {
             anyhow::bail!("Repository {} has no workdir", repo.common_dir().display());
         };
+        Self::parse_dot_gitmodules_file_in_dir(workdir)
+            .with_context(|| format!("In {}", workdir.display()))
+    }
+
+    pub fn parse_dot_gitmodules_file_in_dir(workdir: &Path) -> Result<Self> {
         let path = workdir.join(".gitmodules");
         let bytes = std::fs::read(&path)
             .or_else(|err| {
@@ -157,12 +194,7 @@ impl GitModulesInfo {
                     Err(err)
                 }
             })
-            .with_context(|| {
-                format!(
-                    "Failed to read .gitmodules file in repository {}",
-                    repo.common_dir().display()
-                )
-            })?;
+            .context("Failed to read .gitmodules file")?;
         Self::parse_dot_gitmodules_bytes(&bytes, path)
     }
 

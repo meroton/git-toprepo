@@ -600,6 +600,19 @@ where
     permanent_text
 }
 
+/// A clap argument parser that returns an error unless the `s == expected`.
+pub(crate) fn argument_error_unless<T: std::string::ToString>(
+    s: &str,
+    expected: T,
+    err: &str,
+) -> Result<T, String> {
+    if s == expected.to_string() {
+        Ok(expected)
+    } else {
+        Err(err.to_owned())
+    }
+}
+
 /// Returns true if the given value is the default value for the type.
 ///
 /// # Examples
