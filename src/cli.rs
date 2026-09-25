@@ -36,18 +36,6 @@ while keeping the original submodule structure on the remote server.\
 /// a separate heading.
 const GLOBAL_HELP_HEADING: &str = "Global options";
 
-fn argument_error_unless<T: std::string::ToString>(
-    s: &str,
-    expected: T,
-    err: &str,
-) -> Result<T, String> {
-    if s == expected.to_string() {
-        Ok(expected)
-    } else {
-        Err(err.to_owned())
-    }
-}
-
 #[derive(Parser, Debug)]
 #[command(about = ABOUT)]
 pub struct Cli {
@@ -224,59 +212,76 @@ pub enum Lfs {
 
 #[derive(Args, Debug)]
 pub struct LfsFetch {
-    /// Print what Git LFS would fetch, without downloading objects.
-    // git-lfs has `-d`, the rest of git-toprepo `-n`. Skipping short flag here
-    // to avoid confusion.
-    #[arg(long)]
-    pub dry_run: bool,
+    /// Include paths for this invocation, comma separated. Empty matches all
+    /// files, defaults to the git-config `lfs.fetchinclude`.
+    // Using `Option<String>` instead of `Vec<String>` with `value_delimiter =
+    // ','` because Git LFS doesn't accept multiple include arguments.
+    #[arg(long, short = 'I', value_name = "PATHS")]
+    pub include: Option<String>,
 
-    /// Prune old and unreferenced LFS objects after fetching.
-    #[arg(long, short = 'p')]
-    pub prune: bool,
-
-    /// Also fetch recent LFS objects according to Git LFS recent settings.
-    #[arg(long)]
-    pub recent: bool,
-
-    /// Fetch objects even if they already exist locally.
-    #[arg(long)]
-    pub refetch: bool,
-
-    /// Exclude paths for this invocation.
+    /// Exclude paths for this invocation, comma separated. Empty matches no
+    /// files, defaults to the git-config `lfs.fetchexclude`.
+    // Using `Option<String>` instead of `Vec<String>` with `value_delimiter =
+    // ','` because Git LFS doesn't accept multiple exclude arguments.
     #[arg(long = "exclude", short = 'X', value_name = "PATHS")]
-    pub exclude: Vec<String>,
+    pub exclude: Option<String>,
 
-    /// Monorepo path(s) whose LFS objects should be fetched.
-    #[arg(value_name = "PATH", required = true)]
-    pub paths: Vec<PathBuf>,
+    #[clap(flatten)]
+    pub lfs_fetch_options: git_toprepo::lfs::FetchOptions,
 
-    /// Unsupported in git-toprepo's LFS wrapper.
-    #[arg(
-        long, hide = true,
-        value_parser = |s: &str| argument_error_unless(s, false, "unsupported for 'git toprepo lfs fetch'"),
-    )]
-    pub all: bool,
+    /// Continue as much as possible after an error.
+    #[arg(long)]
+    pub keep_going: bool,
 
-    /// Unsupported in git-toprepo's LFS wrapper.
-    #[arg(
-        long, hide = true,
-        value_parser = |s: &str| argument_error_unless(s, false, "unsupported for 'git toprepo lfs fetch'"),
-    )]
-    pub stdin: bool,
+    /// Number of concurrent `git lfs fetch` processes to run.
+    #[arg(long("jobs"), value_name = "N", default_value = "7")]
+    pub job_count: std::num::NonZero<u16>,
 
-    /// Unsupported in git-toprepo's LFS wrapper.
-    #[arg(
-        long, short = 'I', hide = true, value_name = "PATHS",
-        value_parser = |_s: &str| Result::<String, _>::Err("unsupported, 'git toprepo lfs fetch' supplies '--include' internally"),
-    )]
-    pub include: Vec<String>,
+    /// Without arguments, fetch downloads from the default remote. The default
+    /// remote is the same as for git fetch, i.e. based on the remote branch
+    /// you’re tracking first, or origin otherwise.
+    #[arg(value_name = "remote")]
+    pub remote: Option<String>,
 
-    /// Unsupported in git-toprepo's LFS wrapper.
-    #[arg(
-        long, hide = true,
-        value_parser = |s: &str| argument_error_unless(s, false, "unsupported for 'git toprepo lfs fetch'"),
-    )]
-    pub json: bool,
+    /// Refs to consider or the currently checked out ref by default.
+    #[arg(value_name = "ref")]
+    pub refs: Vec<String>,
+}
+
+impl LfsFetch {
+    pub fn get_include_patterns(&self, worktree: &Path) -> Result<Vec<String>> {
+        Self::get_filter_patterns(worktree, self.include.as_deref(), "lfs.fetchinclude")
+    }
+
+    pub fn get_exclude_patterns(&self, worktree: &Path) -> Result<Vec<String>> {
+        Self::get_filter_patterns(worktree, self.exclude.as_deref(), "lfs.fetchexclude")
+    }
+
+    fn get_filter_patterns(
+        worktree: &Path,
+        comma_separated_pattern: Option<&str>,
+        git_config_fallback_key: &str,
+    ) -> Result<Vec<String>> {
+        Ok(
+            if let Some(comma_separated_pattern) = comma_separated_pattern {
+                comma_separated_pattern
+                    .split(',')
+                    .map(str::to_owned)
+                    .collect()
+            } else {
+                // Empirical test of
+                // `GIT_CURL_VERBOSE=1 git -c lfs.fetchinclude= -c lfs.fetchinclude=/tests lfs fetch`
+                // shows that only the last value is used. Also note that the
+                // comma cannot be escaped for Git LFS.
+                git_toprepo::git::git_config_get_all(worktree, git_config_fallback_key)?
+                    .last()
+                    .map_or_default(String::as_str)
+                    .split(',')
+                    .map(str::to_owned)
+                    .collect()
+            },
+        )
+    }
 }
 
 #[derive(Args, Debug)]

@@ -66,7 +66,8 @@ impl RemoteFetcher {
         subrepo_config: &SubRepoConfig,
     ) -> Result<()> {
         let fetch_config = &subrepo_config.fetch;
-        let super_url = crate::git::get_default_remote_url(gix_repo)?;
+        let super_url =
+            crate::git::get_default_remote_url(gix_repo, gix::remote::Direction::Fetch)?;
         self.remote = Some(
             super_url
                 .join(&subrepo_config.url)

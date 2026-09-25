@@ -797,16 +797,37 @@ fn lfs_main(
                 .workdir()
                 .context("Worktree missing in git repository")?;
             lfs::ensure_git_lfs_available(worktree)?;
-            let targets = lfs::resolve_lfs_fetch_targets(configured, &fetch_args.paths)?;
-            let options = lfs::LfsFetchOptions {
-                dry_run: fetch_args.dry_run,
-                prune: fetch_args.prune,
-                recent: fetch_args.recent,
-                refetch: fetch_args.refetch,
-                exclude: fetch_args.exclude.clone(),
+            let include_filters = fetch_args.get_include_patterns(worktree)?;
+            let exclude_filters = fetch_args.get_exclude_patterns(worktree)?;
+            let remote = match &fetch_args.remote {
+                Some(remote) => git_toprepo::git::resolve_remote_url(
+                    &configured.gix_repo,
+                    remote,
+                    gix::remote::Direction::Fetch,
+                )?,
+                None => git_toprepo::git::get_default_remote_url(
+                    &configured.gix_repo,
+                    gix::remote::Direction::Fetch,
+                )?,
             };
-            lfs::run_lfs_fetch(worktree, &targets, &options)?;
-            Ok(ExitCode::SUCCESS)
+            git_toprepo::log::get_global_logger().with_progress(|progress| {
+                ErrorObserver::run_keep_going(fetch_args.keep_going, |error_observer| {
+                    lfs::run_lfs_fetch(
+                        configured,
+                        lfs::FetchArgs {
+                            include_patterns: include_filters,
+                            exclude_patterns: exclude_filters,
+                            options: fetch_args.lfs_fetch_options.clone(),
+                            remote,
+                            refs: fetch_args.refs.clone(),
+                        },
+                        &threadpool::ThreadPool::new(fetch_args.job_count.get().into()),
+                        error_observer,
+                        &progress,
+                    )?;
+                    Ok(ExitCode::SUCCESS)
+                })
+            })
         }),
         cli::Lfs::Install => {
             anyhow::bail!(
