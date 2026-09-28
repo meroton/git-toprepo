@@ -563,6 +563,24 @@ impl MonoRepoCommit {
     }
 }
 
+impl Drop for MonoRepoCommit {
+    /// Avoid stack overflow by not recursively dropping parents.
+    fn drop(&mut self) {
+        let mut todo = std::mem::take(&mut self.parents);
+        while let Some(parent) = todo.pop() {
+            let commit = match parent {
+                MonoRepoParent::OriginalSubmod(_) => continue,
+                MonoRepoParent::Mono(commit) => commit,
+            };
+            let Ok(mut commit) = Rc::try_unwrap(commit) else {
+                // There were other strong references, so just decremented the counter.
+                continue;
+            };
+            todo.extend(std::mem::take(&mut commit.parents));
+        }
+    }
+}
+
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ExpandedSubmodule {
@@ -810,5 +828,87 @@ impl ThinCommit {
             node = parent;
         }
         None
+    }
+}
+
+impl Drop for ThinCommit {
+    /// Avoid stack overflow by not recursively dropping parents.
+    fn drop(&mut self) {
+        let mut todo = std::mem::take(&mut self.parents);
+        while let Some(commit) = todo.pop() {
+            let Ok(mut commit) = Rc::try_unwrap(commit) else {
+                // There were other strong references, so just decremented the counter.
+                continue;
+            };
+            todo.extend(std::mem::take(&mut commit.parents));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Linked lists can easily cause stack overflows when dropped recursively.
+    /// Ensure this is not the case for deep `ThinCommit` graphs.
+    #[test]
+    fn stack_overflow_on_thin_commit_drop() {
+        let stack_size = stacker::remaining_stack().unwrap();
+        const POINTER_SIZE: usize = size_of::<*const ThinCommit>();
+        let depth = stack_size.div_ceil(POINTER_SIZE);
+        std::thread::Builder::new()
+            .name("thin_commits".to_owned())
+            .stack_size(32 * 1024)
+            .spawn(move || {
+                let make_commit = |parents| {
+                    ThinCommit::new_rc(
+                        // Any hash will do, even if it is not a valid commit.
+                        gix::ObjectId::empty_blob(gix::hash::Kind::Sha1),
+                        gix::ObjectId::empty_tree(gix::hash::Kind::Sha1),
+                        parents,
+                        None,
+                        BTreeMap::new(),
+                    )
+                };
+                let mut current = make_commit(vec![]);
+                for _ in 0..depth {
+                    let commit_a = make_commit(vec![]);
+                    let commit_b = current;
+                    let commit_c = make_commit(vec![]);
+                    current = make_commit(vec![commit_a, commit_b, commit_c]);
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// Linked lists can easily cause stack overflows when dropped recursively.
+    /// Ensure this is not the case for deep `MonoRepoCommit` graphs.
+    #[test]
+    fn stack_overflow_on_mono_repo_commit_drop() {
+        let stack_size = stacker::remaining_stack().unwrap();
+        const POINTER_SIZE: usize = size_of::<*const MonoRepoCommit>();
+        let depth = stack_size.div_ceil(POINTER_SIZE);
+        std::thread::Builder::new()
+            .name("mono_repo_commits".to_owned())
+            .stack_size(32 * 1024)
+            .spawn(move || {
+                let make_commit = |parents| MonoRepoCommit::new_rc(parents, None, HashMap::new());
+                let mut current = make_commit(vec![]);
+                for _ in 0..depth {
+                    let commit_a = make_commit(vec![]);
+                    let commit_b = current;
+                    let commit_c = make_commit(vec![]);
+                    current = make_commit(vec![
+                        MonoRepoParent::Mono(commit_a),
+                        MonoRepoParent::Mono(commit_b),
+                        MonoRepoParent::Mono(commit_c),
+                    ]);
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }
