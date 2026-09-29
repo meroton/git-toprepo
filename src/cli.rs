@@ -203,8 +203,17 @@ pub enum Commands {
 
 #[derive(Subcommand, Debug)]
 pub enum Lfs {
-    /// Fetch LFS objects for monorepo paths.
+    /// Fetch LFS objects for monorepo paths from the remote.
     Fetch(LfsFetch),
+    /// Checkout downloaded LFS objects for monorepo paths. Alias for `git lfs checkout`.
+    Checkout(LfsCheckout),
+
+    /// Convert a LFS reference on stdin to the actual file content on stdout.
+    Smudge(LfsSmudge),
+    /// Convert actual file content on stdin to a LFS reference on stdout.
+    Clean(LfsClean),
+    /// Run the LFS filter process for batching smudge and clean operations.
+    FilterProcess(LfsFilterProcess),
 
     /// Unavailable; use `git toprepo hooks install --git-lfs` to install hooks and filters.
     Install,
@@ -282,6 +291,37 @@ impl LfsFetch {
             },
         )
     }
+}
+
+#[derive(Args, Debug)]
+pub struct LfsCheckout {
+    /// All arguments to be passed to the `git lfs checkout` command.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    pub args: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct LfsSmudge {
+    /// Skip automatic downloading of objects on clone or pull.
+    #[arg(long)]
+    pub skip: bool,
+
+    /// The path to the file to be smudged. Optional for Git LFS, but mandatory
+    /// for Git Toprepo.
+    pub path: PathBuf,
+}
+
+#[derive(Args, Debug)]
+pub struct LfsClean {
+    /// The path to the file to be converted to an LFS reference.
+    pub path: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct LfsFilterProcess {
+    /// Skip automatic downloading of objects on clone or pull.
+    #[arg(long)]
+    pub skip: bool,
 }
 
 #[derive(Args, Debug)]

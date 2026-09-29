@@ -829,6 +829,31 @@ fn lfs_main(
                 })
             })
         }),
+        cli::Lfs::Checkout(checkout_args) => {
+            lfs::run_lfs_checkout(Path::new("."), &checkout_args.args)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        cli::Lfs::Smudge(smudge_args) => {
+            if !smudge_args.skip {
+                unimplemented!("Automatic downloading of objects is not implemented yet.");
+            }
+            lfs::run_lfs_smudge(Path::new("."), &smudge_args.path)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        cli::Lfs::Clean(clean_args) => {
+            let path = clean_args.path.as_deref();
+            lfs::run_lfs_clean(Path::new("."), path)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        cli::Lfs::FilterProcess(filter_process_args) => {
+            if !filter_process_args.skip {
+                unimplemented!(
+                    "Automatic downloading of objects is not implemented yet for filter-process."
+                );
+            }
+            lfs::run_lfs_filter_process(Path::new("."))?;
+            Ok(ExitCode::SUCCESS)
+        }
         cli::Lfs::Install => {
             anyhow::bail!(
                 "The `lfs install` command is unavailable; use `git toprepo hooks install --git-lfs` instead."

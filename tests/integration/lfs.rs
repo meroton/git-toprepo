@@ -4,10 +4,14 @@ use git_toprepo::gitmodules::SubmoduleUrlExt as _;
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
 use git_toprepo_testtools::test_util::prepend_path_env;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use predicates::prelude::*;
+use std::fs::read_to_string;
+use std::io::Read as _;
+use std::io::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Duration;
 
 struct RepoWithInnerSubmodule {
     monorepo: PathBuf,
@@ -131,7 +135,7 @@ fn fetches_top_level_path_from_top_repo_url() {
         .assert()
         .success();
 
-    let log = std::fs::read_to_string(&log_path).unwrap();
+    let log = read_to_string(&log_path).unwrap();
     assert!(
         log.contains(&format!("cwd={}\n", repo.monorepo.display())),
         "{log}"
@@ -187,7 +191,7 @@ fn fetches_subrepo_path_from_subrepo_url() {
         .assert()
         .success();
 
-    let log = std::fs::read_to_string(&log_path).unwrap();
+    let log = read_to_string(&log_path).unwrap();
     assert!(log.contains(&format!("remote={expected_remote}")), "{log}");
     assert!(log.contains("arg=--include"), "{log}");
     assert!(
@@ -213,7 +217,7 @@ fn fetches_absolute_path_even_from_subdirectory() {
         .assert()
         .success();
 
-    let log = std::fs::read_to_string(&log_path).unwrap();
+    let log = read_to_string(&log_path).unwrap();
     assert!(
         log.contains(&format!("cwd={}\n", repo.monorepo.display())),
         "{log}"
@@ -240,7 +244,7 @@ fn fetches_multiple_include_paths() {
         .assert()
         .success();
 
-    let log = std::fs::read_to_string(&log_path).unwrap();
+    let log = read_to_string(&log_path).unwrap();
     assert_eq!(log.matches("cwd=").count(), 3, "{log}");
     // Top level.
     assert!(
@@ -274,7 +278,7 @@ fn fetch_excludes_are_passed_on() {
         .assert()
         .success();
 
-    let log = std::fs::read_to_string(&log_path).unwrap();
+    let log = read_to_string(&log_path).unwrap();
     assert_eq!(log.matches("cwd=").count(), 3, "{log}");
     assert_eq!(
         log.matches("arg=--exclude=subpathx/exclude.bin,subpathy/exclude.bin")
@@ -406,7 +410,7 @@ fn uses_deepest_matching_submodule_path() {
         .assert()
         .success();
 
-    let log = std::fs::read_to_string(&log_path).unwrap();
+    let log = read_to_string(&log_path).unwrap();
     assert!(log.contains(&format!("remote={expected_remote}")), "{log}");
     assert!(
         log.contains("arg=--include=subpathx/subpathy/model.bin"),
@@ -430,10 +434,240 @@ fn preserves_spaces_in_include_path() {
         .assert()
         .success();
 
-    let log = std::fs::read_to_string(&log_path).unwrap();
+    let log = read_to_string(&log_path).unwrap();
     assert!(
         log.lines()
             .contains("arg=--include=subpathx/assets/big file.bin"),
         "{log}"
     );
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct LfsBatchRequest {
+    operation: String,
+    objects: Vec<LfsObject>,
+    hash_algo: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct LfsObject {
+    oid: String,
+    size: u64,
+}
+
+fn accept_http_request(
+    listener: &std::net::TcpListener,
+) -> (std::net::TcpStream, String, String, String, Vec<u8>) {
+    let (mut stream, _) = listener.accept().unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
+    stream
+        .set_write_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
+    let (header, body) = read_http_request(&mut stream);
+    let first_line = header.lines().next().unwrap();
+    let (method, path, _) = first_line.split(' ').collect_tuple().unwrap();
+    (stream, method.to_owned(), path.to_owned(), header, body)
+}
+
+fn read_http_request(stream: &mut std::net::TcpStream) -> (String, Vec<u8>) {
+    let mut req = Vec::new();
+    let (header, mut body) = 'header_loop: loop {
+        let mut buf = [0; 1024];
+        let n = stream.read(&mut buf).unwrap();
+        if n == 0 {
+            panic!("Connection closed while reading HTTP request");
+        }
+        println!(
+            "Read {} bytes from stream: {:?}",
+            n,
+            buf[..n].to_str_lossy()
+        );
+        req.extend_from_slice(&buf[..n]);
+        for (splitter, newline_len) in [("\n\n", 2), ("\r\n\r\n", 4)] {
+            if let Some((_, partial_body)) = req.split_once_str(splitter) {
+                let header_len = req.len() - partial_body.len() - newline_len;
+                let header = std::str::from_utf8(&req[..header_len]).unwrap().to_owned();
+                req.drain(..header_len + newline_len);
+                break 'header_loop (header, req);
+            }
+        }
+    };
+    let Some(content_length) = header.lines().find_map(|line| {
+        if let Some(value) = line.strip_prefix("Content-Length: ") {
+            value.parse::<usize>().ok()
+        } else {
+            None
+        }
+    }) else {
+        body.clear();
+        return (header, body);
+    };
+    let mut bytes_read = body.len();
+    body.resize(content_length, 0);
+    while bytes_read < content_length {
+        let n = stream.read(&mut body[bytes_read..]).unwrap();
+        if n == 0 {
+            panic!(
+                "Connection closed after reading HTTP request body, {bytes_read}/{content_length} bytes read"
+            );
+        }
+        bytes_read += n;
+    }
+    (header, body)
+}
+
+#[test]
+fn end_to_end_lfs_fetch() {
+    let listener = std::net::TcpListener::bind("localhost:0").unwrap();
+    let fake_lfs_server_port = listener.local_addr().unwrap().port();
+
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_lfs_with_inner_submodule.sh",
+        )
+        .unwrap(),
+    );
+
+    let monorepo = &temp_dir.join("mono");
+    const INSTALL_HOOKS_COMMAND: &str = "hooks install --git-lfs";
+    cargo_bin_git_toprepo_for_testing()
+        .arg("clone")
+        .arg(temp_dir.join("top"))
+        .arg(monorepo)
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(format!("Git LFS is available. Add the Git LFS hooks using \'git toprepo {INSTALL_HOOKS_COMMAND}\'")));
+    git_command_for_testing(monorepo)
+        .args([
+            "config",
+            "remote.origin.lfsurl",
+            &format!("http://localhost:{fake_lfs_server_port}/lfs/server"),
+        ])
+        .assert()
+        .success();
+
+    // Try checking out subpathx/large-file.txt only.
+    // let large_repox_blob_path = monorepo.join(format!(
+    //     ".git/lfs/objects/{}/{}/{}",
+    //     &large_repox_digest[0..2],
+    //     &large_repox_digest[2..4],
+    //     large_repox_digest
+    // ));
+    // std::fs::create_dir_all(large_repox_blob_path.parent().unwrap()).unwrap();
+    // std::fs::write(&large_repox_blob_path, LARGE_REPOX_CONTENT).unwrap();
+
+    // Remove all files, install filters and checkout again to see that smudge
+    // works without trying to download LFS objects.
+    git_command_for_testing(monorepo)
+        .args(["rm", "-r", "."])
+        .assert()
+        .success();
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(monorepo)
+        .args(INSTALL_HOOKS_COMMAND.split(' '))
+        .arg("--git-lfs-skip-smudge")
+        .assert()
+        .success();
+    git_command_for_testing(monorepo)
+        .args(["reset", "--hard"])
+        .assert()
+        .success();
+    let lf_path_root = monorepo.join("large-file.txt");
+    let lf_path_x = monorepo.join("subpathx/large-file.txt");
+    let lf_path_y = monorepo.join("subpathx/subpathy/large-file.txt");
+    assert_eq!(&read_to_string(&lf_path_root).unwrap()[..8], "version ");
+    assert_eq!(&read_to_string(&lf_path_x).unwrap()[..8], "version ");
+    assert_eq!(&read_to_string(&lf_path_y).unwrap()[..8], "version ");
+
+    // Start our Git LFS server stub. Detach the thread in case of failure where
+    // the thread might hang.
+    let (lfs_server_done_tx, lfs_server_done_rx) = std::sync::mpsc::channel();
+    let lfs_server_stub_thread = std::thread::spawn(move || {
+        let (mut stream, method, path, _header, body) = accept_http_request(&listener);
+        assert_eq!(method, "POST");
+        assert_eq!(path, "/lfs/server/objects/batch");
+        let req = serde_json::from_slice::<LfsBatchRequest>(body.as_bytes()).unwrap();
+        assert_eq!(req.operation, "download");
+        assert_eq!(req.hash_algo, "sha256");
+        assert_eq!(req.objects.len(), 1);
+        assert_eq!(
+            req.objects[0].oid,
+            "e57e978806e4bedff84516106da5aa4819ca3b4230b9736fc299847e7c394239"
+        );
+        assert_eq!(req.objects[0].size, 11);
+        let response_content = format!(
+            r#"{{
+  "transfer": "basic",
+  "objects": [
+    {{
+      "oid": "e57e978806e4bedff84516106da5aa4819ca3b4230b9736fc299847e7c394239",
+      "size": 11,
+      "authenticated": false,
+      "actions": {{ "download": {{ "href": "http://localhost:{}/blobs/e57" }} }}
+    }}
+  ],
+  "hash_algo": "sha256"
+}}"#,
+            fake_lfs_server_port
+        );
+        stream
+            .write_all(
+                format!(
+                    r#"HTTP/1.1 200 OK
+Content-Type: application/vnd.git-lfs+json
+Content-Length: {}
+
+"#,
+                    response_content.len()
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+        stream.write_all(response_content.as_bytes()).unwrap();
+        drop(stream);
+
+        // Next, transfer the blob.
+        let (mut stream, method, path, _header, body) = accept_http_request(&listener);
+        assert_eq!(method, "GET");
+        assert_eq!(path, "/blobs/e57");
+        assert_eq!(body, b"");
+        stream
+            .write_all(
+                r#"HTTP/1.1 200 OK
+Content-Type: application/octet-stream
+Content-Length: 11
+Connection: close
+
+large-repox"#
+                    .as_bytes(),
+            )
+            .unwrap();
+        drop(stream);
+        lfs_server_done_tx.send(()).unwrap();
+    });
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(monorepo)
+        .args(["lfs", "fetch", "-I", "subpathx/large-file.txt"])
+        // .env("GIT_CURL_VERBOSE", "1")
+        .timeout(Duration::from_secs(2))
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+
+    lfs_server_done_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    lfs_server_stub_thread.join().unwrap();
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(monorepo)
+        .args(["lfs", "checkout", "subpathx/large-file.txt"])
+        .assert()
+        .success()
+        .stderr("");
+    assert_eq!(&read_to_string(&lf_path_x).unwrap(), "large-repox");
 }

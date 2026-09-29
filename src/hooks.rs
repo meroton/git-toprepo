@@ -234,8 +234,13 @@ pub fn install_with_git_lfs(repo: &Path, force: bool, skip_download: bool) -> Re
                 } else {
                     for value in values {
                         handle_result(Err(anyhow::anyhow!(
-                            "{} is configured as '{value}', which bypasses Git Toprepo. {}",
+                            "{} is configured as '{value}', which bypasses Git Toprepo.{}{}",
                             lfs_filter.git_config_key,
+                            if lfs_filter.bad_config_message.is_empty() {
+                                ""
+                            } else {
+                                " "
+                            },
                             lfs_filter.bad_config_message,
                         )));
                     }

@@ -1,5 +1,6 @@
 use crate::git::GitModulesInfo;
 use crate::git::GitPath;
+use crate::git::git_command;
 use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::log::CommandSpanExt as _;
 use crate::log::ErrorObserver;
@@ -542,5 +543,59 @@ fn run_single_lfs_fetch(
             },
         );
     }
+    Ok(())
+}
+
+pub fn run_lfs_checkout(new: &Path, args: &[String]) -> Result<()> {
+    git_command(new)
+        .args(["lfs", "checkout"])
+        .args(args)
+        .trace_command(crate::command_span!("git lfs checkout"))
+        .safe_status()?
+        .check_success()
+        .with_context(|| format!("Failed to run 'git lfs checkout {}'", args.join(" ")))?;
+    Ok(())
+}
+
+pub fn run_lfs_smudge(repo: &Path, path: &Path) -> Result<()> {
+    git_command(repo)
+        .args(["lfs", "smudge"])
+        .arg("--skip")
+        .arg(path)
+        .trace_command(crate::command_span!("git lfs smudge"))
+        .safe_status()?
+        .check_success()
+        .with_context(|| format!("Failed to run 'git lfs smudge --skip {}'", path.display()))?;
+    Ok(())
+}
+
+pub fn run_lfs_clean(repo: &Path, path: Option<&Path>) -> Result<()> {
+    let mut cmd = git_command(repo);
+    cmd.args(["lfs", "clean"]);
+    if let Some(path) = path {
+        cmd.arg(path);
+    }
+    cmd.trace_command(crate::command_span!("git lfs clean"))
+        .safe_status()?
+        .check_success()
+        .with_context(|| {
+            let path_str = if let Some(path) = path {
+                &format!(" {}", path.display())
+            } else {
+                ""
+            };
+            format!("Failed to run 'git lfs clean{}'", path_str)
+        })?;
+    Ok(())
+}
+
+pub fn run_lfs_filter_process(repo: &Path) -> Result<()> {
+    git_command(repo)
+        .args(["lfs", "filter-process"])
+        .arg("--skip")
+        .trace_command(crate::command_span!("git lfs filter-process"))
+        .safe_status()?
+        .check_success()
+        .context("Failed to run 'git lfs filter-process --skip'")?;
     Ok(())
 }
