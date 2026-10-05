@@ -117,8 +117,8 @@ mod main {
   help       Print this message or the help of the given subcommand(s)
 
 Options:
-  -C <PATH>      Run as if started in <PATH>
-  -h, --help     Print help
+  -C <PATH>   Run as if started in <PATH>
+  -h, --help  Print help
 
 Global options:
   -v...                    Increase log verbosity with -v or -vv, or ...
