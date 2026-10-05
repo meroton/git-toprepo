@@ -126,7 +126,6 @@ pub struct ConfiguredTopRepo {
     pub gix_repo: gix::Repository,
     pub config: GitTopRepoConfig,
     pub ledger: SubRepoLedger,
-    pub import_cache: ImportCache,
 }
 
 impl ConfiguredTopRepo {
@@ -313,7 +312,6 @@ Initial empty Git Toprepo configuration
             gix_repo,
             config: GitTopRepoConfig::default(),
             ledger: SubRepoLedger::default(),
-            import_cache: ImportCache::default(),
         }
     }
 
@@ -348,30 +346,46 @@ Initial empty Git Toprepo configuration
             missing_subrepos: std::collections::HashSet::new(),
             wanted_but_missing_commits: std::collections::HashMap::new(),
         };
-        let import_cache = crate::import_cache_serde::SerdeImportCache::load_from_git_dir(
-            &gix_repo,
-            Some(&config.checksum),
-        )
-        .with_context(|| format!("Loading cache from {}", gix_repo.common_dir().display()))?
-        .unpack()?;
-
         Ok(Self {
             gix_repo,
             config,
             ledger,
-            import_cache,
         })
     }
 
-    /// Save state (config + cache) back to disk
-    pub fn save_state(&mut self) -> Result<()> {
-        // Save cache
+    /// Loads the import cache from disk..
+    pub fn load_import_cache(&self) -> Result<ImportCache> {
+        crate::import_cache_serde::SerdeImportCache::load_from_git_dir(
+            &self.gix_repo,
+            Some(&self.config.checksum),
+        )
+        .with_context(|| {
+            format!(
+                "Loading cache from {}",
+                self.gix_repo.common_dir().display()
+            )
+        })?
+        .unpack()
+    }
+
+    /// Save the cache.
+    pub fn save_import_cache(&self, import_cache: &ImportCache) -> Result<()> {
         crate::import_cache_serde::SerdeImportCache::pack(
-            &self.import_cache,
+            import_cache,
             self.config.checksum.clone(),
         )
         .store_to_git_dir(&self.gix_repo)?;
+        Ok(())
+    }
 
+    pub fn save_import_cache_log_errors(&self, import_cache: &ImportCache) {
+        if let Err(err) = self.save_import_cache(import_cache) {
+            log::error!("Failed to save import cache: {err:#}");
+        }
+    }
+
+    /// Save state (config + cache) back to disk
+    pub fn save_config(&mut self) -> Result<()> {
         // Save effective config with ledger mutations
         const EFFECTIVE_TOPREPO_CONFIG: &str = "toprepo/last-effective-git-toprepo.toml";
         let config_path = self.gix_repo.common_dir().join(EFFECTIVE_TOPREPO_CONFIG);

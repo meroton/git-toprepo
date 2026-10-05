@@ -15,6 +15,7 @@ use crate::log::InterruptedError;
 use crate::log::InterruptedResult;
 use crate::repo::ConfiguredTopRepo;
 use crate::repo::ExportedFileEntry;
+use crate::repo::ImportCache;
 use crate::repo::RepoData;
 use crate::repo::ThinCommit;
 use crate::repo::ThinSubmodule;
@@ -375,7 +376,8 @@ pub struct CommitLoader<'a> {
 
 impl<'a> CommitLoader<'a> {
     pub fn new(
-        repo: &'a mut ConfiguredTopRepo,
+        configured_repo: &'a mut ConfiguredTopRepo,
+        import_cache: &'a mut ImportCache,
         progress: &indicatif::MultiProgress,
         error_observer: &'a crate::log::ErrorObserver,
         thread_pool: threadpool::ThreadPool,
@@ -414,10 +416,10 @@ impl<'a> CommitLoader<'a> {
             ),
         );
         Ok(Self {
-            monorepo: &repo.gix_repo,
-            config: &repo.config,
-            cached_repo_states: &mut repo.import_cache.repos,
-            ledger: &mut repo.ledger,
+            monorepo: &configured_repo.gix_repo,
+            config: &configured_repo.config,
+            cached_repo_states: &mut import_cache.repos,
+            ledger: &mut configured_repo.ledger,
             fetch_states: HashMap::new(),
             tx,
             rx,
@@ -433,7 +435,7 @@ impl<'a> CommitLoader<'a> {
             repos_to_fetch: VecDeque::new(),
             repos_to_load: VecDeque::new(),
             dot_gitmodules_cache: DotGitModulesCache {
-                repo: &repo.gix_repo,
+                repo: &configured_repo.gix_repo,
                 cache: HashMap::new(),
             },
         })

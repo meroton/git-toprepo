@@ -1542,6 +1542,7 @@ fn try_find_full_reference(
 /// Recombine all `refs/namespaces/top/refs/*` into `refs/*`.
 pub fn recombine_all_top_refs(
     configured_repo: &mut ConfiguredTopRepo,
+    import_cache: &mut ImportCache,
     progress: &indicatif::MultiProgress,
 ) -> Result<()> {
     let top_ref_prefix = format!("{}refs/", RepoName::Top.to_ref_prefix());
@@ -1552,11 +1553,12 @@ pub fn recombine_all_top_refs(
         let r = r.map_err(|err| anyhow::anyhow!("Failed while iterating refs: {err:#}"))?;
         refs.push(r.detach());
     }
-    recombine(configured_repo, progress, refs, true)
+    recombine(configured_repo, import_cache, progress, refs, true)
 }
 
 pub fn recombine_some_top_refspecs(
     configured_repo: &mut ConfiguredTopRepo,
+    import_cache: &mut ImportCache,
     progress: &indicatif::MultiProgress,
     top_ref_names: impl IntoIterator<Item = impl AsRef<FullNameRef>>,
 ) -> Result<()> {
@@ -1566,11 +1568,12 @@ pub fn recombine_some_top_refspecs(
             .with_context(|| format!("Reference {} does not exist", top_ref.as_ref().as_bstr()))?;
         refs.push(r);
     }
-    recombine(configured_repo, progress, refs, false)
+    recombine(configured_repo, import_cache, progress, refs, false)
 }
 
 fn recombine(
     configured_repo: &mut ConfiguredTopRepo,
+    import_cache: &mut ImportCache,
     progress: &indicatif::MultiProgress,
     top_refs: Vec<gix::refs::Reference>,
     remove_refs: bool,
@@ -1700,12 +1703,8 @@ fn recombine(
         .sorted();
     write_monorepo_refs_log(&configured_repo.gix_repo, old_and_new_monorefs.as_slice())?;
 
-    toprepo_commit_ids_to_filter.retain(|commit_id| {
-        !configured_repo
-            .import_cache
-            .top_to_mono_commit_map
-            .contains_key(commit_id)
-    });
+    toprepo_commit_ids_to_filter
+        .retain(|commit_id| !import_cache.top_to_mono_commit_map.contains_key(commit_id));
     if !toprepo_commit_ids_to_filter.is_empty() {
         let pb = progress.add(
             indicatif::ProgressBar::no_length()
@@ -1722,8 +1721,7 @@ fn recombine(
                 .iter()
                 .map(|top_commit_id| *top_commit_id.deref()),
             |object_id| {
-                configured_repo
-                    .import_cache
+                import_cache
                     .top_to_mono_commit_map
                     .contains_key(&TopRepoCommitId::new(object_id))
             },
@@ -1740,7 +1738,7 @@ fn recombine(
         let mut expander = Expander {
             gix_repo: &configured_repo.gix_repo,
             ledger: &mut configured_repo.ledger,
-            import_cache: &mut configured_repo.import_cache,
+            import_cache,
             progress: progress.clone(),
             fast_importer,
             imported_commits: HashMap::new(),
@@ -1762,8 +1760,7 @@ fn recombine(
     // Map the refs to the expanded mono commit ids.
     // Collect all new monorepo commits.
     for (monorepo_ref_name, top_commit_id, old_target) in todo_commit_tips {
-        let (mono_commit_id, mono_commit) = configured_repo
-            .import_cache
+        let (mono_commit_id, mono_commit) = import_cache
             .top_to_mono_commit_map
             .get(&top_commit_id)
             .expect("mono commit was cached or just combined and must therefore exist");
@@ -1771,7 +1768,7 @@ fn recombine(
         if monorepo_ref_name.as_bstr().starts_with(b"refs/remotes/") {
             let top_context = format!("Top commit {top_commit_id} ({monorepo_ref_name})");
             let _top_log_scope_guard = crate::log::scope(&top_context);
-            if let Some(repo_data) = configured_repo.import_cache.repos.get(&RepoName::Top)
+            if let Some(repo_data) = import_cache.repos.get(&RepoName::Top)
                 && let Some(top_commit) = repo_data.thin_commits.get(&*top_commit_id)
             {
                 crate::loader::CommitLoader::validate_commit(
@@ -1785,8 +1782,7 @@ fn recombine(
             for path in mono_commit.submodule_paths.iter().sorted() {
                 if let Some(expanded_submod) = bumps.get_path(path).get_submodule(mono_commit)
                     && let Some(submod_ref) = expanded_submod.get_known_submod()
-                    && let Some(repo_data) = configured_repo
-                        .import_cache
+                    && let Some(repo_data) = import_cache
                         .repos
                         .get(&RepoName::SubRepo(submod_ref.repo_name.clone()))
                     && let Some(sub_commit) = repo_data.thin_commits.get(&submod_ref.orig_commit_id)
@@ -1819,13 +1815,14 @@ fn recombine(
     // Convert all the tags.
     for (monorepo_ref_name, annotated_tag_id, old_target) in todo_annotated_tags {
         let _log_scope_guard = crate::log::scope(format!("Writing mono tag {monorepo_ref_name:?}"));
-        let target_mono_id = match write_mono_tag_chain(configured_repo, annotated_tag_id) {
-            Ok(id) => id,
-            Err(err) => {
-                log::warn!("{err:#}");
-                continue;
-            }
-        };
+        let target_mono_id =
+            match write_mono_tag_chain(configured_repo, import_cache, annotated_tag_id) {
+                Ok(id) => id,
+                Err(err) => {
+                    log::warn!("{err:#}");
+                    continue;
+                }
+            };
         update_actions.insert(
             monorepo_ref_name,
             MonoRefUpdateAction::new(
@@ -1845,7 +1842,7 @@ fn recombine(
     }
 
     update_refs(&configured_repo.gix_repo, &update_actions)?;
-    print_updated_refs(configured_repo, progress, &update_actions);
+    print_updated_refs(configured_repo, import_cache, progress, &update_actions);
     if remove_refs {
         let remaining_monorefs = update_actions
             .iter()
@@ -1871,6 +1868,7 @@ fn recombine(
 /// target mono commit, will be returned.
 fn write_mono_tag_chain(
     configured_repo: &ConfiguredTopRepo,
+    import_cache: &mut ImportCache,
     annotated_tag_id: gix::ObjectId,
 ) -> Result<gix::ObjectId> {
     let mut nested_top_tags = Vec::with_capacity(1);
@@ -1908,8 +1906,7 @@ fn write_mono_tag_chain(
             gix::objs::Kind::Commit => {
                 // Found the commit, done.
                 let target_top_id = target_object.id;
-                let (target_mono_id, _target_mono_commit) = configured_repo
-                    .import_cache
+                let (target_mono_id, _target_mono_commit) = import_cache
                     .top_to_mono_commit_map
                     .get(&TopRepoCommitId::new(target_top_id))
                     .expect("mono commit was cached or just filtered and must therefore exist");
@@ -1960,6 +1957,7 @@ fn write_mono_tag_chain(
 /// Prints the resulting ref updates, in the same fashion like git-fetch.
 fn print_updated_refs(
     configured_repo: &ConfiguredTopRepo,
+    import_cache: &ImportCache,
     progress: &indicatif::MultiProgress,
     update_actions: &BTreeMap<FullName, MonoRefUpdateAction>,
 ) {
@@ -1978,11 +1976,8 @@ fn print_updated_refs(
                 }
                 MonoRefUpdateAction::Delete { .. } => 4,
             };
-            let (description, short_name) = action.describe(
-                name,
-                &configured_repo.gix_repo,
-                &configured_repo.import_cache,
-            );
+            let (description, short_name) =
+                action.describe(name, &configured_repo.gix_repo, import_cache);
             Some((sort_order, short_name, description))
         })
         .sorted();
@@ -2206,6 +2201,7 @@ fn update_refs(
 
 pub fn expand_submodule_ref_onto_head(
     configured_repo: &mut ConfiguredTopRepo,
+    import_cache: &mut ImportCache,
     progress: &indicatif::MultiProgress,
     ref_to_inject: &FullNameRef,
     sub_repo_name: &SubRepoName,
@@ -2217,8 +2213,7 @@ pub fn expand_submodule_ref_onto_head(
         &configured_repo.gix_repo.refs,
         &configured_repo.gix_repo.objects,
     )?;
-    let thin_commit_to_inject = configured_repo
-        .import_cache
+    let thin_commit_to_inject = import_cache
         .repos
         .get(&RepoName::SubRepo(sub_repo_name.clone()))
         .and_then(|repo_data| repo_data.thin_commits.get(&id_to_inject))
@@ -2251,8 +2246,7 @@ pub fn expand_submodule_ref_onto_head(
         &configured_repo.gix_repo,
         [head_id].into_iter(),
         |commit_id| {
-            let Some(mono_parent) = configured_repo
-                .import_cache
+            let Some(mono_parent) = import_cache
                 .monorepo_commits
                 .get(&MonoRepoCommitId::new(commit_id))
             else {
@@ -2269,7 +2263,7 @@ pub fn expand_submodule_ref_onto_head(
     let mut expander = Expander {
         gix_repo: &configured_repo.gix_repo,
         ledger: &mut configured_repo.ledger,
-        import_cache: &mut configured_repo.import_cache,
+        import_cache,
         progress: progress.clone(),
         fast_importer,
         imported_commits: HashMap::new(),
@@ -2304,8 +2298,7 @@ pub fn expand_submodule_ref_onto_head(
     })();
     expander.wait()?;
     let expanded_mono_commit = expand_result?;
-    let expanded_mono_commit_id = configured_repo
-        .import_cache
+    let expanded_mono_commit_id = import_cache
         .monorepo_commit_ids
         .get(&RcKey::new(&expanded_mono_commit))
         .expect("just expanded commit must be known");
@@ -2322,7 +2315,7 @@ pub fn expand_submodule_ref_onto_head(
         .unwrap(),
     )]);
     update_refs(&configured_repo.gix_repo, &ref_updates)?;
-    print_updated_refs(configured_repo, progress, &ref_updates);
+    print_updated_refs(configured_repo, import_cache, progress, &ref_updates);
     Ok(expanded_mono_commit)
 }
 

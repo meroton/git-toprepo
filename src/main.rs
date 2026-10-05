@@ -71,10 +71,11 @@ fn init(init_args: &cli::Init) -> Result<PathBuf> {
     Ok(directory)
 }
 
-#[tracing::instrument(skip(configured_repo))]
+#[tracing::instrument(skip(configured_repo, import_cache))]
 fn clone_after_init(
     clone_args: &cli::Clone,
     configured_repo: &mut ConfiguredTopRepo,
+    import_cache: &mut ImportCache,
 ) -> Result<()> {
     fetch(
         &cli::Fetch {
@@ -86,6 +87,7 @@ fn clone_after_init(
             refspecs: None,
         },
         configured_repo,
+        import_cache,
     )?;
     let repo_dir = configured_repo
         .gix_repo
@@ -96,7 +98,7 @@ fn clone_after_init(
         // Reload the config from disk to get the cloned configuration now
         // stored in the repository.
         configured_repo.reload_repo()?;
-        recombine(&clone_args.recombine, configured_repo)?;
+        recombine(&clone_args.recombine, configured_repo, import_cache)?;
     }
     std::process::Command::new("git")
         .current_dir(
@@ -201,6 +203,7 @@ fn config(config_args: &cli::Config) -> Result<()> {
 
 fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
     let mut repo = ConfiguredTopRepo::new_empty(repo.clone());
+    let mut import_cache = ImportCache::default();
     let default_remote_name = repo
         .gix_repo
         .remote_default_name(gix::remote::Direction::Fetch)
@@ -226,6 +229,7 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
         ErrorObserver::run(ErrorMode::KeepGoing, |error_observer| {
             let mut commit_loader = git_toprepo::loader::CommitLoader::new(
                 &mut repo,
+                &mut import_cache,
                 &progress,
                 error_observer,
                 threadpool::ThreadPool::new(1),
@@ -239,8 +243,7 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
         .context("Failed to load the top repo")?;
 
         // Go through submodules at HEAD and enable them in the config.
-        let top_repo_data = repo
-            .import_cache
+        let top_repo_data = import_cache
             .repos
             .get(&RepoName::Top)
             .expect("top repo has been loaded");
@@ -295,14 +298,15 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
     })
 }
 
-#[tracing::instrument(skip(configured_repo))]
+/// Combines commits from the top repository and its submodules into a unified view.
+///
+/// `recombine_args.use_cache` is ignored.
+#[tracing::instrument(skip(configured_repo, import_cache))]
 fn recombine(
     recombine_args: &cli::Recombine,
     configured_repo: &mut ConfiguredTopRepo,
+    import_cache: &mut ImportCache,
 ) -> Result<()> {
-    if !recombine_args.use_cache {
-        configured_repo.import_cache = ImportCache::default();
-    }
     git_toprepo::log::get_global_logger().with_progress(|progress| {
         ErrorObserver::run_keep_going(recombine_args.keep_going, |error_observer| {
             load_commits(
@@ -312,6 +316,7 @@ fn recombine(
                     commit_loader.load_repo(&git_toprepo::repo_name::RepoName::Top)
                 },
                 configured_repo,
+                import_cache,
                 &progress,
                 error_observer,
             )
@@ -321,12 +326,16 @@ fn recombine(
             fetch: configured_repo.config.fetch.clone(),
             subrepos: configured_repo.ledger.subrepos.clone(),
         };
-        git_toprepo::expander::recombine_all_top_refs(configured_repo, &progress)
+        git_toprepo::expander::recombine_all_top_refs(configured_repo, import_cache, &progress)
     })
 }
 
-#[tracing::instrument(skip(configured_repo))]
-fn fetch(fetch_args: &cli::Fetch, configured_repo: &mut ConfiguredTopRepo) -> Result<()> {
+#[tracing::instrument(skip(configured_repo, import_cache))]
+fn fetch(
+    fetch_args: &cli::Fetch,
+    configured_repo: &mut ConfiguredTopRepo,
+    import_cache: &mut ImportCache,
+) -> Result<()> {
     if let Some(refspecs) = &fetch_args.refspecs {
         let resolved_args = cli::resolve_remote_and_path(
             fetch_args,
@@ -340,6 +349,7 @@ fn fetch(fetch_args: &cli::Fetch, configured_repo: &mut ConfiguredTopRepo) -> Re
                 resolved_args,
                 detailed_refspecs.clone(),
                 configured_repo,
+                import_cache,
                 &progress,
             )
         })?;
@@ -383,14 +393,15 @@ fn fetch(fetch_args: &cli::Fetch, configured_repo: &mut ConfiguredTopRepo) -> Re
         }
         Ok(())
     } else {
-        fetch_with_default_refspecs(fetch_args, configured_repo)
+        fetch_with_default_refspecs(fetch_args, configured_repo, import_cache)
     }
 }
 
-#[tracing::instrument(skip(configured_repo))]
+#[tracing::instrument(skip(configured_repo, import_cache))]
 fn fetch_with_default_refspecs(
     fetch_args: &cli::Fetch,
     configured_repo: &mut ConfiguredTopRepo,
+    import_cache: &mut ImportCache,
 ) -> Result<()> {
     let mut fetcher = git_toprepo::fetch::RemoteFetcher::new(&configured_repo.gix_repo);
 
@@ -427,6 +438,7 @@ fn fetch_with_default_refspecs(
                 use_cache: true,
             },
             configured_repo,
+            import_cache,
         )?;
     }
     Ok(())
@@ -518,12 +530,13 @@ fn detail_refspecs(
         .collect::<Result<Vec<_>>>()
 }
 
-#[tracing::instrument(skip(configured_repo))]
+#[tracing::instrument(skip(configured_repo, import_cache))]
 fn fetch_with_refspec(
     fetch_args: &cli::Fetch,
     resolved_args: cli::ResolvedFetchParams,
     detailed_refspecs: Vec<DetailedFetchRefspec>,
     configured_repo: &mut ConfiguredTopRepo,
+    import_cache: &mut ImportCache,
     progress: &indicatif::MultiProgress,
 ) -> Result<()> {
     ErrorObserver::run_keep_going(fetch_args.keep_going, |error_observer| {
@@ -553,6 +566,7 @@ fn fetch_with_refspec(
             fetch_args.job_count.into(),
             |commit_loader| commit_loader.load_repo(&resolved_args.repo),
             configured_repo,
+            import_cache,
             progress,
             error_observer,
         )?;
@@ -570,6 +584,7 @@ fn fetch_with_refspec(
                     .map(|refspec| &refspec.unfiltered_ref);
                 git_toprepo::expander::recombine_some_top_refspecs(
                     configured_repo,
+                    import_cache,
                     progress,
                     top_refs,
                 )?;
@@ -583,6 +598,7 @@ fn fetch_with_refspec(
                         let dest_ref = refspec.destination.get_filtered_ref();
                         if let Err(err) = git_toprepo::expander::expand_submodule_ref_onto_head(
                             configured_repo,
+                            import_cache,
                             progress,
                             refspec.unfiltered_ref.as_ref(),
                             sub_repo_name,
@@ -660,6 +676,7 @@ fn load_commits<F>(
     job_count: NonZeroUsize,
     commit_loader_setup: F,
     configured_repo: &mut ConfiguredTopRepo,
+    import_cache: &mut ImportCache,
     progress: &indicatif::MultiProgress,
     error_observer: &ErrorObserver,
 ) -> Result<()>
@@ -668,6 +685,7 @@ where
 {
     let mut commit_loader = git_toprepo::loader::CommitLoader::new(
         configured_repo,
+        import_cache,
         progress,
         error_observer,
         threadpool::ThreadPool::new(job_count.get()),
@@ -677,8 +695,12 @@ where
     Ok(())
 }
 
-#[tracing::instrument(skip(configured_repo))]
-fn push(push_args: &cli::Push, configured_repo: &mut ConfiguredTopRepo) -> Result<()> {
+#[tracing::instrument(skip(configured_repo, import_cache))]
+fn push(
+    push_args: &cli::Push,
+    configured_repo: &mut ConfiguredTopRepo,
+    import_cache: &mut ImportCache,
+) -> Result<()> {
     let mut extra_args = Vec::new();
     if push_args.force {
         extra_args.push("--force".to_owned());
@@ -721,6 +743,7 @@ fn push(push_args: &cli::Push, configured_repo: &mut ConfiguredTopRepo) -> Resul
     git_toprepo::log::get_global_logger().with_progress(|progress| {
         let commits = git_toprepo::push::split_for_push(
             configured_repo,
+            import_cache,
             &progress,
             &base_url,
             local_rev,
@@ -898,7 +921,7 @@ fn run_session<T>(
     let result = f(&mut repo);
 
     // Teardown: Always save state (preserves partial work even on errors).
-    let save_result = repo.save_state();
+    let save_result = repo.save_config();
 
     // Return operation result, but if save failed and operation succeeded, return save error
     match (result, save_result) {
@@ -1008,20 +1031,35 @@ where
                 )
             })?;
             run_session(logger, |configured| {
-                clone_after_init(clone_args, configured)
+                let mut import_cache = configured.load_import_cache()?;
+                let result = clone_after_init(clone_args, configured, &mut import_cache);
+                configured.save_import_cache_log_errors(&import_cache);
+                result
             })
             .map(|()| ExitCode::SUCCESS)
         }
-        Commands::Recombine(recombine_args) => {
-            run_session(logger, |configured| recombine(recombine_args, configured))
-                .map(|()| ExitCode::SUCCESS)
-        }
-        Commands::Fetch(fetch_args) => {
-            run_session(logger, |configured| fetch(fetch_args, configured))
-                .map(|()| ExitCode::SUCCESS)
-        }
-        Commands::Push(push_args) => run_session(logger, |configured| push(push_args, configured))
-            .map(|()| ExitCode::SUCCESS),
+        Commands::Recombine(recombine_args) => run_session(logger, |configured| {
+            let mut import_cache = if recombine_args.use_cache {
+                configured.load_import_cache()?
+            } else {
+                ImportCache::default()
+            };
+            let result = recombine(recombine_args, configured, &mut import_cache);
+            configured.save_import_cache_log_errors(&import_cache);
+            result.map(|()| ExitCode::SUCCESS)
+        }),
+        Commands::Fetch(fetch_args) => run_session(logger, |configured| {
+            let mut import_cache = configured.load_import_cache()?;
+            let result = fetch(fetch_args, configured, &mut import_cache);
+            configured.save_import_cache_log_errors(&import_cache);
+            result.map(|()| ExitCode::SUCCESS)
+        }),
+        Commands::Push(push_args) => run_session(logger, |configured| {
+            let mut import_cache = configured.load_import_cache()?;
+            let result = push(push_args, configured, &mut import_cache);
+            configured.save_import_cache_log_errors(&import_cache);
+            result.map(|()| ExitCode::SUCCESS)
+        }),
 
         Commands::Info(info_args) => print_info(info_args),
         Commands::Version => {
