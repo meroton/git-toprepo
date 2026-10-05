@@ -10,8 +10,8 @@ name = "git_toprepo_testtools"
 path = "lib.rs"
 
 [dependencies]
-assert_cmd = "2.0.17"
-bstr = "1.12.0"
-log = "0.4.27"
+assert_cmd = "2.2.2"
+bstr = "1.13.1"
+log = "0.4.34"
 rstest = "0.25.0"
-tempfile = "3.13.0"
+tempfile = "3.27.0"
