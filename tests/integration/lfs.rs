@@ -1,4 +1,5 @@
 use super::fetch::RepoWithTwoSubmodules;
+use anyhow::Context as _;
 use bstr::ByteSlice as _;
 use git_toprepo::gitmodules::SubmoduleUrlExt as _;
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
@@ -7,6 +8,7 @@ use git_toprepo_testtools::test_util::prepend_path_env;
 use itertools::Itertools as _;
 use predicates::prelude::*;
 use sha2::Digest as _;
+use std::collections::HashMap;
 use std::fs::read_to_string;
 use std::io::Read as _;
 use std::io::Write as _;
@@ -710,4 +712,163 @@ large-repox"#
     lfs_server_stub_thread.join().unwrap();
 
     lfs_checkout_fn(monorepo);
+}
+
+#[test]
+fn end_to_end_git_reset_with_smudge() {
+    let listener = std::net::TcpListener::bind("localhost:0").unwrap();
+    let fake_lfs_server_port = listener.local_addr().unwrap().port();
+
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_lfs_with_inner_submodule.sh",
+        )
+        .unwrap(),
+    );
+
+    let monorepo = &temp_dir.join("mono");
+    const INSTALL_HOOKS_COMMAND: &str = "hooks install --git-lfs";
+    cargo_bin_git_toprepo_for_testing()
+        .arg("clone")
+        .arg(temp_dir.join("top"))
+        .arg(monorepo)
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(format!("Git LFS is available. Add the Git LFS hooks using \'git toprepo {INSTALL_HOOKS_COMMAND}\'")));
+    git_command_for_testing(monorepo)
+        .args([
+            "config",
+            "remote.origin.url",
+            &format!("http://localhost:{fake_lfs_server_port}/git/server"),
+        ])
+        .assert()
+        .success();
+
+    // Remove all files, install filters and checkout again to see that smudge
+    // works and downloads the LFS objects.
+    git_command_for_testing(monorepo)
+        .args(["rm", "-r", "."])
+        .assert()
+        .success();
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(monorepo)
+        .args(INSTALL_HOOKS_COMMAND.split(' '))
+        .assert()
+        .success();
+    git_command_for_testing(monorepo)
+        .args(["config", "--unset-all", "filter.lfs.process"])
+        .assert()
+        .success();
+
+    // Start our Git LFS server stub. Detach the thread in case of failure where
+    // the thread might hang.
+    let (lfs_server_done_tx, lfs_server_done_rx) = std::sync::mpsc::channel();
+    let lfs_server_stub_thread = std::thread::spawn(move || {
+        let mut files = HashMap::new();
+        let mut content_to_transfer = 0;
+        // Make sure the resutests are made to different servers.
+        files.insert("/git/server.git/info/lfs/objects/batch", "large-top");
+        files.insert("/git/repox.git/info/lfs/objects/batch", "large-repox");
+        files.insert("/git/repoy.git/info/lfs/objects/batch", "large-repoy");
+        while !files.is_empty() || content_to_transfer > 0 {
+            let (mut stream, method, path, _header, body) = accept_http_request(&listener);
+            match method.as_str() {
+                "POST" => {
+                    let file_content = files
+                        .remove(path.as_str())
+                        .with_context(|| format!("Unexpected path: {path}"))
+                        .unwrap();
+                    let file_digest = hex::encode(sha2::Sha256::digest(file_content));
+                    let req = serde_json::from_slice::<LfsBatchRequest>(body.as_bytes()).unwrap();
+                    assert_eq!(req.operation, "download");
+                    assert_eq!(req.hash_algo, "sha256");
+                    assert_eq!(req.objects.len(), 1);
+                    assert_eq!(req.objects[0].oid, file_digest);
+                    assert_eq!(req.objects[0].size, file_content.len() as u64);
+                    let response_content = format!(
+                        r#"{{
+"transfer": "basic",
+"objects": [
+{{
+    "oid": "{file_digest}",
+    "size": {},
+    "authenticated": false,
+    "actions": {{ "download": {{ "href": "http://localhost:{}/blobs/{file_content}" }} }}
+}}
+],
+"hash_algo": "sha256"
+}}"#,
+                        file_content.len(),
+                        fake_lfs_server_port,
+                    );
+                    stream
+                        .write_all(
+                            format!(
+                                r#"HTTP/1.1 200 OK
+Content-Type: application/vnd.git-lfs+json
+Content-Length: {}
+
+"#,
+                                response_content.len()
+                            )
+                            .as_bytes(),
+                        )
+                        .unwrap();
+                    stream.write_all(response_content.as_bytes()).unwrap();
+                    drop(stream);
+                    // One file ready to transfer.
+                    content_to_transfer += 1;
+                }
+                "GET" => {
+                    // One file done.
+                    content_to_transfer -= 1;
+                    // Transfer the blob.
+                    let file_content = path.strip_prefix("/blobs/").unwrap();
+                    assert_eq!(body, b"");
+                    stream
+                        .write_all(
+                            format!(
+                                r#"HTTP/1.1 200 OK
+Content-Type: application/octet-stream
+Content-Length: {}
+Connection: close
+
+{file_content}"#,
+                                file_content.len(),
+                            )
+                            .as_bytes(),
+                        )
+                        .unwrap();
+                    drop(stream);
+                }
+                _ => panic!("Unexpected HTTP request: {method} {path}"),
+            }
+        }
+        lfs_server_done_tx.send(()).unwrap();
+    });
+
+    git_command_for_testing(monorepo)
+        .args(["reset", "--hard"])
+        .timeout(Duration::from_secs(2))
+        .assert()
+        .success()
+        .stderr(
+            "\
+Downloading large-file.txt (9 B)\n\
+Downloading subpathx/large-file.txt (11 B)\n\
+Downloading subpathx/subpathy/large-file.txt (11 B)\n\
+",
+        );
+
+    lfs_server_done_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    lfs_server_stub_thread.join().unwrap();
+
+    let lf_path_root = monorepo.join("large-file.txt");
+    let lf_path_x = monorepo.join("subpathx/large-file.txt");
+    let lf_path_y = monorepo.join("subpathx/subpathy/large-file.txt");
+    assert_eq!(&read_to_string(&lf_path_root).unwrap(), "large-top");
+    assert_eq!(&read_to_string(&lf_path_x).unwrap(), "large-repox");
+    assert_eq!(&read_to_string(&lf_path_y).unwrap(), "large-repoy");
 }

@@ -1,3 +1,4 @@
+use crate::git::FileLocationAndUrl;
 use crate::git::GitModulesInfo;
 use crate::git::GitPath;
 use crate::git::git_command;
@@ -13,6 +14,8 @@ use crate::util::argument_error_unless;
 use anyhow::Context as _;
 use anyhow::Result;
 use anyhow::bail;
+use bstr::BStr;
+use bstr::BString;
 use bstr::ByteSlice as _;
 use clap::Args;
 use itertools::Itertools;
@@ -557,7 +560,194 @@ pub fn run_lfs_checkout(new: &Path, args: &[String]) -> Result<()> {
     Ok(())
 }
 
-pub fn run_lfs_smudge(repo: &Path, path: &Path) -> Result<()> {
+/// `LfsRemote` tracks what remote Git LFS will use for a given repository. This
+/// is essentially a port of `(*Configuration).Remote()` and
+/// `(*Configuration).PushRemote()` in Git LFS `config/config.go`.
+enum LfsRemote {
+    /// Git config `branch.<name>.pushRemote`.
+    TrackedPushRemoteBranch {
+        current_short_branch: String,
+        remote_name: BString,
+    },
+    /// Git config `remote.lfspushdefault`.
+    RemoteLfsPushDefault { remote_name: BString },
+    /// Git config `remote.pushDefault`.
+    RemotePushDefault { remote_name: BString },
+    /// Git config `branch.<name>.remote`.
+    TrackedRemoteBranch {
+        current_short_branch: String,
+        remote_name: BString,
+    },
+    /// Git config `remote.lfsdefault`.
+    RemoteLfsDefault { remote_name: BString },
+    /// A single Git config `remote.<name>.url`.
+    SingletonRemote { remote_name: BString },
+    /// Fallback, the name `origin`.
+    DefaultRemote,
+}
+
+impl LfsRemote {
+    pub fn from_repo_log_errors(repo: &gix::Repository, direction: gix::remote::Direction) -> Self {
+        let current_short_branch = repo
+            .head_name()
+            .context("Failed to resolve HEAD")
+            .unwrap_or_else(|err| {
+                log::error!("{err:#}");
+                None
+            })
+            .and_then(|name| {
+                name.shorten()
+                    .to_str()
+                    .with_context(|| format!("Current branch '{}'", name.as_bstr().to_str_lossy()))
+                    .map(str::to_owned)
+                    .map_err(|err| {
+                        log::error!("{err:#}");
+                        err
+                    })
+                    .ok()
+            });
+        if direction == gix::remote::Direction::Push {
+            if let Some(current_short_branch) = &current_short_branch
+                && let Some(branch_remote) = repo
+                    .config_snapshot()
+                    .string(format!("branch.{current_short_branch}.pushRemote"))
+            {
+                return Self::TrackedPushRemoteBranch {
+                    current_short_branch: current_short_branch.to_owned(),
+                    remote_name: branch_remote.into_owned(),
+                };
+            }
+            if let Some(lfs_default) = repo.config_snapshot().string("remote.lfspushdefault") {
+                return Self::RemoteLfsPushDefault {
+                    remote_name: lfs_default.into_owned(),
+                };
+            }
+            if let Some(lfs_default) = repo.config_snapshot().string("remote.pushDefault") {
+                return Self::RemotePushDefault {
+                    remote_name: lfs_default.into_owned(),
+                };
+            }
+            // No push-specific remote found, fall back to default (fetch) remote.
+        }
+        // For some reason, Git LFS only checks this option for empty string.
+        if let Some(current_short_branch) = current_short_branch
+            && let Some(branch_remote) = repo
+                .config_snapshot()
+                .string(format!("branch.{current_short_branch}.remote"))
+            && !branch_remote.as_bstr().is_empty()
+        {
+            return Self::TrackedRemoteBranch {
+                current_short_branch,
+                remote_name: branch_remote.into_owned(),
+            };
+        }
+        if let Some(lfs_default) = repo.config_snapshot().string("remote.lfsdefault") {
+            return Self::RemoteLfsDefault {
+                remote_name: lfs_default.into_owned(),
+            };
+        }
+        if let Some((remote,)) = repo.remote_names().iter().collect_tuple() {
+            return Self::SingletonRemote {
+                remote_name: remote.as_bstr().to_owned(),
+            };
+        }
+        Self::DefaultRemote
+    }
+
+    /// Get the Git remote name.
+    pub fn remote_name(&self) -> &BStr {
+        match self {
+            Self::TrackedPushRemoteBranch { remote_name, .. }
+            | Self::RemoteLfsPushDefault { remote_name }
+            | Self::RemotePushDefault { remote_name }
+            | Self::TrackedRemoteBranch { remote_name, .. }
+            | Self::RemoteLfsDefault { remote_name }
+            | Self::SingletonRemote { remote_name } => remote_name.as_bstr(),
+            Self::DefaultRemote => BStr::new("origin"),
+        }
+    }
+
+    /// Override the remote in a Git LFS subprocess. Adds `-c` arguments to a
+    /// `git` command.
+    pub fn override_remote_in_lfs_command(&self, cmd: &mut Command, wanted_remote: &str) {
+        match self {
+            Self::TrackedPushRemoteBranch {
+                current_short_branch,
+                ..
+            } => {
+                cmd.arg("-c");
+                cmd.arg(format!(
+                    "branch.{current_short_branch}.pushRemote={wanted_remote}"
+                ));
+            }
+            Self::RemoteLfsPushDefault { .. } | Self::RemotePushDefault { .. } => {
+                cmd.arg("-c");
+                cmd.arg(format!("remote.lfspushdefault={wanted_remote}"));
+            }
+            Self::TrackedRemoteBranch {
+                current_short_branch,
+                ..
+            } => {
+                cmd.arg("-c");
+                cmd.arg(format!(
+                    "branch.{current_short_branch}.remote={wanted_remote}"
+                ));
+            }
+            Self::RemoteLfsDefault { .. } | Self::SingletonRemote { .. } | Self::DefaultRemote => {
+                cmd.arg("-c");
+                cmd.arg(format!("remote.lfsdefault={wanted_remote}"));
+            }
+        }
+    }
+}
+
+/// Find out which repository `path` belongs to and call `git lfs smudge` within
+/// that context.
+pub fn run_lfs_smudge(configured_repo: &ConfiguredTopRepo, path: &Path) -> Result<()> {
+    let lfs_remote =
+        LfsRemote::from_repo_log_errors(&configured_repo.gix_repo, gix::remote::Direction::Fetch);
+    let top_remote = configured_repo
+        .gix_repo
+        .find_remote(lfs_remote.remote_name())
+        .with_context(|| {
+            format!(
+                "Remote {} not found",
+                lfs_remote.remote_name().to_str_lossy()
+            )
+        })?;
+    let top_fetch_url = top_remote
+        .url(gix::remote::Direction::Fetch)
+        .with_context(|| {
+            format!(
+                "Missing fetch URL for remote {}",
+                lfs_remote.remote_name().to_str_lossy()
+            )
+        })?;
+    let worktree = configured_repo
+        .gix_repo
+        .workdir()
+        .context("Missing worktree")?;
+    let location = FileLocationAndUrl::resolve_in_worktree(
+        worktree,
+        GitPath::from(path.as_os_str().as_encoded_bytes()),
+        top_fetch_url,
+        &configured_repo.config.subrepos,
+        gix::remote::Direction::Fetch,
+    )?;
+    let mut cmd = git_command(worktree);
+    // Override the current tracking branch so that Git LFS contacts the correct
+    // server.
+    lfs_remote.override_remote_in_lfs_command(&mut cmd, &location.url.to_string());
+    cmd.args(["lfs", "smudge"])
+        .arg(path)
+        .trace_command(crate::command_span!("git lfs smudge"))
+        .safe_status()?
+        .check_success()
+        .with_context(|| format!("Failed to run 'git lfs smudge {}'", path.display()))?;
+    Ok(())
+}
+
+pub fn run_lfs_smudge_skip(repo: &Path, path: &Path) -> Result<()> {
     git_command(repo)
         .args(["lfs", "smudge"])
         .arg("--skip")
@@ -590,6 +780,8 @@ pub fn run_lfs_clean(repo: &Path, path: Option<&Path>) -> Result<()> {
 }
 
 pub fn run_lfs_filter_process(repo: &Path) -> Result<()> {
+    // Implement the https://git-scm.com/docs/gitattributes#_long_running_filter_process.
+    // command=smudge and command=clean
     git_command(repo)
         .args(["lfs", "filter-process"])
         .arg("--skip")

@@ -378,6 +378,27 @@ impl FileLocationAndUrl {
     /// Resolves which repository a file belongs to. Note that the URL might not be
     /// part of the Git Toprepo configuration, so `top_url` is used as base when
     /// resolving the destinations.
+    pub(crate) fn resolve_in_worktree(
+        worktree: &Path,
+        path: GitPath,
+        top_url: &gix::Url,
+        subrepo_configs: &crate::config::SubRepoConfigs,
+        direction: gix::remote::Direction,
+    ) -> Result<FileLocationAndUrl> {
+        let read_repo_file = |p: GitPath| {
+            let file_path = worktree.join(p.to_path()?);
+            match std::fs::read(&file_path) {
+                Ok(data) => Ok(Some(data)),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(err) => Err(err).context(format!("Failed to read {p:#}")),
+            }
+        };
+        Self::resolve(read_repo_file, path, top_url, subrepo_configs, direction)
+    }
+
+    /// Resolves which repository a file belongs to. Note that the URL might not be
+    /// part of the Git Toprepo configuration, so `top_url` is used as base when
+    /// resolving the destinations.
     fn resolve(
         read_repo_file: impl Fn(GitPath) -> Result<Option<Vec<u8>>>,
         path: GitPath,
