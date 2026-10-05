@@ -27,6 +27,7 @@ mod worktree;
 
 #[cfg(test)]
 mod main {
+    use bstr::ByteSlice as _;
     use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
     use git_toprepo_testtools::test_util::git_command_for_testing;
     use predicates::prelude::*;
@@ -105,22 +106,92 @@ mod main {
             .stderr(expected_stderr.clone());
     }
 
+    /// Verify sensible help text.
+    #[test]
+    fn help_text() {
+        let cmd = cargo_bin_git_toprepo_for_testing()
+            .arg("help")
+            .assert()
+            .success()
+            .stderr("");
+        insta::assert_snapshot!(
+            cmd.get_output().stdout.to_str().unwrap(),
+            @"
+        Git Toprepo - git-submodules made easy with a client-side monorepo
+
+        Git Toprepo combines submodules into a common history, similar to Git Subtree, and lets you work
+        with an emulated monorepo locally while keeping the original submodule structure on the remote
+        server.
+
+        Usage: git-toprepo [OPTIONS] <COMMAND>
+
+        Commands:
+          git        Ignored word to simplify pasting copied commands into e.g. `git toprepo git fetch ...`
+          init       Initialize a repository and the git-config, without fetching from the remote
+          clone      Initialize a repository and fetch from the remote
+          config     Manage the Git Toprepo configuration
+          recombine  Rerun the history combination and submodule content expansion
+          fetch      Fetch commits from the top repository and expand submodules
+          push       Push commits to the respective remotes of each filtered submodule
+          info       Show information about Git Toprepo in the current repository
+          dump       Experimental feature: dump internal states to stdout. Do not script against these
+          version    Print the version of the Git Toprepo tool
+          help       Print this message or the help of the given subcommand(s)
+
+        Options:
+          -C <PATH>   Run as if started in <PATH>
+          -h, --help  Print help
+
+        Global options:
+          -v...                    Increase log verbosity with -v or -vv, or ...
+              --verbosity <LEVEL>  ... set the log level error, warn, info, debug or trace [default: info]
+          -q, --quiet              Hide all diagnostic and logging output apart from errors
+              --no-progress        Hide progress bars
+        "
+        );
+    }
+
+    /// Verify sensible help text in subcommands.
+    #[test]
+    fn help_text_in_subcommand() {
+        let cmd = cargo_bin_git_toprepo_for_testing()
+            .args(["info", "-h"])
+            .assert()
+            .success()
+            .stderr("");
+        insta::assert_snapshot!(
+            cmd.get_output().stdout.to_str().unwrap(),
+            @"
+        Show information about Git Toprepo in the current repository
+
+        Usage: git-toprepo info [OPTIONS] [VALUE]
+
+        Arguments:
+          [VALUE]  [possible values: config-location, current-worktree, git-dir, import-cache,
+                   main-worktree, version]
+
+        Options:
+              --is-emulated-monorepo  Exit with code 3 if the repository is not initialized by Git Toprepo
+          -h, --help                  Print help (see more with '--help')
+
+        Global options:
+          -v...                    Increase log verbosity with -v or -vv, or ...
+              --verbosity <LEVEL>  ... set the log level error, warn, info, debug or trace [default: info]
+          -q, --quiet              Hide all diagnostic and logging output apart from errors
+              --no-progress        Hide progress bars
+        "
+        );
+    }
+
     /// Verify the verbosity options ordering.
     #[test]
-    fn verbosity_help_text() {
+    fn verbosity_options_order() {
         cargo_bin_git_toprepo_for_testing()
             .arg("help")
             .assert()
             .success()
             .stdout(predicate::str::contains(
                 r#"
-  help       Print this message or the help of the given subcommand(s)
-
-Options:
-  -C <PATH>   Run as if started in <PATH>
-  -h, --help  Print help
-
-Global options:
   -v...                    Increase log verbosity with -v or -vv, or ...
       --verbosity <LEVEL>  ... set the log level error, warn, info, debug or trace [default: info]
   -q, --quiet              Hide all diagnostic and logging output apart from errors
@@ -132,18 +203,13 @@ Global options:
 
     /// Verify the verbosity options ordering.
     #[test]
-    fn verbosity_help_text_in_subcommand() {
+    fn verbosity_options_order_in_subcommand() {
         cargo_bin_git_toprepo_for_testing()
             .args(["info", "-h"])
             .assert()
             .success()
             .stdout(predicate::str::contains(
                 r#"
-Options:
-      --is-emulated-monorepo  Exit with code 3 if the repository is not initialized by Git Toprepo
-  -h, --help                  Print help (see more with '--help')
-
-Global options:
   -v...                    Increase log verbosity with -v or -vv, or ...
       --verbosity <LEVEL>  ... set the log level error, warn, info, debug or trace [default: info]
   -q, --quiet              Hide all diagnostic and logging output apart from errors
