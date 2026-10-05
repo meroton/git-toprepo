@@ -6,6 +6,7 @@ use git_toprepo_testtools::test_util::git_command_for_testing;
 use git_toprepo_testtools::test_util::prepend_path_env;
 use itertools::Itertools as _;
 use predicates::prelude::*;
+use sha2::Digest as _;
 use std::fs::read_to_string;
 use std::io::Read as _;
 use std::io::Write as _;
@@ -37,7 +38,7 @@ impl RepoWithInnerSubmodule {
     }
 }
 
-fn make_fake_git_lfs(dir: &Path, version_exit: i32) -> std::path::PathBuf {
+fn make_fake_git_lfs(dir: &Path, version_exit: i32) -> PathBuf {
     let path = dir.join("git-lfs");
     let script = format!(
         r#"#!/bin/sh
@@ -519,7 +520,70 @@ fn read_http_request(stream: &mut std::net::TcpStream) -> (String, Vec<u8>) {
 }
 
 #[test]
-fn end_to_end_lfs_fetch() {
+fn end_to_end_lfs_fetch_checkout() {
+    end_to_end_lfs_skip_smudge_helper(
+        |monorepo: &Path| {
+            cargo_bin_git_toprepo_for_testing()
+                .current_dir(monorepo)
+                .args(["lfs", "fetch", "-I", "subpathx/large-file.txt"])
+                // .env("GIT_CURL_VERBOSE", "1")
+                .timeout(Duration::from_secs(2))
+                .assert()
+                .success()
+                .stdout("")
+                .stderr("");
+        },
+        // Git LFS checkout function.
+        |monorepo: &Path| {
+            cargo_bin_git_toprepo_for_testing()
+                .current_dir(monorepo)
+                .args(["lfs", "checkout", "subpathx/large-file.txt"])
+                .assert()
+                .success()
+                .stdout("Checking out LFS objects: 100% (1/1), 11 B | 0 B/s, done.\n")
+                .stderr("");
+            let lf_path_x = monorepo.join("subpathx/large-file.txt");
+            assert_eq!(&read_to_string(&lf_path_x).unwrap(), "large-repox");
+        },
+    );
+}
+
+#[test]
+fn end_to_end_lfs_pull() {
+    end_to_end_lfs_skip_smudge_helper(
+        // Git LFS fetch function.
+        |monorepo: &Path| {
+            cargo_bin_git_toprepo_for_testing()
+                .current_dir(monorepo)
+                .args(["lfs", "pull", "-I", "subpathx/large-file.txt"])
+                // .env("GIT_CURL_VERBOSE", "1")
+                .timeout(Duration::from_secs(2))
+                .assert()
+                .success()
+                .stdout("Checking out LFS objects: 100% (15/15), 62 B | 0 B/s, done.\n")
+                .stderr(r#"Skipped checkout for "large-file.txt", content not local. Use fetch to download.
+Skipped checkout for "small-file.txt", content not local. Use fetch to download.
+Skipped checkout for "subpathx/small-file.txt", content not local. Use fetch to download.
+Skipped checkout for "subpathx/subpathy/large-file.txt", content not local. Use fetch to download.
+Skipped checkout for "subpathx/subpathy/small-file.txt", content not local. Use fetch to download.
+"#);
+        },
+        // Git LFS checkout function.
+        |monorepo: &Path| {
+            let lf_path_root = monorepo.join("large-file.txt");
+            let lf_path_x = monorepo.join("subpathx/large-file.txt");
+            let lf_path_y = monorepo.join("subpathx/subpathy/large-file.txt");
+            assert_eq!(&read_to_string(&lf_path_root).unwrap()[..8], "version ");
+            assert_eq!(&read_to_string(&lf_path_x).unwrap(), "large-repox");
+            assert_eq!(&read_to_string(&lf_path_y).unwrap()[..8], "version ");
+        },
+    );
+}
+
+fn end_to_end_lfs_skip_smudge_helper(
+    lfs_fetch_fn: impl Fn(&Path),
+    lfs_checkout_fn: impl Fn(&Path),
+) {
     let listener = std::net::TcpListener::bind("localhost:0").unwrap();
     let fake_lfs_server_port = listener.local_addr().unwrap().port();
 
@@ -542,21 +606,14 @@ fn end_to_end_lfs_fetch() {
     git_command_for_testing(monorepo)
         .args([
             "config",
-            "remote.origin.lfsurl",
-            &format!("http://localhost:{fake_lfs_server_port}/lfs/server"),
+            "remote.origin.url",
+            &format!("http://localhost:{fake_lfs_server_port}/git/server"),
         ])
         .assert()
         .success();
 
     // Try checking out subpathx/large-file.txt only.
-    // let large_repox_blob_path = monorepo.join(format!(
-    //     ".git/lfs/objects/{}/{}/{}",
-    //     &large_repox_digest[0..2],
-    //     &large_repox_digest[2..4],
-    //     large_repox_digest
-    // ));
-    // std::fs::create_dir_all(large_repox_blob_path.parent().unwrap()).unwrap();
-    // std::fs::write(&large_repox_blob_path, LARGE_REPOX_CONTENT).unwrap();
+    let large_repox_digest = hex::encode(sha2::Sha256::digest(b"large-repox"));
 
     // Remove all files, install filters and checkout again to see that smudge
     // works without trying to download LFS objects.
@@ -587,22 +644,20 @@ fn end_to_end_lfs_fetch() {
     let lfs_server_stub_thread = std::thread::spawn(move || {
         let (mut stream, method, path, _header, body) = accept_http_request(&listener);
         assert_eq!(method, "POST");
-        assert_eq!(path, "/lfs/server/objects/batch");
+        // URL resolution of /git/server/../repox.git
+        assert_eq!(path, "/git/repox.git/info/lfs/objects/batch");
         let req = serde_json::from_slice::<LfsBatchRequest>(body.as_bytes()).unwrap();
         assert_eq!(req.operation, "download");
         assert_eq!(req.hash_algo, "sha256");
         assert_eq!(req.objects.len(), 1);
-        assert_eq!(
-            req.objects[0].oid,
-            "e57e978806e4bedff84516106da5aa4819ca3b4230b9736fc299847e7c394239"
-        );
+        assert_eq!(req.objects[0].oid, large_repox_digest);
         assert_eq!(req.objects[0].size, 11);
         let response_content = format!(
             r#"{{
   "transfer": "basic",
   "objects": [
     {{
-      "oid": "e57e978806e4bedff84516106da5aa4819ca3b4230b9736fc299847e7c394239",
+      "oid": "{large_repox_digest}",
       "size": 11,
       "authenticated": false,
       "actions": {{ "download": {{ "href": "http://localhost:{}/blobs/e57" }} }}
@@ -647,27 +702,12 @@ large-repox"#
         drop(stream);
         lfs_server_done_tx.send(()).unwrap();
     });
-
-    cargo_bin_git_toprepo_for_testing()
-        .current_dir(monorepo)
-        .args(["lfs", "fetch", "-I", "subpathx/large-file.txt"])
-        // .env("GIT_CURL_VERBOSE", "1")
-        .timeout(Duration::from_secs(2))
-        .assert()
-        .success()
-        .stdout("")
-        .stderr("");
+    lfs_fetch_fn(monorepo);
 
     lfs_server_done_rx
         .recv_timeout(Duration::from_secs(1))
         .unwrap();
     lfs_server_stub_thread.join().unwrap();
 
-    cargo_bin_git_toprepo_for_testing()
-        .current_dir(monorepo)
-        .args(["lfs", "checkout", "subpathx/large-file.txt"])
-        .assert()
-        .success()
-        .stderr("");
-    assert_eq!(&read_to_string(&lf_path_x).unwrap(), "large-repox");
+    lfs_checkout_fn(monorepo);
 }

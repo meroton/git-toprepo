@@ -207,6 +207,8 @@ pub enum Lfs {
     Fetch(LfsFetch),
     /// Checkout downloaded LFS objects for monorepo paths. Alias for `git lfs checkout`.
     Checkout(LfsCheckout),
+    /// Fetch LFS objects for monorepo paths from the remote and checkout them.
+    Pull(LfsFetch),
 
     /// Convert a LFS reference on stdin to the actual file content on stdout.
     Smudge(LfsSmudge),

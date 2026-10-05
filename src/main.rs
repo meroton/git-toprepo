@@ -791,46 +791,17 @@ fn lfs_main(
     logger: Option<&git_toprepo::log::GlobalLogger>,
 ) -> Result<ExitCode> {
     match lfs_args {
-        cli::Lfs::Fetch(fetch_args) => run_session(logger, |configured: &mut ConfiguredTopRepo| {
-            let worktree = configured
-                .gix_repo
-                .workdir()
-                .context("Worktree missing in git repository")?;
-            lfs::ensure_git_lfs_available(worktree)?;
-            let include_filters = fetch_args.get_include_patterns(worktree)?;
-            let exclude_filters = fetch_args.get_exclude_patterns(worktree)?;
-            let remote = match &fetch_args.remote {
-                Some(remote) => git_toprepo::git::resolve_remote_url(
-                    &configured.gix_repo,
-                    remote,
-                    gix::remote::Direction::Fetch,
-                )?,
-                None => git_toprepo::git::get_default_remote_url(
-                    &configured.gix_repo,
-                    gix::remote::Direction::Fetch,
-                )?,
-            };
-            git_toprepo::log::get_global_logger().with_progress(|progress| {
-                ErrorObserver::run_keep_going(fetch_args.keep_going, |error_observer| {
-                    lfs::run_lfs_fetch(
-                        configured,
-                        lfs::FetchArgs {
-                            include_patterns: include_filters,
-                            exclude_patterns: exclude_filters,
-                            options: fetch_args.lfs_fetch_options.clone(),
-                            remote,
-                            refs: fetch_args.refs.clone(),
-                        },
-                        &threadpool::ThreadPool::new(fetch_args.job_count.get().into()),
-                        error_observer,
-                        &progress,
-                    )?;
-                    Ok(ExitCode::SUCCESS)
-                })
-            })
-        }),
+        cli::Lfs::Fetch(fetch_args) => lfs_main_fetch(fetch_args, logger),
         cli::Lfs::Checkout(checkout_args) => {
             lfs::run_lfs_checkout(Path::new("."), &checkout_args.args)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        cli::Lfs::Pull(pull_args) => {
+            let fetch_exit_code = lfs_main_fetch(pull_args, logger)?;
+            if fetch_exit_code != ExitCode::SUCCESS {
+                return Ok(fetch_exit_code);
+            }
+            lfs::run_lfs_checkout(Path::new("."), &[])?;
             Ok(ExitCode::SUCCESS)
         }
         cli::Lfs::Smudge(smudge_args) => {
@@ -860,6 +831,50 @@ fn lfs_main(
             );
         }
     }
+}
+
+fn lfs_main_fetch(
+    fetch_args: &cli::LfsFetch,
+    logger: Option<&git_toprepo::log::GlobalLogger>,
+) -> Result<ExitCode> {
+    run_session(logger, |configured: &mut ConfiguredTopRepo| {
+        let worktree = configured
+            .gix_repo
+            .workdir()
+            .context("Worktree missing in git repository")?;
+        lfs::ensure_git_lfs_available(worktree)?;
+        let include_filters = fetch_args.get_include_patterns(worktree)?;
+        let exclude_filters = fetch_args.get_exclude_patterns(worktree)?;
+        let remote = match &fetch_args.remote {
+            Some(remote) => git_toprepo::git::resolve_remote_url(
+                &configured.gix_repo,
+                remote,
+                gix::remote::Direction::Fetch,
+            )?,
+            None => git_toprepo::git::get_default_remote_url(
+                &configured.gix_repo,
+                gix::remote::Direction::Fetch,
+            )?,
+        };
+        git_toprepo::log::get_global_logger().with_progress(|progress| {
+            ErrorObserver::run_keep_going(fetch_args.keep_going, |error_observer| {
+                lfs::run_lfs_fetch(
+                    configured,
+                    lfs::FetchArgs {
+                        include_patterns: include_filters,
+                        exclude_patterns: exclude_filters,
+                        options: fetch_args.lfs_fetch_options.clone(),
+                        remote,
+                        refs: fetch_args.refs.clone(),
+                    },
+                    &threadpool::ThreadPool::new(fetch_args.job_count.get().into()),
+                    error_observer,
+                    &progress,
+                )?;
+                Ok(ExitCode::SUCCESS)
+            })
+        })
+    })
 }
 
 #[tracing::instrument]
