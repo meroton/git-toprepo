@@ -341,7 +341,7 @@ where
 
 /// Creates a new file, writes the content and sets the executable bit of the
 /// output file. Overwrites any existing file.
-pub fn write_executable<P, C>(path: P, contents: C) -> Result<()>
+pub fn overwrite_executable<P, C>(path: P, contents: C) -> Result<()>
 where
     P: AsRef<Path>,
     C: AsRef<[u8]>,

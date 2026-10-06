@@ -8,22 +8,23 @@ use bstr::ByteSlice as _;
 use std::path::Path;
 use std::path::PathBuf;
 
-const PRE_PUSH_HOOK_NAME: &str = "pre-push";
-const PRE_PUSH_BASE_HOOK_CONTENT: &str = r#"#!/bin/sh
-set -eu
-/bin/sh "$0.toprepo" "$@" < /dev/null
-"#;
-const PRE_PUSH_TOPREPO_HOOK_CONTENT: &str = r#"#!/bin/sh
-set -eu
-# This is an optional hook to improve the error message when running 'git push' instead of 'git toprepo push'.
-if test "${GIT_TOPREPO_ALLOW_PUSH:-0}" != "1"; then
-    echo "ERROR: Please use 'git toprepo push' instead of 'git push'.
+const TOPREPO_HOOKS: [(&str, &str); 2] = [
+    ("pre-push.toprepo", include_str!("hooks/pre-push.toprepo")),
+    ("pre-push", include_str!("hooks/pre-push")),
+];
+// Currently, there is no "expected content" for the LFS hooks. This simply asks
+// the user to remove the hooks manually or use `--force`.
+const ADDITIONAL_LFS_HOOKS: [(&str, &[&str]); 3] = [
+    ("post-checkout", &[]),
+    ("post-commit", &[]),
+    ("post-merge", &[]),
+];
 
-If you really want to push without Git Toprepo, use 'git push --no-verify' or 'export GIT_TOPREPO_ALLOW_PUSH=1'." >&2
-    exit 1
-fi
-"#;
-
+/// Writes `content` as an executable file. If the file already exists, it will
+/// only be overwritten if the content matches one of the acceptable contents or
+/// if the `force` flag is set.
+///
+/// Returns a human readable message about the action taken.
 fn write_hook(
     path: &Path,
     content: &str,
@@ -46,7 +47,7 @@ fn write_hook(
     }
     // Write or overwrite.
     if allow_overwrite {
-        crate::util::write_executable(path, content)
+        crate::util::overwrite_executable(path, content)
             .with_context(|| format!("Failed to write {}", path.display()))?;
     } else {
         crate::util::create_executable(path, content)
@@ -93,8 +94,10 @@ fn get_hooks_root_path(repo: &Path) -> Result<PathBuf> {
 }
 
 /// Writes `.git/hooks/*` scripts. Returns `Ok(true)` if successful and
-/// `Ok(false)` if partially successful. The progress is logged, both what files
-/// are written and potential errors.
+/// `Ok(false)` if partially successful, i.e. only some of the hooks could be
+/// installed.
+///
+/// The progress is logged, both what files are written and potential errors.
 pub fn install(repo: &Path, force: bool) -> Result<bool> {
     let hooks_root_path = get_hooks_root_path(repo)?;
 
@@ -107,20 +110,11 @@ pub fn install(repo: &Path, force: bool) -> Result<bool> {
         }
     };
 
-    handle_result(write_hook(
-        &hooks_root_path.join(format!("{PRE_PUSH_HOOK_NAME}.toprepo")),
-        PRE_PUSH_TOPREPO_HOOK_CONTENT,
-        &[],
-        force,
-    ));
-    handle_result(write_hook(
-        &hooks_root_path.join(PRE_PUSH_HOOK_NAME),
-        PRE_PUSH_BASE_HOOK_CONTENT,
-        &[],
-        force,
-    ));
-    for name in &["post-checkout", "post-commit", "post-merge"] {
-        match remove_hook(&hooks_root_path.join(name), &[], force) {
+    for (name, content) in TOPREPO_HOOKS {
+        handle_result(write_hook(&hooks_root_path.join(name), content, &[], force));
+    }
+    for (name, expected_content) in ADDITIONAL_LFS_HOOKS {
+        match remove_hook(&hooks_root_path.join(name), expected_content, force) {
             Ok(None) => {}
             Ok(Some(msg)) => handle_result(Ok(msg)),
             Err(err) => handle_result(Err(err)),

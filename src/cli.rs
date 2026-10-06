@@ -329,10 +329,6 @@ impl std::fmt::Display for InfoValue {
     }
 }
 
-/// Experimental feature: dump internal states to stdout.
-/// Do not script against these.
-// If you want to use these in your own tools and pipeline please file a feature
-// request issue so we can guarantee a stable API for your use-case.
 #[derive(Subcommand, Debug)]
 pub enum GitHooks {
     /// Install the git-hooks for Git Toprepo.
