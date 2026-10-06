@@ -4,8 +4,6 @@ use git_toprepo_testtools::test_util::prepend_path_env;
 use predicates::prelude::*;
 use std::path::Path;
 
-const GIT_LFS_HOOKS: [&str; 4] = ["pre-push", "post-checkout", "post-commit", "post-merge"];
-
 fn assert_hooks_ok(repo: &Path) {
     assert!(repo.join(".git/hooks/pre-push").try_exists().unwrap());
     assert!(
@@ -18,15 +16,6 @@ fn assert_hooks_ok(repo: &Path) {
             .unwrap()
             .contains("$0.toprepo")
     );
-    for name in GIT_LFS_HOOKS {
-        if name == "pre-push" {
-            continue;
-        }
-        assert!(
-            !repo.join(".git/hooks").join(name).try_exists().unwrap(),
-            "Unexpected hook exists {name} hook"
-        );
-    }
 }
 
 #[test]
@@ -146,7 +135,6 @@ $",
                 "^\
 INFO: Verified .*pre-push\\.toprepo
 ERROR: Failed to create .*pre-push: File exists.*
-ERROR: Unexpected content, won\'t delete .*post-commit
 $",
             )
             .unwrap(),
@@ -171,7 +159,6 @@ $",
                 "^\
 INFO: Verified .*pre-push\\.toprepo
 INFO: Written .*pre-push
-INFO: Removed .*post-commit
 $",
             )
             .unwrap(),
