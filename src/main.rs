@@ -11,6 +11,8 @@ use colored::Colorize;
 use git_toprepo::config::ConfigLocation;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::git::GitModulesInfo;
+use git_toprepo::hooks;
+use git_toprepo::lfs;
 use git_toprepo::log::CommandSpanExt as _;
 use git_toprepo::log::ErrorMode;
 use git_toprepo::log::ErrorObserver;
@@ -327,6 +329,7 @@ fn recombine(
 
 #[tracing::instrument(skip(configured_repo))]
 fn fetch(fetch_args: &cli::Fetch, configured_repo: &mut ConfiguredTopRepo) -> Result<()> {
+    hooks::warn_if_lfs_filters_bypass_toprepo(&configured_repo.gix_repo, true)?;
     if let Some(refspecs) = &fetch_args.refspecs {
         let resolved_args = cli::resolve_remote_and_path(
             fetch_args,
@@ -738,6 +741,58 @@ fn push(push_args: &cli::Push, configured_repo: &mut ConfiguredTopRepo) -> Resul
     })
 }
 
+#[tracing::instrument(skip(logger))]
+fn lfs_main(
+    lfs_args: &cli::Lfs,
+    logger: Option<&git_toprepo::log::GlobalLogger>,
+) -> Result<ExitCode> {
+    match lfs_args {
+        cli::Lfs::Install => {
+            anyhow::bail!(
+                "The `lfs install` command is unavailable; use `git toprepo hooks install --git-lfs` instead."
+            );
+        }
+        cli::Lfs::Fetch(fetch_args) => run_session(logger, |configured: &mut ConfiguredTopRepo| {
+            let worktree = configured
+                .gix_repo
+                .workdir()
+                .context("Worktree missing in git repository")?;
+            lfs::ensure_git_lfs_available(worktree)?;
+            let include_filters = fetch_args.get_include_patterns(worktree)?;
+            let exclude_filters = fetch_args.get_exclude_patterns(worktree)?;
+            let remote = match &fetch_args.remote {
+                Some(remote) => git_toprepo::git::resolve_remote_url(
+                    &configured.gix_repo,
+                    remote,
+                    gix::remote::Direction::Fetch,
+                )?,
+                None => git_toprepo::git::get_default_remote_url(
+                    &configured.gix_repo,
+                    gix::remote::Direction::Fetch,
+                )?,
+            };
+            git_toprepo::log::get_global_logger().with_progress(|progress| {
+                ErrorObserver::run_keep_going(fetch_args.keep_going, |error_observer| {
+                    lfs::run_lfs_fetch(
+                        configured,
+                        lfs::FetchArgs {
+                            include_patterns: include_filters,
+                            exclude_patterns: exclude_filters,
+                            options: fetch_args.lfs_fetch_options.clone(),
+                            remote,
+                            refs: fetch_args.refs.clone(),
+                        },
+                        &threadpool::ThreadPool::new(fetch_args.job_count.get().into()),
+                        error_observer,
+                        &progress,
+                    )?;
+                    Ok(ExitCode::SUCCESS)
+                })
+            })
+        }),
+    }
+}
+
 #[tracing::instrument]
 fn print_info(info_args: &cli::Info) -> Result<ExitCode> {
     let repo = gix_discover_current_dir()?;
@@ -804,6 +859,31 @@ fn print_info(info_args: &cli::Info) -> Result<ExitCode> {
             }
         }
         Ok(ExitCode::SUCCESS)
+    }
+}
+
+#[tracing::instrument]
+fn git_hooks(git_hooks_args: &cli::GitHooks) -> Result<ExitCode> {
+    match git_hooks_args {
+        cli::GitHooks::Install(args) => {
+            let repo = std::env::current_dir()?;
+            let success = if args.git_lfs {
+                git_toprepo::hooks::install_with_git_lfs(
+                    &repo,
+                    args.force,
+                    args.git_lfs_skip_smudge,
+                )
+            } else {
+                let success = git_toprepo::hooks::install_without_git_lfs(&repo, args.force);
+                git_toprepo::hooks::maybe_show_lfs_installation_instruction(&repo);
+                success
+            };
+            if success? {
+                Ok(ExitCode::SUCCESS)
+            } else {
+                Ok(ExitCode::FAILURE)
+            }
+        }
     }
 }
 
@@ -997,6 +1077,7 @@ where
             Ok(ExitCode::SUCCESS)
         }
         Commands::Config(config_args) => config(config_args).map(|()| ExitCode::SUCCESS),
+        Commands::Hooks(git_hooks_args) => git_hooks(git_hooks_args),
         Commands::Dump(dump_args) => dump(dump_args).map(|()| ExitCode::SUCCESS),
         Commands::Clone(clone_args) => {
             // Two-stage initialization: init + clone_after_init
@@ -1020,6 +1101,7 @@ where
             run_session(logger, |configured| fetch(fetch_args, configured))
                 .map(|()| ExitCode::SUCCESS)
         }
+        Commands::Lfs(lfs_args) => lfs_main(lfs_args, logger),
         Commands::Push(push_args) => run_session(logger, |configured| push(push_args, configured))
             .map(|()| ExitCode::SUCCESS),
 

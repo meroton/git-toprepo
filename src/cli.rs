@@ -187,12 +187,101 @@ pub enum Commands {
 
     /// Show information about Git Toprepo in the current repository.
     Info(Info),
+    /// Manage git-hooks used by Git Toprepo.
+    #[command(subcommand)]
+    Hooks(GitHooks),
     #[command(subcommand)]
     Dump(Dump),
 
     /// Print the version of the Git Toprepo tool.
     #[command(aliases = ["-V", "--version"])]
     Version,
+    /// Git LFS helpers for emulated monorepos.
+    #[command(subcommand)]
+    Lfs(Lfs),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Lfs {
+    /// Fetch LFS objects for monorepo paths.
+    Fetch(LfsFetch),
+
+    /// Unavailable; use `git toprepo hooks install --git-lfs` to install hooks and filters.
+    Install,
+}
+
+#[derive(Args, Debug)]
+pub struct LfsFetch {
+    /// Include paths for this invocation, comma separated. Empty matches all
+    /// files, defaults to the git-config `lfs.fetchinclude`.
+    // Using `Option<String>` instead of `Vec<String>` with `value_delimiter =
+    // ','` because Git LFS doesn't accept multiple include arguments.
+    #[arg(long, short = 'I', value_name = "PATHS")]
+    pub include: Option<String>,
+
+    /// Exclude paths for this invocation, comma separated. Empty matches no
+    /// files, defaults to the git-config `lfs.fetchexclude`.
+    // Using `Option<String>` instead of `Vec<String>` with `value_delimiter =
+    // ','` because Git LFS doesn't accept multiple exclude arguments.
+    #[arg(long = "exclude", short = 'X', value_name = "PATHS")]
+    pub exclude: Option<String>,
+
+    #[clap(flatten)]
+    pub lfs_fetch_options: git_toprepo::lfs::FetchOptions,
+
+    /// Continue as much as possible after an error.
+    #[arg(long)]
+    pub keep_going: bool,
+
+    /// Number of concurrent `git lfs fetch` processes to run.
+    #[arg(long("jobs"), value_name = "N", default_value = "7")]
+    pub job_count: std::num::NonZero<u16>,
+
+    /// Without arguments, fetch downloads from the default remote. The default
+    /// remote is the same as for git fetch, i.e. based on the remote branch
+    /// you’re tracking first, or origin otherwise.
+    #[arg(value_name = "remote")]
+    pub remote: Option<String>,
+
+    /// Refs to consider or the currently checked out ref by default.
+    #[arg(value_name = "ref")]
+    pub refs: Vec<String>,
+}
+
+impl LfsFetch {
+    pub fn get_include_patterns(&self, worktree: &Path) -> Result<Vec<String>> {
+        Self::get_filter_patterns(worktree, self.include.as_deref(), "lfs.fetchinclude")
+    }
+
+    pub fn get_exclude_patterns(&self, worktree: &Path) -> Result<Vec<String>> {
+        Self::get_filter_patterns(worktree, self.exclude.as_deref(), "lfs.fetchexclude")
+    }
+
+    fn get_filter_patterns(
+        worktree: &Path,
+        comma_separated_pattern: Option<&str>,
+        git_config_fallback_key: &str,
+    ) -> Result<Vec<String>> {
+        Ok(
+            if let Some(comma_separated_pattern) = comma_separated_pattern {
+                comma_separated_pattern
+                    .split(',')
+                    .map(str::to_owned)
+                    .collect()
+            } else {
+                // Empirical test of
+                // `GIT_CURL_VERBOSE=1 git -c lfs.fetchinclude= -c lfs.fetchinclude=/tests lfs fetch`
+                // shows that only the last value is used. Also note that the
+                // comma cannot be escaped for Git LFS.
+                git_toprepo::git::git_config_get_all(worktree, git_config_fallback_key)?
+                    .last()
+                    .map_or_default(String::as_str)
+                    .split(',')
+                    .map(str::to_owned)
+                    .collect()
+            },
+        )
+    }
 }
 
 #[derive(Args, Debug)]
@@ -324,6 +413,33 @@ impl std::fmt::Display for InfoValue {
         };
         write!(f, "{s}")
     }
+}
+
+/// Experimental feature: dump internal states to stdout.
+/// Do not script against these.
+// If you want to use these in your own tools and pipeline please file a feature
+// request issue so we can guarantee a stable API for your use-case.
+#[derive(Subcommand, Debug)]
+pub enum GitHooks {
+    /// Install the git-hooks for Git Toprepo.
+    Install(GitHooksInstall),
+}
+
+#[derive(Args, Debug)]
+pub struct GitHooksInstall {
+    /// Overwrite existing files.
+    #[arg(long, short)]
+    pub force: bool,
+
+    /// Install Git LFS hooks as well, the same as `git toprepo lfs install`.
+    #[arg(long)]
+    pub git_lfs: bool,
+
+    /// Skips automatic downloading of objects on clone or pull. This requires a
+    /// manual "git lfs pull" every time a new commit is checked out on your
+    /// repository.
+    #[arg(long, requires = "git_lfs")]
+    pub git_lfs_skip_smudge: bool,
 }
 
 /// Experimental feature: dump internal states to stdout.
