@@ -809,10 +809,10 @@ fn print_info(info_args: &cli::Info) -> Result<ExitCode> {
 
 #[tracing::instrument]
 fn git_hooks(git_hooks_args: &cli::GitHooks) -> Result<ExitCode> {
+    let repo = discover_configured_repo_current_dir()?;
     match git_hooks_args {
         cli::GitHooks::Install(args) => {
-            let repo = std::env::current_dir()?;
-            let success = git_toprepo::hooks::install(&repo, args.force)?;
+            let success = git_toprepo::hooks::install(repo.gix_repo.git_dir(), args.force)?;
             if success {
                 Ok(ExitCode::SUCCESS)
             } else {
