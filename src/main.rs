@@ -831,6 +831,21 @@ fn print_info(info_args: &cli::Info) -> Result<ExitCode> {
 }
 
 #[tracing::instrument]
+fn git_hooks(git_hooks_args: &cli::GitHooks) -> Result<ExitCode> {
+    let repo = discover_configured_repo_current_dir()?;
+    match git_hooks_args {
+        cli::GitHooks::Install(args) => {
+            let success = git_toprepo::hooks::install(repo.gix_repo.git_dir(), args.force)?;
+            if success {
+                Ok(ExitCode::SUCCESS)
+            } else {
+                Ok(ExitCode::FAILURE)
+            }
+        }
+    }
+}
+
+#[tracing::instrument]
 fn dump(dump_args: &cli::Dump) -> Result<()> {
     match dump_args {
         cli::Dump::Cwd => {
@@ -1020,6 +1035,7 @@ where
             Ok(ExitCode::SUCCESS)
         }
         Commands::Config(config_args) => config(config_args).map(|()| ExitCode::SUCCESS),
+        Commands::Hooks(git_hooks_args) => git_hooks(git_hooks_args),
         Commands::Dump(dump_args) => dump(dump_args).map(|()| ExitCode::SUCCESS),
         Commands::Clone(clone_args) => {
             // Two-stage initialization: init + clone_after_init
