@@ -25,14 +25,15 @@ const HOOKS: &[Hook] = &[
 ];
 
 impl Hook {
-    /// Checks if given content is acceptable to overwrite.
+    /// Checks if given content is acceptable to overwrite, basically checking
+    /// if the content had been written by Git Toprepo itself before.
     pub fn content_can_be_overwritten(&self, content: &str) -> bool {
         self.content == content
     }
 
-    /// Writes `content` as an executable file. If the file already exists, it will
-    /// only be overwritten if the content matches one of the acceptable contents or
-    /// if the `force` flag is set.
+    /// Writes `content` as an executable file. If the file already exists, it
+    /// will only be overwritten if the content is deemed safe to overwrite, see
+    /// `content_can_be_overwritten`, or if the `force` flag is set.
     ///
     /// Returns a human readable message about the action taken.
     fn write(&self, hooks_root: &Path, force: bool) -> Result<String> {
