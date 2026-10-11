@@ -13,6 +13,7 @@ use crate::log::InterruptedResult;
 use crate::repo::ConfiguredTopRepo;
 use crate::repo::ExpandedOrRemovedSubmodule;
 use crate::repo::ExpandedSubmodule;
+use crate::repo::ImportCache;
 use crate::repo::MonoRepoCommit;
 use crate::repo::MonoRepoCommitId;
 use crate::repo::MonoRepoParent;
@@ -43,12 +44,13 @@ use std::sync::Mutex;
 /// repository.
 pub fn split_for_push(
     configured_repo: &mut ConfiguredTopRepo,
+    import_cache: &mut ImportCache,
     progress: &indicatif::MultiProgress,
     top_push_url: &gix::Url,
     local_rev_or_ref: &String,
     refspec_topic: Option<String>,
 ) -> Result<Vec<PushData>> {
-    if configured_repo.import_cache.monorepo_commits.is_empty() {
+    if import_cache.monorepo_commits.is_empty() {
         anyhow::bail!("No filtered mono commits exists, please run 'git toprepo recombine' first");
     }
 
@@ -76,13 +78,16 @@ pub fn split_for_push(
         .collect::<std::result::Result<Vec<_>, _>>()
         .with_context(|| "Failed listing refs/remotes/origin/*")?;
 
-    let mut dedup_cache = std::mem::take(&mut configured_repo.import_cache.dedup);
+    let fast_importer_inner =
+        crate::git_fast_export_import::FastImportRepo::new(configured_repo.gix_repo.git_dir())?;
+    let mut dedup_cache = std::mem::take(&mut import_cache.dedup);
     let mut fast_importer = crate::git_fast_export_import_dedup::FastImportRepoDedup::new(
-        crate::git_fast_export_import::FastImportRepo::new(configured_repo.gix_repo.git_dir())?,
+        fast_importer_inner,
         &mut dedup_cache,
     );
     let to_push_metadata = split_for_push_impl(
         configured_repo,
+        import_cache,
         progress,
         &mut fast_importer,
         top_push_url,
@@ -91,14 +96,13 @@ pub fn split_for_push(
     );
     // Make sure to gracefully shutdown the fast-importer before returning.
     fast_importer.wait()?;
-    configured_repo.import_cache.dedup = dedup_cache;
+    import_cache.dedup = dedup_cache;
 
     let mut to_push_metadata = to_push_metadata?;
     if to_push_metadata.is_empty() {
         // Everything exists upstream. Add a dummy entry of the toprepo to
         // actually push something, e.g. if creating a new branch.
-        let top_commit_id = configured_repo
-            .import_cache
+        let top_commit_id = import_cache
             .monorepo_commits
             .get(&MonoRepoCommitId::new(local_rev))
             .and_then(|mono_commit| mono_commit.top_bump)
@@ -191,6 +195,7 @@ fn resolve_push_repo(
 
 fn split_for_push_impl(
     configured_repo: &mut ConfiguredTopRepo,
+    import_cache: &ImportCache,
     progress: &indicatif::MultiProgress,
     fast_importer: &mut crate::git_fast_export_import_dedup::FastImportRepoDedup<'_>,
     top_push_url: &gix::Url,
@@ -205,7 +210,7 @@ fn split_for_push_impl(
         },
     }
 
-    let monorepo_commits = &configured_repo.import_cache.monorepo_commits;
+    let monorepo_commits = &import_cache.monorepo_commits;
 
     let pb = progress.add(
         indicatif::ProgressBar::no_length()
@@ -319,7 +324,7 @@ fn split_for_push_impl(
             } else {
                 // Might be a submodule commit. All subrepos that contain this commit should add it as parent.
                 let mut submod_found = false;
-                for (sub_name, subrepo) in &configured_repo.import_cache.repos {
+                for (sub_name, subrepo) in &import_cache.repos {
                     if subrepo.thin_commits.contains_key(&parent_id) {
                         split_parents.push(SplitParent::OriginalCommit {
                             repo_name: sub_name.clone(),
