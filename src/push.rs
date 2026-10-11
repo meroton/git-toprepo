@@ -1,12 +1,10 @@
 use crate::expander::BumpInfo;
 use crate::git::CommitId;
-use crate::git::GitModulesInfo;
 use crate::git::GitPath;
 use crate::git::git_command;
 use crate::git_fast_export_import::ChangedFile;
 use crate::git_fast_export_import::FastImportCommit;
 use crate::git_fast_export_import::ImportCommitRef;
-use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::log::CommandSpanExt as _;
 use crate::log::InterruptedError;
 use crate::log::InterruptedResult;
@@ -23,7 +21,6 @@ use crate::repo::TopRepoCommitId;
 use crate::repo_name::RepoName;
 use crate::ui::ProgressStatus;
 use crate::ui::ProgressTaskHandle;
-use crate::util::EMPTY_GIX_URL;
 use crate::util::SafeExitStatus;
 use anyhow::Context as _;
 use anyhow::Result;
@@ -124,65 +121,6 @@ pub fn split_for_push(
     Ok(to_push_metadata)
 }
 
-/// Resolves which repository to push to. Note that the push URL might not be
-/// part of the Git Toprepo configuration, so `push_url` is used as base when
-/// resolving the destinations.
-fn resolve_push_repo(
-    mono_commit: &gix::Commit,
-    path: GitPath,
-    mut push_url: gix::Url,
-    config: &crate::config::SubRepoConfigs,
-) -> Result<(RepoName, GitPath, GitPath, gix::Url)> {
-    let mut repo_name = RepoName::Top;
-    let mut repo_path = GitPath::from("");
-    let mut rel_path = path;
-    let mut generic_url = EMPTY_GIX_URL.clone();
-    loop {
-        let dot_gitmodules_path = repo_path.join(&GitPath::from(".gitmodules"));
-        let dot_gitmodules_bytes = match mono_commit
-            .tree()?
-            .lookup_entry_by_path(dot_gitmodules_path.to_path()?)?
-        {
-            Some(dot_gitmodules_entry) => {
-                let dot_gitmodules_object = dot_gitmodules_entry.object()?;
-                dot_gitmodules_object
-                    .try_into_blob()
-                    .with_context(|| format!("Failed to read {dot_gitmodules_path:#} file"))?
-                    .take_data()
-            }
-            None => Vec::new(),
-        };
-        let git_modules_info = GitModulesInfo::parse_dot_gitmodules_bytes(
-            &dot_gitmodules_bytes,
-            dot_gitmodules_path.to_path()?.to_owned(),
-        )
-        .with_context(|| format!("Failed to parse {dot_gitmodules_path:#} file"))?;
-        let Some((submod_path, sub_url)) = git_modules_info.get_containing_submodule(&rel_path)
-        else {
-            return Ok((repo_name, repo_path, rel_path.clone(), push_url));
-        };
-        // Apply one submodule level.
-        rel_path = GitPath::from(
-            rel_path
-                .strip_prefix(submod_path.as_bytes())
-                .expect("part of the submodule")
-                .strip_prefix(b"/")
-                .expect("part of the submodule"),
-        );
-        repo_path = repo_path.join(submod_path);
-        let sub_url = match sub_url {
-            Ok(sub_url) => sub_url,
-            Err(err) => anyhow::bail!("{err:#}"),
-        };
-        generic_url = generic_url.join(sub_url);
-        // Update the return value.
-        let (sub_repo_name, sub_repo_config) = config.get_from_url_or_error(&generic_url)?;
-        let push_sub_url = sub_repo_config.resolve_push_url();
-        push_url = push_url.join(&push_sub_url);
-        repo_name = RepoName::SubRepo(sub_repo_name.clone());
-    }
-}
-
 fn split_for_push_impl(
     configured_repo: &mut ConfiguredTopRepo,
     import_cache: &ImportCache,
@@ -268,17 +206,18 @@ fn split_for_push_impl(
         let mut grouped_file_changes: BTreeMap<(GitPath, RepoName, gix::Url), Vec<_>> =
             BTreeMap::new();
         for fc in exported_mono_commit.file_changes {
-            let (repo_name, submod_path, rel_path, push_url) = resolve_push_repo(
+            let location = crate::git::FileLocationAndUrl::resolve_at_commit(
                 &gix_mono_commit,
                 GitPath::new(fc.path),
-                top_push_url.clone(),
+                &top_push_url.clone(),
                 &configured_repo.config.subrepos,
+                gix::remote::Direction::Push,
             )?;
             grouped_file_changes
-                .entry((submod_path, repo_name, push_url))
+                .entry((location.subrepo_path, location.repo_name, location.url))
                 .or_default()
                 .push(ChangedFile {
-                    path: (*rel_path).clone(),
+                    path: (*location.rel_path).clone(),
                     change: fc.change,
                 });
         }

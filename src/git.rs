@@ -1,4 +1,6 @@
+use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::log::CommandSpanExt as _;
+use crate::repo_name::RepoName;
 use crate::util::CommandExtension as _;
 use anyhow::Context as _;
 use anyhow::Result;
@@ -303,4 +305,105 @@ pub fn repo_relative_path(worktree: &Path, cwd_relpath: &Path) -> Result<GitPath
         .strip_prefix(worktree)
         .context("Path is not relative to the worktree")?;
     Ok(GitPath::from(worktree_path.as_os_str().as_encoded_bytes()))
+}
+
+pub(crate) struct FileLocationAndUrl {
+    pub repo_name: RepoName,
+    /// The subrepo path from the mono repo root, might be empty for files in
+    /// the top repository.
+    pub subrepo_path: GitPath,
+    /// The path relative to the subrepo.
+    pub rel_path: GitPath,
+    /// The URL for the repository containing this file.
+    pub url: gix::Url,
+}
+
+impl FileLocationAndUrl {
+    /// Resolves which repository a file belongs to. Note that the URL might not be
+    /// part of the Git Toprepo configuration, so `top_url` is used as base when
+    /// resolving the destinations.
+    pub fn resolve_at_commit(
+        mono_commit: &gix::Commit,
+        path: GitPath,
+        top_url: &gix::Url,
+        subrepo_configs: &crate::config::SubRepoConfigs,
+        direction: gix::remote::Direction,
+    ) -> Result<FileLocationAndUrl> {
+        let read_repo_file = |p: GitPath| {
+            let Some(file_entry) = mono_commit.tree()?.lookup_entry_by_path(p.to_path()?)? else {
+                return Ok(None);
+            };
+            let file_object = file_entry.object()?;
+            let data = file_object
+                .try_into_blob()
+                .with_context(|| format!("Failed to read {p:#} file"))?
+                .take_data();
+            Ok(Some(data))
+        };
+        Self::resolve(read_repo_file, path, top_url, subrepo_configs, direction)
+    }
+
+    /// Resolves which repository a file belongs to. Note that the URL might not be
+    /// part of the Git Toprepo configuration, so `top_url` is used as base when
+    /// resolving the destinations.
+    fn resolve(
+        read_repo_file: impl Fn(GitPath) -> Result<Option<Vec<u8>>>,
+        path: GitPath,
+        top_url: &gix::Url,
+        subrepo_configs: &crate::config::SubRepoConfigs,
+        direction: gix::remote::Direction,
+    ) -> Result<FileLocationAndUrl> {
+        let mut subrepo_path = GitPath::from("");
+        let mut rel_path = path.clone();
+        // generic_url appends all submodule URLs, as would happen with "git
+        // submodule update --recursive". It starts with an empty URL to allow
+        // finding the matching URL.
+        let mut generic_url = crate::util::EMPTY_GIX_URL.clone();
+        loop {
+            let dot_gitmodules_path = subrepo_path.join(&GitPath::from(".gitmodules"));
+            let dot_gitmodules_bytes =
+                read_repo_file(dot_gitmodules_path.clone())?.unwrap_or_default();
+            let git_modules_info = GitModulesInfo::parse_dot_gitmodules_bytes(
+                &dot_gitmodules_bytes,
+                dot_gitmodules_path.to_path()?.to_owned(),
+            )
+            .with_context(|| format!("Failed to parse {dot_gitmodules_path:#} file"))?;
+            let Some((submod_path, sub_url)) = git_modules_info.get_containing_submodule(&rel_path)
+            else {
+                let (repo_name, url) = if subrepo_path.is_empty() {
+                    (RepoName::Top, top_url.clone())
+                } else {
+                    let (sub_repo_name, sub_repo_config) =
+                        subrepo_configs.get_from_url_or_error(&generic_url)?;
+                    let repo_name = RepoName::SubRepo(sub_repo_name.clone());
+                    // At last, resolve the final URL.
+                    let sub_url = match direction {
+                        gix::remote::Direction::Fetch => &sub_repo_config.url,
+                        gix::remote::Direction::Push => &sub_repo_config.resolve_push_url(),
+                    };
+                    (repo_name, top_url.join(sub_url))
+                };
+                return Ok(FileLocationAndUrl {
+                    repo_name,
+                    subrepo_path,
+                    rel_path,
+                    url,
+                });
+            };
+            // Apply one submodule level.
+            rel_path = GitPath::from(
+                rel_path
+                    .strip_prefix(submod_path.as_bytes())
+                    .expect("part of the submodule")
+                    .strip_prefix(b"/")
+                    .expect("part of the submodule"),
+            );
+            subrepo_path = subrepo_path.join(submod_path);
+            let sub_url = match sub_url {
+                Ok(sub_url) => sub_url,
+                Err(err) => anyhow::bail!("{err:#}"),
+            };
+            generic_url = generic_url.join(sub_url);
+        }
+    }
 }
