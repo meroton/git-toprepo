@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+echo "Command $0 $@">&2
+export PATH=$OLD_PATH
+if test "$#" -gt 3 && test "$1" = "-C" && test "$3" = "fetch"; then
+    if echo "$@" | grep -q "repox"; then
+        sleep 1
+        echo "Intended to abort fetch of repox after 1s" >&2
+        exit 24
+    fi
+    if echo "$@" | grep -q "repoy"; then
+        sleep 2
+        echo "Intended to abort fetch of repoy after 2s" >&2
+        exit 1
+    fi
+fi
+exec git "$@"

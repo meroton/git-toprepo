@@ -60,7 +60,7 @@ impl RepoWithTwoSubmodules {
         Self {
             toprepo,
             monorepo,
-            subx_repo: temp_dir.join("repox"),
+            subx_repo,
             temp_dir_guard,
         }
     }
@@ -700,8 +700,6 @@ fn timeout(
     #[case] idle_timeouts: &str,
     #[case] command_checker: impl Fn(assert_cmd::assert::Assert),
 ) {
-    use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
-
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
     git_command_for_testing(&repo.monorepo)
         .args([
@@ -749,6 +747,88 @@ fn timeout(
         .env("PATH", std::env::join_paths(new_paths).unwrap())
         .assert();
     command_checker(cmd);
+}
+
+/// This regression test checks that Git Toprepo properly shuts down and does
+/// not hang when a fetching is aborted.
+///
+/// The problem fixed in commit `83cd0e652d4dbb9860e8686f105f4f989178bdb0`,
+/// "fix: Don't hang when loader interrupts early (#309)", only affects the
+/// commit loader, but let's test the fetcher anyway.
+#[test]
+fn abort_fetch_does_not_hang() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let toprepo = &temp_dir.join("top");
+    let monorepo = &temp_dir.join("mono");
+    let fetch_abort_dir =
+        std::path::absolute("tests/integration/fixtures/git-fetch-abort").unwrap();
+    let old_path_env = std::env::var_os("PATH").unwrap_or_default();
+    let new_paths = [fetch_abort_dir]
+        .into_iter()
+        .chain(std::env::split_paths(&old_path_env))
+        .collect_vec();
+    cargo_bin_git_toprepo_for_testing()
+        .arg("clone")
+        .arg(toprepo)
+        .arg(monorepo)
+        .env("OLD_PATH", &old_path_env)
+        .env("PATH", std::env::join_paths(new_paths).unwrap())
+        .assert()
+        .code(1)
+        .stderr(
+            predicate::str::is_match(
+                "ERROR: Fetching namex: git fetch [^\\n]* failed: exit status: 24\\n",
+            )
+            .unwrap(),
+        )
+        .stderr(predicate::str::contains(
+            "Intended to abort fetch of repox after 1s\n",
+        ));
+}
+
+/// This regression test checks that Git Toprepo properly shuts down and does
+/// not hang when a fetching is aborted.
+///
+/// The problem fixed in commit `83cd0e652d4dbb9860e8686f105f4f989178bdb0`,
+/// "fix: Don't hang when loader interrupts early (#309)", only affects the
+/// commit loader when having a strange import cache entry, but let's test
+/// `git fast-export` anyway.
+#[test]
+fn abort_load_does_not_hang() {
+    let temp_dir = git_toprepo_testtools::test_util::maybe_keep_tempdir(
+        gix_testtools::scripted_fixture_writable(
+            "../integration/fixtures/make_minimal_with_two_submodules.sh",
+        )
+        .unwrap(),
+    );
+    let toprepo = &temp_dir.join("top");
+    let repox = &temp_dir.join("repox");
+    let repoy = &temp_dir.join("repoy");
+    let monorepo = &temp_dir.join("mono");
+    let fetch_abort_dir =
+        std::path::absolute("tests/integration/fixtures/git-fast-export-abort").unwrap();
+    let old_path_env = std::env::var_os("PATH").unwrap_or_default();
+    let new_paths = [fetch_abort_dir]
+        .into_iter()
+        .chain(std::env::split_paths(&old_path_env))
+        .collect_vec();
+    cargo_bin_git_toprepo_for_testing()
+        .arg("clone")
+        .arg(toprepo)
+        .arg(monorepo)
+        .env("OLD_PATH", &old_path_env)
+        .env("PATH", std::env::join_paths(new_paths).unwrap())
+        .env("HEAD_TOP", git_rev_parse(toprepo, "HEAD"))
+        .env("HEAD_REPOX", git_rev_parse(repox, "HEAD"))
+        .env("HEAD_REPOY", git_rev_parse(repoy, "HEAD"))
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("ERROR: Failed to load commits for top: 'git fast-export' failed: process exited unsuccessfully: exit status: 24\n"));
 }
 
 #[test]

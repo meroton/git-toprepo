@@ -1,3 +1,5 @@
+#![feature(exit_status_error)]
+
 pub mod commit_message;
 pub mod config;
 pub mod expander;
