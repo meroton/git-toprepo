@@ -637,7 +637,8 @@ impl<'a> CommitLoader<'a> {
                         self.error_observer.maybe_consume(result)?;
                     }
                     Err(InterruptedError::Interrupted) => {
-                        // This doesn't mean there are no more events to process.
+                        // The caller can continue processing if they want.
+                        return Ok(true);
                     }
                     Err(InterruptedError::Normal(err)) => {
                         self.error_observer.maybe_consume(Err(err))?;
@@ -1603,7 +1604,9 @@ impl SingleRepoLoader<'_> {
                 Ok(()) => Ok(()),
                 Err(InterruptedError::Interrupted) => Err(InterruptedError::Interrupted),
                 Err(InterruptedError::Normal(err)) => {
-                    Err(err.context("Failed to load commits").into())
+                    let err_with_context: Result<()> =
+                        Err(err).context(format!("Failed to load commits for {}", self.repo_name));
+                    Err(err_with_context.unwrap_err().into())
                 }
             }?
         }
