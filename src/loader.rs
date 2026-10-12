@@ -487,10 +487,9 @@ impl<'a> CommitLoader<'a> {
     /// Waits for all ongoing tasks to finish.
     pub fn join(mut self) -> Result<()> {
         let result = (|| {
-            while !self.error_observer.should_interrupt() {
-                if !self.process_one_event()? {
-                    return Ok(());
-                }
+            while self.process_one_event()? {
+                // Even if self.error_observer.should_interrupt(), the process
+                // loop must continue to properly finish ongoing tasks.
             }
             Ok(())
         })();
