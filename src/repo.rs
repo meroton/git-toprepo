@@ -129,7 +129,7 @@ pub struct ConfiguredTopRepo {
 }
 
 impl ConfiguredTopRepo {
-    pub fn create(directory: &Path, url: gix::url::Url) -> Result<ConfiguredTopRepo> {
+    pub fn create(directory: &Path, url: &gix::url::Url) -> Result<ConfiguredTopRepo> {
         std::process::Command::new("git")
             .arg("init")
             .arg("--quiet")
@@ -199,11 +199,11 @@ impl ConfiguredTopRepo {
         )?;
 
         let hooks_result = crate::hooks::install(directory, false);
-        if let Err(err) = &hooks_result {
-            log::error!("Failed to install git-hooks: {err:#}");
-        }
         if !matches!(hooks_result, Ok(true)) {
             log::info!("Retry installing git-hooks with `git toprepo hooks install`");
+        }
+        if let Err(err) = &hooks_result {
+            log::error!("Failed to install git-hooks: {err:#}");
         }
 
         let result = {
