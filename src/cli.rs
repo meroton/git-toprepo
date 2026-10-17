@@ -514,8 +514,17 @@ impl<'a> FetchParamsResolver<'a> {
         // TODO: 2025-09-22 If we refactor the repo view to contain a list of all
         // *projects* including super itself. We do not need tiered access here.
         // #unified-git-config.
-        if let Some(ret) = self.try_resolve_as_remote_url(&url, &override_path)? {
+        if let Some(ret) = self.try_resolve_as_remote_url(&url, override_path.as_ref())? {
             return Ok(ret);
+        }
+        if let Some(override_path) = &override_path
+            && override_path.is_current_dir()
+        {
+            return Ok(ResolvedFetchParams {
+                repo: RepoName::Top,
+                path: GitPath::default(),
+                url,
+            });
         }
         // If not a git-remote URL, then it must be a submodule URL.
         self.resolve_as_submod_url(url, override_path)
@@ -572,7 +581,7 @@ impl<'a> FetchParamsResolver<'a> {
             .with_context(|| format!("Missing fetch URL for remote {remote}"))?
             .clone();
         let override_path = override_path.unwrap_or_default();
-        if override_path.is_empty() {
+        if override_path.is_current_dir() {
             // --path is unset or empty, then a git-remote name means
             // fetching to the top reporitory.
             return Ok(ResolvedFetchParams {
@@ -594,7 +603,7 @@ impl<'a> FetchParamsResolver<'a> {
     fn try_resolve_as_remote_url(
         &self,
         url: &gix::Url,
-        override_path: &Option<GitPath>,
+        override_path: Option<&GitPath>,
     ) -> Result<Option<ResolvedFetchParams>> {
         for remote_name in self.repo.remote_names() {
             let gix_remote = self.repo.find_remote(remote_name.deref())?;
@@ -603,14 +612,9 @@ impl<'a> FetchParamsResolver<'a> {
             };
             if fetch_url.approx_equal(url) {
                 // It is one of the git-remotes, i.e. a top repository URL.
-                if override_path.is_some() {
-                    anyhow::bail!(
-                        "Cannot use --path when specifying a git-remote top repo URL as 'remote-ish'"
-                    );
-                }
                 return Ok(Some(ResolvedFetchParams {
                     repo: RepoName::Top,
-                    path: GitPath::default(),
+                    path: override_path.cloned().unwrap_or_default(),
                     url: url.clone(),
                 }));
             }
