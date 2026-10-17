@@ -509,6 +509,15 @@ impl<'a> FetchParamsResolver<'a> {
         if let Some(ret) = self.try_resolve_as_remote_url(&url, &override_path)? {
             return Ok(ret);
         }
+        if let Some(override_path) = &override_path
+            && (override_path.is_empty() || override_path == &GitPath::from("."))
+        {
+            return Ok(ResolvedFetchParams {
+                repo: RepoName::Top,
+                path: GitPath::default(),
+                url,
+            });
+        }
         // If not a git-remote URL, then it must be a submodule URL.
         self.resolve_as_submod_url(url, override_path)
     }
@@ -564,7 +573,7 @@ impl<'a> FetchParamsResolver<'a> {
             .with_context(|| format!("Missing fetch URL for remote {remote}"))?
             .clone();
         let override_path = override_path.unwrap_or_default();
-        if override_path.is_empty() {
+        if override_path.is_empty() || override_path == ".".into() {
             // --path is unset or empty, then a git-remote name means
             // fetching to the top reporitory.
             return Ok(ResolvedFetchParams {
