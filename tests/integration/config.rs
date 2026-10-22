@@ -324,10 +324,10 @@ fn bootstrap_multiple_urls_in_history() {
         r#"
 [submodule "repox"]
 	path = subpathx
-	url = https://other.example/repox
+	url = https://new.example/repox
 [submodule "repoy"]
 	path = subpathy
-	url = https://other.example/repoy.git
+	url = https://new.example/repoy.git
 "#,
     )
     .unwrap();
@@ -350,15 +350,16 @@ fn bootstrap_multiple_urls_in_history() {
 
     crate::fixtures::toprepo::clone(&toprepo, &monorepo);
 
+    // The order for repoy, where both URLs are historic, is not important.
     let expected_boostrap_config = &r#"
 [repo.repox]
-url = "../repox/"
-historic_urls = ["https://other.example/repox"]
+url = "https://new.example/repox"
+historic_urls = ["../repox/"]
 missing_commits = []
 
 [repo.repoy]
 url = "../repoy/"
-historic_urls = ["https://other.example/repoy.git"]
+historic_urls = ["https://new.example/repoy.git"]
 enabled = false
 missing_commits = []
 "#[1..];

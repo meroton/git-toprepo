@@ -1,5 +1,4 @@
 use crate::config::GitTopRepoConfig;
-use crate::config::SubRepoConfig;
 use crate::config::SubRepoConfigs;
 use crate::git::BlobId;
 use crate::git::CommitId;
@@ -51,10 +50,10 @@ type CommitToRefMap = HashMap<CommitId, Vec<FullName>>;
 /// details tracked for submodules in here.
 #[derive(Debug, Default)]
 pub struct SubRepoLedger {
-    /// List of subrepos that are missing in the configuration and have
-    /// automatically been added to `suprepos`. This is only used to limit
-    /// warning and log statements.
-    pub missing_subrepos: HashSet<SubRepoName>,
+    /// List of URLs that are missing in the configuration and should be
+    /// added by the user to the configuration. This is used to limit warning
+    /// and log statements and to provide guidance to the user.
+    pub unresolved_urls: HashSet<gix::Url>,
     /// List of commits that have been asked for but were kept as submodules
     /// because they were configured as missing.
     pub referenced_but_skipped_commits: HashMap<SubRepoName, HashSet<CommitId>>,
@@ -774,7 +773,7 @@ impl<'a> CommitLoader<'a> {
                 Self::verify_cached_commit(
                     &repo_fetcher.repo_data,
                     thin_commit.as_ref(),
-                    &mut self.config.subrepos,
+                    &self.config.subrepos,
                     self.ledger,
                     &mut self.dot_gitmodules_cache,
                     commit_log_level,
@@ -890,7 +889,7 @@ impl<'a> CommitLoader<'a> {
     fn verify_cached_commit(
         repo_storage: &RepoData,
         commit: &ThinCommit,
-        subrepo_configs: &mut SubRepoConfigs,
+        subrepo_configs: &SubRepoConfigs,
         ledger: &mut SubRepoLedger,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
@@ -1297,7 +1296,7 @@ impl<'a> CommitLoader<'a> {
         first_parent: Option<&Rc<ThinCommit>>,
         path: &GitPath,
         base_url: &gix::Url,
-        subrepo_configs: &mut SubRepoConfigs,
+        subrepo_configs: &SubRepoConfigs,
         ledger: &mut SubRepoLedger,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
@@ -1355,58 +1354,24 @@ impl<'a> CommitLoader<'a> {
             }
         };
         let full_url = base_url.join(submod_url);
-        let repo_name = match subrepo_configs.get_name_from_url(&full_url) {
-            Err(err) => {
-                if do_log() {
-                    log::error!("{err:#}");
-                }
-                return None;
-            }
-            Ok(Some(repo_name)) => repo_name,
+        match subrepo_configs.get_name_from_url(&full_url) {
+            Ok(Some(repo_name)) => Some(repo_name),
             Ok(None) => {
-                let Some(mut repo_name) = SubRepoName::new_from_url(&full_url) else {
-                    if do_log() {
-                        log::error!(
-                            "URL {full_url} cannot be automatically converted to a valid repo name. \
-                            Please create a manual config entry with the URL."
-                        );
-                    }
-                    return None;
-                };
-                // Instead of just self.subrepos.get(&repo_name), also check for
-                // case insensitive repo name uniqueness. It's confusing for the
-                // user to get multiple repos with the same name and not
-                // realising that it's just the casing that is different.
-                // Manually adding multiple entries with different casing is
-                // allowed but not recommended.
-                for existing_name in subrepo_configs.keys() {
-                    if repo_name.to_lowercase() == existing_name.to_lowercase() {
-                        repo_name = existing_name.clone();
-                    }
-                }
-                match subrepo_configs.entry(repo_name.clone()) {
-                    std::collections::btree_map::Entry::Occupied(mut sub_repo_config) => {
-                        if !sub_repo_config.get().urls().contains(&full_url) {
-                            sub_repo_config
-                                .get_mut()
-                                .historic_urls
-                                .push(full_url.clone());
-                        }
-                    }
-                    std::collections::btree_map::Entry::Vacant(entry) => {
-                        entry.insert(SubRepoConfig::new_disabled(full_url.clone()));
-                    }
-                };
-                if ledger.missing_subrepos.insert(repo_name.clone())
+                if ledger.unresolved_urls.insert(full_url.clone())
                     && commit_log_level.log_missing_repo_configs
                     && do_log()
                 {
                     log::warn!("URL {full_url} is missing in the Git Toprepo configuration");
                 }
-                repo_name
+                None
             }
-        };
-        Some(repo_name)
+            Err(err) => {
+                if do_log() {
+                    log::error!("{err:#}");
+                }
+                None
+            }
+        }
     }
 }
 

@@ -323,7 +323,7 @@ Initial empty Git Toprepo configuration
     pub fn load_repo(gix_repo: gix::Repository) -> Result<Self> {
         let config = GitTopRepoConfig::load_config_from_repo(&gix_repo)?;
         let ledger = SubRepoLedger {
-            missing_subrepos: std::collections::HashSet::new(),
+            unresolved_urls: std::collections::HashSet::new(),
             referenced_but_skipped_commits: std::collections::HashMap::new(),
         };
         Ok(Self {

@@ -11,6 +11,8 @@ use clap::Parser;
 use colored::Colorize;
 use git_toprepo::config::ConfigLocation;
 use git_toprepo::config::GitTopRepoConfig;
+use git_toprepo::config::SubRepoConfig;
+use git_toprepo::config::SubRepoConfigs;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::log::CommandSpanExt as _;
 use git_toprepo::log::ErrorMode;
@@ -18,6 +20,7 @@ use git_toprepo::log::ErrorObserver;
 use git_toprepo::repo::ConfiguredTopRepo;
 use git_toprepo::repo::ImportCache;
 use git_toprepo::repo_name::RepoName;
+use git_toprepo::repo_name::SubRepoName;
 use git_toprepo::util::CommandExtension as _;
 use gix::refs::FullName;
 use gix::refs::FullNameRef;
@@ -206,6 +209,44 @@ fn config(config_args: &cli::Config) -> Result<()> {
     Ok(())
 }
 
+/// Adds a URL that was missing in the `subrepo_configs` to help the user with
+/// bootstrapping. If a matching repo name is found, `url` is added as a
+/// historic URL. Otherwise, a new repo is added which is set to enabled only if
+/// `active` is `true`.
+fn add_url_for_bootstrap(subrepo_configs: &mut SubRepoConfigs, url: &gix::Url, active: bool) {
+    let Some(mut name) = SubRepoName::new_from_url(url) else {
+        log::warn!(
+            "URL {url} cannot be automatically converted to a valid repo name. \
+            Please create a manual config entry with the URL."
+        );
+        return;
+    };
+    // Instead of just self.subrepos.get(&repo_name), also check for case
+    // insensitive repo name uniqueness. It's confusing for the user to get
+    // multiple repos with the same name and not realising that it's just the
+    // casing that is different. Manually adding multiple entries with different
+    // casing is allowed but not recommended.
+    for existing_name in subrepo_configs.keys() {
+        if name.to_lowercase() == existing_name.to_lowercase() {
+            name = existing_name.clone();
+        }
+    }
+    match subrepo_configs.entry(name.clone()) {
+        std::collections::btree_map::Entry::Occupied(mut entry) => {
+            if !entry.get().urls().any(|existing_url| existing_url == url) {
+                entry.get_mut().historic_urls.push(url.clone());
+            }
+        }
+        std::collections::btree_map::Entry::Vacant(entry) => {
+            entry.insert(SubRepoConfig {
+                url: url.clone(),
+                enabled: active,
+                ..SubRepoConfig::default()
+            });
+        }
+    }
+}
+
 fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
     let mut repo = ConfiguredTopRepo::new_empty(repo.clone());
     let mut import_cache = ImportCache::default();
@@ -230,7 +271,8 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
         None => GitModulesInfo::default(),
     };
     drop(head_commit);
-    git_toprepo::log::get_global_logger().with_progress(|progress| {
+    let mut config = repo.config.clone();
+    let mut head_urls = git_toprepo::log::get_global_logger().with_progress(|progress| {
         ErrorObserver::run(ErrorMode::KeepGoing, |error_observer| {
             let mut commit_loader = git_toprepo::loader::CommitLoader::new(
                 &mut repo,
@@ -247,7 +289,8 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
         })
         .context("Failed to load the top repo")?;
 
-        // Go through submodules at HEAD and enable them in the config.
+        // Record HEAD URLs separately so printing can make them the primary
+        // URLs and activate such subrepos.
         let top_repo_data = import_cache
             .repos
             .get(&RepoName::Top)
@@ -258,6 +301,7 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
             .with_context(|| {
                 format!("Missing the HEAD commit {} in the top repo", head_commit_id)
             })?;
+        let mut head_urls = Vec::new();
         for submod_path in &*thin_head_commit.submodule_paths {
             let Some(submod_url) = gitmod_infos.submodules.get(submod_path) else {
                 log::warn!("Missing submodule {submod_path:#} in .gitmodules");
@@ -270,34 +314,19 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
                     continue;
                 }
             };
-            // TODO: 2025-09-22 Refactor to not use missing_subrepos.clear() for
-            // accessing the submodule configs.
-            repo.ledger.missing_subrepos.clear();
-            match repo
-                .config
-                .subrepos
-                .get_name_from_url(submod_url)
-                .with_context(|| format!("Submodule {submod_path:#}"))
-            {
-                Ok(Some(name)) => {
-                    let subrepo = repo
-                        .config
-                        .subrepos
-                        .get_mut(&name)
-                        .expect("valid subrepo name");
-                    subrepo.enabled = true;
-                }
-                Ok(None) => {
-                    unreachable!("Submodule {submod_path:#}:{submod_url} should be in the config",)
-                }
-                Err(err) => {
-                    log::warn!("Failed to load submodule {submod_path:#}: {err}");
-                    continue;
-                }
-            }
+            head_urls.push(submod_url);
         }
-        Ok(repo.config)
-    })
+        Ok(head_urls)
+    })?;
+    // Sort URLs for consistent ordering.
+    head_urls.sort();
+    for url in head_urls {
+        add_url_for_bootstrap(&mut config.subrepos, url, true);
+    }
+    for url in repo.ledger.unresolved_urls.iter().sorted() {
+        add_url_for_bootstrap(&mut config.subrepos, url, false);
+    }
+    Ok(config)
 }
 
 /// Combines commits from the top repository and its submodules into a unified view.
