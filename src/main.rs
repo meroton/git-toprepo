@@ -274,13 +274,14 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
             // accessing the submodule configs.
             repo.ledger.missing_subrepos.clear();
             match repo
-                .ledger
+                .config
+                .subrepos
                 .get_name_from_url(submod_url)
                 .with_context(|| format!("Submodule {submod_path:#}"))
             {
                 Ok(Some(name)) => {
                     let subrepo = repo
-                        .ledger
+                        .config
                         .subrepos
                         .get_mut(&name)
                         .expect("valid subrepo name");
@@ -295,11 +296,7 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
                 }
             }
         }
-        Ok(GitTopRepoConfig {
-            checksum: repo.config.checksum,
-            fetch: repo.config.fetch,
-            subrepos: repo.ledger.subrepos,
-        })
+        Ok(repo.config)
     })
 }
 
@@ -326,11 +323,6 @@ fn recombine(
                 error_observer,
             )
         })?;
-        configured_repo.config = GitTopRepoConfig {
-            checksum: configured_repo.config.checksum.clone(),
-            fetch: configured_repo.config.fetch.clone(),
-            subrepos: configured_repo.ledger.subrepos.clone(),
-        };
         git_toprepo::expander::recombine_all_top_refs(configured_repo, import_cache, &progress)
     })
 }
@@ -345,7 +337,7 @@ fn fetch(
         let resolved_args = cli::resolve_remote_and_path(
             fetch_args,
             &configured_repo.gix_repo,
-            &configured_repo.ledger,
+            &configured_repo.config.subrepos,
         )?;
         let detailed_refspecs = detail_refspecs(refspecs, &resolved_args.repo, &resolved_args.url)?;
         git_toprepo::log::get_global_logger().with_progress(|progress| {
@@ -575,11 +567,6 @@ fn fetch_with_refspec(
             progress,
             error_observer,
         )?;
-        configured_repo.config = GitTopRepoConfig {
-            checksum: configured_repo.config.checksum.clone(),
-            fetch: configured_repo.config.fetch.clone(),
-            subrepos: configured_repo.ledger.subrepos.clone(),
-        };
 
         let mut ret = Ok(());
         let successful_detailed_refspecs = match &resolved_args.repo {

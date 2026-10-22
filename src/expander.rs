@@ -1,4 +1,5 @@
 use crate::commit_message::calculate_mono_commit_message_from_commits;
+use crate::config::SubRepoConfigs;
 use crate::git::CommitId;
 use crate::git::GitPath;
 use crate::git::TreeId;
@@ -6,7 +7,6 @@ use crate::git_fast_export_import::ChangedFile;
 use crate::git_fast_export_import::FastExportCommit;
 use crate::git_fast_export_import::FastImportCommit;
 use crate::git_fast_export_import::ImportCommitRef;
-use crate::loader::SubRepoLedger;
 use crate::repo::ConfiguredTopRepo;
 use crate::repo::ExpandedOrRemovedSubmodule;
 use crate::repo::ExpandedSubmodule;
@@ -46,7 +46,7 @@ use tracing::instrument;
 
 pub struct Expander<'a> {
     pub(crate) gix_repo: &'a gix::Repository,
-    pub(crate) ledger: &'a mut SubRepoLedger,
+    pub(crate) subrepo_configs: &'a SubRepoConfigs,
     pub(crate) import_cache: &'a mut ImportCache,
     pub(crate) progress: indicatif::MultiProgress,
     pub(crate) fast_importer: crate::git_fast_export_import::FastImportRepo,
@@ -366,12 +366,12 @@ impl Expander<'_> {
             return ExpandedSubmodule::UnknownSubmodule(bump.commit_id);
         };
         let repo_name = RepoName::SubRepo(submod_repo_name.clone());
-        if !self.ledger.is_enabled(&repo_name) {
+        if !self.subrepo_configs.is_enabled(&repo_name) {
             // Repository disabled by config, keep the submodule.
             return ExpandedSubmodule::KeptAsSubmodule(bump.commit_id);
         }
         if self
-            .ledger
+            .subrepo_configs
             .is_missing_commit(submod_repo_name, &bump.commit_id)
         {
             return ExpandedSubmodule::KeptAsSubmodule(bump.commit_id);
@@ -616,12 +616,13 @@ impl Expander<'_> {
             repo_name: submod_repo_name.clone(),
             orig_commit_id: submod.commit_id,
         };
-        // The submodule is known.
+        // The submodule is known, is it disabled?
         if !self
-            .ledger
+            .subrepo_configs
             .subrepos
             .get(submod_repo_name)
-            .is_none_or(|repo_config| repo_config.enabled)
+            .expect("submodule config should exist")
+            .enabled
         {
             // Repository disabled by config, skipping to keep the submodule.
             // No need to log a warning because it is part of the user configuration.
@@ -925,10 +926,10 @@ impl Expander<'_> {
             if let Some(submod) = submod.get_known_submod() {
                 // The submodule is known.
                 if !self
-                    .ledger
-                    .subrepos
+                    .subrepo_configs
                     .get(&submod.repo_name)
-                    .is_none_or(|repo_config| repo_config.enabled)
+                    .expect("submodule config should exist")
+                    .enabled
                 {
                     // Repository disabled by config, skipping to keep the submodule.
                     // No need to log a warning because it is part of the user configuration.
@@ -1736,7 +1737,7 @@ fn recombine(
             crate::git_fast_export_import::FastImportRepo::new(configured_repo.gix_repo.git_dir())?;
         let mut expander = Expander {
             gix_repo: &configured_repo.gix_repo,
-            ledger: &mut configured_repo.ledger,
+            subrepo_configs: &configured_repo.config.subrepos,
             import_cache,
             progress: progress.clone(),
             fast_importer,
@@ -1773,6 +1774,7 @@ fn recombine(
                 crate::loader::CommitLoader::validate_commit(
                     repo_data,
                     top_commit,
+                    &mut configured_repo.config.subrepos,
                     &mut configured_repo.ledger,
                     &mut crate::loader::DotGitModulesCache::new(&configured_repo.gix_repo),
                 )
@@ -1794,6 +1796,7 @@ fn recombine(
                     crate::loader::CommitLoader::validate_commit(
                         repo_data,
                         sub_commit,
+                        &mut configured_repo.config.subrepos,
                         &mut configured_repo.ledger,
                         &mut crate::loader::DotGitModulesCache::new(&configured_repo.gix_repo),
                     )
@@ -2261,7 +2264,7 @@ pub fn expand_submodule_ref_onto_head(
         crate::git_fast_export_import::FastImportRepo::new(configured_repo.gix_repo.git_dir())?;
     let mut expander = Expander {
         gix_repo: &configured_repo.gix_repo,
-        ledger: &mut configured_repo.ledger,
+        subrepo_configs: &configured_repo.config.subrepos,
         import_cache,
         progress: progress.clone(),
         fast_importer,

@@ -1,7 +1,9 @@
 use crate::git::CommitId;
 use crate::git::git_command;
 use crate::git::git_config_get_all;
+use crate::gitmodules::SubmoduleUrlExt as _;
 use crate::log::CommandSpanExt as _;
+use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::util::CommandExtension as _;
 use crate::util::OrderedHashSet;
@@ -11,6 +13,7 @@ use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 use bstr::ByteSlice as _;
+use itertools::Itertools as _;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_with::serde_as;
@@ -55,7 +58,150 @@ pub struct GitTopRepoConfig {
     /// Configuration for the submodules, including all submodule that have ever
     /// existed in the repository history.
     #[serde(rename = "repo")]
+    pub subrepos: SubRepoConfigs,
+}
+
+/// Configuration for the submodules.
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
+pub struct SubRepoConfigs {
+    #[serde(flatten)]
     pub subrepos: BTreeMap<SubRepoName, SubRepoConfig>,
+}
+
+impl std::ops::Deref for SubRepoConfigs {
+    type Target = BTreeMap<SubRepoName, SubRepoConfig>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.subrepos
+    }
+}
+
+impl std::ops::DerefMut for SubRepoConfigs {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.subrepos
+    }
+}
+
+impl SubRepoConfigs {
+    /// Check if the submodule should be expanded or not.
+    pub fn is_enabled(&self, repo_name: &RepoName) -> bool {
+        match repo_name {
+            RepoName::Top => true,
+            RepoName::SubRepo(sub_repo_name) => self
+                .subrepos
+                .get(sub_repo_name)
+                .is_none_or(|repo_config| repo_config.enabled),
+        }
+    }
+
+    /// Check if a commit in a submodule is configured as missing and should not
+    /// be expanded.
+    // TODO: 2025-10-01 How to merge with record_if_missing_commit?
+    pub(crate) fn is_missing_commit(
+        &self,
+        sub_repo_name: &SubRepoName,
+        commit_id: &CommitId,
+    ) -> bool {
+        self.subrepos
+            .get(sub_repo_name)
+            .is_some_and(|repo_config| repo_config.missing_commits.contains(commit_id))
+    }
+
+    /// Gets a `SubRepoConfig` based on a URL using exact matching. If an URL is
+    /// missing, the user should add it to the `SubRepoConfig::historic_urls` list.
+    pub fn get_name_from_url(&self, url: &gix::Url) -> Result<Option<SubRepoName>> {
+        let mut matches = self
+            .subrepos
+            .iter()
+            .filter(|(_name, subrepo_config)| subrepo_config.urls().any(|u| u == url));
+        let Some(first_match) = matches.next() else {
+            return Ok(None);
+        };
+        if let Some(second_match) = matches.next() {
+            let names = [first_match, second_match]
+                .into_iter()
+                .chain(matches)
+                .map(|(name, _)| name)
+                .join(", ");
+            bail!("Multiple remote candidates for {url}: {names}");
+        }
+        // Only a single match.
+        let repo_name = first_match.0;
+        Ok(Some(repo_name.clone()))
+    }
+
+    /// Gets a `SubRepoConfig` based on a URL using exact matching. If an URL is
+    /// missing, the user should add it to the `SubRepoConfig::historic_urls` list.
+    pub fn get_from_url_or_error(&self, url: &gix::Url) -> Result<(&SubRepoName, &SubRepoConfig)> {
+        let mut matches = self
+            .subrepos
+            .iter()
+            .filter(|(_name, subrepo_config)| subrepo_config.urls().any(|u| u == url));
+        let Some((first_name, first_config)) = matches.next() else {
+            anyhow::bail!("Missing URL {url} in the Git Toprepo configuration");
+        };
+        if let Some((second_name, _second_config)) = matches.next() {
+            anyhow::bail!("Multiple remote candidates for {url}: {first_name}, {second_name}");
+        }
+        // Only a single match.
+        Ok((first_name, first_config))
+    }
+
+    /// Gets a `SubRepoConfig` based on a URL using exact matching. If an URL is
+    /// missing, the user should add it to the `SubRepoConfig::historic_urls` list.
+    pub fn get_from_url(
+        &self,
+        url: &gix::Url,
+    ) -> Result<Option<(&SubRepoName, &SubRepoConfig)>, anyhow::Error> {
+        let mut matches = self
+            .subrepos
+            .iter()
+            .filter(|(_name, subrepo_config)| subrepo_config.urls().any(|u| u == url));
+        let Some((first_name, first_config)) = matches.next() else {
+            return Ok(None);
+        };
+        if let Some((second_name, _second_config)) = matches.next() {
+            anyhow::bail!("Multiple remote candidates for {url}: {first_name}, {second_name}");
+        }
+        // Only a single match.
+        Ok(Some((first_name, first_config)))
+    }
+
+    /// Get a repo name given a full url when doing an approximative matching,
+    /// for example matching `ssh://foo/bar.git` with `https://foo/bar`.
+    pub fn get_name_from_similar_full_url(
+        &self,
+        wanted_full_url: gix::Url,
+        base_url: &gix::Url,
+    ) -> Result<RepoName> {
+        let wanted_url_str = wanted_full_url.to_string();
+        let trimmed_wanted_full_url = wanted_full_url.trim_url_path();
+        let mut matching_names = Vec::new();
+        if trimmed_wanted_full_url.approx_equal(&base_url.clone().trim_url_path()) {
+            matching_names.push(RepoName::Top);
+        }
+        for (submod_name, submod_config) in self.subrepos.iter() {
+            if submod_config.urls().any(|submod_url| {
+                let full_submod_url = base_url.join(submod_url).trim_url_path();
+                full_submod_url.approx_equal(&trimmed_wanted_full_url)
+            }) {
+                matching_names.push(RepoName::SubRepo(submod_name.clone()));
+            }
+        }
+        matching_names.sort();
+        let repo_name = match matching_names.as_slice() {
+            [] => anyhow::bail!("No configured submodule URL matches {wanted_url_str:?}"),
+            [repo_name] => repo_name.clone(),
+            [_, ..] => anyhow::bail!(
+                "URLs from multiple configured repos match: {}",
+                matching_names
+                    .iter()
+                    .map(|name| name.to_string())
+                    .join(", ")
+            ),
+        };
+        Ok(repo_name)
+    }
 }
 
 /// Level of enforcement of the configuration location, similarily to

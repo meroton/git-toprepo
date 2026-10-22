@@ -1,7 +1,7 @@
 use crate::config::SubRepoConfig;
+use crate::config::SubRepoConfigs;
 use crate::git::git_command;
 use crate::gitmodules::SubmoduleUrlExt as _;
-use crate::loader::SubRepoLedger;
 use crate::log::CommandSpanExt as _;
 use crate::repo_name::RepoName;
 use crate::util::CommandExtension;
@@ -35,15 +35,15 @@ impl RemoteFetcher {
         &mut self,
         gix_repo: &gix::Repository,
         repo_name: &RepoName,
-        ledger: &SubRepoLedger,
+        subrepo_configs: &SubRepoConfigs,
     ) -> Result<()> {
         match repo_name {
             RepoName::Top => self.set_remote_as_top_repo(gix_repo)?,
             RepoName::SubRepo(sub_repo_name) => {
-                let subrepo_config = ledger
+                let subrepo_config = subrepo_configs
                     .subrepos
                     .get(sub_repo_name)
-                    .with_context(|| format!("Repo {repo_name} not found in ledger"))?;
+                    .with_context(|| format!("Repo {repo_name} not found in config"))?;
                 self.set_remote_from_subrepo_config(gix_repo, repo_name, subrepo_config)?;
             }
         };

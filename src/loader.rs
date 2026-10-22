@@ -1,6 +1,6 @@
-use crate::config::GetOrInsertOk;
 use crate::config::GitTopRepoConfig;
 use crate::config::SubRepoConfig;
+use crate::config::SubRepoConfigs;
 use crate::git::BlobId;
 use crate::git::CommitId;
 use crate::git::GitModulesInfo;
@@ -26,7 +26,6 @@ use crate::ui::ProgressStatus;
 use crate::ui::ProgressTaskHandle;
 use anyhow::Context;
 use anyhow::Result;
-use anyhow::bail;
 use bstr::BStr;
 use bstr::ByteSlice as _;
 use gix::ObjectId;
@@ -52,68 +51,29 @@ type CommitToRefMap = HashMap<CommitId, Vec<FullName>>;
 /// details tracked for submodules in here.
 #[derive(Debug, Default)]
 pub struct SubRepoLedger {
-    pub subrepos: BTreeMap<SubRepoName, SubRepoConfig>,
-
     /// List of subrepos that are missing in the configuration and have
     /// automatically been added to `suprepos`. This is only used to limit
     /// warning and log statements.
     pub missing_subrepos: HashSet<SubRepoName>,
     /// List of commits that have been asked for but were kept as submodules
     /// because they were configured as missing.
-    pub wanted_but_missing_commits: HashMap<SubRepoName, HashSet<CommitId>>,
+    pub referenced_but_skipped_commits: HashMap<SubRepoName, HashSet<CommitId>>,
 }
 
 impl SubRepoLedger {
-    /// Check if the submodule should be expanded or not.
-    pub fn is_enabled(&self, repo_name: &RepoName) -> bool {
-        match repo_name {
-            RepoName::Top => true,
-            RepoName::SubRepo(sub_repo_name) => self
-                .subrepos
-                .get(sub_repo_name)
-                .is_none_or(|repo_config| repo_config.enabled),
-        }
-    }
-
-    /// Check if a commit in a submodule is configured as missing and should not
-    /// be expanded.
-    // TODO: 2025-10-01 How to merge with record_if_missing_commit?
-    pub(crate) fn is_missing_commit(
-        &self,
-        sub_repo_name: &SubRepoName,
-        commit_id: &CommitId,
-    ) -> bool {
-        self.subrepos
-            .get(sub_repo_name)
-            .is_some_and(|repo_config| repo_config.missing_commits.contains(commit_id))
-    }
-
-    /// Check if a commit in a submodule is configured as missing and should not
-    /// be expanded. If so, record it.
-    pub(crate) fn record_if_missing_commit(
-        &mut self,
-        sub_repo_name: &SubRepoName,
-        commit_id: &CommitId,
-    ) -> bool {
-        if self.is_missing_commit(sub_repo_name, commit_id) {
-            self.wanted_but_missing_commits
-                .entry(sub_repo_name.clone())
-                .or_default()
-                .insert(*commit_id);
-            return true;
-        }
-        false
-    }
-
     /// Warn about any commits that were configured as missing but does actually
     /// exist. Such commits should be removed from the configuration.
     ///
     /// It should really be an error, but pushing a missing commit to a
     /// repository is done out of sync with the update of the configuration.
     /// Git Toprepo should not suddenly start to fail due to no apparent reason.
-    pub(crate) fn validate_missing_commits_lists(&self, repo_states: &crate::repo::RepoStates) {
+    pub(crate) fn validate_missing_commits_lists(
+        &self,
+        subrepo_configs: &SubRepoConfigs,
+        repo_states: &crate::repo::RepoStates,
+    ) {
         let empty_hash_set = HashSet::new();
-        for (sub_repo_name, repo_config) in &self.subrepos {
+        for (sub_repo_name, repo_config) in subrepo_configs.iter() {
             let Some(loaded_commits) = repo_states
                 .get(&RepoName::SubRepo(sub_repo_name.clone()))
                 .map(|repo_data| &repo_data.thin_commits)
@@ -122,7 +82,7 @@ impl SubRepoLedger {
                 continue;
             };
             let skipped_commits = self
-                .wanted_but_missing_commits
+                .referenced_but_skipped_commits
                 .get(sub_repo_name)
                 .unwrap_or(&empty_hash_set);
             for missing_commit in repo_config.missing_commits.iter().sorted() {
@@ -137,158 +97,6 @@ impl SubRepoLedger {
                 }
             }
         }
-    }
-
-    /// Gets a `SubRepoConfig` based on a URL using exact matching. If an URL is
-    /// missing, the user should add it to the `SubRepoConfig::historic_urls` list.
-    pub fn get_name_from_url(&self, url: &gix::Url) -> Result<Option<SubRepoName>> {
-        let mut matches = self
-            .subrepos
-            .iter()
-            .filter(|(_name, subrepo_config)| subrepo_config.urls().any(|u| u == url));
-        let Some(first_match) = matches.next() else {
-            return Ok(None);
-        };
-        if let Some(second_match) = matches.next() {
-            let names = [first_match, second_match]
-                .into_iter()
-                .chain(matches)
-                .map(|(name, _)| name)
-                .join(", ");
-            bail!("Multiple remote candidates for {url}: {names}");
-        }
-        // Only a single match.
-        let repo_name = first_match.0;
-        Ok(Some(repo_name.clone()))
-    }
-
-    pub fn default_name_from_url(&self, repo_url: &gix::Url) -> Option<SubRepoName> {
-        // TODO: UTF-8 validation.
-        let mut name: &str = &repo_url.path.to_str_lossy();
-        if name.ends_with(".git") {
-            name = &name[..name.len() - 4];
-        } else if name.ends_with("/") {
-            name = &name[..name.len() - 1];
-        }
-        loop {
-            if name.starts_with("../") {
-                name = &name[3..];
-            } else if name.starts_with("./") {
-                name = &name[2..];
-            } else if name.starts_with("/") {
-                name = &name[1..];
-            } else {
-                break;
-            }
-        }
-        let name = name.replace("/", "_");
-        match RepoName::new(name) {
-            RepoName::Top => None,
-            RepoName::SubRepo(name) => Some(name),
-        }
-    }
-
-    /// Get a repo name given a full url when doing an approximative matching,
-    /// for example matching `ssh://foo/bar.git` with `https://foo/bar`.
-    pub fn get_name_from_similar_full_url(
-        &self,
-        wanted_full_url: gix::Url,
-        base_url: &gix::Url,
-    ) -> Result<RepoName> {
-        let wanted_url_str = wanted_full_url.to_string();
-        let trimmed_wanted_full_url = wanted_full_url.trim_url_path();
-        let mut matching_names = Vec::new();
-        if trimmed_wanted_full_url.approx_equal(&base_url.clone().trim_url_path()) {
-            matching_names.push(RepoName::Top);
-        }
-        for (submod_name, submod_config) in self.subrepos.iter() {
-            if submod_config.urls().any(|submod_url| {
-                let full_submod_url = base_url.join(submod_url).trim_url_path();
-                full_submod_url.approx_equal(&trimmed_wanted_full_url)
-            }) {
-                matching_names.push(RepoName::SubRepo(submod_name.clone()));
-            }
-        }
-        matching_names.sort();
-        let repo_name = match matching_names.as_slice() {
-            [] => anyhow::bail!("No configured submodule URL matches {wanted_url_str:?}"),
-            [repo_name] => repo_name.clone(),
-            [_, ..] => anyhow::bail!(
-                "URLs from multiple configured repos match: {}",
-                matching_names
-                    .iter()
-                    .map(|name| name.to_string())
-                    .join(", ")
-            ),
-        };
-        Ok(repo_name)
-    }
-
-    /// Get a subrepo configuration without creating a new entry if missing.
-    pub fn get_existing_config_from_url(
-        &self,
-        repo_url: &gix::Url,
-    ) -> Result<Option<(SubRepoName, &SubRepoConfig)>> {
-        match self.get_name_from_url(repo_url)? {
-            Some(repo_name) => {
-                if self.missing_subrepos.contains(&repo_name) {
-                    Ok(None)
-                } else {
-                    let subrepo_config = self.subrepos.get(&repo_name).expect("valid subrepo name");
-                    Ok(Some((repo_name, subrepo_config)))
-                }
-            }
-            None => Ok(None),
-        }
-    }
-
-    /// Get a subrepo configuration or create a new entry if missing.
-    pub fn get_or_insert_from_url<'a>(
-        &'a mut self,
-        repo_url: &gix::Url,
-    ) -> Result<GetOrInsertOk<'a>> {
-        let Some(repo_name) = self.get_name_from_url(repo_url)? else {
-            let mut repo_name = self.default_name_from_url(repo_url).with_context(|| {
-                format!(
-                    "URL {repo_url} cannot be automatically converted to a valid repo name. \
-                    Please create a manual config entry with the URL."
-                )
-            })?;
-            // Instead of just self.subrepos.get(&repo_name), also check for
-            // case insensitive repo name uniqueness. It's confusing for the
-            // user to get multiple repos with the same name and not
-            // realising that it's just the casing that is different.
-            // Manually adding multiple entries with different casing is
-            // allowed but not recommended.
-            for existing_name in self.subrepos.keys() {
-                if repo_name.to_lowercase() == existing_name.to_lowercase() {
-                    repo_name = existing_name.clone();
-                }
-            }
-            match self.subrepos.entry(repo_name.clone()) {
-                std::collections::btree_map::Entry::Occupied(mut sub_repo_config) => {
-                    if !sub_repo_config.get().urls().contains(repo_url) {
-                        sub_repo_config
-                            .get_mut()
-                            .historic_urls
-                            .push(repo_url.clone());
-                    }
-                }
-                std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(SubRepoConfig::new_disabled(repo_url.clone()));
-                }
-            };
-            return Ok(if self.missing_subrepos.insert(repo_name.clone()) {
-                GetOrInsertOk::Missing(repo_name.clone())
-            } else {
-                GetOrInsertOk::MissingAgain(repo_name.clone())
-            });
-        };
-        let subrepo_config = self
-            .subrepos
-            .get_mut(&repo_name)
-            .expect("valid subrepo name");
-        Ok(GetOrInsertOk::Found((repo_name, subrepo_config)))
     }
 }
 
@@ -344,7 +152,7 @@ struct CommitLogLevel {
 
 pub struct CommitLoader<'a> {
     monorepo: &'a gix::Repository,
-    config: &'a GitTopRepoConfig,
+    config: &'a mut GitTopRepoConfig,
     /// Repositories that have been loaded from the cache.
     cached_repo_states: &'a mut crate::repo::RepoStates,
     ledger: &'a mut SubRepoLedger,
@@ -417,7 +225,7 @@ impl<'a> CommitLoader<'a> {
         );
         Ok(Self {
             monorepo: &configured_repo.gix_repo,
-            config: &configured_repo.config,
+            config: &mut configured_repo.config,
             cached_repo_states: &mut import_cache.repos,
             ledger: &mut configured_repo.ledger,
             fetch_states: HashMap::new(),
@@ -504,7 +312,7 @@ impl<'a> CommitLoader<'a> {
             // Warn about any commits that were configured to be ignored but
             // don't exist.
             self.ledger
-                .validate_missing_commits_lists(self.cached_repo_states);
+                .validate_missing_commits_lists(&self.config.subrepos, self.cached_repo_states);
         }
         log::info!(
             "Finished importing commits in {:.2?}",
@@ -658,7 +466,7 @@ impl<'a> CommitLoader<'a> {
         repo_fetcher.fetch_states = RepoFetcherState::InProgress;
 
         let mut fetcher = crate::fetch::RemoteFetcher::new(self.monorepo);
-        fetcher.set_remote_from_repo_name(self.monorepo, &repo_name, self.ledger)?;
+        fetcher.set_remote_from_repo_name(self.monorepo, &repo_name, &self.config.subrepos)?;
 
         let pb_url = indicatif::ProgressBar::hidden()
             .with_style(
@@ -966,6 +774,7 @@ impl<'a> CommitLoader<'a> {
                 Self::verify_cached_commit(
                     &repo_fetcher.repo_data,
                     thin_commit.as_ref(),
+                    &mut self.config.subrepos,
                     self.ledger,
                     &mut self.dot_gitmodules_cache,
                     commit_log_level,
@@ -976,14 +785,25 @@ impl<'a> CommitLoader<'a> {
                 for bump in thin_commit.submodule_bumps.values() {
                     if let ThinSubmodule::AddedOrModified(bump) = bump
                         && let Some(submod_repo_name) = &bump.repo_name
-                        && !self
-                            .ledger
-                            .record_if_missing_commit(submod_repo_name, &bump.commit_id)
                     {
-                        needed_commits.push(NeededCommit {
-                            repo_name: submod_repo_name.clone(),
-                            commit_id: bump.commit_id,
-                        });
+                        // Check if the commit in the submodule is configured as
+                        // missing and should not be expanded. If so, record it.
+                        if self
+                            .config
+                            .subrepos
+                            .is_missing_commit(submod_repo_name, &bump.commit_id)
+                        {
+                            self.ledger
+                                .referenced_but_skipped_commits
+                                .entry(submod_repo_name.clone())
+                                .or_default()
+                                .insert(bump.commit_id);
+                        } else {
+                            needed_commits.push(NeededCommit {
+                                repo_name: submod_repo_name.clone(),
+                                commit_id: bump.commit_id,
+                            });
+                        }
                     }
                 }
                 // TODO: 2025-09-22 The without_committer_id for thin_commit might not be
@@ -1034,6 +854,7 @@ impl<'a> CommitLoader<'a> {
             repo_data,
             exported_commit,
             tree_id,
+            &mut self.config.subrepos,
             self.ledger,
             &mut self.dot_gitmodules_cache,
             CommitLogLevel {
@@ -1069,6 +890,7 @@ impl<'a> CommitLoader<'a> {
     fn verify_cached_commit(
         repo_storage: &RepoData,
         commit: &ThinCommit,
+        subrepo_configs: &mut SubRepoConfigs,
         ledger: &mut SubRepoLedger,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
@@ -1103,6 +925,7 @@ impl<'a> CommitLoader<'a> {
                         commit.parents.first(),
                         path,
                         &repo_storage.url,
+                        subrepo_configs,
                         ledger,
                         dot_gitmodules_cache,
                         commit_log_level,
@@ -1124,6 +947,7 @@ impl<'a> CommitLoader<'a> {
     pub(crate) fn validate_commit(
         repo_storage: &RepoData,
         commit: &ThinCommit,
+        subrepo_configs: &mut SubRepoConfigs,
         ledger: &mut SubRepoLedger,
         dot_gitmodules_cache: &mut DotGitModulesCache,
     ) -> Result<()> {
@@ -1148,6 +972,7 @@ impl<'a> CommitLoader<'a> {
                         commit.parents.first(),
                         path,
                         &repo_storage.url,
+                        subrepo_configs,
                         ledger,
                         dot_gitmodules_cache,
                         commit_log_level,
@@ -1186,7 +1011,7 @@ impl<'a> CommitLoader<'a> {
             RepoName::SubRepo(submod_repo_name) => {
                 // Check if the submodule is configured.
                 let submod_contig = self
-                    .ledger
+                    .config
                     .subrepos
                     .get(submod_repo_name)
                     .with_context(|| format!("Repo {repo_name} not found in config"))?;
@@ -1275,6 +1100,7 @@ impl<'a> CommitLoader<'a> {
         repo_storage: &RepoData,
         exported_commit: FastExportCommit,
         tree_id: TreeId,
+        subrepo_configs: &mut SubRepoConfigs,
         ledger: &mut SubRepoLedger,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
@@ -1331,17 +1157,26 @@ impl<'a> CommitLoader<'a> {
                             thin_parents.first(),
                             &path,
                             &repo_storage.url,
+                            subrepo_configs,
                             ledger,
                             dot_gitmodules_cache,
                             commit_log_level,
                         );
-                        if let Some(submod_repo_name) = &submod_repo_name
-                            && !ledger.record_if_missing_commit(submod_repo_name, &submod_commit_id)
-                        {
-                            new_submodule_commits.push(NeededCommit {
-                                repo_name: submod_repo_name.clone(),
-                                commit_id: submod_commit_id,
-                            });
+                        if let Some(submod_repo_name) = &submod_repo_name {
+                            if subrepo_configs
+                                .is_missing_commit(submod_repo_name, &submod_commit_id)
+                            {
+                                ledger
+                                    .referenced_but_skipped_commits
+                                    .entry(submod_repo_name.clone())
+                                    .or_default()
+                                    .insert(submod_commit_id);
+                            } else {
+                                new_submodule_commits.push(NeededCommit {
+                                    repo_name: submod_repo_name.clone(),
+                                    commit_id: submod_commit_id,
+                                });
+                            }
                         }
                         submodule_bumps.insert(
                             path,
@@ -1393,6 +1228,7 @@ impl<'a> CommitLoader<'a> {
                             thin_parents.first(),
                             path,
                             &repo_storage.url,
+                            subrepo_configs,
                             ledger,
                             dot_gitmodules_cache,
                             commit_log_level,
@@ -1455,11 +1291,13 @@ impl<'a> CommitLoader<'a> {
     }
 
     /// Finds the `SubRepoName` for a submodule and logs warnings for potential problems.
+    #[expect(clippy::too_many_arguments)]
     fn get_submod_repo_name(
         dot_gitmodules: Option<ExportedFileEntry>,
         first_parent: Option<&Rc<ThinCommit>>,
         path: &GitPath,
         base_url: &gix::Url,
+        subrepo_configs: &mut SubRepoConfigs,
         ledger: &mut SubRepoLedger,
         dot_gitmodules_cache: &mut DotGitModulesCache,
         commit_log_level: CommitLogLevel,
@@ -1517,25 +1355,58 @@ impl<'a> CommitLoader<'a> {
             }
         };
         let full_url = base_url.join(submod_url);
-        let name = match ledger
-            .get_or_insert_from_url(&full_url)
-            .map_err(|err| {
+        let repo_name = match subrepo_configs.get_name_from_url(&full_url) {
+            Err(err) => {
                 if do_log() {
                     log::error!("{err:#}");
                 }
-            })
-            .ok()?
-        {
-            crate::config::GetOrInsertOk::Found((name, _)) => name,
-            crate::config::GetOrInsertOk::Missing(_) => {
-                if commit_log_level.log_missing_repo_configs && do_log() {
-                    log::warn!("URL {full_url} is missing in the Git Toprepo configuration");
-                }
                 return None;
             }
-            crate::config::GetOrInsertOk::MissingAgain(_) => return None,
+            Ok(Some(repo_name)) => repo_name,
+            Ok(None) => {
+                let Some(mut repo_name) = SubRepoName::new_from_url(&full_url) else {
+                    if do_log() {
+                        log::error!(
+                            "URL {full_url} cannot be automatically converted to a valid repo name. \
+                            Please create a manual config entry with the URL."
+                        );
+                    }
+                    return None;
+                };
+                // Instead of just self.subrepos.get(&repo_name), also check for
+                // case insensitive repo name uniqueness. It's confusing for the
+                // user to get multiple repos with the same name and not
+                // realising that it's just the casing that is different.
+                // Manually adding multiple entries with different casing is
+                // allowed but not recommended.
+                for existing_name in subrepo_configs.keys() {
+                    if repo_name.to_lowercase() == existing_name.to_lowercase() {
+                        repo_name = existing_name.clone();
+                    }
+                }
+                match subrepo_configs.entry(repo_name.clone()) {
+                    std::collections::btree_map::Entry::Occupied(mut sub_repo_config) => {
+                        if !sub_repo_config.get().urls().contains(&full_url) {
+                            sub_repo_config
+                                .get_mut()
+                                .historic_urls
+                                .push(full_url.clone());
+                        }
+                    }
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert(SubRepoConfig::new_disabled(full_url.clone()));
+                    }
+                };
+                if ledger.missing_subrepos.insert(repo_name.clone())
+                    && commit_log_level.log_missing_repo_configs
+                    && do_log()
+                {
+                    log::warn!("URL {full_url} is missing in the Git Toprepo configuration");
+                }
+                repo_name
+            }
         };
-        Some(name)
+        Some(repo_name)
     }
 }
 
