@@ -19,7 +19,7 @@ use crate::repo_name::RepoName;
 use crate::util::NewlineTrimmer as _;
 use crate::util::OrderedHashMap;
 use crate::util::RcKey;
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::Result;
 use itertools::Itertools;
 use serde_with::serde_as;

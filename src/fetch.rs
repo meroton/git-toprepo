@@ -6,7 +6,7 @@ use crate::log::CommandSpanExt as _;
 use crate::repo_name::RepoName;
 use crate::util::CommandExtension;
 use crate::util::SafeExitStatus;
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::Result;
 use anyhow::bail;
 use bstr::ByteSlice as _;

@@ -1,6 +1,6 @@
 use crate::git::git_command;
 use crate::log::CommandSpanExt as _;
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::Result;
 use anyhow::anyhow;
 use anyhow::bail;

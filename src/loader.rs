@@ -24,7 +24,7 @@ use crate::repo_name::RepoName;
 use crate::repo_name::SubRepoName;
 use crate::ui::ProgressStatus;
 use crate::ui::ProgressTaskHandle;
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::Result;
 use bstr::BStr;
 use bstr::ByteSlice as _;

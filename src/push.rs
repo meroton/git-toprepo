@@ -25,7 +25,7 @@ use crate::ui::ProgressStatus;
 use crate::ui::ProgressTaskHandle;
 use crate::util::EMPTY_GIX_URL;
 use crate::util::SafeExitStatus;
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::Result;
 use bstr::ByteSlice as _;
 use gix::refs::FullName;

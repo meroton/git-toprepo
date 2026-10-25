@@ -17,7 +17,7 @@ use crate::util::CommandExtension as _;
 use crate::util::NewlineTrimmer as _;
 use crate::util::RcKey;
 use crate::util::normalize;
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::Result;
 use anyhow::anyhow;
 use bstr::ByteSlice as _;
