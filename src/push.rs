@@ -208,7 +208,7 @@ fn split_for_push_impl(
         for fc in exported_mono_commit.file_changes {
             let location = crate::git::FileLocationAndUrl::resolve_at_commit(
                 &gix_mono_commit,
-                GitPath::new(fc.path),
+                &GitPath::new(fc.path),
                 &top_push_url.clone(),
                 &configured_repo.config.subrepos,
                 gix::remote::Direction::Push,

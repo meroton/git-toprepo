@@ -9,6 +9,7 @@ use itertools::Itertools as _;
 use predicates::prelude::*;
 use sha2::Digest as _;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs::read_to_string;
 use std::io::Read as _;
 use std::io::Write as _;
@@ -715,7 +716,16 @@ large-repox"#
 }
 
 #[test]
-fn end_to_end_git_reset_with_smudge() {
+fn end_to_end_smudge_clean_filters() {
+    end_to_end_filters_impl(false);
+}
+
+#[test]
+fn end_to_end_with_filter_process() {
+    end_to_end_filters_impl(true);
+}
+
+fn end_to_end_filters_impl(with_filter_process: bool) {
     let listener = std::net::TcpListener::bind("localhost:0").unwrap();
     let fake_lfs_server_port = listener.local_addr().unwrap().port();
 
@@ -739,7 +749,7 @@ fn end_to_end_git_reset_with_smudge() {
         .args([
             "config",
             "remote.origin.url",
-            &format!("http://localhost:{fake_lfs_server_port}/git/server"),
+            &format!("http://localhost:{fake_lfs_server_port}/git/top"),
         ])
         .assert()
         .success();
@@ -755,10 +765,12 @@ fn end_to_end_git_reset_with_smudge() {
         .args(INSTALL_HOOKS_COMMAND.split(' '))
         .assert()
         .success();
-    git_command_for_testing(monorepo)
-        .args(["config", "--unset-all", "filter.lfs.process"])
-        .assert()
-        .success();
+    if !with_filter_process {
+        git_command_for_testing(monorepo)
+            .args(["config", "--unset-all", "filter.lfs.process"])
+            .assert()
+            .success();
+    }
 
     // Start our Git LFS server stub. Detach the thread in case of failure where
     // the thread might hang.
@@ -767,7 +779,7 @@ fn end_to_end_git_reset_with_smudge() {
         let mut files = HashMap::new();
         let mut content_to_transfer = 0;
         // Make sure the resutests are made to different servers.
-        files.insert("/git/server.git/info/lfs/objects/batch", "large-top");
+        files.insert("/git/top.git/info/lfs/objects/batch", "large-top");
         files.insert("/git/repox.git/info/lfs/objects/batch", "large-repox");
         files.insert("/git/repoy.git/info/lfs/objects/batch", "large-repoy");
         while !files.is_empty() || content_to_transfer > 0 {
@@ -845,6 +857,7 @@ Connection: close
             }
         }
         lfs_server_done_tx.send(()).unwrap();
+        listener
     });
 
     git_command_for_testing(monorepo)
@@ -852,18 +865,21 @@ Connection: close
         .timeout(Duration::from_secs(2))
         .assert()
         .success()
-        .stderr(
+        .stderr(if with_filter_process {
+            // Git LFS does not print per-file messages for delayed smudging.
+            ""
+        } else {
             "\
 Downloading large-file.txt (9 B)\n\
 Downloading subpathx/large-file.txt (11 B)\n\
 Downloading subpathx/subpathy/large-file.txt (11 B)\n\
-",
-        );
+"
+        });
 
     lfs_server_done_rx
         .recv_timeout(Duration::from_secs(1))
         .unwrap();
-    lfs_server_stub_thread.join().unwrap();
+    let listener = lfs_server_stub_thread.join().unwrap();
 
     let lf_path_root = monorepo.join("large-file.txt");
     let lf_path_x = monorepo.join("subpathx/large-file.txt");
@@ -871,4 +887,172 @@ Downloading subpathx/subpathy/large-file.txt (11 B)\n\
     assert_eq!(&read_to_string(&lf_path_root).unwrap(), "large-top");
     assert_eq!(&read_to_string(&lf_path_x).unwrap(), "large-repox");
     assert_eq!(&read_to_string(&lf_path_y).unwrap(), "large-repoy");
+
+    std::fs::write(&lf_path_root, "new-top").unwrap();
+    std::fs::write(&lf_path_y, "new-repoy").unwrap();
+    git_command_for_testing(monorepo)
+        .arg("add")
+        .arg(&lf_path_root)
+        .arg(&lf_path_y)
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    git_command_for_testing(monorepo)
+        .args(["commit", "-m", "Update\n\nTopic: update"])
+        .assert()
+        .success()
+        .stderr("");
+    git_command_for_testing(monorepo)
+        .args(["show", "HEAD:large-file.txt"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("\nsize 7\n"))
+        .stderr("");
+    git_command_for_testing(monorepo)
+        .args(["show", "HEAD:subpathx/subpathy/large-file.txt"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("\nsize 9\n"))
+        .stderr("");
+
+    // Start our Git LFS server stub. Detach the thread in case of failure where
+    // the thread might hang.
+    let (lfs_server_done_tx, lfs_server_done_rx) = std::sync::mpsc::channel();
+    let temp_dir_copy = temp_dir.to_owned();
+    let lfs_server_stub_thread = std::thread::spawn(move || {
+        let temp_dir = temp_dir_copy.as_path();
+        let mut uploads = HashSet::new();
+        let mut pushes_remaining = 2;
+        while pushes_remaining > 0 {
+            let (mut stream, method, path, header, body) = accept_http_request(&listener);
+            match path.as_str() {
+                "/git/top.git/info/lfs/locks/verify" | "/git/repoy.git/info/lfs/locks/verify" => {
+                    assert_eq!(method, "POST");
+                    assert_eq!(
+                        body.to_str().unwrap(),
+                        "{\"ref\":{\"name\":\"refs/heads/updated\"}}"
+                    );
+                    stream
+                        .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+                        .unwrap();
+                }
+                "/git/top.git/info/lfs/objects/batch" | "/git/repoy.git/info/lfs/objects/batch" => {
+                    assert_eq!(method, "POST");
+                    let request = serde_json::from_slice::<LfsBatchRequest>(&body).unwrap();
+                    assert_eq!(request.operation, "upload");
+                    assert_eq!(request.hash_algo, "sha256");
+                    // Extract the repo name.
+                    let repo = path[5..].split_once(".git/").unwrap().0;
+                    let response = serde_json::to_vec(&serde_json::json!({
+                        "transfer": "basic",
+                        "objects": request.objects.iter().map(|object| {
+                            let small_file = format!("small-{repo}");
+                            if object.oid == hex::encode(sha2::Sha256::digest(small_file.as_bytes())) {
+                                // Skipping the upload action for the existing "small" file.
+                                serde_json::json!({
+                                    "oid": object.oid,
+                                    "size": object.size,
+                                })
+                            } else {
+                                serde_json::json!({
+                                    "oid": object.oid,
+                                    "size": object.size,
+                                    "actions": &serde_json::json!({
+                                        "upload": {
+                                            "href": format!(
+                                                "http://localhost:{fake_lfs_server_port}/uploads/{repo}/{}", object.oid,
+                                            ),
+                                        },
+                                    }),
+                                })
+                            }
+                        }).collect_vec(),
+                        "hash_algo": "sha256",
+                    }))
+                    .unwrap();
+                    stream
+                        .write_all(format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.git-lfs+json\r\nContent-Length: {}\r\n\r\n",
+                            response.len(),
+                        ).as_bytes())
+                        .unwrap();
+                    stream.write_all(&response).unwrap();
+                }
+                path if let Some(sub_path) = path.strip_prefix("/uploads/") => {
+                    assert_eq!(method, "PUT");
+                    let (repo, digest) = sub_path.split_once('/').unwrap();
+                    let body = String::from_utf8(body).unwrap();
+                    assert_eq!(hex::encode(sha2::Sha256::digest(&body)), digest);
+                    assert!(uploads.insert((repo.to_string(), body)));
+                    stream
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                        .unwrap();
+                }
+                path => {
+                    // Assume normal Git server request.
+                    eprintln!("HTTP request {method} {path}");
+                    eprintln!("{}", body.to_str_lossy());
+                    let (path, query) = if let Some(idx) = path.find('?') {
+                        (&path[..idx], &path[idx + 1..])
+                    } else {
+                        (path, "")
+                    };
+                    let result = git_command_for_testing(temp_dir)
+                        .env("GIT_HTTP_EXPORT_ALL", "")
+                        .env("REQUEST_METHOD", &method)
+                        .env(
+                            "PATH_TRANSLATED",
+                            temp_dir.join(path.strip_prefix("/git/").unwrap()),
+                        )
+                        .env("QUERY_STRING", query)
+                        .env(
+                            "CONTENT_TYPE",
+                            header
+                                .lines()
+                                .find_map(|line| line.strip_prefix("Content-Type: "))
+                                .unwrap_or(""),
+                        )
+                        .env("CONTENT_LENGTH", body.len().to_string())
+                        .env("REMOTE_USER", "user")
+                        .env("REMOTE_ADDR", "addr")
+                        .arg("http-backend")
+                        .write_stdin(body)
+                        .assert()
+                        .success()
+                        .stderr("");
+                    let response_content = &result.get_output().stdout;
+                    eprintln!("HTTP response");
+                    eprintln!("{}", response_content.to_str_lossy());
+                    stream.write_all(b"HTTP/1.1 200 OK\r\n").unwrap();
+                    stream.write_all(response_content).unwrap();
+                    if method == "POST" && path.ends_with("/git-receive-pack") {
+                        pushes_remaining -= 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            uploads,
+            HashSet::from([
+                ("top".to_owned(), "new-top".to_owned()),
+                ("top".to_owned(), "large-top".to_owned()),
+                ("repoy".to_owned(), "new-repoy".to_owned()),
+                ("repoy".to_owned(), "large-repoy".to_owned()),
+            ]),
+        );
+        lfs_server_done_tx.send(()).unwrap();
+    });
+
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(monorepo)
+        .args(["push", "origin", "HEAD:refs/heads/updated"])
+        .assert()
+        .success()
+        .stdout("");
+
+    lfs_server_done_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    lfs_server_stub_thread.join().unwrap();
 }

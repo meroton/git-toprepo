@@ -354,9 +354,9 @@ impl FileLocationAndUrl {
     /// Resolves which repository a file belongs to. Note that the URL might not be
     /// part of the Git Toprepo configuration, so `top_url` is used as base when
     /// resolving the destinations.
-    pub fn resolve_at_commit(
+    pub(crate) fn resolve_at_commit(
         mono_commit: &gix::Commit,
-        path: GitPath,
+        path: &GitPath,
         top_url: &gix::Url,
         subrepo_configs: &crate::config::SubRepoConfigs,
         direction: gix::remote::Direction,
@@ -380,7 +380,7 @@ impl FileLocationAndUrl {
     /// resolving the destinations.
     pub(crate) fn resolve_in_worktree(
         worktree: &Path,
-        path: GitPath,
+        path: &GitPath,
         top_url: &gix::Url,
         subrepo_configs: &crate::config::SubRepoConfigs,
         direction: gix::remote::Direction,
@@ -401,7 +401,7 @@ impl FileLocationAndUrl {
     /// resolving the destinations.
     fn resolve(
         read_repo_file: impl Fn(GitPath) -> Result<Option<Vec<u8>>>,
-        path: GitPath,
+        path: &GitPath,
         top_url: &gix::Url,
         subrepo_configs: &crate::config::SubRepoConfigs,
         direction: gix::remote::Direction,

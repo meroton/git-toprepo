@@ -3,6 +3,7 @@ use crate::git::GitModulesInfo;
 use crate::git::GitPath;
 use crate::git::git_command;
 use crate::gitmodules::SubmoduleUrlExt as _;
+pub mod filter_process;
 use crate::log::CommandSpanExt as _;
 use crate::log::ErrorObserver;
 use crate::repo::ConfiguredTopRepo;
@@ -18,6 +19,8 @@ use bstr::BStr;
 use bstr::BString;
 use bstr::ByteSlice as _;
 use clap::Args;
+pub use filter_process::run_lfs_filter_process;
+pub use filter_process::run_lfs_filter_process_skip;
 use itertools::Itertools;
 use std::path::Path;
 use std::path::PathBuf;
@@ -563,7 +566,7 @@ pub fn run_lfs_checkout(new: &Path, args: &[String]) -> Result<()> {
 /// `LfsRemote` tracks what remote Git LFS will use for a given repository. This
 /// is essentially a port of `(*Configuration).Remote()` and
 /// `(*Configuration).PushRemote()` in Git LFS `config/config.go`.
-enum LfsRemote {
+pub(crate) enum LfsRemote {
     /// Git config `branch.<name>.pushRemote`.
     TrackedPushRemoteBranch {
         current_short_branch: String,
@@ -585,7 +588,34 @@ enum LfsRemote {
     /// Fallback, the name `origin`.
     DefaultRemote,
 }
+/*
+enum LfsApiUrl {
+    /// Git config `lfs.pushurl`.
+    LfsPushUrl {
+        api_url: BString,
+    },
+    /// Git config `lfs.url`.
+    LfsUrl {
+        api_url: BString,
+    },
+    None {}
+}
 
+impl LfsApiUrl {
+    pub fn from_repo(repo: &gix::Repository, direction: gix::remote::Direction) -> Self {
+        if direction == gix::remote::Direction::Push && let Some(api_url) = repo.config_snapshot().string("lfs.pushurl") {
+            return Self::LfsPushUrl {
+                api_url: api_url.into_owned(),
+            };
+        }
+        if let Some(api_url) = repo.config_snapshot().string("lfs.url") {
+            return Self::LfsUrl {
+                api_url: api_url.into_owned(),
+            };
+        }
+    }
+}
+*/
 impl LfsRemote {
     pub fn from_repo_log_errors(repo: &gix::Repository, direction: gix::remote::Direction) -> Self {
         let current_short_branch = repo
@@ -670,6 +700,10 @@ impl LfsRemote {
     /// Override the remote in a Git LFS subprocess. Adds `-c` arguments to a
     /// `git` command.
     pub fn override_remote_in_lfs_command(&self, cmd: &mut Command, wanted_remote: &str) {
+        //cmd.arg("-c");
+        //cmd.arg(format!("lfs.pushurl={wanted_remote}"));
+        //cmd.arg("-c");
+        //cmd.arg(format!("lfs.url={wanted_remote}"));
         match self {
             Self::TrackedPushRemoteBranch {
                 current_short_branch,
@@ -706,31 +740,20 @@ impl LfsRemote {
 pub fn run_lfs_smudge(configured_repo: &ConfiguredTopRepo, path: &Path) -> Result<()> {
     let lfs_remote =
         LfsRemote::from_repo_log_errors(&configured_repo.gix_repo, gix::remote::Direction::Fetch);
-    let top_remote = configured_repo
-        .gix_repo
-        .find_remote(lfs_remote.remote_name())
-        .with_context(|| {
-            format!(
-                "Remote {} not found",
-                lfs_remote.remote_name().to_str_lossy()
-            )
-        })?;
-    let top_fetch_url = top_remote
-        .url(gix::remote::Direction::Fetch)
-        .with_context(|| {
-            format!(
-                "Missing fetch URL for remote {}",
-                lfs_remote.remote_name().to_str_lossy()
-            )
-        })?;
+    let top_fetch_url = get_top_url(
+        &configured_repo.gix_repo,
+        lfs_remote.remote_name(),
+        gix::remote::Direction::Fetch,
+    )?;
+
     let worktree = configured_repo
         .gix_repo
         .workdir()
         .context("Missing worktree")?;
     let location = FileLocationAndUrl::resolve_in_worktree(
         worktree,
-        GitPath::from(path.as_os_str().as_encoded_bytes()),
-        top_fetch_url,
+        &GitPath::from(path.as_os_str().as_encoded_bytes()),
+        &top_fetch_url,
         &configured_repo.config.subrepos,
         gix::remote::Direction::Fetch,
     )?;
@@ -747,6 +770,8 @@ pub fn run_lfs_smudge(configured_repo: &ConfiguredTopRepo, path: &Path) -> Resul
     Ok(())
 }
 
+/// Forward the call to `git lfs smudge --skip`, which can be done without
+/// intercepting arguments and stdin/stdout.
 pub fn run_lfs_smudge_skip(repo: &Path, path: &Path) -> Result<()> {
     git_command(repo)
         .args(["lfs", "smudge"])
@@ -759,6 +784,8 @@ pub fn run_lfs_smudge_skip(repo: &Path, path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Forward the call to `git lfs clean`, which can be done without intercepting
+/// arguments and stdin/stdout.
 pub fn run_lfs_clean(repo: &Path, path: Option<&Path>) -> Result<()> {
     let mut cmd = git_command(repo);
     cmd.args(["lfs", "clean"]);
@@ -779,15 +806,27 @@ pub fn run_lfs_clean(repo: &Path, path: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-pub fn run_lfs_filter_process(repo: &Path) -> Result<()> {
-    // Implement the https://git-scm.com/docs/gitattributes#_long_running_filter_process.
-    // command=smudge and command=clean
-    git_command(repo)
-        .args(["lfs", "filter-process"])
-        .arg("--skip")
-        .trace_command(crate::command_span!("git lfs filter-process"))
-        .safe_status()?
-        .check_success()
-        .context("Failed to run 'git lfs filter-process --skip'")?;
-    Ok(())
+/// Extract the top-level URL.
+pub(crate) fn get_top_url(
+    gix_repo: &gix::Repository,
+    remote_name: &BStr,
+    direction: gix::remote::Direction,
+) -> Result<gix::Url> {
+    if remote_name.contains_str("://")
+        && let Ok(url) = gix::Url::from_bytes(remote_name)
+    {
+        return Ok(url);
+    }
+    let top_remote = gix_repo
+        .find_remote(remote_name)
+        .with_context(|| format!("Remote {} not found", remote_name.to_str_lossy()))?;
+    top_remote
+        .url(direction)
+        .with_context(|| {
+            format!(
+                "Missing fetch URL for remote {}",
+                remote_name.to_str_lossy()
+            )
+        })
+        .cloned()
 }

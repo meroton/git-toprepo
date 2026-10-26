@@ -824,12 +824,13 @@ fn lfs_main(
             Ok(ExitCode::SUCCESS)
         }
         cli::Lfs::FilterProcess(filter_process_args) => {
-            if !filter_process_args.skip {
-                unimplemented!(
-                    "Automatic downloading of objects is not implemented yet for filter-process."
-                );
+            if filter_process_args.skip {
+                lfs::run_lfs_filter_process_skip(Path::new("."))?;
+            } else {
+                run_session(logger, |configured: &mut ConfiguredTopRepo| {
+                    lfs::run_lfs_filter_process(configured)
+                })?;
             }
-            lfs::run_lfs_filter_process(Path::new("."))?;
             Ok(ExitCode::SUCCESS)
         }
         cli::Lfs::Install => {
