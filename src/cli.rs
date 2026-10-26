@@ -9,11 +9,11 @@ use bstr::BStr;
 use clap::Args;
 use clap::Parser;
 use clap::Subcommand;
+use git_toprepo::config::SubRepoConfigs;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::git::GitPath;
 use git_toprepo::git::repo_relative_path;
 use git_toprepo::gitmodules::SubmoduleUrlExt as _;
-use git_toprepo::loader::SubRepoLedger;
 use git_toprepo::repo_name::RepoName;
 use git_toprepo::repo_name::SubRepoName;
 use git_toprepo::util::UniqueContainer;
@@ -430,9 +430,9 @@ pub struct Fetch {
 pub fn resolve_remote_and_path(
     args: &Fetch,
     repo: &gix::Repository,
-    ledger: &SubRepoLedger,
+    subrepo_configs: &SubRepoConfigs,
 ) -> Result<ResolvedFetchParams> {
-    FetchParamsResolver::new(repo, ledger)?
+    FetchParamsResolver::new(repo, subrepo_configs)?
         .resolve_remote_and_path(args.remote.as_deref(), args.path.as_deref())
 }
 
@@ -450,8 +450,7 @@ pub struct ResolvedFetchParams {
 struct FetchParamsResolver<'a> {
     /// The git repository to fetch from.
     repo: &'a gix::Repository,
-    /// Expansion ledger of subrepos.
-    ledger: &'a SubRepoLedger,
+    subrepo_configs: &'a SubRepoConfigs,
     worktree: PathBuf,
     /// Cache computation of the infos. They are not expected to be mutated
     /// during execution. If they are we will not pick up the changes.
@@ -459,14 +458,14 @@ struct FetchParamsResolver<'a> {
 }
 
 impl<'a> FetchParamsResolver<'a> {
-    pub fn new(repo: &'a gix::Repository, ledger: &'a SubRepoLedger) -> Result<Self> {
+    pub fn new(repo: &'a gix::Repository, subrepo_configs: &'a SubRepoConfigs) -> Result<Self> {
         let worktree = repo
             .workdir()
             .context("Worktree missing in git repository")?;
         let gitmod_infos = GitModulesInfo::parse_dot_gitmodules_in_repo(repo)?;
         Ok(Self {
             repo,
-            ledger,
+            subrepo_configs,
             worktree: worktree.to_owned(),
             gitmod_infos,
         })
@@ -545,9 +544,9 @@ impl<'a> FetchParamsResolver<'a> {
 
     fn get_submodule_from_path(&self, submod_path: &GitPath) -> Result<(SubRepoName, gix::Url)> {
         let submod_url = self.get_dot_gitmodules_url(submod_path)?;
-        let (name, _config) = self
-            .ledger
-            .get_existing_config_from_url(&submod_url)?
+        let name = self
+            .subrepo_configs
+            .get_name_from_url(&submod_url)?
             .with_context(|| format!("Missing Git Toprepo configuration for URL {submod_url}"))?;
         Ok((name, submod_url))
     }
@@ -637,12 +636,12 @@ impl<'a> FetchParamsResolver<'a> {
         }
         let base_url = self.get_default_top_url()?;
         let name = self
-            .ledger
+            .subrepo_configs
             .get_name_from_similar_full_url(url.clone(), &base_url)?;
         let RepoName::SubRepo(submod_name) = &name else {
             unreachable!("Already checked that top URLs are not matching");
         };
-        let submod_config = self.ledger.subrepos.get(submod_name).unwrap();
+        let submod_config = self.subrepo_configs.get(submod_name).unwrap();
         let mut matching_submod_path = UniqueContainer::new();
         for (submod_path, submod_url) in &self.gitmod_infos.submodules {
             let Ok(submod_url) = submod_url else { continue };

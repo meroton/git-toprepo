@@ -316,7 +316,6 @@ Initial empty Git Toprepo configuration
     /// Loads the same repository from scratch using `load_repo`.
     pub fn reload_repo(&mut self) -> Result<()> {
         let config = GitTopRepoConfig::load_config_from_repo(&self.gix_repo)?;
-        self.ledger.subrepos = config.subrepos.clone();
         self.config = config;
         Ok(())
     }
@@ -324,9 +323,8 @@ Initial empty Git Toprepo configuration
     pub fn load_repo(gix_repo: gix::Repository) -> Result<Self> {
         let config = GitTopRepoConfig::load_config_from_repo(&gix_repo)?;
         let ledger = SubRepoLedger {
-            subrepos: config.subrepos.clone(),
             missing_subrepos: std::collections::HashSet::new(),
-            wanted_but_missing_commits: std::collections::HashMap::new(),
+            referenced_but_skipped_commits: std::collections::HashMap::new(),
         };
         Ok(Self {
             gix_repo,
@@ -360,25 +358,19 @@ Initial empty Git Toprepo configuration
         Ok(())
     }
 
+    /// Save the cache but log errors instead of returning them.
     pub fn save_import_cache_log_errors(&self, import_cache: &ImportCache) {
         if let Err(err) = self.save_import_cache(import_cache) {
             log::error!("Failed to save import cache: {err:#}");
         }
     }
 
-    /// Save state (config + cache) back to disk
+    /// Save config back to disk.
     pub fn save_config(&mut self) -> Result<()> {
         // Save effective config with ledger mutations
         const EFFECTIVE_TOPREPO_CONFIG: &str = "toprepo/last-effective-git-toprepo.toml";
         let config_path = self.gix_repo.common_dir().join(EFFECTIVE_TOPREPO_CONFIG);
-        let updated_config = GitTopRepoConfig {
-            checksum: self.config.checksum.clone(),
-            fetch: self.config.fetch.clone(),
-            subrepos: self.ledger.subrepos.clone(),
-        };
-        updated_config.save(&config_path)?;
-
-        Ok(())
+        self.config.save(&config_path)
     }
 }
 

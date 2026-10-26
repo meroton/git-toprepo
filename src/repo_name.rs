@@ -86,6 +86,32 @@ impl SubRepoName {
     pub fn new(name: String) -> Self {
         SubRepoName(name)
     }
+
+    pub fn new_from_url(repo_url: &gix::Url) -> Option<Self> {
+        // TODO: UTF-8 validation.
+        let mut name: &str = &repo_url.path.to_str_lossy();
+        if name.ends_with(".git") {
+            name = &name[..name.len() - 4];
+        } else if name.ends_with("/") {
+            name = &name[..name.len() - 1];
+        }
+        loop {
+            if name.starts_with("../") {
+                name = &name[3..];
+            } else if name.starts_with("./") {
+                name = &name[2..];
+            } else if name.starts_with("/") {
+                name = &name[1..];
+            } else {
+                break;
+            }
+        }
+        let name = name.replace("/", "_");
+        match RepoName::new(name) {
+            RepoName::Top => None,
+            RepoName::SubRepo(name) => Some(name),
+        }
+    }
 }
 
 impl Deref for SubRepoName {
