@@ -432,6 +432,34 @@ fn top_with_refspec_arg_success() {
         );
 }
 
+#[rstest]
+#[case::origin(Some("origin"))]
+/// Test using a relative path that does not resolve into the absolute path that
+/// is matched to the existing remote (origin).
+#[case::relative_path(Some("../../top/.git/.."))]
+#[case::file_url(None)]
+fn top_with_top_path_arg_success(#[case] remote: Option<&str>) {
+    let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();
+    let remote = remote.unwrap_or_else(|| repo.toprepo.to_str().unwrap());
+    cargo_bin_git_toprepo_for_testing()
+        .current_dir(&repo.monorepo)
+        .args([
+            "fetch",
+            "--path",
+            ".",
+            remote,
+            "refs/heads/foo:refs/heads/bar",
+        ])
+        .env("RUST_BACKTRACE", "1")
+        .assert()
+        .success();
+    git_command_for_testing(&repo.monorepo)
+        .args(["show", "--format=%s", "--quiet", "refs/heads/bar", "--"])
+        .assert()
+        .success()
+        .stdout("Empty test commit in top\n");
+}
+
 #[test]
 fn with_refspec_arg_absolute_submod_remote_path_from_root() {
     let repo = RepoWithTwoSubmodules::new_minimal_with_two_submodules();

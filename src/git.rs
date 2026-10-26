@@ -33,6 +33,11 @@ impl GitPath {
         Self(path)
     }
 
+    /// Returns `true` if the path is "." or empty.
+    pub fn is_current_dir(&self) -> bool {
+        self.is_empty() || self.0 == b"."
+    }
+
     /// Joins two paths together.
     ///
     /// ```
