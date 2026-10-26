@@ -750,9 +750,9 @@ fn timeout(
 }
 
 /// This regression test checks that Git Toprepo properly shuts down and does
-/// not hang when a fetching is aborted.
+/// not hang when a fetch is aborted.
 ///
-/// The problem fixed in commit `83cd0e652d4dbb9860e8686f105f4f989178bdb0`,
+/// The problem was fixed in commit `83cd0e652d4dbb9860e8686f105f4f989178bdb0`,
 /// "fix: Don't hang when loader interrupts early (#309)", only affects the
 /// commit loader, but let's test the fetcher anyway.
 #[test]
@@ -792,9 +792,9 @@ fn abort_fetch_does_not_hang() {
 }
 
 /// This regression test checks that Git Toprepo properly shuts down and does
-/// not hang when a fetching is aborted.
+/// not hang when a fetch is aborted.
 ///
-/// The problem fixed in commit `83cd0e652d4dbb9860e8686f105f4f989178bdb0`,
+/// The problem was fixed in commit `83cd0e652d4dbb9860e8686f105f4f989178bdb0`,
 /// "fix: Don't hang when loader interrupts early (#309)", only affects the
 /// commit loader when having a strange import cache entry, but let's test
 /// `git fast-export` anyway.
