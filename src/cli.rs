@@ -559,9 +559,7 @@ impl<'a> FetchParamsResolver<'a> {
             .with_context(|| format!("{path:#} is not a submodule"))?;
         let submod_url = match submod_url {
             Ok(submod_url) => submod_url.clone(),
-            Err(err) => {
-                anyhow::bail!("Bad URL for {path:#} in .gitmodules: {err}");
-            }
+            Err(err) => anyhow::bail!("Bad URL for {path:#} in .gitmodules: {err:#}"),
         };
         Ok(submod_url)
     }

@@ -74,9 +74,9 @@ impl SerializeAs<gix::Url> for SerdeGixUrl {
             s.serialize(serializer)
         } else {
             let bs = source.to_bstring();
-            let s: &str = bs
-                .to_str()
-                .map_err(|err| serde::ser::Error::custom(format!("Invalid URL {source}: {err}")))?;
+            let s: &str = bs.to_str().map_err(|err| {
+                serde::ser::Error::custom(format!("Invalid URL {source}: {err:#}"))
+            })?;
             s.serialize(serializer)
         }
     }
@@ -92,7 +92,7 @@ impl<'de> DeserializeAs<'de, gix::Url> for SerdeGixUrl {
             Ok(EMPTY_GIX_URL.clone())
         } else {
             let url = gix::Url::from_bytes(s.as_bytes().as_bstr())
-                .map_err(|err| serde::de::Error::custom(format!("Invalid URL {s}: {err}")))?;
+                .map_err(|err| serde::de::Error::custom(format!("Invalid URL {s}: {err:#}")))?;
             Ok(url)
         }
     }
@@ -152,8 +152,9 @@ impl<'de> DeserializeAs<'de, u32> for SerdeOctalNumber {
     {
         if deserializer.is_human_readable() {
             let s = String::deserialize(deserializer)?;
-            u32::from_str_radix(&s, 8)
-                .map_err(|err| serde::de::Error::custom(format!("Invalid octal number {s}: {err}")))
+            u32::from_str_radix(&s, 8).map_err(|err| {
+                serde::de::Error::custom(format!("Invalid octal number {s}: {err:#}"))
+            })
         } else {
             u32::deserialize(deserializer)
         }

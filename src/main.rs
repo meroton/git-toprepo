@@ -266,7 +266,7 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
             let submod_url = match submod_url {
                 Ok(submod_url) => submod_url,
                 Err(err) => {
-                    log::warn!("Invalid submodule URL for path {submod_path:#}: {err}");
+                    log::warn!("Invalid submodule URL for path {submod_path:#}: {err:#}");
                     continue;
                 }
             };
@@ -761,7 +761,7 @@ fn print_info(info_args: &cli::Info) -> Result<ExitCode> {
     if info_args.is_emulated_monorepo {
         // Handle the case where the repository is a monorepo.
         if let Err(err) = config_location_strs_result {
-            log::warn!("{err}");
+            log::warn!("{err:#}");
             Ok(ExitCode::from(cli::Info::EXIT_CODE_FALSE))
         } else {
             Ok(ExitCode::SUCCESS)
@@ -780,7 +780,7 @@ fn print_info(info_args: &cli::Info) -> Result<ExitCode> {
                             .unwrap_or_default()
                     }
                     Err(err) => {
-                        log::warn!("{err}");
+                        log::warn!("{err:#}");
                         String::new()
                     }
                 },
@@ -798,7 +798,7 @@ fn print_info(info_args: &cli::Info) -> Result<ExitCode> {
                     match git_toprepo::util::find_main_worktree_path(&repo) {
                         Ok(path) => path.to_string_lossy().to_string(),
                         Err(err) => {
-                            log::warn!("No main worktree: {err}");
+                            log::warn!("No main worktree: {err:#}");
                             String::new()
                         }
                     }
