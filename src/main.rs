@@ -1,3 +1,4 @@
+#![feature(trim_prefix_suffix)]
 mod cli;
 
 use crate::cli::Cli;
@@ -45,30 +46,34 @@ fn discover_configured_repo_current_dir() -> Result<ConfiguredTopRepo> {
     ConfiguredTopRepo::discover(&current_dir)
 }
 
-#[tracing::instrument]
-fn init(init_args: &cli::Init) -> Result<PathBuf> {
-    let mut url = gix::url::Url::from_bytes(init_args.repository.as_bytes().as_bstr())?;
+#[tracing::instrument(skip(destination, force))]
+fn init(
+    remote: &str,
+    destination: impl FnOnce(&gix::url::Url) -> Result<PathBuf>,
+    force: bool,
+) -> Result<PathBuf> {
+    let mut url = gix::url::Url::from_bytes(remote.as_bytes().as_bstr())?;
     // git-clone converts paths URLs to absolute paths.
     url.canonicalize(&std::env::current_dir()?)
         .with_context(|| format!("Failed to canonicalize URL {url}"))?;
 
-    let directory = match &init_args.directory {
-        Some(dir) => dir.clone(),
-        None => {
-            let url_path = url.path.to_str()?;
-            let name = Path::new(url_path)
-                .file_stem()
-                .context("URL path contains no basename")?;
-            PathBuf::from(name)
-        }
-    };
+    let destination = destination(&url)?;
 
-    if !init_args.force && directory.is_dir() && directory.read_dir()?.next().is_some() {
-        anyhow::bail!("Target directory {directory:?} is not empty");
+    if !force && destination.is_dir() && destination.read_dir()?.next().is_some() {
+        anyhow::bail!("Target directory {destination:?} is not empty");
     }
-    ConfiguredTopRepo::create(&directory, url)?;
-    log::info!("Initialized a Git Toprepo in {}", directory.display());
-    Ok(directory)
+    ConfiguredTopRepo::create(&destination, &url)?;
+    log::info!("Initialized a Git Toprepo in {}", destination.display());
+    Ok(destination.to_path_buf())
+}
+
+fn default_clone_directory(url: &gix::url::Url) -> Result<PathBuf> {
+    let url_path = url.path.to_str()?;
+    let trimmed_url_path = url_path.trim_suffix("/").trim_suffix(".git");
+    let name = Path::new(trimmed_url_path)
+        .file_stem()
+        .context("URL path contains no basename")?;
+    Ok(Path::new(name).to_path_buf())
 }
 
 #[tracing::instrument(skip(configured_repo, import_cache))]
@@ -1030,7 +1035,13 @@ where
 
     match args.command.actual() {
         Commands::Init(init_args) => {
-            init(init_args).map(|_path| ())?;
+            // If no directory is specified, default to the current directory.
+            let destination = init_args.directory.as_deref().unwrap_or(Path::new("."));
+            init(
+                &init_args.repository,
+                |_url| Ok(destination.to_path_buf()),
+                init_args.force,
+            )?;
             log::info!("The next step is to run 'git toprepo fetch'.");
             Ok(ExitCode::SUCCESS)
         }
@@ -1038,8 +1049,15 @@ where
         Commands::Hooks(git_hooks_args) => git_hooks(git_hooks_args),
         Commands::Dump(dump_args) => dump(dump_args).map(|()| ExitCode::SUCCESS),
         Commands::Clone(clone_args) => {
-            // Two-stage initialization: init + clone_after_init
-            let directory = init(&clone_args.init)?;
+            // Two-stage initialization: init + clone_after_init.
+            let directory = init(
+                &clone_args.repository,
+                |url| match &clone_args.directory {
+                    Some(dir) => Ok(dir.to_path_buf()),
+                    None => default_clone_directory(url),
+                },
+                clone_args.force,
+            )?;
             std::env::set_current_dir(&directory).with_context(|| {
                 format!(
                     "Failed to change working directory to {}",

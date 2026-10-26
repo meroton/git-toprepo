@@ -204,7 +204,7 @@ pub struct Init {
     pub repository: String,
 
     /// The name of a new directory to create the repository in. If no directory
-    /// is given, the basename of the repository is used.
+    /// is given, the current directory is used.
     pub directory: Option<PathBuf>,
 
     /// Initialize even if the target directory is not empty.
@@ -214,8 +214,16 @@ pub struct Init {
 
 #[derive(Args, Debug)]
 pub struct Clone {
-    #[command(flatten)]
-    pub init: Init,
+    /// The repository to be configured as remote.
+    pub repository: String,
+
+    /// The name of a new directory to create the repository in. If no directory
+    /// is given, the basename of the repository is used.
+    pub directory: Option<PathBuf>,
+
+    /// Initialize even if the target directory is not empty.
+    #[arg(long)]
+    pub force: bool,
 
     #[command(flatten)]
     pub recombine: Recombine,
