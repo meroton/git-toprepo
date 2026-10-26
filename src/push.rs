@@ -147,7 +147,7 @@ fn resolve_push_repo(
                 let dot_gitmodules_object = dot_gitmodules_entry.object()?;
                 dot_gitmodules_object
                     .try_into_blob()
-                    .with_context(|| format!("Failed to read {dot_gitmodules_path} file"))?
+                    .with_context(|| format!("Failed to read {dot_gitmodules_path:#} file"))?
                     .take_data()
             }
             None => Vec::new(),
@@ -156,7 +156,7 @@ fn resolve_push_repo(
             &dot_gitmodules_bytes,
             dot_gitmodules_path.to_path()?.to_owned(),
         )
-        .with_context(|| format!("Failed to parse {dot_gitmodules_path} file"))?;
+        .with_context(|| format!("Failed to parse {dot_gitmodules_path:#} file"))?;
         let Some((submod_path, sub_url)) = git_modules_info.get_containing_submodule(&rel_path)
         else {
             return Ok((repo_name, repo_path, rel_path.clone(), push_url));
@@ -350,8 +350,7 @@ fn split_for_push_impl(
                 (None, Some(msg)) => msg,
                 (None, None) => {
                     anyhow::bail!(
-                        "No commit message found for path {abs_sub_path}{} in mono commit {mono_commit_id}",
-                        if abs_sub_path.is_empty() { "<top>" } else { "" }
+                        "No commit message found for path {abs_sub_path:#} in mono commit {mono_commit_id}",
                     );
                 }
             };
@@ -377,7 +376,7 @@ fn split_for_push_impl(
                     (SplitParent::Mono(mono_parent), RepoName::SubRepo(sub_repo_name)) => {
                         let bump =
                             bumps.get_some_submodule(mono_parent, &abs_sub_path, sub_repo_name);
-                        log::trace!("Parent submodule {abs_sub_path}: {:?}", bump);
+                        log::trace!("Parent submodule {abs_sub_path:#}: {bump:?}");
                         bump.map(|parent_submod| *parent_submod.get_orig_commit_id())
                     }
                     (
@@ -411,7 +410,7 @@ fn split_for_push_impl(
                         "Mono commit {mono_commit_id} has no parent in the top repository, which is not supported"
                     ),
                     RepoName::SubRepo(sub_repo_name) => anyhow::bail!(
-                        "Submodule {sub_repo_name} at {abs_sub_path} does not exist as a git-link in any parent of {mono_commit_id}"
+                        "Submodule {sub_repo_name} at {abs_sub_path:#} does not exist as a git-link in any parent of {mono_commit_id}",
                     ),
                 }
             }

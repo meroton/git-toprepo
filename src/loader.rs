@@ -1109,9 +1109,8 @@ impl<'a> CommitLoader<'a> {
                     );
                     if submod_repo_name != cached_thin_submod.repo_name {
                         anyhow::bail!(
-                            "Submodule {path} was cached as repo {:?} but is now {:?}",
+                            "Submodule {path:#} was cached as repo {:?} but is now {submod_repo_name:?}",
                             cached_thin_submod.repo_name,
-                            submod_repo_name
                         );
                     }
                 }
@@ -1155,9 +1154,8 @@ impl<'a> CommitLoader<'a> {
                     );
                     if submod_repo_name != cached_thin_submod.repo_name {
                         anyhow::bail!(
-                            "Submodule {path} was cached as repo {:?} but is now {:?}",
-                            cached_thin_submod.repo_name,
-                            submod_repo_name
+                            "Submodule {path:#} was cached as repo {:?} but is now {submod_repo_name:?}",
+                            cached_thin_submod.repo_name
                         );
                     }
                 }
@@ -1483,7 +1481,7 @@ impl<'a> CommitLoader<'a> {
             if do_log() {
                 log::log!(
                     commit_log_level.level,
-                    "Cannot resolve submodule {path}, .gitmodules is missing"
+                    "Cannot resolve submodule {path:#}, .gitmodules is missing",
                 );
             }
             return None;

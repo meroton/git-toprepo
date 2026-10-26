@@ -110,8 +110,14 @@ impl std::fmt::Debug for GitPath {
 }
 
 impl Display for GitPath {
+    /// Printing `.` for empty paths if the alternate flag `{:#}` is set, to be
+    /// clear to the users.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(&self.0, f)
+        if self.is_empty() && f.alternate() {
+            std::fmt::Display::fmt(&".", f)
+        } else {
+            std::fmt::Display::fmt(&self.0, f)
+        }
     }
 }
 

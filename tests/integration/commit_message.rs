@@ -24,10 +24,10 @@ fn assemble_golden() {
         .assert()
         .success()
         .stderr(predicate::str::contains(
-            "\nDEBUG: Path /: Unknown commit message encoding \"bad-encoding\", assuming UTF-8\n",
+            "\nDEBUG: Path ./: Unknown commit message encoding \"bad-encoding\", assuming UTF-8\n",
         ))
         .stderr(predicate::str::contains(
-            "\nDEBUG: Path /: Commit message decoding errors\n",
+            "\nDEBUG: Path ./: Commit message decoding errors\n",
         ));
     let log_graph = extract_log_graph(&monorepo, vec!["--name-status", "HEAD", "--"]);
     insta::assert_snapshot!(
@@ -335,7 +335,7 @@ Topic: my-topic
         .code(1)
         .stderr(
             predicate::str::is_match(
-                "^ERROR: No commit message found for path <top> in mono commit [0-9a-f]+\n$",
+                "^ERROR: No commit message found for path \\. in mono commit [0-9a-f]+\n$",
             )
             .unwrap(),
         );

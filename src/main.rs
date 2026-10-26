@@ -137,7 +137,7 @@ fn verify_config_existence_after_clone(repo_dir: &Path) -> Result<()> {
                 break;
             }
         }
-        log::error!("Config file .gittoprepo.toml does not exist in {first_location}",);
+        log::error!("Config file .gittoprepo.toml does not exist in {first_location}");
         log::info!(
             "Please run 'git toprepo config bootstrap > .gittoprepo.user.toml' to generate an initial config \
             and 'git toprepo recombine' to use it."
@@ -260,13 +260,13 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
             })?;
         for submod_path in &*thin_head_commit.submodule_paths {
             let Some(submod_url) = gitmod_infos.submodules.get(submod_path) else {
-                log::warn!("Missing submodule {submod_path} in .gitmodules");
+                log::warn!("Missing submodule {submod_path:#} in .gitmodules");
                 continue;
             };
             let submod_url = match submod_url {
                 Ok(submod_url) => submod_url,
                 Err(err) => {
-                    log::warn!("Invalid submodule URL for path {submod_path}: {err}");
+                    log::warn!("Invalid submodule URL for path {submod_path:#}: {err}");
                     continue;
                 }
             };
@@ -276,7 +276,7 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
             match repo
                 .ledger
                 .get_name_from_url(submod_url)
-                .with_context(|| format!("Submodule {submod_path}"))
+                .with_context(|| format!("Submodule {submod_path:#}"))
             {
                 Ok(Some(name)) => {
                     let subrepo = repo
@@ -287,10 +287,10 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
                     subrepo.enabled = true;
                 }
                 Ok(None) => {
-                    unreachable!("Submodule {submod_path}:{submod_url} should be in the config")
+                    unreachable!("Submodule {submod_path:#}:{submod_url} should be in the config",)
                 }
                 Err(err) => {
-                    log::warn!("Failed to load submodule {submod_path}: {err}");
+                    log::warn!("Failed to load submodule {submod_path:#}: {err}");
                     continue;
                 }
             }
@@ -910,7 +910,7 @@ fn dump_git_modules() -> Result<()> {
     modules.sort();
 
     for module in modules {
-        println!("{} {}", module.project, module.path);
+        println!("{} {:#}", module.project, module.path);
     }
     Ok(())
 }

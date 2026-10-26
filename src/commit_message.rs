@@ -31,8 +31,9 @@ use crate::util::ensure_one_trailing_newline;
 use anyhow::Result;
 use anyhow::anyhow;
 use bstr::BStr;
-use bstr::ByteSlice;
+use bstr::ByteSlice as _;
 use gix::prelude::ObjectIdExt as _;
+use gix::utils::AsBStr as _;
 use itertools::Itertools as _;
 use std::collections::HashMap;
 
@@ -86,7 +87,7 @@ pub fn calculate_mono_commit_message_from_commits(
             if path == source_path {
                 return None;
             }
-            let _scope_guard_path = crate::log::scope(format!("Path {path}"));
+            let _scope_guard_path = crate::log::scope(format!("Path {path:#}"));
             let (submod_message, status) = match submod {
                 ExpandedOrRemovedSubmodule::Expanded(ExpandedSubmodule::Expanded(submod)) => {
                     let submod_message =
@@ -94,8 +95,13 @@ pub fn calculate_mono_commit_message_from_commits(
                             Ok(decoded_message) => Some(CommitMessage::from_full(decoded_message)),
                             Err(err) => {
                                 log::warn!(
-                                    "Failed to get commit message {} at {path}: {err:#}",
-                                    submod.orig_commit_id
+                                    "Failed to get commit message {} at {}: {err:#}",
+                                    submod.orig_commit_id,
+                                    if path.is_empty() {
+                                        TOPREPO_DISPLAY_PATH.as_bstr()
+                                    } else {
+                                        path.as_bstr()
+                                    }
                                 );
                                 None
                             }
@@ -151,7 +157,7 @@ pub fn calculate_mono_commit_message_from_commits(
         .collect_vec();
     // Add the source repo commit message.
     let source_info = {
-        let _scope_guard_path = crate::log::scope(format!("Path {source_path}/",));
+        let _scope_guard_path = crate::log::scope(format!("Path {source_path:#}/"));
         CommitMessageInfo {
             path: source_path.clone(),
             message: Some(CommitMessage::from_full(decode_commit_message(
@@ -289,14 +295,14 @@ pub struct CommitMessageInfoWithMessage {
 
 impl CommitMessageInfoWithMessage {
     fn format_toprepo_footer(&self) -> String {
-        let path_if_empty = if self.path.is_empty() {
-            TOPREPO_DISPLAY_PATH
-        } else {
-            ""
-        };
         format!(
-            "{GIT_TOPREPO_FOOTER_PREFIX} {}{path_if_empty} {}\n",
-            self.path, self.status
+            "{GIT_TOPREPO_FOOTER_PREFIX} {} {}\n",
+            if self.path.is_empty() {
+                TOPREPO_DISPLAY_PATH.as_bstr()
+            } else {
+                self.path.as_bstr()
+            },
+            self.status
         )
     }
 }
@@ -763,7 +769,7 @@ pub fn split_commit_message(
                 )
                 .is_some()
             {
-                anyhow::bail!("Multiple commit messages for submodule {path}",);
+                anyhow::bail!("Multiple commit messages for submodule {path:#}");
             }
         }
         Ok(())
@@ -855,7 +861,7 @@ pub fn split_commit_message(
                             state.add_toprepo_footer_path(path);
                         }
                         None => {
-                            if is_footer_line(line.as_bytes().as_bstr()) {
+                            if is_footer_line(line.as_bstr()) {
                                 // Continue in the footer section.
                                 pending_data.footer_section.push_str(line);
                             } else {
