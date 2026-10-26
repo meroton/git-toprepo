@@ -7,14 +7,14 @@ if test "$#" -gt 3 && test "$1" = "-C" && test "$3" = "fast-export"; then
     if ! echo "$@" | grep -q "$HEAD_REPOX"; then
         sleep 1
         echo "Intentionally abort fast-export repox after 1s" >&2
-        return 24
+        exit 24
     elif ! echo "$@" | grep -q "$HEAD_REPOY"; then
         sleep 2
         echo "Intentionally abort fast-export repoy after 2s" >&2
-        return 1
+        exit 1
     elif ! echo "$@" | grep -q "$HEAD_TOP"; then
         echo "Unexpected git-fetch-abort fast-export call" >&2
-        return 42
+        exit 42
     fi
 fi
 exec git "$@"
