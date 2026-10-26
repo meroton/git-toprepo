@@ -811,8 +811,7 @@ impl Expander<'_> {
         let source_gix_commit = self.gix_repo.find_commit(submod_commit.commit_id)?;
         write!(
             commit_message,
-            "Resetting submodule {} to {}\n\n",
-            abs_sub_path,
+            "Resetting submodule {abs_sub_path:#} to {}\n\n",
             &commit_id_str[..12]
         )?;
         non_descendants.sort();
@@ -1788,7 +1787,7 @@ fn recombine(
                     && let Some(sub_commit) = repo_data.thin_commits.get(&submod_ref.orig_commit_id)
                 {
                     let sub_context = format!(
-                        "Submodule commit {} at {path} ({})",
+                        "Submodule commit {} at {path:#} ({})",
                         sub_commit.commit_id, submod_ref.repo_name
                     );
                     let _sub_log_scope_guard = crate::log::scope(&sub_context);
@@ -2283,15 +2282,15 @@ pub fn expand_submodule_ref_onto_head(
                 "Commit {} cannot be expanded onto any monocommit in the history of HEAD. \
                  Running 'git toprepo recombine' may help unless \
                  the commit is older than the submodule in the super repository. \
-                 You may still be able to 'git cherry-pick -Xsubtree={abs_sub_path} {}'.",
+                 You may still be able to 'git cherry-pick -Xsubtree={abs_sub_path:#} {}'.",
                 thin_commit_to_inject.commit_id,
                 thin_commit_to_inject.commit_id,
             );
             anyhow::bail!(
-                "Failed to expand {}, to become {}, at {abs_sub_path}: \
+                "Failed to expand {}, to become {}, at {abs_sub_path:#}: \
                 No common monorepo history with HEAD",
                 ref_to_inject.name,
-                dest_ref.as_bstr()
+                dest_ref.as_bstr(),
             );
         };
         Ok(mono_commit)

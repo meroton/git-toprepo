@@ -548,11 +548,11 @@ impl<'a> FetchParamsResolver<'a> {
             .gitmod_infos
             .submodules
             .get(path)
-            .with_context(|| format!("{path} is not a submodule"))?;
+            .with_context(|| format!("{path:#} is not a submodule"))?;
         let submod_url = match submod_url {
             Ok(submod_url) => submod_url.clone(),
             Err(err) => {
-                anyhow::bail!(format!("Bad URL for {path} in .gitmodules: {err}"));
+                anyhow::bail!("Bad URL for {path:#} in .gitmodules: {err}");
             }
         };
         Ok(submod_url)
