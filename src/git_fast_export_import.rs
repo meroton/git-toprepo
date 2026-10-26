@@ -203,7 +203,7 @@ impl FastExportRepo {
         let stderr_thread = std::thread::Builder::new()
             .name("git-fast-export-stderr".into())
             .spawn(move || {
-                let _span = tracing::debug_span!(parent: parent_span, "stderr",).entered();
+                let _span = tracing::debug_span!(parent: parent_span, "stderr").entered();
                 let _log_scope_guard = crate::log::scope("git-fast-export");
                 for line in crate::util::ReadLossyCrOrLfLines::new(&mut stderr_reader) {
                     log::warn!(logger: logger, "{}", line.trim_end());
@@ -576,7 +576,7 @@ impl FastImportRepo {
         let stderr_thread = std::thread::Builder::new()
             .name("git-fast-import-stderr".into())
             .spawn(move || {
-                let _span = tracing::debug_span!(parent: parent_span, "stderr",).entered();
+                let _span = tracing::debug_span!(parent: parent_span, "stderr").entered();
                 let _log_scope_guard = crate::log::scope("git-fast-import");
                 for line in crate::util::ReadLossyCrOrLfLines::new(&mut stderr_reader) {
                     log::warn!(logger: logger, "{}", line.trim_end());

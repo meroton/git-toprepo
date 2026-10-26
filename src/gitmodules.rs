@@ -77,8 +77,8 @@ impl SubmoduleUrlExt for gix::url::Url {
     ///     "file:///../foo",
     /// );
     /// // Without scheme.
-    /// assert_eq!(join_url_str("parent", "/data/repo"), "/data/repo",);
-    /// assert_eq!(join_url_str("/data/repo", "../other"), "/data/other",);
+    /// assert_eq!(join_url_str("parent", "/data/repo"), "/data/repo");
+    /// assert_eq!(join_url_str("/data/repo", "../other"), "/data/other");
     /// ```
     fn join(&self, other: &Self) -> Self {
         if other.scheme == gix::url::Scheme::File

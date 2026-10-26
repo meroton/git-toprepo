@@ -137,7 +137,7 @@ fn verify_config_existence_after_clone(repo_dir: &Path) -> Result<()> {
                 break;
             }
         }
-        log::error!("Config file .gittoprepo.toml does not exist in {first_location}",);
+        log::error!("Config file .gittoprepo.toml does not exist in {first_location}");
         log::info!(
             "Please run 'git toprepo config bootstrap > .gittoprepo.user.toml' to generate an initial config \
             and 'git toprepo recombine' to use it."
