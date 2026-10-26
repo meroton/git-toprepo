@@ -123,6 +123,7 @@ pub struct FastExportRepo {
     /// Holds the tracing span open while FastExportRepo is in use.
     #[expect(unused)]
     span_guard: tracing::span::EnteredSpan,
+    process: std::process::Child,
     stderr_thread: Option<std::thread::JoinHandle<()>>,
 
     mark_oid_map: HashMap<BString, gix::ObjectId>,
@@ -212,6 +213,7 @@ impl FastExportRepo {
 
         Ok(FastExportRepo {
             span_guard,
+            process,
             stderr_thread: Some(stderr_thread),
             mark_oid_map: HashMap::new(),
             reader: Some(BufReader::new(stdout)),
@@ -229,7 +231,11 @@ impl FastExportRepo {
             .expect("reader available")
             .read_until(b'\n', &mut self.current_line)?;
         if bytes == 0 {
-            // EOF
+            // End of file.
+            self.process
+                .wait()?
+                .exit_ok()
+                .context("'git fast-export' failed")?;
         } else if (bytes == 1 && self.current_line[0] == b'\n')
             || (bytes >= 2
                 // Check that the LF is not part of a multi-byte character.
