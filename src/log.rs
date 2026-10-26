@@ -676,7 +676,7 @@ impl<'a> CommandSpanScope<'a> {
         let cmd_string = command_to_string_lossy(command);
         let shorter_cmd_string = cmd_string.chars().take(100).collect::<String>();
         if shorter_cmd_string.len() < cmd_string.len() {
-            log::debug!("Running {shorter_cmd_string} ... (truncated)",);
+            log::debug!("Running {shorter_cmd_string} ... (truncated)");
             log::trace!("Full command: {cmd_string}");
         } else {
             log::debug!("Running {cmd_string}");
