@@ -46,7 +46,7 @@ pub fn toprepo_git_config(key: &str) -> String {
 pub const TOPREPO_CONFIG_FILE_KEY: &str = "config";
 
 /// Configuration for the tool itself read from a configuration file.
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(default)]
 #[serde(deny_unknown_fields)]
 pub struct GitTopRepoConfig {
@@ -756,17 +756,6 @@ fn is_true(value: &bool) -> bool {
 }
 
 impl SubRepoConfig {
-    pub fn new_disabled(url: gix::Url) -> Self {
-        Self {
-            url,
-            historic_urls: Vec::new(),
-            fetch: FetchConfig::default(),
-            push: PushConfig::default(),
-            enabled: false,
-            missing_commits: HashSet::new(),
-        }
-    }
-
     pub fn resolve_push_url(&self) -> gix::Url {
         self.push.url.as_ref().unwrap_or(&self.url).clone()
     }
@@ -781,6 +770,19 @@ impl SubRepoConfig {
 
     pub fn urls(&self) -> impl Iterator<Item = &gix::Url> {
         [&self.url].into_iter().chain(self.historic_urls.iter())
+    }
+}
+
+impl Default for SubRepoConfig {
+    fn default() -> Self {
+        Self {
+            url: crate::util::EMPTY_GIX_URL.clone(),
+            historic_urls: Vec::new(),
+            fetch: FetchConfig::default(),
+            push: PushConfig::default(),
+            enabled: false,
+            missing_commits: HashSet::new(),
+        }
     }
 }
 
