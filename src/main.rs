@@ -3,7 +3,7 @@ mod cli;
 
 use crate::cli::Cli;
 use crate::cli::Commands;
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::Result;
 use bstr::BStr;
 use bstr::ByteSlice as _;

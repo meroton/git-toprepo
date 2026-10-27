@@ -1,6 +1,6 @@
 use crate::log::CommandSpanExt as _;
 use crate::util::CommandExtension as _;
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::Result;
 use bstr::BString;
 use bstr::ByteSlice as _;

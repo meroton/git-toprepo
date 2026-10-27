@@ -9,7 +9,7 @@ use crate::util::CommandExtension as _;
 use crate::util::OrderedHashSet;
 use crate::util::find_main_worktree_path;
 use crate::util::is_default;
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::Result;
 use anyhow::bail;
 use bstr::ByteSlice as _;
