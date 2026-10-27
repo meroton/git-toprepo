@@ -345,7 +345,7 @@ impl GlobalFileTraceLogger {
             record.level().as_str(),
             record.args()
         ) {
-            eprintln!("Failed to write log message to file: {err}");
+            eprintln!("Failed to write log message to file: {err:#}");
         }
     }
 
