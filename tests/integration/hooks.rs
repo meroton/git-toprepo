@@ -1,7 +1,7 @@
 use bstr::ByteSlice as _;
+use git_toprepo_testtools::test_util::CommandHelper;
 use git_toprepo_testtools::test_util::cargo_bin_git_toprepo_for_testing;
 use git_toprepo_testtools::test_util::git_command_for_testing;
-use git_toprepo_testtools::test_util::prepend_path_env;
 use predicates::prelude::*;
 use std::path::Path;
 
@@ -150,7 +150,7 @@ fn install_with_git_lfs() {
         .arg("install")
         .arg("--git-lfs")
         .arg("--git-lfs-skip-smudge")
-        .env("PATH", prepend_path_env(&bin_dir))
+        .prepend_path_env(bin_dir)
         .assert()
         .success()
         .stdout("")
@@ -206,7 +206,7 @@ fn install_without_git_lfs() {
         .current_dir(&monorepo)
         .arg("hooks")
         .arg("install")
-        .env("PATH", prepend_path_env(&bin_dir))
+        .prepend_path_env(bin_dir.clone())
         .assert()
         .success()
         .stdout("")
@@ -221,7 +221,7 @@ fn install_without_git_lfs() {
         .current_dir(&monorepo)
         .arg("hooks")
         .arg("install")
-        .env("PATH", prepend_path_env(&bin_dir))
+        .prepend_path_env(bin_dir)
         .assert()
         .success()
         .stdout("")
