@@ -588,34 +588,7 @@ pub(crate) enum LfsRemote {
     /// Fallback, the name `origin`.
     DefaultRemote,
 }
-/*
-enum LfsApiUrl {
-    /// Git config `lfs.pushurl`.
-    LfsPushUrl {
-        api_url: BString,
-    },
-    /// Git config `lfs.url`.
-    LfsUrl {
-        api_url: BString,
-    },
-    None {}
-}
 
-impl LfsApiUrl {
-    pub fn from_repo(repo: &gix::Repository, direction: gix::remote::Direction) -> Self {
-        if direction == gix::remote::Direction::Push && let Some(api_url) = repo.config_snapshot().string("lfs.pushurl") {
-            return Self::LfsPushUrl {
-                api_url: api_url.into_owned(),
-            };
-        }
-        if let Some(api_url) = repo.config_snapshot().string("lfs.url") {
-            return Self::LfsUrl {
-                api_url: api_url.into_owned(),
-            };
-        }
-    }
-}
-*/
 impl LfsRemote {
     pub fn from_repo_log_errors(repo: &gix::Repository, direction: gix::remote::Direction) -> Self {
         let current_short_branch = repo
