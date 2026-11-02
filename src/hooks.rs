@@ -157,6 +157,7 @@ impl Hook {
             }
         }
         // Write or overwrite.
+        std::fs::create_dir_all(hooks_root)?;
         if allow_overwrite {
             crate::util::overwrite_executable(path, content)
                 .with_context(|| format!("Failed to write {}", path.display()))?;

@@ -561,12 +561,9 @@ fn end_to_end_lfs_pull() {
                 .timeout(Duration::from_secs(2))
                 .assert()
                 .success()
-                .stdout("Checking out LFS objects: 100% (15/15), 62 B | 0 B/s, done.\n")
+                .stdout("Checking out LFS objects: 100% (3/3), 31 B | 0 B/s, done.\n")
                 .stderr(r#"Skipped checkout for "large-file.txt", content not local. Use fetch to download.
-Skipped checkout for "small-file.txt", content not local. Use fetch to download.
-Skipped checkout for "subpathx/small-file.txt", content not local. Use fetch to download.
 Skipped checkout for "subpathx/subpathy/large-file.txt", content not local. Use fetch to download.
-Skipped checkout for "subpathx/subpathy/small-file.txt", content not local. Use fetch to download.
 "#);
         },
         // Git LFS checkout function.

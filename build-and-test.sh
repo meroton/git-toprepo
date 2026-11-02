@@ -33,6 +33,14 @@ if ! version_is_at_least "$git_version" "2.36.0" "Warning: Skipping tests for un
   filter="$filter --skip config::missing_config"
   filter="$filter --skip clone::clone_and_bootstrap"
 fi
+if ! version_is_at_least "$git_version" "2.42.0" "Warning: Skipping tests for unsupported Git version ACTUAL < REQUIRED"; then
+  # Git <2.42 scans all pointer files, including small-file.txt, and warns that
+  # their content isn’t local.
+  # Git >=2.42 uses `git ls-files ... ':(top,attr:filter=lfs)'`. It selects only
+  # files with the LFS attribute, so small-file.txt produces no warning.
+  filter="$filter --skip lfs::end_to_end_lfs_pull"
+fi
+
 git_lfs_version=$({ git lfs version 2>/dev/null || echo "git-lfs/0.0.0-not-installed "; } | sed -n 's,git-lfs/\([^ ]*\) ,\1,p')
 if ! version_is_at_least "$git_lfs_version" "1.0.0" "Warning: Skipping tests for unsupported Git LFS version ACTUAL < REQUIRED"; then
   filter="$filter --skip lfs::end_to_end"
