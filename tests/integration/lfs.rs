@@ -600,7 +600,7 @@ fn end_to_end_lfs_skip_smudge_helper(
         .arg(monorepo)
         .assert()
         .success()
-        .stderr(predicates::str::contains(format!("Git LFS is available. Add the Git LFS hooks using \'git toprepo {INSTALL_HOOKS_COMMAND}\'")));
+        .stderr(predicate::str::contains(format!("Git LFS is available. Add the Git LFS hooks using \'git toprepo {INSTALL_HOOKS_COMMAND}\'")));
     git_command_for_testing(monorepo)
         .args([
             "config",
@@ -740,7 +740,7 @@ fn end_to_end_filters_impl(with_filter_process: bool) {
         .arg(monorepo)
         .assert()
         .success()
-        .stderr(predicates::str::contains(format!("Git LFS is available. Add the Git LFS hooks using \'git toprepo {INSTALL_HOOKS_COMMAND}\'")));
+        .stderr(predicate::str::contains(format!("Git LFS is available. Add the Git LFS hooks using \'git toprepo {INSTALL_HOOKS_COMMAND}\'")));
     git_command_for_testing(monorepo)
         .args([
             "config",
@@ -856,23 +856,31 @@ Connection: close
         listener
     });
 
-    git_command_for_testing(monorepo)
+    let cmd_assert = git_command_for_testing(monorepo)
         .apply_git_toprepo_path()
         .args(["reset", "--hard"])
         .timeout(Duration::from_secs(2))
         .assert()
-        .success()
-        .stderr(if with_filter_process {
-            // Git LFS does not print per-file messages for delayed smudging.
-            ""
-        } else {
-            "\
-Downloading large-file.txt (9 B)\n\
-Downloading subpathx/large-file.txt (11 B)\n\
-Downloading subpathx/subpathy/large-file.txt (11 B)\n\
-"
-        });
-
+        .success();
+    if with_filter_process {
+        // Git LFS does not print per-file messages for delayed smudging.
+        cmd_assert.stderr("");
+    } else {
+        cmd_assert
+            .stderr(
+                predicate::function(|s: &str| s.matches("Downloading ").count() == 3)
+                    .fn_name("Expected 3 downloads"),
+            )
+            .stderr(predicate::str::contains(
+                "Downloading large-file.txt (9 B)\n",
+            ))
+            .stderr(predicate::str::contains(
+                "Downloading subpathx/large-file.txt (11 B)\n",
+            ))
+            .stderr(predicate::str::contains(
+                "Downloading subpathx/subpathy/large-file.txt (11 B)\n",
+            ));
+    }
     lfs_server_done_rx
         .recv_timeout(Duration::from_secs(1))
         .unwrap();
@@ -906,13 +914,13 @@ Downloading subpathx/subpathy/large-file.txt (11 B)\n\
         .args(["show", "HEAD:large-file.txt"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("\nsize 7\n"))
+        .stdout(predicate::str::contains("\nsize 7\n"))
         .stderr("");
     git_command_for_testing(monorepo)
         .args(["show", "HEAD:subpathx/subpathy/large-file.txt"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("\nsize 9\n"))
+        .stdout(predicate::str::contains("\nsize 9\n"))
         .stderr("");
 
     // Start our Git LFS server stub. Detach the thread in case of failure where
