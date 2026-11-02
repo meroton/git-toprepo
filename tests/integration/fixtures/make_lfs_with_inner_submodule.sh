@@ -9,13 +9,13 @@ function commit {
     cat <<EOF > "${repo}/large-file.txt"
 version https://git-lfs.github.com/spec/v1
 oid sha256:$(echo -n "large-${repo}" | sha256sum | awk '{print $1}')
-size $(echo -n "large-${repo}" | wc -c)
+size $(echo -n "large-${repo}" | wc -c | tr -d '[:space:]')
 EOF
     # small-file.txt is a fake LFS file.
     cat <<EOF > "${repo}/small-file.txt"
 version https://git-lfs.github.com/spec/v1
 oid sha256:$(echo -n "small-${repo}" | sha256sum | awk '{print $1}')
-size $(echo -n "small-${repo}" | wc -c)
+size $(echo -n "small-${repo}" | wc -c | tr -d '[:space:]')
 EOF
     git -C "$repo" add "${message}.txt" ".gitattributes" "large-file.txt" "small-file.txt" 
     git -C "$repo" commit -q -m "$message"
