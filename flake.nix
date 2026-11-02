@@ -58,6 +58,7 @@
               '';
               nativeBuildInputs = with pkgs; [
                   git
+                  git-lfs
                   python3
               ];
               cargoLock.lockFile = "${src}/Cargo.lock";
