@@ -794,10 +794,6 @@ fn lfs_main(
         cli::Lfs::Fetch(fetch_args) => run_session(logger, |configured: &mut ConfiguredTopRepo| {
             lfs_main_fetch(fetch_args, configured)
         }),
-        cli::Lfs::Checkout(checkout_args) => {
-            lfs::run_lfs_checkout(Path::new("."), &checkout_args.args)?;
-            Ok(ExitCode::SUCCESS)
-        }
         cli::Lfs::Pull(pull_args) => {
             let fetch_exit_code = run_session(logger, |configured: &mut ConfiguredTopRepo| {
                 lfs_main_fetch(pull_args, configured)

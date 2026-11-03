@@ -537,8 +537,8 @@ fn end_to_end_lfs_fetch_checkout() {
         },
         // Git LFS checkout function.
         |monorepo: &Path| {
-            cargo_bin_git_toprepo_for_testing()
-                .current_dir(monorepo)
+            git_command_for_testing(monorepo)
+                .apply_git_toprepo_path()
                 .args(["lfs", "checkout", "subpathx/large-file.txt"])
                 .assert()
                 .success()

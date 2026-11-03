@@ -205,9 +205,8 @@ pub enum Commands {
 pub enum Lfs {
     /// Fetch LFS objects for monorepo paths from the remote.
     Fetch(LfsFetch),
-    /// Checkout downloaded LFS objects for monorepo paths. Alias for `git lfs checkout`.
-    Checkout(LfsCheckout),
-    /// Fetch LFS objects for monorepo paths from the remote and checkout them.
+    /// Fetch LFS objects for monorepo paths from the remote and then run
+    /// `git lfs checkout`.
     Pull(LfsFetch),
 
     /// Convert a LFS reference on stdin to the actual file content on stdout.
@@ -293,13 +292,6 @@ impl LfsFetch {
             },
         )
     }
-}
-
-#[derive(Args, Debug)]
-pub struct LfsCheckout {
-    /// All arguments to be passed to the `git lfs checkout` command.
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-    pub args: Vec<String>,
 }
 
 #[derive(Args, Debug)]
