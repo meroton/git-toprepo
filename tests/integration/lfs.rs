@@ -88,7 +88,7 @@ fn install() {
 
     insta::assert_snapshot!(
         cmd.get_output().stderr.to_str().unwrap(),
-        @"ERROR: The `lfs install` command is unavailable; use `git toprepo hooks install --git-lfs` instead."
+        @"ERROR: The 'lfs install' command is unavailable; use 'git toprepo hooks install --git-lfs [--git-lfs-skip-smudge]' instead."
     );
 }
 
@@ -600,7 +600,9 @@ fn end_to_end_lfs_skip_smudge_helper(
         .arg(monorepo)
         .assert()
         .success()
-        .stderr(predicate::str::contains(format!("Git LFS is available. Add the Git LFS hooks using \'git toprepo {INSTALL_HOOKS_COMMAND}\'")));
+        .stderr(predicate::str::contains(format!(
+            "Git LFS is available. Add the Git LFS hooks using 'git toprepo {INSTALL_HOOKS_COMMAND} [--git-lfs-skip-smudge]'.",
+        )));
     git_command_for_testing(monorepo)
         .args([
             "config",
@@ -740,7 +742,9 @@ fn end_to_end_filters_impl(with_filter_process: bool) {
         .arg(monorepo)
         .assert()
         .success()
-        .stderr(predicate::str::contains(format!("Git LFS is available. Add the Git LFS hooks using \'git toprepo {INSTALL_HOOKS_COMMAND}\'")));
+        .stderr(predicate::str::contains(format!(
+            "Git LFS is available. Add the Git LFS hooks using 'git toprepo {INSTALL_HOOKS_COMMAND} [--git-lfs-skip-smudge]'.",
+        )));
     git_command_for_testing(monorepo)
         .args([
             "config",

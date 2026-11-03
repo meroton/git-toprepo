@@ -8,6 +8,8 @@ use bstr::ByteSlice as _;
 use std::path::Path;
 use std::path::PathBuf;
 
+pub const INSTALL_COMMAND_MSG: &str = "git toprepo hooks install --git-lfs [--git-lfs-skip-smudge]";
+
 struct LfsFilter {
     /// The subcommand sent to Git LFS.
     pub subcommand: &'static str,
@@ -86,13 +88,24 @@ impl LfsFilter {
     /// installed.
     ///
     /// The progress is logged, both what files are written and potential errors.
-    pub fn install(&self, repo: &Path, skip_download: bool, action: &str) -> Result<String> {
+    pub fn install(
+        &self,
+        repo: &Path,
+        skip_download: bool,
+        action: &str,
+        old_value: Option<&str>,
+    ) -> Result<String> {
         let value = &format!(
             "git toprepo lfs {}{}{}",
             self.subcommand,
             if skip_download { " --skip" } else { "" },
             self.args_after_skip,
         );
+        if let Some(old_value) = old_value
+            && value == old_value
+        {
+            return Ok(format!("Verified git-config {}", self.git_config_key));
+        }
         git_command(repo)
             .args(["config", self.git_config_key, value])
             .trace_command(crate::command_span!("git config"))
@@ -118,8 +131,8 @@ impl LfsFilter {
             LfsFilterConfigState::Missing => {
                 Ok(format!("Unset git-config {}", self.git_config_key))
             }
-            LfsFilterConfigState::ThroughGitToprepo => anyhow::bail!(
-                "git-config {} still exists after unsetting it",
+            LfsFilterConfigState::ThroughGitToprepo(value) => anyhow::bail!(
+                "git-config {} still exists after unsetting it: {value:?}",
                 self.git_config_key
             ),
             LfsFilterConfigState::Bad(values) => anyhow::bail!(
@@ -224,27 +237,25 @@ pub fn install_with_git_lfs(repo: &Path, force: bool, skip_download: bool) -> Re
     for lfs_filter in LFS_FILTERS {
         match lfs_filter_bypasses_toprepo(repo, lfs_filter.git_config_key, lfs_filter.subcommand)? {
             LfsFilterConfigState::Missing => {
-                handle_result(lfs_filter.install(repo, skip_download, "Written"));
+                handle_result(lfs_filter.install(repo, skip_download, "Written", None));
             }
-            LfsFilterConfigState::ThroughGitToprepo => {
-                handle_result(lfs_filter.install(repo, skip_download, "Rewritten"));
+            LfsFilterConfigState::ThroughGitToprepo(value) => {
+                handle_result(lfs_filter.install(repo, skip_download, "Rewritten", Some(&value)));
             }
-            LfsFilterConfigState::Bad(values) => {
+            LfsFilterConfigState::Bad(value) => {
                 if force {
-                    handle_result(lfs_filter.install(repo, skip_download, "Written"));
+                    handle_result(lfs_filter.install(repo, skip_download, "Written", None));
                 } else {
-                    for value in values {
-                        handle_result(Err(anyhow::anyhow!(
-                            "{} is configured as '{value}', which bypasses Git Toprepo.{}{}",
-                            lfs_filter.git_config_key,
-                            if lfs_filter.bad_config_message.is_empty() {
-                                ""
-                            } else {
-                                " "
-                            },
-                            lfs_filter.bad_config_message,
-                        )));
-                    }
+                    handle_result(Err(anyhow::anyhow!(
+                        "Skipping configuration of {}, already set as '{value}' which bypasses Git Toprepo.{}{}",
+                        lfs_filter.git_config_key,
+                        if lfs_filter.bad_config_message.is_empty() {
+                            ""
+                        } else {
+                            " "
+                        },
+                        lfs_filter.bad_config_message,
+                    )));
                 }
             }
         }
@@ -288,20 +299,17 @@ pub fn install_without_git_lfs(repo: &Path, force: bool) -> Result<bool> {
                     lfs_filter.git_config_key
                 );
             }
-            LfsFilterConfigState::ThroughGitToprepo => {
+            LfsFilterConfigState::ThroughGitToprepo(_value) => {
                 handle_result(lfs_filter.remove(repo));
             }
-            LfsFilterConfigState::Bad(values) => {
+            LfsFilterConfigState::Bad(value) => {
                 if force {
                     handle_result(lfs_filter.remove(repo));
                 } else {
-                    for value in values {
-                        handle_result(Err(anyhow::anyhow!(
-                            "{} is configured as '{value}', which bypasses Git Toprepo. {}",
-                            lfs_filter.git_config_key,
-                            lfs_filter.bad_config_message,
-                        )));
-                    }
+                    handle_result(Err(anyhow::anyhow!(
+                        "Will not remove {}, configured as '{value}' which bypasses Git Toprepo.",
+                        lfs_filter.git_config_key,
+                    )));
                 }
             }
         }
@@ -313,9 +321,7 @@ pub fn install_without_git_lfs(repo: &Path, force: bool) -> Result<bool> {
 /// is shown.
 pub fn maybe_show_lfs_installation_instruction(repo: &Path) {
     if crate::lfs::ensure_git_lfs_available(repo).is_ok() {
-        log::info!(
-            "Git LFS is available. Add the Git LFS hooks using 'git toprepo hooks install --git-lfs'."
-        );
+        log::info!("Git LFS is available. Add the Git LFS hooks using '{INSTALL_COMMAND_MSG}'.");
     }
 }
 
@@ -340,19 +346,17 @@ pub enum LfsFilterConfigState {
     /// No configuration found.
     Missing,
     /// Correctly setup through Git Toprepo.
-    ThroughGitToprepo,
-    /// The bad configuration values that bypasses Git Toprepo. There might
-    /// still be configuration values that go through Git Toprepo, but that
-    /// mixed case is ignored.
-    Bad(Vec<String>),
+    ThroughGitToprepo(String),
+    /// The bad configuration value that bypasses Git Toprepo. Only the last of
+    /// all configured values is considered.
+    Bad(String),
 }
 
 pub fn warn_if_lfs_filters_bypass_toprepo(
     repo: &gix::Repository,
     print_usage_help: bool,
 ) -> Result<()> {
-    const USAGE_HELP_MSG: &str =
-        "\nUse 'git toprepo hooks install --git-lfs=yes' to properly add Git LFS support.";
+    let mut warning_has_been_printed = false;
     for lfs_filter in LFS_FILTERS {
         match lfs_filter_bypasses_toprepo(
             repo.git_dir(),
@@ -360,18 +364,19 @@ pub fn warn_if_lfs_filters_bypass_toprepo(
             lfs_filter.subcommand,
         )? {
             LfsFilterConfigState::Missing => {}
-            LfsFilterConfigState::ThroughGitToprepo => {}
-            LfsFilterConfigState::Bad(values) => {
-                for value in values {
-                    log::warn!(
-                        "{} is configured as '{value}', which bypasses Git Toprepo. {}{}",
-                        lfs_filter.git_config_key,
-                        lfs_filter.bad_config_message,
-                        if print_usage_help { USAGE_HELP_MSG } else { "" },
-                    );
-                }
+            LfsFilterConfigState::ThroughGitToprepo(_value) => {}
+            LfsFilterConfigState::Bad(value) => {
+                log::warn!(
+                    "{} is configured as '{value}', which bypasses Git Toprepo. {}",
+                    lfs_filter.git_config_key,
+                    lfs_filter.bad_config_message,
+                );
+                warning_has_been_printed = true;
             }
         }
+    }
+    if print_usage_help && warning_has_been_printed {
+        log::info!("Use '{INSTALL_COMMAND_MSG}' to properly add Git LFS support.");
     }
     Ok(())
 }
@@ -381,20 +386,15 @@ fn lfs_filter_bypasses_toprepo(
     key: &str,
     subcommand: &str,
 ) -> Result<LfsFilterConfigState> {
-    let mut result = LfsFilterConfigState::Missing;
-    for value in crate::git::git_config_get_all(repo, key)? {
-        if is_lfs_filter_through_toprepo(&value, subcommand) {
-            if result == LfsFilterConfigState::Missing {
-                result = LfsFilterConfigState::ThroughGitToprepo;
-            }
+    let result = if let Some(value) = crate::git::git_config_get_all(repo, key)?.last() {
+        if is_lfs_filter_through_toprepo(value, subcommand) {
+            LfsFilterConfigState::ThroughGitToprepo(value.to_string())
         } else {
-            if let LfsFilterConfigState::Bad(values) = &mut result {
-                values.push(value);
-            } else {
-                result = LfsFilterConfigState::Bad(vec![value]);
-            }
+            LfsFilterConfigState::Bad(value.to_string())
         }
-    }
+    } else {
+        LfsFilterConfigState::Missing
+    };
     Ok(result)
 }
 

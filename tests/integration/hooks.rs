@@ -211,7 +211,7 @@ fn install_without_git_lfs() {
         .success()
         .stdout("")
         .stderr(
-            predicate::str::contains("\nINFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo hooks install --git-lfs'.\n")
+            predicate::str::contains("\nINFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo hooks install --git-lfs [--git-lfs-skip-smudge]'.\n")
         );
     assert_hooks_without_git_lfs(&monorepo);
 
@@ -250,7 +250,7 @@ fn overwrite_hooks_alternating_git_lfs() {
                 "^\
 INFO: Written .*pre-push\\.toprepo
 INFO: Written .*pre-push
-INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo hooks install --git-lfs'.
+INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo hooks install --git-lfs \\[--git-lfs-skip-smudge\\]'.
 $",
             )
             .unwrap(),
@@ -300,7 +300,7 @@ INFO: Removed .*post-merge
 INFO: Unset git-config filter.lfs.clean
 INFO: Unset git-config filter.lfs.smudge
 INFO: Unset git-config filter.lfs.process
-INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo hooks install --git-lfs'.
+INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo hooks install --git-lfs \\[--git-lfs-skip-smudge\\]'.
 $",
             )
             .unwrap(),
@@ -317,7 +317,7 @@ $",
                 "^\
 INFO: Verified .*pre-push\\.toprepo
 INFO: Verified .*pre-push
-INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo hooks install --git-lfs'.
+INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo hooks install --git-lfs \\[--git-lfs-skip-smudge\\]'.
 $",
             )
             .unwrap(),
@@ -375,7 +375,7 @@ fn overwrite_unexpected_content() {
                 "^\
 INFO: Written .*pre-push\\.toprepo
 INFO: Written .*pre-push
-INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo hooks install --git-lfs'.
+INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo hooks install --git-lfs \\[--git-lfs-skip-smudge\\]'.
 $",
             )
             .unwrap(),
@@ -397,7 +397,7 @@ $",
 INFO: Verified .*pre-push\\.toprepo
 ERROR: Failed to create .*pre-push: File exists.*
 ERROR: Unexpected content, won\'t delete .*post-commit
-INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo hooks install --git-lfs'.
+INFO: Use '--force' to override.
 $",
             )
             .unwrap(),
@@ -423,7 +423,7 @@ $",
 INFO: Verified .*pre-push\\.toprepo
 INFO: Written .*pre-push
 INFO: Removed .*post-commit
-INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo hooks install --git-lfs'.
+INFO: Git LFS is available. Add the Git LFS hooks using 'git toprepo hooks install --git-lfs \\[--git-lfs-skip-smudge\\]'.
 $",
             )
             .unwrap(),

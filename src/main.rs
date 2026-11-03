@@ -110,16 +110,17 @@ fn clone_after_init(
         configured_repo.reload_repo()?;
         recombine(&clone_args.recombine, configured_repo, import_cache)?;
     }
+    let workdir = configured_repo
+        .gix_repo
+        .workdir()
+        .expect("ConfiguredTopRepo should have a working directory");
     std::process::Command::new("git")
-        .current_dir(
-            configured_repo
-                .gix_repo
-                .workdir()
-                .expect("ConfiguredTopRepo should have a working directory"),
-        )
+        .current_dir(workdir)
         .args(["checkout", "refs/remotes/origin/HEAD", "--"])
         .trace_command(git_toprepo::command_span!("git checkout"))
         .check_success_with_stderr()?;
+
+    crate::hooks::maybe_show_lfs_installation_instruction(workdir);
     Ok(())
 }
 
@@ -831,7 +832,8 @@ fn lfs_main(
         }
         cli::Lfs::Install => {
             anyhow::bail!(
-                "The `lfs install` command is unavailable; use `git toprepo hooks install --git-lfs` instead."
+                "The 'lfs install' command is unavailable; use '{}' instead.",
+                git_toprepo::hooks::INSTALL_COMMAND_MSG,
             );
         }
     }
@@ -962,12 +964,15 @@ fn git_hooks(git_hooks_args: &cli::GitHooks) -> Result<ExitCode> {
                 )
             } else {
                 let success = git_toprepo::hooks::install_without_git_lfs(repo_dir, args.force);
-                git_toprepo::hooks::maybe_show_lfs_installation_instruction(repo_dir);
+                if matches!(success, Ok(true)) {
+                    git_toprepo::hooks::maybe_show_lfs_installation_instruction(repo_dir);
+                }
                 success
             };
             if success? {
                 Ok(ExitCode::SUCCESS)
             } else {
+                log::info!("Use '--force' to override.");
                 Ok(ExitCode::FAILURE)
             }
         }
