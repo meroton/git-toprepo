@@ -251,9 +251,9 @@ impl Expander<'_> {
                     .clone()
             })
             .collect_vec();
-        const TOP_PATH: GitPath = GitPath::new(BString::new(vec![]));
+        let top_path: GitPath = GitPath::new(BString::new(vec![]));
         let parents_for_submodules =
-            self.expand_inner_submodules(&mono_parents_of_top, &TOP_PATH, &top_commit)?;
+            self.expand_inner_submodules(&mono_parents_of_top, &top_path, &top_commit)?;
         if mono_parents_of_top.is_empty() && !parents_for_submodules.is_empty() {
             // There should be a first parent that is not a submodule.
             // Add an initial empty commit.
@@ -273,7 +273,7 @@ impl Expander<'_> {
             .chain(parents_for_submodules)
             .collect_vec();
         let mono_commit = self.emit_mono_commit(
-            &TOP_PATH,
+            &top_path,
             &RepoName::Top,
             &top_commit,
             mono_parents,

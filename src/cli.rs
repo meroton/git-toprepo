@@ -196,6 +196,126 @@ pub enum Commands {
     /// Print the version of the Git Toprepo tool.
     #[command(aliases = ["-V", "--version"])]
     Version,
+    /// Git LFS helpers for emulated monorepos.
+    #[command(subcommand)]
+    Lfs(Lfs),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Lfs {
+    /// Fetch LFS objects for monorepo paths from the remote.
+    Fetch(LfsFetch),
+    /// Fetch LFS objects for monorepo paths from the remote and then run
+    /// `git lfs checkout`.
+    Pull(LfsFetch),
+
+    /// Convert a LFS reference on stdin to the actual file content on stdout.
+    Smudge(LfsSmudge),
+    /// Convert actual file content on stdin to a LFS reference on stdout.
+    Clean(LfsClean),
+    /// Run the LFS filter process for batching smudge and clean operations.
+    FilterProcess(LfsFilterProcess),
+
+    /// Unavailable; use `git toprepo hooks install --git-lfs` to install hooks and filters.
+    Install,
+}
+
+#[derive(Args, Debug)]
+pub struct LfsFetch {
+    /// Include paths for this invocation, comma separated. Empty matches all
+    /// files, defaults to the git-config `lfs.fetchinclude`.
+    // Using `Option<String>` instead of `Vec<String>` with `value_delimiter =
+    // ','` because Git LFS doesn't accept multiple include arguments.
+    #[arg(long, short = 'I', value_name = "PATHS")]
+    pub include: Option<String>,
+
+    /// Exclude paths for this invocation, comma separated. Empty matches no
+    /// files, defaults to the git-config `lfs.fetchexclude`.
+    // Using `Option<String>` instead of `Vec<String>` with `value_delimiter =
+    // ','` because Git LFS doesn't accept multiple exclude arguments.
+    #[arg(long = "exclude", short = 'X', value_name = "PATHS")]
+    pub exclude: Option<String>,
+
+    #[clap(flatten)]
+    pub lfs_fetch_options: git_toprepo::lfs::FetchOptions,
+
+    /// Continue as much as possible after an error.
+    #[arg(long)]
+    pub keep_going: bool,
+
+    /// Number of concurrent `git lfs fetch` processes to run.
+    #[arg(long("jobs"), value_name = "N", default_value = "7")]
+    pub job_count: std::num::NonZero<u16>,
+
+    /// Without arguments, fetch downloads from the default remote. The default
+    /// remote is the same as for git fetch, i.e. based on the remote branch
+    /// you’re tracking first, or origin otherwise.
+    #[arg(value_name = "remote")]
+    pub remote: Option<String>,
+
+    /// Refs to consider or the currently checked out ref by default.
+    #[arg(value_name = "ref")]
+    pub refs: Vec<String>,
+}
+
+impl LfsFetch {
+    pub fn get_include_patterns(&self, worktree: &Path) -> Result<Vec<String>> {
+        Self::get_filter_patterns(worktree, self.include.as_deref(), "lfs.fetchinclude")
+    }
+
+    pub fn get_exclude_patterns(&self, worktree: &Path) -> Result<Vec<String>> {
+        Self::get_filter_patterns(worktree, self.exclude.as_deref(), "lfs.fetchexclude")
+    }
+
+    fn get_filter_patterns(
+        worktree: &Path,
+        comma_separated_pattern: Option<&str>,
+        git_config_fallback_key: &str,
+    ) -> Result<Vec<String>> {
+        Ok(
+            if let Some(comma_separated_pattern) = comma_separated_pattern {
+                comma_separated_pattern
+                    .split(',')
+                    .map(str::to_owned)
+                    .collect()
+            } else {
+                // Empirical test of
+                // `GIT_CURL_VERBOSE=1 git -c lfs.fetchinclude= -c lfs.fetchinclude=/tests lfs fetch`
+                // shows that only the last value is used. Also note that the
+                // comma cannot be escaped for Git LFS.
+                git_toprepo::git::git_config_get_all(worktree, git_config_fallback_key)?
+                    .last()
+                    .map_or_default(String::as_str)
+                    .split(',')
+                    .map(str::to_owned)
+                    .collect()
+            },
+        )
+    }
+}
+
+#[derive(Args, Debug)]
+pub struct LfsSmudge {
+    /// Skip automatic downloading of objects on clone or pull.
+    #[arg(long)]
+    pub skip: bool,
+
+    /// The path to the file to be smudged. Optional for Git LFS, but mandatory
+    /// for Git Toprepo.
+    pub path: PathBuf,
+}
+
+#[derive(Args, Debug)]
+pub struct LfsClean {
+    /// The path to the file to be converted to an LFS reference.
+    pub path: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct LfsFilterProcess {
+    /// Skip automatic downloading of objects on clone or pull.
+    #[arg(long)]
+    pub skip: bool,
 }
 
 #[derive(Args, Debug)]
@@ -348,6 +468,16 @@ pub struct GitHooksInstall {
     /// Overwrite existing files.
     #[arg(long, short)]
     pub force: bool,
+
+    /// Install Git LFS hooks as well.
+    #[arg(long)]
+    pub git_lfs: bool,
+
+    /// Skips automatic downloading of objects on clone or pull. This requires a
+    /// manual "git lfs pull" every time a new commit is checked out on your
+    /// repository.
+    #[arg(long, requires = "git_lfs")]
+    pub git_lfs_skip_smudge: bool,
 }
 
 /// Experimental feature: dump internal states to stdout.

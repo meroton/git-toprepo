@@ -3,6 +3,7 @@ use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::ops::Deref;
 use std::path::Path;
+use std::path::PathBuf;
 
 #[cfg(windows)]
 const NULL_DEVICE: &str = "NUL";
@@ -23,6 +24,7 @@ pub fn git_command_for_testing(repo: impl AsRef<std::ffi::OsStr>) -> assert_cmd:
 /// for deterministic testing.
 pub fn cargo_bin_git_toprepo_for_testing() -> assert_cmd::Command {
     let mut command = assert_cmd::Command::cargo_bin("git-toprepo").unwrap();
+    apply_git_toprepo_path(&mut command);
     apply_git_env(&mut command);
     // Apply the worst possible git-config to make sure Git Toprepo can cope.
     command
@@ -64,6 +66,25 @@ fn apply_git_env(command: &mut assert_cmd::Command) {
         .env("GIT_CONFIG_COUNT", "0");
 }
 
+fn apply_git_toprepo_path(command: &mut assert_cmd::Command) {
+    let toprepo_cmd = assert_cmd::Command::cargo_bin("git-toprepo").unwrap();
+    if let Some(cwd) = toprepo_cmd.get_current_dir() {
+        unimplemented!("Current directory is set, got {cwd:?}");
+    }
+    if toprepo_cmd.get_args().next().is_some() {
+        unimplemented!("Arguments are set, got {:?}", toprepo_cmd.get_args());
+    }
+    if toprepo_cmd.get_envs().next().is_some() {
+        unimplemented!(
+            "Environment variables are set, got {:?}",
+            toprepo_cmd.get_envs()
+        );
+    }
+    let prog_path = Path::new(toprepo_cmd.get_program());
+    let prog_dir = prog_path.parent().unwrap();
+    command.prepend_path_env(prog_dir.to_path_buf());
+}
+
 pub fn git_rev_parse(repo: impl AsRef<std::ffi::OsStr>, reference: &str) -> String {
     git_command_for_testing(repo)
         .args(["rev-parse", reference])
@@ -91,13 +112,44 @@ pub fn git_update_submodule_in_index(repo: impl AsRef<std::ffi::OsStr>, path: &s
         .success();
 }
 
-/// Prepends a path to the `PATH` environment variable and returns that string.
-/// Use in combination with `command.env("PATH", prepend_path_env(some_dir))`.
-pub fn prepend_path_env(bin_dir: &Path) -> OsString {
-    let old_path = std::env::var_os("PATH").unwrap_or_default();
-    let mut paths = vec![bin_dir.to_path_buf()];
-    paths.extend(std::env::split_paths(&old_path));
-    std::env::join_paths(paths).unwrap()
+pub trait CommandHelper {
+    /// Prepends a path to the `PATH` environment variable. Use as
+    /// `command.prepend_path_env(some_dir)`.
+    fn prepend_path_env(&mut self, bin_dir: PathBuf) -> &'_ mut Self;
+
+    /// For integration tests running Git Toprepo, add our Git Toprepo from
+    /// source instead of using the user installed version.
+    fn apply_git_toprepo_path(&mut self) -> &'_ mut Self;
+}
+
+impl CommandHelper for assert_cmd::Command {
+    fn prepend_path_env(&mut self, bin_dir: PathBuf) -> &'_ mut Self {
+        let mut paths = vec![bin_dir];
+        for (key, value) in self.get_envs() {
+            if key == "PATH" {
+                if let Some(value) = value {
+                    let old_paths = std::env::split_paths(value);
+                    paths.extend(old_paths);
+                }
+                let new_path = std::env::join_paths(paths).unwrap();
+                self.env("PATH", new_path);
+                return self;
+            }
+        }
+        // TODO: assert_cmd.get_env_clear() is not available.
+        if let Some(old_path_str) = std::env::var_os("PATH") {
+            let old_paths = std::env::split_paths(&old_path_str);
+            paths.extend(old_paths);
+        }
+        let new_path = std::env::join_paths(paths).unwrap();
+        self.env("PATH", new_path);
+        self
+    }
+
+    fn apply_git_toprepo_path(&mut self) -> &'_ mut Self {
+        apply_git_toprepo_path(self);
+        self
+    }
 }
 
 pub enum MaybePermanentTempDir {

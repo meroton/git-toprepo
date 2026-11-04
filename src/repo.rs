@@ -116,7 +116,7 @@ pub fn get_submodules(gix_repo: &gix::Repository) -> Result<HashMap<GitPath, Str
 }
 
 pub fn resolve_gerrit_project(gix_repo: &gix::Repository) -> Result<String> {
-    let url = crate::git::get_default_remote_url(gix_repo)?;
+    let url = crate::git::get_default_remote_url(gix_repo, gix::remote::Direction::Fetch)?;
     parse_gerrit_project(&url).with_context(|| format!("Parse gerrit project from {url}"))
 }
 
@@ -198,9 +198,11 @@ impl ConfiguredTopRepo {
             "may:worktree:.gittoprepo.user.toml",
         )?;
 
-        let hooks_result = crate::hooks::install(directory, false);
+        let hooks_result = crate::hooks::install_without_git_lfs(directory, false);
+        crate::hooks::maybe_show_lfs_installation_instruction(directory);
         if !matches!(hooks_result, Ok(true)) {
-            log::info!("Retry installing git-hooks with `git toprepo hooks install`");
+            // TODO: 2026-11-03 Also print this after a clone is done.
+            log::info!("Retry installing git-hooks with 'git toprepo hooks install'");
         }
         if let Err(err) = &hooks_result {
             log::error!("Failed to install git-hooks: {err:#}");

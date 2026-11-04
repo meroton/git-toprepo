@@ -1,4 +1,6 @@
 #![feature(exit_status_error)]
+#![feature(trim_prefix_suffix)]
+#![feature(try_blocks)]
 
 pub mod commit_message;
 pub mod config;
@@ -10,6 +12,7 @@ pub mod git_fast_export_import_dedup;
 pub mod gitmodules;
 pub mod hooks;
 pub mod import_cache_serde;
+pub mod lfs;
 pub mod loader;
 pub mod log;
 pub mod push;

@@ -11,17 +11,40 @@ else
   exit 2
 fi
 
-# # Minimum git version is 2.36 .
-# Developers with older git releases can't run some tests locally.
-# They are filtered out here.
-MINIMUM=2.36.0
-filter=
-lowest="$({ git version | awk '{print $3}' ; echo $MINIMUM; } | sort --version-sort | head -1)"
-test "$lowest" = "$MINIMUM" || {
-    echo >&2 "Warning: skipping tests for unsupported git version: $lowest"
-    filter="$filter --skip config::missing_config"
-    filter="$filter --skip clone::clone_and_bootstrap"
+# Some tests require certain versions of tools installed.
+function version_is_at_least {
+  actual=$1
+  required=$2
+  message=$3
+  if [ "$(printf '%s\n%s' "$required" "$actual" | sort --version-sort | head -1)" = "$required" ]; then
+    return 0
+  else
+    message=${message//ACTUAL/$actual}
+    message=${message//REQUIRED/$required}
+    echo >&2 "$message"
+    return 1
+  fi
 }
+
+filter=
+
+git_version=$(git version | awk '{print $3}')
+if ! version_is_at_least "$git_version" "2.36.0" "Warning: Skipping tests for unsupported Git version ACTUAL < REQUIRED"; then
+  filter="$filter --skip config::missing_config"
+  filter="$filter --skip clone::clone_and_bootstrap"
+fi
+if ! version_is_at_least "$git_version" "2.42.0" "Warning: Skipping tests for unsupported Git version ACTUAL < REQUIRED"; then
+  # Git <2.42 scans all pointer files, including small-file.txt, and warns that
+  # their content isn’t local.
+  # Git >=2.42 uses `git ls-files ... ':(top,attr:filter=lfs)'`. It selects only
+  # files with the LFS attribute, so small-file.txt produces no warning.
+  filter="$filter --skip lfs::end_to_end_lfs_pull"
+fi
+
+git_lfs_version=$({ git lfs version 2>/dev/null || echo "git-lfs/0.0.0-not-installed "; } | sed -n 's,git-lfs/\([^ ]*\) ,\1,p')
+if ! version_is_at_least "$git_lfs_version" "1.0.0" "Warning: Skipping tests for unsupported Git LFS version ACTUAL < REQUIRED"; then
+  filter="$filter --skip lfs::end_to_end"
+fi
 
 # Check that flake.nix is matching rust-toolchain.toml.
 rust_version=$(sed -n 's/channel = "nightly-\(.*\)"/\1/p' rust-toolchain.toml)

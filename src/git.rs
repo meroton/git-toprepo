@@ -31,7 +31,17 @@ pub struct GitPath(
 );
 
 impl GitPath {
-    pub const fn new(path: BString) -> Self {
+    pub fn new(path: BString) -> Self {
+        debug_assert!(
+            *path.first().unwrap_or(&b'A') != b'/',
+            "Not a relative path: {}",
+            path.to_str_lossy()
+        );
+        debug_assert!(
+            *path.last().unwrap_or(&b'A') != b'/',
+            "Path must not end with a slash: {}",
+            path.to_str_lossy()
+        );
         Self(path)
     }
 
@@ -138,13 +148,35 @@ where
 }
 
 /// Returns the default ("origin") remote URL for a repository.
-pub fn get_default_remote_url(repo: &gix::Repository) -> Result<gix::Url> {
+///
+/// Getting the remote from the currently tracked branch doesn't work because
+/// branch tracking uses the remote `.` so that our expanded branches are
+/// tracked, not the original ones. Therefore, only the default remote is
+/// resolved.
+pub fn get_default_remote_url(
+    repo: &gix::Repository,
+    direction: gix::remote::Direction,
+) -> Result<gix::Url> {
     Ok(repo
-        .find_default_remote(gix::remote::Direction::Fetch)
+        .find_default_remote(direction)
         .context("Missing default git-remote")?
         .context("Error getting default git-remote")?
-        .url(gix::remote::Direction::Fetch)
-        .context("Missing default git-remote fetch url")?
+        .url(direction)
+        .with_context(|| format!("Missing default git-remote {} url", direction.as_str()))?
+        .to_owned())
+}
+
+pub fn resolve_remote_url(
+    repo: &gix::Repository,
+    remote: &str,
+    direction: gix::remote::Direction,
+) -> Result<gix::Url> {
+    Ok(repo
+        .try_find_remote(remote)
+        .with_context(|| format!("Missing git-remote {remote}"))?
+        .with_context(|| format!("Error getting git-remote {remote}"))?
+        .url(direction)
+        .with_context(|| format!("Missing git-remote {remote} {} url", direction.as_str()))?
         .to_owned())
 }
 
@@ -159,6 +191,11 @@ impl GitModulesInfo {
         let Some(workdir) = repo.workdir() else {
             anyhow::bail!("Repository {} has no workdir", repo.common_dir().display());
         };
+        Self::parse_dot_gitmodules_file_in_dir(workdir)
+            .with_context(|| format!("In {}", workdir.display()))
+    }
+
+    pub fn parse_dot_gitmodules_file_in_dir(workdir: &Path) -> Result<Self> {
         let path = workdir.join(".gitmodules");
         let bytes = std::fs::read(&path)
             .or_else(|err| {
@@ -170,12 +207,7 @@ impl GitModulesInfo {
                     Err(err)
                 }
             })
-            .with_context(|| {
-                format!(
-                    "Failed to read .gitmodules file in repository {}",
-                    repo.common_dir().display()
-                )
-            })?;
+            .context("Failed to read .gitmodules file")?;
         Self::parse_dot_gitmodules_bytes(&bytes, path)
     }
 
@@ -322,9 +354,9 @@ impl FileLocationAndUrl {
     /// Resolves which repository a file belongs to. Note that the URL might not be
     /// part of the Git Toprepo configuration, so `top_url` is used as base when
     /// resolving the destinations.
-    pub fn resolve_at_commit(
+    pub(crate) fn resolve_at_commit(
         mono_commit: &gix::Commit,
-        path: GitPath,
+        path: &GitPath,
         top_url: &gix::Url,
         subrepo_configs: &crate::config::SubRepoConfigs,
         direction: gix::remote::Direction,
@@ -346,9 +378,30 @@ impl FileLocationAndUrl {
     /// Resolves which repository a file belongs to. Note that the URL might not be
     /// part of the Git Toprepo configuration, so `top_url` is used as base when
     /// resolving the destinations.
+    pub(crate) fn resolve_in_worktree(
+        worktree: &Path,
+        path: &GitPath,
+        top_url: &gix::Url,
+        subrepo_configs: &crate::config::SubRepoConfigs,
+        direction: gix::remote::Direction,
+    ) -> Result<FileLocationAndUrl> {
+        let read_repo_file = |p: GitPath| {
+            let file_path = worktree.join(p.to_path()?);
+            match std::fs::read(&file_path) {
+                Ok(data) => Ok(Some(data)),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(err) => Err(err).context(format!("Failed to read {p:#}")),
+            }
+        };
+        Self::resolve(read_repo_file, path, top_url, subrepo_configs, direction)
+    }
+
+    /// Resolves which repository a file belongs to. Note that the URL might not be
+    /// part of the Git Toprepo configuration, so `top_url` is used as base when
+    /// resolving the destinations.
     fn resolve(
         read_repo_file: impl Fn(GitPath) -> Result<Option<Vec<u8>>>,
-        path: GitPath,
+        path: &GitPath,
         top_url: &gix::Url,
         subrepo_configs: &crate::config::SubRepoConfigs,
         direction: gix::remote::Direction,

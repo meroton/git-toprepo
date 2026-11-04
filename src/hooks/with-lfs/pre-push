@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+/bin/sh "$0.toprepo" "$@" < /dev/null
+git lfs pre-push "$@"
