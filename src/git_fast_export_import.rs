@@ -187,10 +187,10 @@ impl FastExportRepo {
             Some(mut start_refs) => {
                 start_refs.sort();
                 start_refs.dedup_by(|a, b| a == b);
-                cmd.arg("--").args(start_refs);
+                cmd.args(start_refs);
             }
             None => {
-                cmd.arg("--all").arg("--");
+                cmd.arg("--all");
             }
         }
         for stop_ref in stop_refs {
@@ -198,6 +198,7 @@ impl FastExportRepo {
             stop_ref_arg.push(stop_ref.as_ref());
             cmd.arg(stop_ref_arg);
         }
+        cmd.arg("--");
         let (mut process, span_guard) = cmd
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
