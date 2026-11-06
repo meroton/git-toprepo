@@ -1382,8 +1382,8 @@ struct SingleRepoLoader<'a> {
 }
 
 struct RefsToLoad {
-    start_refs: Vec<String>,
-    stop_refs: Vec<String>,
+    start_commit_ids: Vec<CommitId>,
+    stop_commit_ids: Vec<CommitId>,
     cached_commit_ids_to_load: Vec<CommitId>,
     _unknown_commit_count: usize,
 }
@@ -1439,11 +1439,11 @@ impl SingleRepoLoader<'_> {
                 .map_err(InterruptedError::Normal)?;
             assert!(refs_to_load.cached_commit_ids_to_load.is_empty());
         }
-        if !refs_to_load.start_refs.is_empty() {
+        if !refs_to_load.start_commit_ids.is_empty() {
             match self.load_from_refs(
                 &active_tips_map,
-                refs_to_load.start_refs,
-                refs_to_load.stop_refs,
+                refs_to_load.start_commit_ids,
+                refs_to_load.stop_commit_ids,
                 callback,
             ) {
                 Ok(()) => Ok(()),
@@ -1549,17 +1549,14 @@ impl SingleRepoLoader<'_> {
         }
         if unknown_tips.is_empty() {
             return Ok(RefsToLoad {
-                start_refs: vec![],
-                stop_refs: vec![],
+                start_commit_ids: vec![],
+                stop_commit_ids: vec![],
                 cached_commit_ids_to_load: visited_cached_commits,
                 _unknown_commit_count: 0,
             });
         }
 
-        let start_refs = unknown_tips
-            .iter()
-            .map(|id| id.to_hex().to_string())
-            .collect::<Vec<_>>();
+        let start_commit_ids = unknown_tips.clone();
         let (stop_commit_ids, unknown_commit_count) = crate::git::get_first_known_commits(
             self.monorepo,
             unknown_tips.into_iter(),
@@ -1574,14 +1571,9 @@ impl SingleRepoLoader<'_> {
                 false
             },
         )?;
-        let stop_refs = stop_commit_ids
-            .iter()
-            .map(|id| id.to_hex().to_string())
-            .collect();
-
         Ok(RefsToLoad {
-            start_refs,
-            stop_refs,
+            start_commit_ids,
+            stop_commit_ids,
             cached_commit_ids_to_load: visited_cached_commits,
             _unknown_commit_count: unknown_commit_count,
         })
@@ -1594,15 +1586,14 @@ impl SingleRepoLoader<'_> {
     fn load_from_refs(
         &self,
         tips: &CommitToRefMap,
-        start_refs: Vec<String>,
-        stop_refs: Vec<String>,
+        start_commit_ids: Vec<CommitId>,
+        stop_commit_ids: Vec<CommitId>,
         callback: &impl SingleLoadRepoCallback,
     ) -> InterruptedResult<()> {
         // The top repository will get an empty URL, which is exactly
         // what is wanted.
-        let toprepo_git_dir = self.monorepo.git_dir();
         for export_entry in
-            FastExportRepo::load_from_path(toprepo_git_dir, Some(start_refs), stop_refs)?
+            FastExportRepo::load_from_path(self.monorepo, Some(start_commit_ids), stop_commit_ids)?
         {
             if self.error_observer.should_interrupt() {
                 break;

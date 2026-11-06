@@ -54,25 +54,19 @@ pub fn split_for_push(
     let local_rev = configured_repo
         .gix_repo
         .rev_parse_single(local_rev_or_ref.as_bytes())?;
-    let local_rev_arg: std::ffi::OsString = local_rev.to_hex().to_string().into();
     let local_rev = local_rev.detach();
-    let stop_refs: Vec<std::ffi::OsString> = configured_repo
+    let stop_refs: Vec<CommitId> = configured_repo
         .gix_repo
         .references()?
         .prefixed(b"refs/remotes/origin/".as_bstr())?
         .map(|r| {
-            let r = match r {
-                Ok(r) => r,
-                Err(err) => anyhow::bail!("{err:#}"),
-            }
-            .detach();
-            match r.name.as_bstr().to_os_str() {
-                Ok(arg) => Ok(arg.to_owned()),
-                Err(err) => anyhow::bail!("{err:#}"),
-            }
+            let r = r.map_err(|err| anyhow::anyhow!("Failed while iterating refs: {err:#}"))?;
+            Ok(r.detach().target.try_id().map(ToOwned::to_owned))
         })
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .with_context(|| "Failed listing refs/remotes/origin/*")?;
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect();
 
     let fast_importer_inner =
         crate::git_fast_export_import::FastImportRepo::new(configured_repo.gix_repo.git_dir())?;
@@ -87,7 +81,7 @@ pub fn split_for_push(
         progress,
         &mut fast_importer,
         top_push_url,
-        local_rev_arg,
+        local_rev,
         stop_refs,
         refspec_topic,
     );
@@ -128,8 +122,8 @@ fn split_for_push_impl(
     progress: &indicatif::MultiProgress,
     fast_importer: &mut crate::git_fast_export_import_dedup::FastImportRepoDedup<'_>,
     top_push_url: &gix::Url,
-    start_ref: std::ffi::OsString,
-    stop_refs: Vec<std::ffi::OsString>,
+    start_ref: CommitId,
+    stop_refs: Vec<CommitId>,
     refspec_topic: Option<String>,
 ) -> Result<Vec<PushData>> {
     enum SplitParent {
@@ -152,7 +146,7 @@ fn split_for_push_impl(
             .with_message("Splitting commits"),
     );
     let fast_exporter = crate::git_fast_export_import::FastExportRepo::load_from_path(
-        configured_repo.gix_repo.git_dir(),
+        &configured_repo.gix_repo,
         Some(vec![start_ref]),
         stop_refs,
     )?;
