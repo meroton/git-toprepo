@@ -149,19 +149,24 @@ impl FastExportRepo {
         repo_dir: &Path,
         logger: impl log::Log + 'static,
     ) -> Result<Self> {
-        Self::load_from_path_with_logger(repo_dir, Option::<Vec<&str>>::None, logger)
+        Self::load_from_path_with_logger(repo_dir, Option::<Vec<&str>>::None, Vec::new(), logger)
     }
 
-    pub fn load_from_path<S>(repo_dir: &Path, refs: Option<Vec<S>>) -> Result<Self>
+    pub fn load_from_path<S>(
+        repo_dir: &Path,
+        start_refs: Option<Vec<S>>,
+        stop_refs: Vec<S>,
+    ) -> Result<Self>
     where
         S: AsRef<std::ffi::OsStr> + std::cmp::Ord,
     {
-        Self::load_from_path_with_logger(repo_dir, refs, log::logger())
+        Self::load_from_path_with_logger(repo_dir, start_refs, stop_refs, log::logger())
     }
 
     pub(crate) fn load_from_path_with_logger<S>(
         repo_dir: &Path,
-        refs: Option<Vec<S>>,
+        start_refs: Option<Vec<S>>,
+        stop_refs: Vec<S>,
         logger: impl log::Log + 'static,
     ) -> Result<Self>
     where
@@ -178,15 +183,20 @@ impl FastExportRepo {
             "--reencode=no",
             "--tag-of-filtered-object=drop",
         ]);
-        match refs {
-            Some(mut refs) => {
-                refs.sort();
-                refs.dedup_by(|a, b| a == b);
-                cmd.arg("--").args(refs);
+        match start_refs {
+            Some(mut start_refs) => {
+                start_refs.sort();
+                start_refs.dedup_by(|a, b| a == b);
+                cmd.arg("--").args(start_refs);
             }
             None => {
                 cmd.arg("--all").arg("--");
             }
+        }
+        for stop_ref in stop_refs {
+            let mut stop_ref_arg = std::ffi::OsString::from("^");
+            stop_ref_arg.push(stop_ref.as_ref());
+            cmd.arg(stop_ref_arg);
         }
         let (mut process, span_guard) = cmd
             .stdin(Stdio::null())
@@ -999,6 +1009,42 @@ mod tests {
             gix::ObjectId::from_hex(b"4c83f77d194de441537443aa9a576bc3e123a417").unwrap(),
         );
         assert_eq!(commit_d.encoding, None);
+    }
+
+    #[test]
+    fn fast_export_excludes_stop_refs() {
+        let temp_dir = git_toprepo_testtools::test_util::MaybePermanentTempDir::create();
+        let repo = temp_dir.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        git_command_for_testing(&repo)
+            .args(["init", "--quiet", "--initial-branch", "main"])
+            .assert()
+            .success();
+
+        commit(&repo, "A");
+        commit(&repo, "B");
+        git_command_for_testing(&repo)
+            .args(["branch", "stop"])
+            .assert()
+            .success();
+        commit(&repo, "C");
+
+        let logger = Arc::new(git_toprepo_testtools::log::LogAccumulator::default());
+        let fast_export_repo = FastExportRepo::load_from_path_with_logger(
+            &repo,
+            Some(vec!["refs/heads/main"]),
+            vec!["refs/heads/stop"],
+            logger,
+        )
+        .unwrap();
+        let messages: Vec<_> = fast_export_repo
+            .filter_map(|entry| match entry.unwrap() {
+                FastExportEntry::Commit(commit) => Some(commit.message),
+                FastExportEntry::Reset(_) => None,
+            })
+            .collect();
+
+        assert_eq!(messages, [BString::from("C\n")]);
     }
 
     #[test]

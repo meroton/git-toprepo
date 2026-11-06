@@ -153,13 +153,12 @@ impl Expander<'_> {
                 start_commit_ids
                     .iter()
                     .map(|id| id.deref().to_hex().to_string())
-                    .chain(
-                        stop_commit_ids
-                            .iter()
-                            .map(|id| format!("^{}", id.deref().to_hex())),
-                    )
                     .collect_vec(),
             ),
+            stop_commit_ids
+                .iter()
+                .map(|id| id.deref().to_hex().to_string())
+                .collect_vec(),
         )?;
 
         for entry in fast_exporter {
