@@ -56,7 +56,7 @@ pub fn split_for_push(
         .rev_parse_single(local_rev_or_ref.as_bytes())?;
     let local_rev_arg: std::ffi::OsString = local_rev.to_hex().to_string().into();
     let local_rev = local_rev.detach();
-    let export_refs_args: Vec<std::ffi::OsString> = configured_repo
+    let stop_refs: Vec<std::ffi::OsString> = configured_repo
         .gix_repo
         .references()?
         .prefixed(b"refs/remotes/origin/".as_bstr())?
@@ -66,12 +66,11 @@ pub fn split_for_push(
                 Err(err) => anyhow::bail!("{err:#}"),
             }
             .detach();
-            match bstr::concat([b"^".as_bstr(), r.name.as_bstr()]).to_os_str() {
+            match r.name.as_bstr().to_os_str() {
                 Ok(arg) => Ok(arg.to_owned()),
                 Err(err) => anyhow::bail!("{err:#}"),
             }
         })
-        .chain([Ok(local_rev_arg)])
         .collect::<std::result::Result<Vec<_>, _>>()
         .with_context(|| "Failed listing refs/remotes/origin/*")?;
 
@@ -88,7 +87,8 @@ pub fn split_for_push(
         progress,
         &mut fast_importer,
         top_push_url,
-        export_refs_args,
+        local_rev_arg,
+        stop_refs,
         refspec_topic,
     );
     // Make sure to gracefully shutdown the fast-importer before returning.
@@ -121,13 +121,15 @@ pub fn split_for_push(
     Ok(to_push_metadata)
 }
 
+#[expect(clippy::too_many_arguments)]
 fn split_for_push_impl(
     configured_repo: &mut ConfiguredTopRepo,
     import_cache: &ImportCache,
     progress: &indicatif::MultiProgress,
     fast_importer: &mut crate::git_fast_export_import_dedup::FastImportRepoDedup<'_>,
     top_push_url: &gix::Url,
-    export_refs_args: Vec<std::ffi::OsString>,
+    start_ref: std::ffi::OsString,
+    stop_refs: Vec<std::ffi::OsString>,
     refspec_topic: Option<String>,
 ) -> Result<Vec<PushData>> {
     enum SplitParent {
@@ -151,7 +153,8 @@ fn split_for_push_impl(
     );
     let fast_exporter = crate::git_fast_export_import::FastExportRepo::load_from_path(
         configured_repo.gix_repo.git_dir(),
-        Some(export_refs_args),
+        Some(vec![start_ref]),
+        stop_refs,
     )?;
 
     let mut bumps = BumpInfo::default();
