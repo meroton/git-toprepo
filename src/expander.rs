@@ -148,17 +148,9 @@ impl Expander<'_> {
         );
 
         let fast_exporter = crate::git_fast_export_import::FastExportRepo::load_from_path(
-            self.gix_repo.git_dir(),
-            Some(
-                start_commit_ids
-                    .iter()
-                    .map(|id| id.deref().to_hex().to_string())
-                    .collect_vec(),
-            ),
-            stop_commit_ids
-                .iter()
-                .map(|id| id.deref().to_hex().to_string())
-                .collect_vec(),
+            self.gix_repo,
+            Some(start_commit_ids.iter().map(|id| **id).collect()),
+            stop_commit_ids.iter().map(|id| **id).collect(),
         )?;
 
         for entry in fast_exporter {

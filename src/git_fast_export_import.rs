@@ -129,6 +129,9 @@ pub struct FastExportRepo {
     mark_oid_map: HashMap<BString, gix::ObjectId>,
     reader: Option<BufReader<std::process::ChildStdout>>,
     current_line: BString,
+    /// The dummy commit containing all the start refs, which should not be
+    /// included in the actual export.
+    start_bundle_commit_id: Option<gix::ObjectId>,
 }
 
 impl Drop for FastExportRepo {
@@ -146,33 +149,27 @@ impl Drop for FastExportRepo {
 
 impl FastExportRepo {
     pub fn load_from_path_all_refs(
-        repo_dir: &Path,
+        repo: &gix::Repository,
         logger: impl log::Log + 'static,
     ) -> Result<Self> {
-        Self::load_from_path_with_logger(repo_dir, Option::<Vec<&str>>::None, Vec::new(), logger)
+        Self::load_from_path_with_logger(repo, None, Vec::new(), logger)
     }
 
-    pub fn load_from_path<S>(
-        repo_dir: &Path,
-        start_refs: Option<Vec<S>>,
-        stop_refs: Vec<S>,
-    ) -> Result<Self>
-    where
-        S: AsRef<std::ffi::OsStr> + std::cmp::Ord,
-    {
-        Self::load_from_path_with_logger(repo_dir, start_refs, stop_refs, log::logger())
+    pub fn load_from_path(
+        repo: &gix::Repository,
+        start_refs: Option<Vec<crate::git::CommitId>>,
+        stop_refs: Vec<crate::git::CommitId>,
+    ) -> Result<Self> {
+        Self::load_from_path_with_logger(repo, start_refs, stop_refs, log::logger())
     }
 
-    pub(crate) fn load_from_path_with_logger<S>(
-        repo_dir: &Path,
-        start_refs: Option<Vec<S>>,
-        stop_refs: Vec<S>,
+    pub(crate) fn load_from_path_with_logger(
+        repo: &gix::Repository,
+        start_refs: Option<Vec<crate::git::CommitId>>,
+        stop_refs: Vec<crate::git::CommitId>,
         logger: impl log::Log + 'static,
-    ) -> Result<Self>
-    where
-        S: AsRef<std::ffi::OsStr> + std::cmp::Ord,
-    {
-        let mut cmd = git_command(repo_dir);
+    ) -> Result<Self> {
+        let mut cmd = git_command(repo.git_dir());
         cmd.args([
             "fast-export",
             "--no-data",
@@ -183,19 +180,22 @@ impl FastExportRepo {
             "--reencode=no",
             "--tag-of-filtered-object=drop",
         ]);
-        match start_refs {
+        let start_bundle_commit_id = match start_refs {
             Some(mut start_refs) => {
                 start_refs.sort();
                 start_refs.dedup_by(|a, b| a == b);
-                cmd.args(start_refs);
+                let bundle_ref = create_bundle_ref(repo, &start_refs)?;
+                cmd.arg(bundle_ref.to_hex().to_string());
+                Some(bundle_ref)
             }
             None => {
                 cmd.arg("--all");
+                None
             }
-        }
+        };
         for stop_ref in stop_refs {
             let mut stop_ref_arg = std::ffi::OsString::from("^");
-            stop_ref_arg.push(stop_ref.as_ref());
+            stop_ref_arg.push(stop_ref.to_hex().to_string());
             cmd.arg(stop_ref_arg);
         }
         cmd.arg("--");
@@ -229,6 +229,7 @@ impl FastExportRepo {
             mark_oid_map: HashMap::new(),
             reader: Some(BufReader::new(stdout)),
             current_line: BString::new(vec![]),
+            start_bundle_commit_id,
         })
     }
 
@@ -476,6 +477,34 @@ impl FastExportRepo {
     }
 }
 
+/// Create a dummy commit which references all refs as parents. This way,
+/// git-fast-export can take a single commit as the starting and stopping points
+/// for all refs.
+fn create_bundle_ref(
+    repo: &gix::Repository,
+    refs: &[crate::git::CommitId],
+) -> Result<crate::git::CommitId> {
+    let commit = gix::objs::Commit {
+        message: "Bundle".into(),
+        tree: gix::ObjectId::empty_tree(repo.object_hash()),
+        author: gix::actor::Signature {
+            name: "A".into(),
+            email: "a@example.com".into(),
+            time: gix::date::Time::default(),
+        },
+        committer: gix::actor::Signature {
+            name: "C".into(),
+            email: "c@example.com".into(),
+            time: gix::date::Time::default(),
+        },
+        encoding: None,
+        parents: refs.into(),
+        extra_headers: Default::default(),
+    };
+    let commit_id = repo.write_object(&commit)?;
+    Ok(commit_id.detach())
+}
+
 impl Iterator for FastExportRepo {
     type Item = Result<FastExportEntry>;
 
@@ -494,6 +523,12 @@ impl Iterator for FastExportRepo {
                         self.current_line
                     )
                 });
+                if commit
+                    .as_ref()
+                    .is_ok_and(|commit| Some(commit.original_id) == self.start_bundle_commit_id)
+                {
+                    continue;
+                }
                 return Some(commit.map(FastExportEntry::Commit));
             } else if self.current_line.starts_with(b"reset ") {
                 let reset = self.read_reset().with_context(|| {
@@ -941,9 +976,8 @@ mod tests {
         // it easier to work with.
 
         let logger = Arc::new(git_toprepo_testtools::log::LogAccumulator::default());
-        let mut repo =
-            FastExportRepo::load_from_path_all_refs(example_repo.as_path(), logger.clone())
-                .unwrap();
+        let gix_repo = gix::open(&example_repo).unwrap();
+        let mut repo = FastExportRepo::load_from_path_all_refs(&gix_repo, logger.clone()).unwrap();
         let commit_a = match repo.next().unwrap().unwrap() {
             FastExportEntry::Commit(c) => c,
             _ => panic!("Expected FastExportCommit"),
@@ -1031,10 +1065,21 @@ mod tests {
         commit(&repo, "C");
 
         let logger = Arc::new(git_toprepo_testtools::log::LogAccumulator::default());
+        let gix_repo = gix::open(&repo).unwrap();
         let fast_export_repo = FastExportRepo::load_from_path_with_logger(
-            &repo,
-            Some(vec!["refs/heads/main"]),
-            vec!["refs/heads/stop"],
+            &gix_repo,
+            Some(vec![
+                gix_repo
+                    .rev_parse_single("refs/heads/main")
+                    .unwrap()
+                    .detach(),
+            ]),
+            vec![
+                gix_repo
+                    .rev_parse_single("refs/heads/stop")
+                    .unwrap()
+                    .detach(),
+            ],
             logger,
         )
         .unwrap();
@@ -1070,9 +1115,9 @@ mod tests {
             .success();
 
         let logger = Arc::new(git_toprepo_testtools::log::LogAccumulator::default());
+        let from_gix_repo = gix::open(&from_repo_path).unwrap();
         let fast_export_repo =
-            FastExportRepo::load_from_path_all_refs(from_repo_path.as_path(), logger.clone())
-                .unwrap();
+            FastExportRepo::load_from_path_all_refs(&from_gix_repo, logger.clone()).unwrap();
 
         let mut fast_import_repo =
             FastImportRepo::new_with_logger(to_repo_path.as_path(), logger.clone()).unwrap();
