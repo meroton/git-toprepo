@@ -128,4 +128,4 @@ jobs:
           purge-primary-key: never
       - name: Build
         shell: bash
-        run: nix build
+        run: nix build --print-build-logs
