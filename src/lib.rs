@@ -20,5 +20,6 @@ pub mod log;
 pub mod push;
 pub mod repo;
 pub mod repo_name;
+pub mod submitted_together;
 pub mod ui;
 pub mod util;
