@@ -5,14 +5,20 @@ use crate::cli::Cli;
 use crate::cli::Commands;
 use anyhow::Context as _;
 use anyhow::Result;
+use anyhow::anyhow;
 use bstr::BStr;
 use bstr::ByteSlice as _;
 use clap::Parser;
 use colored::Colorize;
+use git_gr_lib::gerrit::Gerrit;
+use git_gr_lib::gerrit::HTTPPasswordPolicy;
+use git_gr_lib::query::QueryOptions;
 use git_toprepo::config::ConfigLocation;
 use git_toprepo::config::GitTopRepoConfig;
 use git_toprepo::config::SubRepoConfig;
 use git_toprepo::config::SubRepoConfigs;
+use git_toprepo::gerrit;
+use git_toprepo::git::get_default_remote_url;
 use git_toprepo::git::GitModulesInfo;
 use git_toprepo::gitreview::parse_git_review;
 use git_toprepo::hooks;
@@ -24,6 +30,8 @@ use git_toprepo::repo::ConfiguredTopRepo;
 use git_toprepo::repo::ImportCache;
 use git_toprepo::repo_name::RepoName;
 use git_toprepo::repo_name::SubRepoName;
+use git_toprepo::submitted_together::order_submitted_together;
+use git_toprepo::submitted_together::split_by_supercommits;
 use git_toprepo::util::CommandExtension as _;
 use gix::refs::FullName;
 use gix::refs::FullNameRef;
@@ -39,6 +47,9 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::str::FromStr;
+
+const ENABLE_EXPERIMENTAL_ENVVAR: &str = "GIT_TOPREPO_ENABLE_EXPERIMENTAL_COMMANDS";
+const ENABLE_EXPERIMENTAL_ENVVAR_TRUTHY: &str = "1";
 
 fn gix_discover_current_dir() -> Result<gix::Repository> {
     // Using working directory instead of "." to get better error messages.
@@ -331,6 +342,117 @@ fn config_bootstrap(repo: &gix::Repository) -> Result<GitTopRepoConfig> {
         add_url_for_bootstrap(&mut config.subrepos, url, false);
     }
     Ok(config)
+}
+
+/// Checkout topics from Gerrit.
+fn checkout(_: &Cli, checkout: &cli::Checkout) -> Result<()> {
+    let enable_experimental = std::env::var_os(ENABLE_EXPERIMENTAL_ENVVAR);
+    let envvar_truthy: std::ffi::OsString = "1".to_owned().into();
+    let summary = format!(
+        "`checkout` is an experimental scaffolding subcommand. Enable it with {ENABLE_EXPERIMENTAL_ENVVAR}={ENABLE_EXPERIMENTAL_ENVVAR_TRUTHY}."
+    );
+    match enable_experimental {
+        Some(should_enable) => {
+            if should_enable != envvar_truthy {
+                panic!("{summary}. The variable is set to invalid value: {should_enable:?}.");
+            }
+        }
+        None => panic!("{summary}"),
+    }
+    if !checkout.dry_run {
+        panic!("Only --dry-run is supported.");
+    }
+
+    let toprepo = gix_discover_current_dir()?;
+
+    let ssh_host = get_default_remote_url(&toprepo, gix::remote::Direction::Fetch)?;
+    let ssh_endpoint = gerrit::server(&ssh_host);
+
+    let host = git_gr_lib::gerrit_project::GerritProject {
+        host: git_gr_lib::gerrit_host::GerritHost::new(
+            Some(
+                ssh_host
+                    .user()
+                    .unwrap_or(
+                        &env::var("USER").expect("USER is recommended by the POSIX standard"),
+                    )
+                    .to_owned(),
+            ),
+            ssh_endpoint.host().unwrap().to_owned(),
+            ssh_host.port.unwrap_or(22),
+        ),
+        // TODO: The project should not be relevant in a toprepo context.
+        project: "TODO-KalleAnka.git".to_owned(),
+    };
+
+    let gerrit = Gerrit::new(
+        host,
+        HTTPPasswordPolicy::GenerateToken,
+        /* cache: */ true,
+        /* persist SSH: */ false, // No SSH calls are expected.
+    );
+
+    let mut gerrit = match gerrit {
+        Ok(g) => g,
+        Err(error) => {
+            let box_dyn = Box::<dyn std::error::Error + Send + Sync>::from(error);
+            return Err(anyhow!(box_dyn.to_string()));
+        }
+    };
+
+    // refs/changes/32/261932/5
+    // 1    2       3  ^^^^^^ 5
+    let change = match checkout.change.split('/').collect::<Vec<&str>>()[..] {
+        [_, _, _, c, _] => c.to_owned(),
+        _ => {
+            return Err(anyhow!(
+                "Could not parse change {:?} for its change number",
+                checkout.change
+            ));
+        }
+    };
+
+    let res = gerrit.query(QueryOptions::new(change).current_patch_set().dependencies());
+    let res = match res {
+        Ok(r) => r,
+        Err(error) => {
+            let box_dyn = Box::<dyn std::error::Error + Send + Sync>::from(error);
+            return Err(anyhow!(box_dyn.to_string()));
+        }
+    };
+    let triplet_id = res.changes[0].triplet_id();
+    // TODO: If the commit is alone the submitted_together vector will be empty.
+    // Just use the commit it self in that case.
+    let res = gerrit.get_submitted_together(&triplet_id);
+    let res = res
+        .map_err(|e| anyhow::Error::from_boxed(e.into()))
+        .context("Could not query Gerrit's REST API for changes submitted together")?;
+
+    assert!(res.len() > 0, "TODO: Use the commit itself now.");
+    let res = order_submitted_together(res)?.chronological_order();
+    let res = split_by_supercommits(res, &checkout.strategy)?;
+
+    println!("# # Cherry-pick order:");
+    let fetch_stem = "git toprepo fetch";
+    for (index, topic) in res.0.into_iter().enumerate() {
+        for supercommit in topic.into_iter() {
+            for repo in supercommit.into_iter() {
+                for commit in repo.into_iter().rev() {
+                    let remote = format!("ssh://{}/{}.git", gerrit.host.host.host, commit.project);
+                    let cherry_pick = "&& git cherry-pick --allow-empty FETCH_HEAD";
+                    if let Some(subject) = commit.subject {
+                        println!("# {subject}");
+                    }
+                    println!(
+                        "{fetch_stem} {remote} {} {cherry_pick} # topic index: {index}",
+                        commit.current_revision.unwrap()
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Combines commits from the top repository and its submodules into a unified view.
@@ -1258,6 +1380,11 @@ where
         Commands::Version => {
             println!("{} {}", env!("CARGO_PKG_NAME"), get_version());
             Ok(ExitCode::SUCCESS)
+        }
+
+        // Experimental and scaffolding commands.
+        Commands::Checkout(checkout_args) => {
+            checkout(&args, checkout_args).map(|()| ExitCode::SUCCESS)
         }
     }
 }

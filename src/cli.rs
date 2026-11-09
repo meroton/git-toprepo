@@ -16,6 +16,7 @@ use git_toprepo::git::repo_relative_path;
 use git_toprepo::gitmodules::SubmoduleUrlExt as _;
 use git_toprepo::repo_name::RepoName;
 use git_toprepo::repo_name::SubRepoName;
+use git_toprepo::submitted_together::SupercommitSplitStrategy;
 use git_toprepo::util::UniqueContainer;
 use std::ops::Deref as _;
 use std::path::Path;
@@ -199,6 +200,9 @@ pub enum Commands {
     /// Git LFS helpers for emulated monorepos.
     #[command(subcommand)]
     Lfs(Lfs),
+
+    /// Scaffolding code to start writing Gerrit integration with `git-gr`.
+    Checkout(Checkout),
 }
 
 #[derive(Subcommand, Debug)]
@@ -860,4 +864,18 @@ fn parse_refspec(refspec: &str) -> Result<(String, String), std::io::Error> {
         let remote_ref = refspec.strip_prefix('+').unwrap_or(refspec);
         Ok((format!("+{remote_ref}"), "FETCH_HEAD".to_owned()))
     }
+}
+
+#[derive(Args, Debug)]
+pub struct Checkout {
+    /// ssh://gerrit@domain.com/path/to/project
+    pub remote: String,
+    /// refs/changes/nn/xxxnn/y
+    pub change: String,
+
+    #[arg(long)]
+    pub dry_run: bool,
+
+    #[arg(long, default_value_t)]
+    pub strategy: SupercommitSplitStrategy,
 }
