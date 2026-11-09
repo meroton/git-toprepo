@@ -26,6 +26,7 @@ oneshot = "0.1.13"
 pathdiff = "0.2.3"
 serde = { version = "1.0.229", features = ["default", "derive", "std"] }
 serde_json = "1.0.151"
+rust-netrc = "0.1.2"
 serde_path_to_error = "0.1.20"
 serde_with = { version = "3.24.0", features = ["macros"] }
 sha2 = "0.10.9"
@@ -37,6 +38,8 @@ tracing-chrome = "0.7.2"
 tracing-log = "0.2.0"
 tracing-subscriber = "0.3.23"
 wait-timeout = "0.2.1"
+git-gr = { path = "../private-git-gr" }
+command-error = "0.8.0"
 
 [dev-dependencies]
 assert_cmd = "2.2.2"
