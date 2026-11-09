@@ -130,7 +130,7 @@ that Gerrit complains when pushing an old patch-set again.
 
 #### Branch tracking
 Because Git Toprepo needs to expand the commits after the fetch into
-monocommits, `git pull` does not work. Plese use `git toprepo fetch` followed by
+monocommits, `git pull` does not work. Please use `git toprepo fetch` followed by
 `git rebase` or `git merge` instead.
 
 Git Toprepo sets the git config `checkout.guess=false` to avoid accidental
@@ -187,7 +187,7 @@ The algorithm steps are:
 * The top repo will keep the "first parent" line (`D3---E5`).
   D4 might not be buildable and would break
   `git bisect --first-parent`.
-* Submodule changes are moved as late as possible before erging (`F6`).
+* Submodule changes are moved as late as possible before merging (`F6`).
   The alternative of `E6` instead of `F6` clutters the `git log --graph` view.
   From the top repo view, it is anyway impossible to know if `E6` or `F6`
   is better (buildable) or not.
@@ -202,7 +202,7 @@ The algorithm steps are:
 
 ## Configuration
 
-By default, during init or clone, the Git Toprepo configuration is set to read
+By default, during ``init`` or ``clone``, the Git Toprepo configuration is set to read
 from the committed `HEAD` in the remote toprepo, i.e.
 `should:refs/namespaces/top/refs/remotes/origin/HEAD:.gittoprepo.toml`, but
 prioritizes `may:worktree:.gittoprepo.user.toml` if it exists. This is written
@@ -220,10 +220,10 @@ and takes the following forms:
 * `(may|should|must):local:<path>`, a file relative to the main worktree, and
 * `(may|should|must):worktree:<path>`, a file relative to the current worktree.
 
-The last exising location specified in `git config --get-all toprepo.config` is used.
+The last existing location specified in `git config --get-all toprepo.config` is used.
 
 The first keyword of the location specification describes the enforcement level,
-similarily to [IETF RFC 2119](https://www.ietf.org/rfc/rfc2119.txt):
+similar to [IETF RFC 2119](https://www.ietf.org/rfc/rfc2119.txt):
 * `may`, warn if this configuration exists,
 * `should`, warn if this configuration is missing,
 * `must`, error if this configuration is missing and stop the search, which is
