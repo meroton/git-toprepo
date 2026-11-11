@@ -120,7 +120,7 @@ mod main {
             .stderr("");
         insta::assert_snapshot!(
             cmd.get_output().stdout.to_str().unwrap(),
-            @"
+            @r"
         Git Toprepo - git-submodules made easy with a client-side monorepo
 
         Git Toprepo combines submodules into a common history, similar to Git Subtree, and lets you work
@@ -142,6 +142,7 @@ mod main {
           dump       Experimental feature: dump internal states to stdout. Do not script against these
           version    Print the version of the Git Toprepo tool
           lfs        Git LFS helpers for emulated monorepos
+          checkout   Scaffolding code for Gerrit checkout integration
           help       Print this message or the help of the given subcommand(s)
 
         Options:
