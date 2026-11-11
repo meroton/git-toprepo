@@ -37,6 +37,9 @@ tracing-chrome = "0.7.2"
 tracing-log = "0.2.0"
 tracing-subscriber = "0.3.23"
 wait-timeout = "0.2.1"
+rust-netrc = "0.1.2"
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+command-error = "0.8.0"
 
 [dev-dependencies]
 assert_cmd = "2.2.2"
