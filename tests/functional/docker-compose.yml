@@ -1,0 +1,23 @@
+services:
+  gerrit:
+    image: gerritcodereview/gerrit:3.13.3-ubuntu24
+    volumes:
+       - git:/var/gerrit/git
+       - index:/var/gerrit/index
+       - cache:/var/gerrit/cache
+       - etc:/var/gerrit/etc
+       - logs:/var/gerrit/logs
+       - ssh:/var/gerrit/.ssh
+    ports:
+       - "29418:29418"
+       - "8080:8080"
+    environment:
+      - CANONICAL_WEB_URL=http://localhost:8080/
+
+volumes:
+  git:
+  index:
+  cache:
+  etc:
+  logs:
+  ssh:
