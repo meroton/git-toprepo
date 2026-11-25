@@ -367,64 +367,107 @@ fn fetch(
 ) -> Result<()> {
     hooks::warn_if_lfs_filters_bypass_toprepo(&configured_repo.gix_repo, true)?;
     if let Some(refspecs) = &fetch_args.refspecs {
-        let resolved_args = cli::resolve_remote_and_path(
-            fetch_args,
-            &configured_repo.gix_repo,
-            &configured_repo.config.subrepos,
-        )?;
-        let detailed_refspecs = detail_refspecs(refspecs, &resolved_args.repo, &resolved_args.url)?;
-        git_toprepo::log::get_global_logger().with_progress(|progress| {
-            fetch_with_refspec(
+        if fetch_args.topic && let Some(change_ref) = parse_change_refspec(refspecs) {
+            fetch_change_with_topic(fetch_args, change_ref, configured_repo, import_cache)
+        } else {
+            fetch_given_refspecs(
                 fetch_args,
-                resolved_args,
-                detailed_refspecs.clone(),
+                refspecs,
                 configured_repo,
                 import_cache,
-                &progress,
             )
-        })?;
-        // Delete temporary refs, but only on success. Keep the refs on failure
-        // to be able to debug.
-        let mut ref_edits = Vec::new();
-        for refspec in detailed_refspecs {
-            ref_edits.push(gix::refs::transaction::RefEdit {
-                change: gix::refs::transaction::Change::Delete {
-                    expected: gix::refs::transaction::PreviousValue::Any,
-                    log: gix::refs::transaction::RefLog::AndReference,
-                },
-                name: refspec.unfiltered_ref,
-                deref: false,
-            });
-            match refspec.destination {
-                FetchDestinationRef::Normal(_normal_ref) => {}
-                FetchDestinationRef::FetchHead { filtered_ref, .. } => {
-                    // Special case for FETCH_HEAD.
-                    ref_edits.push(gix::refs::transaction::RefEdit {
-                        change: gix::refs::transaction::Change::Delete {
-                            expected: gix::refs::transaction::PreviousValue::Any,
-                            log: gix::refs::transaction::RefLog::AndReference,
-                        },
-                        name: filtered_ref,
-                        deref: false,
-                    });
-                }
-            }
         }
-        if !ref_edits.is_empty() {
-            let committer = gix::actor::SignatureRef {
-                name: "git-toprepo".as_bytes().as_bstr(),
-                email: BStr::new(""),
-                time: &gix::date::Time::now_local_or_utc().format(gix::date::time::Format::Raw),
-            };
-            configured_repo
-                .gix_repo
-                .edit_references_as(ref_edits, Some(committer))
-                .context("Failed to delete temporary fetch-head references")?;
-        }
-        Ok(())
     } else {
         fetch_with_default_refspecs(fetch_args, configured_repo, import_cache)
     }
+}
+
+#[tracing::instrument(skip(configured_repo, import_cache))]
+fn fetch_given_refspecs(
+    fetch_args: &cli::Fetch,
+    refspecs: &[(String, String)],
+    configured_repo: &mut ConfiguredTopRepo,
+    import_cache: &mut ImportCache,
+) -> Result<()> {
+    let resolved_args = cli::resolve_remote_and_path(
+        fetch_args,
+        &configured_repo.gix_repo,
+        &configured_repo.config.subrepos,
+    )?;
+    let detailed_refspecs = detail_refspecs(refspecs, &resolved_args.repo, &resolved_args.url)?;
+    git_toprepo::log::get_global_logger().with_progress(|progress| {
+        fetch_with_refspec(
+            fetch_args,
+            resolved_args,
+            detailed_refspecs.clone(),
+            configured_repo,
+            import_cache,
+            &progress,
+        )
+    })?;
+    // Delete temporary refs, but only on success. Keep the refs on failure
+    // to be able to debug.
+    let mut ref_edits = Vec::new();
+    for refspec in detailed_refspecs {
+        ref_edits.push(gix::refs::transaction::RefEdit {
+            change: gix::refs::transaction::Change::Delete {
+                expected: gix::refs::transaction::PreviousValue::Any,
+                log: gix::refs::transaction::RefLog::AndReference,
+            },
+            name: refspec.unfiltered_ref,
+            deref: false,
+        });
+        match refspec.destination {
+            FetchDestinationRef::Normal(_normal_ref) => {}
+            FetchDestinationRef::FetchHead { filtered_ref, .. } => {
+                // Special case for FETCH_HEAD.
+                ref_edits.push(gix::refs::transaction::RefEdit {
+                    change: gix::refs::transaction::Change::Delete {
+                        expected: gix::refs::transaction::PreviousValue::Any,
+                        log: gix::refs::transaction::RefLog::AndReference,
+                    },
+                    name: filtered_ref,
+                    deref: false,
+                });
+            }
+        }
+    }
+    if !ref_edits.is_empty() {
+        let committer = gix::actor::SignatureRef {
+            name: "git-toprepo".as_bytes().as_bstr(),
+            email: BStr::new(""),
+            time: &gix::date::Time::now_local_or_utc().format(gix::date::time::Format::Raw),
+        };
+        configured_repo
+            .gix_repo
+            .edit_references_as(ref_edits, Some(committer))
+            .context("Failed to delete temporary fetch-head references")?;
+    }
+    Ok(())
+}
+
+/// Checks if the given `refspecs` is singular and contains a Gerrit
+/// `refs/changes`.
+fn parse_change_refspec(refspecs: &[(String, String)]) -> Option<&str> {
+    let ((remote_ref, local_ref),) = refspecs.iter().collect_tuple()?;
+    if local_ref != "FETCH_HEAD" {
+        return None;
+    }
+    let change_ref = remote_ref.trim_prefix("+");
+    if !change_ref.starts_with("refs/changes/") {
+        return None;
+    }
+    Some(change_ref)
+}
+
+#[tracing::instrument(skip(configured_repo, import_cache))]
+fn fetch_change_with_topic(
+    fetch_args: &cli::Fetch,
+    change_ref: &str,
+    configured_repo: &mut ConfiguredTopRepo,
+    import_cache: &mut ImportCache,
+) -> Result<()> {
+    unimplemented!("todo");
 }
 
 #[tracing::instrument(skip(configured_repo, import_cache))]

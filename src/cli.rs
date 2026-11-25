@@ -534,6 +534,13 @@ pub struct Fetch {
     #[arg(long("jobs"), value_name = "N", default_value = "7")]
     pub job_count: std::num::NonZero<u16>,
 
+    /// If a single `refs/changes/` ref is specified `REF`, all changes that
+    /// would be submitted together due to sharing a topic will be fetched and
+    /// recombined.
+    // TODO: Add --no-topic
+    #[arg(long, default_value_t = true)]
+    pub topic: bool,
+
     /// Skip the combining history step after fetching the top repository.
     #[arg(long)]
     pub skip_combine: bool,
