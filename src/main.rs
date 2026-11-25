@@ -32,6 +32,7 @@ use git_toprepo::util::CommandExtension as _;
 use gix::refs::FullName;
 use gix::refs::FullNameRef;
 use itertools::Itertools as _;
+use std::collections::BTreeMap;
 use std::env;
 use std::io::Read;
 use std::num::NonZeroUsize;
@@ -103,6 +104,7 @@ fn clone_after_init(
             remote: None,
             path: None,
             refspecs: None,
+            topic: false,
         },
         configured_repo,
         import_cache,
@@ -448,64 +450,167 @@ fn fetch(
 ) -> Result<()> {
     hooks::warn_if_lfs_filters_bypass_toprepo(&configured_repo.gix_repo, true)?;
     if let Some(refspecs) = &fetch_args.refspecs {
-        let resolved_args = cli::resolve_remote_and_path(
-            fetch_args,
-            &configured_repo.gix_repo,
-            &configured_repo.config.subrepos,
-        )?;
-        let detailed_refspecs = detail_refspecs(refspecs, &resolved_args.repo, &resolved_args.url)?;
-        git_toprepo::log::get_global_logger().with_progress(|progress| {
-            fetch_with_refspec(
+        if fetch_args.topic && let Some(change_ref) = parse_change_refspec(refspecs) {
+            fetch_change_with_topic(fetch_args, change_ref, configured_repo, import_cache)
+        } else {
+            fetch_given_refspecs(
                 fetch_args,
-                resolved_args,
-                detailed_refspecs.clone(),
+                refspecs,
                 configured_repo,
                 import_cache,
-                &progress,
             )
-        })?;
-        // Delete temporary refs, but only on success. Keep the refs on failure
-        // to be able to debug.
-        let mut ref_edits = Vec::new();
-        for refspec in detailed_refspecs {
-            ref_edits.push(gix::refs::transaction::RefEdit {
-                change: gix::refs::transaction::Change::Delete {
-                    expected: gix::refs::transaction::PreviousValue::Any,
-                    log: gix::refs::transaction::RefLog::AndReference,
-                },
-                name: refspec.unfiltered_ref,
-                deref: false,
-            });
-            match refspec.destination {
-                FetchDestinationRef::Normal(_normal_ref) => {}
-                FetchDestinationRef::FetchHead { filtered_ref, .. } => {
-                    // Special case for FETCH_HEAD.
-                    ref_edits.push(gix::refs::transaction::RefEdit {
-                        change: gix::refs::transaction::Change::Delete {
-                            expected: gix::refs::transaction::PreviousValue::Any,
-                            log: gix::refs::transaction::RefLog::AndReference,
-                        },
-                        name: filtered_ref,
-                        deref: false,
-                    });
-                }
-            }
         }
-        if !ref_edits.is_empty() {
-            let committer = gix::actor::SignatureRef {
-                name: "git-toprepo".as_bytes().as_bstr(),
-                email: BStr::new(""),
-                time: &gix::date::Time::now_local_or_utc().format(gix::date::time::Format::Raw),
-            };
-            configured_repo
-                .gix_repo
-                .edit_references_as(ref_edits, Some(committer))
-                .context("Failed to delete temporary fetch-head references")?;
-        }
-        Ok(())
     } else {
         fetch_with_default_refspecs(fetch_args, configured_repo, import_cache)
     }
+}
+
+#[tracing::instrument(skip(configured_repo, import_cache))]
+fn fetch_given_refspecs(
+    fetch_args: &cli::Fetch,
+    refspecs: &[(String, String)],
+    configured_repo: &mut ConfiguredTopRepo,
+    import_cache: &mut ImportCache,
+) -> Result<()> {
+    let resolved_args = cli::resolve_remote_and_path(
+        fetch_args,
+        &configured_repo.gix_repo,
+        &configured_repo.config.subrepos,
+    )?;
+    let detailed_refspecs = detail_refspecs(refspecs, &resolved_args.repo, &resolved_args.url)?;
+    git_toprepo::log::get_global_logger().with_progress(|progress| {
+        fetch_with_refspec(
+            fetch_args,
+            resolved_args,
+            detailed_refspecs.clone(),
+            configured_repo,
+            import_cache,
+            &progress,
+        )
+    })?;
+    // Delete temporary refs, but only on success. Keep the refs on failure
+    // to be able to debug.
+    let mut ref_edits = Vec::new();
+    for refspec in detailed_refspecs {
+        ref_edits.push(gix::refs::transaction::RefEdit {
+            change: gix::refs::transaction::Change::Delete {
+                expected: gix::refs::transaction::PreviousValue::Any,
+                log: gix::refs::transaction::RefLog::AndReference,
+            },
+            name: refspec.unfiltered_ref,
+            deref: false,
+        });
+        match refspec.destination {
+            FetchDestinationRef::Normal(_normal_ref) => {}
+            FetchDestinationRef::FetchHead { filtered_ref, .. } => {
+                // Special case for FETCH_HEAD.
+                ref_edits.push(gix::refs::transaction::RefEdit {
+                    change: gix::refs::transaction::Change::Delete {
+                        expected: gix::refs::transaction::PreviousValue::Any,
+                        log: gix::refs::transaction::RefLog::AndReference,
+                    },
+                    name: filtered_ref,
+                    deref: false,
+                });
+            }
+        }
+    }
+    if !ref_edits.is_empty() {
+        let committer = gix::actor::SignatureRef {
+            name: "git-toprepo".as_bytes().as_bstr(),
+            email: BStr::new(""),
+            time: &gix::date::Time::now_local_or_utc().format(gix::date::time::Format::Raw),
+        };
+        configured_repo
+            .gix_repo
+            .edit_references_as(ref_edits, Some(committer))
+            .context("Failed to delete temporary fetch-head references")?;
+    }
+    Ok(())
+}
+
+/// Checks if the given `refspecs` is singular and contains a Gerrit
+/// `refs/changes`.
+fn parse_change_refspec(refspecs: &[(String, String)]) -> Option<&str> {
+    let ((remote_ref, local_ref),) = refspecs.iter().collect_tuple()?;
+    if local_ref != "FETCH_HEAD" {
+        return None;
+    }
+    let change_ref = remote_ref.trim_prefix("+");
+    if !change_ref.starts_with("refs/changes/") {
+        return None;
+    }
+    Some(change_ref)
+}
+
+#[tracing::instrument(skip(configured_repo, _import_cache))]
+fn fetch_change_with_topic(
+    fetch_args: &cli::Fetch,
+    change_ref: &str,
+    configured_repo: &mut ConfiguredTopRepo,
+    _import_cache: &mut ImportCache,
+) -> Result<()> {
+    let toprepo_workdir = configured_repo
+        .gix_repo
+        .workdir()
+        .context("ConfiguredTopRepo should have a working directory")?;
+    let ssh_host = get_default_remote_url(&configured_repo.gix_repo, gix::remote::Direction::Fetch)?;
+    let client = GerritClient::connect(ssh_host, toprepo_workdir, None)?;
+
+    // refs/changes/32/261932/5
+    // 1    2       3  ^^^^^^ 5
+    let change = match change_ref.split('/').collect::<Vec<&str>>()[..] {
+        [_, _, _, c, _] => c.to_owned(),
+        _ => {
+            return Err(anyhow!(
+                "Could not parse change {:?} for its change number",
+                change_ref
+            ));
+        }
+    };
+
+    let submitted_together = client
+        .get_submitted_together(&change)
+        .context("Could not query Gerrit's REST API for changes submitted together")?;
+    let server = client.server.clone();
+    client.close()?;
+
+    // Group constituent changes by repository (project).
+    let mut changes_by_project: BTreeMap<&str, Vec<&git_toprepo::gerrit::GerritChange>> =
+        BTreeMap::new();
+    for change in &submitted_together {
+        changes_by_project
+            .entry(&change.project)
+            .or_default()
+            .push(change);
+    }
+
+    // Resolve remote parameters for each repository.
+    let mut resolved_repos = Vec::new();
+    for (project, changes) in changes_by_project {
+        let project_url = server.project_remote_url(project);
+        let repo_fetch_args = cli::Fetch {
+            keep_going: fetch_args.keep_going,
+            job_count: fetch_args.job_count,
+            topic: false,
+            skip_combine: true,
+            remote: Some(project_url.to_string()),
+            path: None,
+            refspecs: None,
+        };
+        let resolved_args = cli::resolve_remote_and_path(
+            &repo_fetch_args,
+            &configured_repo.gix_repo,
+            &configured_repo.config.subrepos,
+        )?;
+        resolved_repos.push((resolved_args, changes));
+    }
+
+    // TODO: Fredrik will refactor commit loader, after which we will batch-fetch
+    // and load commits for each resolved repository here.
+    let _ = resolved_repos;
+
+    Ok(())
 }
 
 #[tracing::instrument(skip(configured_repo, import_cache))]

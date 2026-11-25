@@ -61,10 +61,6 @@ use std::collections::HashMap;
 // This is a little annoying to workaround.
 // TODO: Introduce another vector-layer for order within repositories.
 //
-// TODO: To fetch more efficiently in the fetch pathway we would also want an
-// outer-repository ordering. That disregards topics first,
-// and use this ordering for the recombination step.
-//
 // TODO: Interleaved topics are broken and will deadlock
 // The solution then is to make it a single topic as it de facto is.
 // Notice the crossing of 1 to 2 and 2 to 1.
