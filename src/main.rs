@@ -27,6 +27,7 @@ use git_toprepo::util::CommandExtension as _;
 use gix::refs::FullName;
 use gix::refs::FullNameRef;
 use itertools::Itertools as _;
+use std::collections::BTreeMap;
 use std::env;
 use std::io::Read;
 use std::num::NonZeroUsize;
@@ -467,7 +468,38 @@ fn fetch_change_with_topic(
     configured_repo: &mut ConfiguredTopRepo,
     import_cache: &mut ImportCache,
 ) -> Result<()> {
-    unimplemented!("todo");
+    let all_change_refs: BTreeMap<String, (Vec<String>, gix::Url)> = todo!("Do the Gerrit query for {change_ref} at {fetch_args.remote}");
+    git_toprepo::log::get_global_logger().with_progress(|progress| {
+        let loader_setup = |commit_loader: &mut git_toprepo::loader::CommitLoader| -> Result<()> {
+            for (repo_name, (change_refs, url)) in all_change_refs {
+                let mut fetcher = git_toprepo::fetch::RemoteFetcher::new(&configured_repo.gix_repo);
+                fetcher.remote = url.to_string();
+                let refspecs = change_refs
+                    .iter()
+                    .map(|change_ref| (format!("+{change_ref}"), "FETCH_HEAD".to_string()))
+                    .collect_vec();
+                let detailed_refspecs = detail_refspecs(refspecs, &repo_name, &url)?;
+                fetcher.refspecs = detailed_refspecs
+                    .iter()
+                    .map(|refspec| format!("+{}:{}", refspec.remote_ref, refspec.unfiltered_ref))
+                    .collect_vec();
+                commit_loader.priority_fetches.push_back((repo_name, fetcher));
+            }
+            Ok(())
+        };
+        load_commits(
+            fetch_args.job_count.into(),
+            loader_setup,
+            configured_repo,
+            import_cache,
+            progress,
+            error_observer,
+        )?;
+    })?;
+    if !fetch_args.skip_combine {
+        todo!("Perform recombine");
+    }
+    Ok(())
 }
 
 #[tracing::instrument(skip(configured_repo, import_cache))]

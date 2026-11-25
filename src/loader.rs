@@ -1,5 +1,6 @@
 use crate::config::GitTopRepoConfig;
 use crate::config::SubRepoConfigs;
+use crate::fetch::RemoteFetcher;
 use crate::git::BlobId;
 use crate::git::CommitId;
 use crate::git::GitModulesInfo;
@@ -175,8 +176,12 @@ pub struct CommitLoader<'a> {
     /// Flag if submodule commits that are missing should be fetched.
     pub fetch_missing_commits: bool,
 
+    /// Names of repositories to load commits from.
     repos_to_load: VecDeque<RepoName>,
+    /// Names of repositories to fetch everything from.
     repos_to_fetch: VecDeque<RepoName>,
+    /// Repositories with specific refspecs and options to be fetched.
+    pub priority_fetches: VecDeque<(RepoName, RemoteFetcher)>,
 
     /// A cache of parsed `.gitmodules` files.
     dot_gitmodules_cache: DotGitModulesCache<'a>,
@@ -328,11 +333,22 @@ impl<'a> CommitLoader<'a> {
     /// events to be expected.
     pub fn process_one_event(&mut self) -> Result<bool> {
         self.fetch_progress
-            .set_queue_size(self.repos_to_fetch.len());
+            .set_queue_size(self.repos_to_fetch.len() + self.priority_fetches.len());
         self.load_progress.set_queue_size(self.repos_to_load.len());
 
         // Start work if possible.
         if self.ongoing_jobs_in_threads < self.thread_pool.max_count() {
+            if let Some((repo_name, fetcher)) = self.priority_fetches.pop_front() {
+                match self.start_fetcher_job(repo_name, fetcher) {
+                    Ok(()) => {
+                        self.ongoing_jobs_in_threads += 1;
+                    }
+                    Err(err) => {
+                        self.error_observer.maybe_consume(Err(err))?;
+                    }
+                }
+                return Ok(true);
+            }
             if let Some(repo_name) = self.repos_to_fetch.pop_front() {
                 match self.start_fetch_repo_job(repo_name.clone()) {
                     Ok(()) => {
@@ -462,7 +478,7 @@ impl<'a> CommitLoader<'a> {
 
     fn start_fetch_repo_job(&mut self, repo_name: RepoName) -> Result<()> {
         let context = format!("Fetching {repo_name}");
-        let _log_scope_guard = crate::log::scope(context.clone());
+        let _log_scope_guard = crate::log::scope(context);
 
         let repo_fetcher = self.fetch_states.get_mut(&repo_name).unwrap();
         assert_eq!(repo_fetcher.fetch_state, RepoFetcherState::Queued);
@@ -470,7 +486,16 @@ impl<'a> CommitLoader<'a> {
 
         let mut fetcher = crate::fetch::RemoteFetcher::new(self.monorepo);
         fetcher.set_remote_from_repo_name(self.monorepo, &repo_name, &self.config.subrepos)?;
+        self.start_fetcher_job(repo_name, fetcher)
+    }
 
+    fn start_fetcher_job(&mut self, repo_name: RepoName, fetcher: RemoteFetcher) -> Result<()> {
+        let context = format!("Fetching {repo_name}");
+        let _log_scope_guard = crate::log::scope(context);
+        self.start_fetcher_job_impl(repo_name, fetcher)
+    }
+
+    fn start_fetcher_job_impl(&mut self, repo_name: RepoName, fetcher: RemoteFetcher) -> Result<()> {
         let pb_url = indicatif::ProgressBar::hidden()
             .with_style(
                 indicatif::ProgressStyle::with_template("{elapsed:>4} {prefix:.cyan} {msg}")
