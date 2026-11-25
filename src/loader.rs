@@ -30,6 +30,7 @@ use bstr::ByteSlice as _;
 use gix::ObjectId;
 use gix::refs::FullName;
 use itertools::Itertools as _;
+use std::assert_matches;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -260,8 +261,10 @@ impl<'a> CommitLoader<'a> {
             log::warn!("Repo {repo_name} is disabled in the configuration, will not fetch");
             return Ok(());
         }
-        if repo_fetcher.fetch_states == RepoFetcherState::Idle {
-            repo_fetcher.fetch_states = RepoFetcherState::Queued;
+        if matches!(
+            repo_fetcher.fetch_state,
+            RepoFetcherState::Idle | RepoFetcherState::Queued
+        ) {
             self.repos_to_fetch.push_back(repo_name);
         }
         Ok(())
@@ -462,8 +465,8 @@ impl<'a> CommitLoader<'a> {
         let _log_scope_guard = crate::log::scope(context.clone());
 
         let repo_fetcher = self.fetch_states.get_mut(&repo_name).unwrap();
-        assert_eq!(repo_fetcher.fetch_states, RepoFetcherState::Queued);
-        repo_fetcher.fetch_states = RepoFetcherState::InProgress;
+        assert_eq!(repo_fetcher.fetch_state, RepoFetcherState::Queued);
+        repo_fetcher.fetch_state = RepoFetcherState::InProgress;
 
         let mut fetcher = crate::fetch::RemoteFetcher::new(self.monorepo);
         fetcher.set_remote_from_repo_name(self.monorepo, &repo_name, &self.config.subrepos)?;
@@ -523,8 +526,8 @@ impl<'a> CommitLoader<'a> {
 
     fn finish_fetch_repo_job(&mut self, repo_name: &RepoName) {
         let repo_fetcher = self.fetch_states.get_mut(repo_name).unwrap();
-        assert_eq!(repo_fetcher.fetch_states, RepoFetcherState::InProgress);
-        repo_fetcher.fetch_states = RepoFetcherState::Done;
+        assert_matches!(repo_fetcher.fetch_state, RepoFetcherState::InProgress);
+        repo_fetcher.fetch_state = RepoFetcherState::Done;
 
         // Load the fetched data.
         self.load_repo(repo_name)
@@ -1668,7 +1671,7 @@ struct RepoFetcher {
     missing_commits: HashMap<CommitId, HashSet<RepoName>>,
 
     /// What be fetched.
-    fetch_states: RepoFetcherState,
+    fetch_state: RepoFetcherState,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1691,12 +1694,12 @@ impl RepoFetcher {
             needed_commits: HashMap::new(),
             loading: LoadRepoState::NotLoadedYet,
             missing_commits: HashMap::new(),
-            fetch_states: RepoFetcherState::Idle,
+            fetch_state: RepoFetcherState::Idle,
         }
     }
 
     fn fetching_default_refspec_done(&self) -> bool {
-        self.fetch_states == RepoFetcherState::Done
+        self.fetch_state == RepoFetcherState::Done
     }
 }
 
